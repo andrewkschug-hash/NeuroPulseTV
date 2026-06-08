@@ -3,16 +3,19 @@ package com.neuropulse.tv
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.neuropulse.tv.di.WorkerFactoryEntryPoint
 import dagger.hilt.android.HiltAndroidApp
-import javax.inject.Inject
+import dagger.hilt.android.EntryPointAccessors
 
 @HiltAndroidApp
 class StreamFlowApplication : Application(), Configuration.Provider {
-    @Inject
-    lateinit var workerFactory: HiltWorkerFactory
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
+            .setWorkerFactory(workerFactory())
             .build()
+
+    private fun workerFactory(): HiltWorkerFactory =
+        EntryPointAccessors.fromApplication(this, WorkerFactoryEntryPoint::class.java)
+            .workerFactory()
 }

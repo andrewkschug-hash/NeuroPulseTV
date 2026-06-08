@@ -7,11 +7,8 @@ import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.activity.viewModels
 import com.neuropulse.tv.ui.navigation.AppRoot
 import com.neuropulse.tv.ui.theme.GridTheme
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
@@ -21,37 +18,27 @@ import java.io.InputStreamReader
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private var localFileText: ((String) -> Unit)? = null
-    private var tiviImport: ((Uri) -> Unit)? = null
+    private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
 
     private val pickM3u = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@registerForActivityResult
         when (pickerMode) {
-            PickerMode.M3U -> localFileText?.invoke(readText(uri))
-            PickerMode.TIVIMATE -> tiviImport?.invoke(uri)
+            PickerMode.M3U -> settingsViewModel.addPlaylistFromLocal(
+                name = "Local Playlist",
+                content = readText(uri),
+                epg = null,
+                refreshHours = 24
+            )
+            PickerMode.TIVIMATE -> settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setTitle(getString(R.string.app_name))
 
         setContent {
-            val settingsViewModel: SettingsViewModel = hiltViewModel()
-            val name = remember { mutableStateOf("Local Playlist") }
-            val epg = remember { mutableStateOf<String?>(null) }
-            val interval = remember { mutableStateOf(24) }
-
-            localFileText = { content ->
-                settingsViewModel.addPlaylistFromLocal(name.value, content, epg.value, interval.value)
-            }
-
-            tiviImport = { uri ->
-                settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
-            }
-
             GridTheme {
                 AppRoot(
                     onPickLocalFile = {
@@ -69,12 +56,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode.not()) {
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build()
+                )
+            }
         }
     }
 

@@ -40,9 +40,9 @@ private const val WordmarkWidthDp = 220f
 
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
-    val gridProgress = remember { Animatable(0f) }
-    val letterAlphas = remember { List(4) { Animatable(0f) } }
-    val letterOffsets = remember { List(4) { Animatable(24f) } }
+    val gridProgress = remember { Animatable(0.2f) }
+    val letterAlphas = remember { List(4) { Animatable(1f) } }
+    val letterOffsets = remember { List(4) { Animatable(0f) } }
     val accentWidth = remember { Animatable(0f) }
     val taglineAlpha = remember { Animatable(0f) }
     val exitAlpha = remember { Animatable(1f) }
@@ -57,8 +57,10 @@ fun SplashScreen(onFinished: () -> Unit) {
             letterAlphas.forEachIndexed { index, anim ->
                 launch {
                     delay(index * 60L)
-                    launch { anim.animateTo(1f, tween(360, easing = FastOutSlowInEasing)) }
-                    letterOffsets[index].animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+                    if (anim.value < 1f) {
+                        launch { anim.animateTo(1f, tween(360, easing = FastOutSlowInEasing)) }
+                        letterOffsets[index].animateTo(0f, tween(360, easing = FastOutSlowInEasing))
+                    }
                 }
             }
         }
