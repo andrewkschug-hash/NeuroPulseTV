@@ -12,7 +12,6 @@ android {
 
     defaultConfig {
         applicationId = "com.neuropulse.tv"
-        // API 21 (Android 5.0). Room capped at 2.6.x — Room 2.7+ requires minSdk 23.
         minSdk = 21
         targetSdk = 34
         versionCode = 2
@@ -145,7 +144,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
-    implementation(libs.ffmpeg.kit.min)
 
     testImplementation(libs.junit4)
     testImplementation(libs.mockk)
