@@ -99,13 +99,17 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun ensureDefaultProfile() {
-        if (profileDao.countProfiles() == 0) {
-            val id = profileDao.upsertProfile(UserProfileEntity(name = "Default", avatarColor = "#1E90FF"))
-            profileDao.setActive(ActiveProfileEntity(profileId = id))
-            profileSettingsDao.upsert(ProfileSettingsEntity(profileId = id))
-            activeProfileId = id
+        profileDao.deleteDefaultProfiles()
+        val activeId = profileDao.activeProfile()?.profileId
+        val activeEntity = activeId?.let { profileDao.getProfile(it) }
+        if (activeEntity != null && activeEntity.name != "Default") {
+            activeProfileId = activeEntity.id
         } else {
-            activeProfileId = profileDao.activeProfile()?.profileId ?: activeProfileId
+            val first = profileDao.firstUserProfile()
+            if (first != null) {
+                activeProfileId = first.id
+                profileDao.setActive(ActiveProfileEntity(profileId = first.id))
+            }
         }
     }
 
@@ -251,14 +255,19 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun profiles(): Flow<List<UserProfile>> = profileDao.observeProfiles().map { rows ->
-        rows.map { UserProfile(it.id, it.name, it.avatarColor, !it.pin.isNullOrBlank(), it.isParental) }
+        rows
+            .filter { it.name != "Default" }
+            .map { UserProfile(it.id, it.name, it.avatarColor, !it.pin.isNullOrBlank(), it.isParental) }
     }
 
     override suspend fun createProfile(name: String, avatarColor: String, pin: String?, isParental: Boolean): Long {
-        ensureDefaultProfile()
-        if (profileDao.countProfiles() >= 6) return -1
+        profileDao.deleteDefaultProfiles()
+        if (profileDao.countUserProfiles() >= 6) return -1
         val id = profileDao.upsertProfile(UserProfileEntity(name = name, avatarColor = avatarColor, pin = pin, isParental = isParental))
         profileSettingsDao.upsert(ProfileSettingsEntity(profileId = id))
+        if (profileDao.countUserProfiles() == 1) {
+            setActiveProfile(id)
+        }
         return id
     }
 
@@ -270,6 +279,10 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean {
         val profile = profileDao.getProfile(profileId) ?: return false
         return profile.pin == pin
+    }
+
+    override suspend fun purgeDefaultProfiles() {
+        profileDao.deleteDefaultProfiles()
     }
 
     override suspend fun activeProfileId(): Long {

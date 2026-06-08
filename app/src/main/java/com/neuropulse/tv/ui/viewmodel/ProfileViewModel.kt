@@ -18,6 +18,10 @@ class ProfileViewModel @Inject constructor(
     val profiles: StateFlow<List<UserProfile>> = repository.profiles()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    init {
+        viewModelScope.launch { repository.purgeDefaultProfiles() }
+    }
+
     fun switchProfile(profileId: Long) {
         viewModelScope.launch { repository.setActiveProfile(profileId) }
     }

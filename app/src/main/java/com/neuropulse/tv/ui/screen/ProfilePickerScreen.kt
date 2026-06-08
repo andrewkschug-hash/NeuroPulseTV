@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,17 +34,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -62,6 +68,8 @@ private val Bg = Color(0xFF0A0A0F)
 private val TextPrimary = Color(0xFFF2F2F5)
 private val TextSecondary = Color(0xFF8888A0)
 private val Accent = Color(0xFF3B8FFF)
+private val InputBg = Color(0xFF13131A)
+private val BorderSubtle = Color(0x1FFFFFFF)
 
 val ProfileAvatarColors = listOf(
     Color(0xFF1C3A6B),
@@ -77,8 +85,10 @@ fun ProfilePickerScreen(
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val hasProfiles = profiles.isNotEmpty()
 
-    var focusedIndex by remember { mutableIntStateOf(0) }
+    var focusedProfileIndex by remember { mutableIntStateOf(0) }
+    var focusedOnAddLink by remember { mutableStateOf(false) }
     var showPinFor by remember { mutableStateOf<UserProfile?>(null) }
     var showAddProfile by remember { mutableStateOf(false) }
     var newProfileName by remember { mutableStateOf("") }
@@ -86,12 +96,15 @@ fun ProfilePickerScreen(
 
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(-20f) }
-    val cardCount = profiles.size + 1
+    val cardCount = if (hasProfiles) profiles.size else 1
     val cardAlphas = remember(cardCount) { List(cardCount) { Animatable(0f) } }
     val cardOffsets = remember(cardCount) { List(cardCount) { Animatable(30f) } }
-    val focusRequester = remember { FocusRequester() }
+    val rowFocusRequester = remember { FocusRequester() }
+    val addLinkFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(cardCount) {
+    LaunchedEffect(cardCount, hasProfiles) {
+        focusedProfileIndex = 0
+        focusedOnAddLink = false
         titleAlpha.snapTo(0f)
         titleOffset.snapTo(-20f)
         cardAlphas.forEach { it.snapTo(0f) }
@@ -105,7 +118,7 @@ fun ProfilePickerScreen(
                 cardOffsets[i].animateTo(0f, tween(280, easing = FastOutSlowInEasing))
             }
         }
-        focusRequester.requestFocus()
+        rowFocusRequester.requestFocus()
     }
 
     fun selectProfile(profile: UserProfile) {
@@ -137,17 +150,23 @@ fun ProfilePickerScreen(
             .background(Bg)
             .graphicsLayer { alpha = exitAlpha.value }
     ) {
-        GridWordmark(
-            modifier = Modifier.padding(start = 24.dp, top = 20.dp),
-            fontSize = 28.sp
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            GridWordmark(fontSize = 28.sp)
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 80.dp),
+                .padding(top = 72.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.fillMaxHeight(0.12f))
+
             Text(
                 text = "Who's watching?",
                 color = TextPrimary.copy(alpha = titleAlpha.value),
@@ -156,66 +175,111 @@ fun ProfilePickerScreen(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.offset(y = titleOffset.value.dp)
             )
-            Text(
-                text = "Select your profile",
-                color = TextSecondary.copy(alpha = titleAlpha.value),
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .padding(top = 8.dp)
-                    .offset(y = titleOffset.value.dp)
-            )
+            if (hasProfiles) {
+                Text(
+                    text = "Select your profile",
+                    color = TextSecondary.copy(alpha = titleAlpha.value),
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .offset(y = titleOffset.value.dp)
+                )
+            }
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            Row(
-                modifier = Modifier
-                    .focusRequester(focusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.DirectionLeft -> {
-                                focusedIndex = (focusedIndex - 1).coerceAtLeast(0)
+            if (!hasProfiles) {
+                AddProfileCard(
+                    label = "Add a Profile",
+                    focused = true,
+                    alpha = cardAlphas.firstOrNull()?.value ?: 1f,
+                    offsetY = cardOffsets.firstOrNull()?.value ?: 0f,
+                    onClick = { showAddProfile = true },
+                    modifier = Modifier
+                        .focusRequester(rowFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown &&
+                                (event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter)
+                            ) {
+                                showAddProfile = true
                                 true
-                            }
-                            Key.DirectionRight -> {
-                                focusedIndex = (focusedIndex + 1).coerceAtMost(cardCount - 1)
-                                true
-                            }
-                            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                if (focusedIndex < profiles.size) {
-                                    selectProfile(profiles[focusedIndex])
-                                } else {
-                                    showAddProfile = true
+                            } else false
+                        }
+                )
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Row(
+                        modifier = Modifier
+                            .focusRequester(rowFocusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                if (focusedOnAddLink) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionLeft -> {
+                                        focusedProfileIndex = (focusedProfileIndex - 1).coerceAtLeast(0)
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        focusedProfileIndex = (focusedProfileIndex + 1).coerceAtMost(profiles.lastIndex)
+                                        true
+                                    }
+                                    Key.DirectionDown -> {
+                                        focusedOnAddLink = true
+                                        addLinkFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                        selectProfile(profiles[focusedProfileIndex])
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                true
                             }
-                            else -> false
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 48.dp),
+                        horizontalArrangement = Arrangement.spacedBy(32.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        profiles.forEachIndexed { index, profile ->
+                            ProfileCard(
+                                name = profile.name,
+                                initials = profileInitials(profile.name),
+                                avatarColor = parseAvatarColor(profile.avatarColor, index),
+                                focused = !focusedOnAddLink && focusedProfileIndex == index,
+                                alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
+                                offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
+                                onClick = { selectProfile(profile) }
+                            )
                         }
                     }
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 48.dp),
-                horizontalArrangement = Arrangement.spacedBy(32.dp),
-                verticalAlignment = Alignment.Top
-            ) {
-                profiles.forEachIndexed { index, profile ->
-                    ProfileCard(
-                        name = profile.name,
-                        initials = profileInitials(profile.name),
-                        avatarColor = parseAvatarColor(profile.avatarColor, index),
-                        focused = focusedIndex == index,
-                        alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
-                        offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
-                        onClick = { selectProfile(profile) }
+
+                    AddAnotherProfileLink(
+                        focused = focusedOnAddLink,
+                        modifier = Modifier
+                            .padding(top = 24.dp)
+                            .focusRequester(addLinkFocusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.DirectionUp -> {
+                                        focusedOnAddLink = false
+                                        rowFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                        showAddProfile = true
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        onClick = { showAddProfile = true }
                     )
                 }
-                AddProfileCard(
-                    focused = focusedIndex == profiles.size,
-                    alpha = cardAlphas.getOrNull(profiles.size)?.value ?: 1f,
-                    offsetY = cardOffsets.getOrNull(profiles.size)?.value ?: 0f,
-                    onClick = { showAddProfile = true }
-                )
             }
         }
 
@@ -321,16 +385,19 @@ private fun ProfileCard(
 
 @Composable
 private fun AddProfileCard(
+    label: String,
     focused: Boolean,
     alpha: Float,
     offsetY: Float,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val scale = if (focused) 1.12f else 1f
     val translateY = if (focused) -6f else 0f
+    val nameColor = if (focused) TextPrimary else TextSecondary
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(140.dp)
             .height(170.dp)
             .graphicsLayer {
@@ -349,24 +416,48 @@ private fun AddProfileCard(
                             scaleY = scale
                         }
                         .clip(CircleShape)
-                        .border(2.dp, Color(0xFF3B3B50), CircleShape),
+                        .border(
+                            width = if (focused) 2.5.dp else 2.dp,
+                            color = if (focused) Accent else Color(0xFF3B3B50),
+                            shape = CircleShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "+",
-                        color = TextSecondary,
+                        color = if (focused) TextPrimary else TextSecondary,
                         fontSize = 32.sp
                     )
                 }
             }
         }
         Text(
-            text = "Add Profile",
-            color = TextSecondary,
+            text = label,
+            color = nameColor,
             fontFamily = DmSansFamily,
             fontSize = 15.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 12.dp)
+        )
+    }
+}
+
+@Composable
+private fun AddAnotherProfileLink(
+    focused: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val textColor = if (focused) TextPrimary else TextSecondary
+    Surface(onClick = onClick, modifier = modifier) {
+        Text(
+            text = "+ Add another profile",
+            color = textColor,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            textDecoration = if (focused) TextDecoration.Underline else TextDecoration.None,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
     }
 }
@@ -491,6 +582,8 @@ private fun AddProfileDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    var fieldFocused by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -509,17 +602,53 @@ private fun AddProfileDialog(
                 color = TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Medium
             )
-            OutlinedTextField(
-                value = name,
-                onValueChange = onNameChange,
-                label = { Text("Profile name", fontFamily = DmSansFamily) },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column {
+                Text(
+                    text = "Profile name",
+                    color = TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                BasicTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    textStyle = TextStyle(
+                        color = TextPrimary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 15.sp
+                    ),
+                    cursorBrush = SolidColor(Accent),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusable()
+                        .onFocusChanged { fieldFocused = it.isFocused }
+                        .drawBehind {
+                            val stroke = if (fieldFocused) 2.dp.toPx() else 1.dp.toPx()
+                            val color = if (fieldFocused) Accent else BorderSubtle
+                            drawRect(
+                                color = InputBg,
+                                size = size
+                            )
+                            drawRect(
+                                color = color,
+                                size = size,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+                            )
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onConfirm) { Text("Create", fontFamily = DmSansFamily) }
-                Button(onClick = onDismiss) { Text("Cancel", fontFamily = DmSansFamily) }
+                Button(onClick = onConfirm) {
+                    Text("Create", fontFamily = DmSansFamily, color = TextPrimary)
+                }
+                Button(onClick = onDismiss) {
+                    Text("Cancel", fontFamily = DmSansFamily, color = TextPrimary)
+                }
             }
         }
     }

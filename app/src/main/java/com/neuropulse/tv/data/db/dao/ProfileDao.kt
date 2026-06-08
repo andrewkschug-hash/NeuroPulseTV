@@ -22,6 +22,15 @@ interface ProfileDao {
     @Query("SELECT COUNT(*) FROM user_profiles")
     suspend fun countProfiles(): Int
 
+    @Query("DELETE FROM user_profiles WHERE name = 'Default'")
+    suspend fun deleteDefaultProfiles()
+
+    @Query("SELECT COUNT(*) FROM user_profiles WHERE name != 'Default'")
+    suspend fun countUserProfiles(): Int
+
+    @Query("SELECT * FROM user_profiles WHERE name != 'Default' ORDER BY id LIMIT 1")
+    suspend fun firstUserProfile(): UserProfileEntity?
+
     @Query("SELECT * FROM active_profile WHERE singletonId = 1")
     suspend fun activeProfile(): ActiveProfileEntity?
 

@@ -30,11 +30,13 @@ import com.neuropulse.tv.ui.theme.DmSansFamily
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 private val SplashBg = Color(0xFF0A0A0F)
 private val TextPrimary = Color(0xFFF2F2F5)
 private val TextSecondary = Color(0xFF8888A0)
 private val Accent = Color(0xFF3B8FFF)
+private const val WordmarkWidthDp = 220f
 
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
@@ -46,6 +48,7 @@ fun SplashScreen(onFinished: () -> Unit) {
     val exitAlpha = remember { Animatable(1f) }
     val exitScale = remember { Animatable(1f) }
     val gridAlpha = remember { Animatable(1f) }
+    val noisePoints = remember { generateNoisePoints(2400) }
 
     LaunchedEffect(Unit) {
         launch { gridProgress.animateTo(1f, tween(400, easing = FastOutSlowInEasing)) }
@@ -60,8 +63,8 @@ fun SplashScreen(onFinished: () -> Unit) {
             }
         }
         delay(600)
-        accentWidth.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
-        taglineAlpha.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
+        accentWidth.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
+        taglineAlpha.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
         delay(800)
         coroutineScope {
             launch { exitScale.animateTo(1.08f, tween(600, easing = FastOutSlowInEasing)) }
@@ -101,6 +104,13 @@ fun SplashScreen(onFinished: () -> Unit) {
                 val x = size.width * i / lineCount
                 drawLine(lineColor, Offset(x, cy - vExtent), Offset(x, cy + vExtent), strokeWidth = 1f)
             }
+            noisePoints.forEach { (nx, ny, alpha) ->
+                drawCircle(
+                    color = Color.White.copy(alpha = alpha * gridAlpha.value),
+                    radius = 1f,
+                    center = Offset(nx * size.width, ny * size.height)
+                )
+            }
         }
 
         Column(
@@ -124,10 +134,11 @@ fun SplashScreen(onFinished: () -> Unit) {
                     )
                 }
             }
+            val lineFraction = 0.2f + 0.8f * accentWidth.value
             Box(
                 modifier = Modifier
                     .padding(top = 4.dp)
-                    .width((220 * accentWidth.value).dp)
+                    .width((WordmarkWidthDp * lineFraction).dp)
                     .height(2.dp)
                     .background(Accent)
             )
@@ -140,5 +151,18 @@ fun SplashScreen(onFinished: () -> Unit) {
                 modifier = Modifier.padding(top = 12.dp)
             )
         }
+    }
+}
+
+private data class NoisePoint(val x: Float, val y: Float, val alpha: Float)
+
+private fun generateNoisePoints(count: Int): List<NoisePoint> {
+    val random = Random(42)
+    return List(count) {
+        NoisePoint(
+            x = random.nextFloat(),
+            y = random.nextFloat(),
+            alpha = random.nextFloat() * 0.02f + 0.03f
+        )
     }
 }
