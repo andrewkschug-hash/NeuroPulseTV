@@ -108,6 +108,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun updateMiniPlayerAudio(enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(miniPlayerAudioEnabled = enabled)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
     fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File) {
         viewModelScope.launch {
             _importSummary.value = repository.importTiviMate(contentResolver, uri, cacheDir)

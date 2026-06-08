@@ -25,4 +25,7 @@ class ProfileViewModel @Inject constructor(
     fun createProfile(name: String, color: String, pin: String?, parental: Boolean) {
         viewModelScope.launch { repository.createProfile(name, color, pin, parental) }
     }
+
+    suspend fun verifyPin(profileId: Long, pin: String): Boolean =
+        repository.verifyProfilePin(profileId, pin)
 }

@@ -267,6 +267,11 @@ class IptvRepositoryImpl @Inject constructor(
         activeProfileId = profileId
     }
 
+    override suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean {
+        val profile = profileDao.getProfile(profileId) ?: return false
+        return profile.pin == pin
+    }
+
     override suspend fun activeProfileId(): Long {
         ensureDefaultProfile()
         return activeProfileId
@@ -458,6 +463,7 @@ class IptvRepositoryImpl @Inject constructor(
             streamRetries = db.streamRetries,
             preferredAudioLanguage = db.preferredAudioLanguage,
             epgRowHeight = runCatching { EpgRowHeight.valueOf(db.epgRowHeight) }.getOrDefault(EpgRowHeight.NORMAL),
+            miniPlayerAudioEnabled = db.previewEnabled,
             pinProtectedGroups = emptySet()
         )
     }
@@ -472,7 +478,7 @@ class IptvRepositoryImpl @Inject constructor(
                 preferredAudioLanguage = settings.preferredAudioLanguage,
                 epgRowHeight = settings.epgRowHeight.name,
                 streamRetries = settings.streamRetries,
-                previewEnabled = old?.previewEnabled ?: true,
+                previewEnabled = settings.miniPlayerAudioEnabled,
                 gameLockEnabled = old?.gameLockEnabled ?: false,
                 lastSleepTimer = old?.lastSleepTimer ?: 30
             )

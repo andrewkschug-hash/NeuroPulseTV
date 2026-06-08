@@ -5,11 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
@@ -18,9 +15,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material3.AlertDialog
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.screen.ChannelBrowserScreen
@@ -33,28 +27,28 @@ import com.neuropulse.tv.ui.screen.RecordingsScreen
 import com.neuropulse.tv.ui.screen.SearchScreen
 import com.neuropulse.tv.ui.screen.SeriesBrowserScreen
 import com.neuropulse.tv.ui.screen.SettingsScreen
-import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
-
 @Composable
 fun AppNavHost(
     onPickLocalFile: () -> Unit,
-    onPickTiviMateZip: () -> Unit
+    onPickTiviMateZip: () -> Unit,
+    onSwitchProfile: () -> Unit = {}
 ) {
     val navController = rememberNavController()
-    val profileViewModel: ProfileViewModel = hiltViewModel()
-    val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
-    var showProfiles by remember { mutableStateOf(false) }
     val current = navController.currentBackStackEntryAsState().value?.destination?.route
 
+    val isHome = current?.startsWith("home") == true
+
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TopNavButton("Home", current?.startsWith("home") == true) { navController.navigate(Routes.Home.route) }
-            TopNavButton("Browser", current?.startsWith("browser") == true) { navController.navigate(Routes.Browser.route) }
-            TopNavButton("Search", current?.startsWith("search") == true) { navController.navigate(Routes.Search.route) }
-            TopNavButton("Series", current?.startsWith("series") == true) { navController.navigate(Routes.Series.route) }
-            TopNavButton("Recordings", current?.startsWith("recordings") == true) { navController.navigate(Routes.Recordings.route) }
-            TopNavButton("Settings", current?.startsWith("settings") == true) { navController.navigate(Routes.Settings.route) }
-            TopNavButton("Profiles", false) { showProfiles = true }
+        if (!isHome) {
+            Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TopNavButton("Home", false) { navController.navigate(Routes.Home.route) }
+                TopNavButton("Browser", current?.startsWith("browser") == true) { navController.navigate(Routes.Browser.route) }
+                TopNavButton("Search", current?.startsWith("search") == true) { navController.navigate(Routes.Search.route) }
+                TopNavButton("Series", current?.startsWith("series") == true) { navController.navigate(Routes.Series.route) }
+                TopNavButton("Recordings", current?.startsWith("recordings") == true) { navController.navigate(Routes.Recordings.route) }
+                TopNavButton("Settings", current?.startsWith("settings") == true) { navController.navigate(Routes.Settings.route) }
+                TopNavButton("Profiles", false) { onSwitchProfile() }
+            }
         }
 
         NavHost(
@@ -65,9 +59,10 @@ fun AppNavHost(
             composable(Routes.Home.route) {
                 HomeEpgScreen(
                     onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
-                    onOpenEpg = { navController.navigate(Routes.Browser.route) },
-                    onPlayUrl = { url, title -> navController.navigate(Routes.DirectPlayer.build(title, url)) },
-                    onOpenSeries = { navController.navigate(Routes.Series.route) }
+                    onNavigateSearch = { navController.navigate(Routes.Search.route) },
+                    onNavigateRecordings = { navController.navigate(Routes.Recordings.route) },
+                    onNavigateSettings = { navController.navigate(Routes.Settings.route) },
+                    onNavigateProfile = onSwitchProfile
                 )
             }
             composable(Routes.Browser.route) {
@@ -120,24 +115,6 @@ fun AppNavHost(
                     onBack = { navController.popBackStack() }
                 )
             }
-        }
-
-        if (showProfiles) {
-            AlertDialog(
-                onDismissRequest = { showProfiles = false },
-                title = { Text("Switch Profile") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        profiles.forEach { p ->
-                            Button(onClick = {
-                                profileViewModel.switchProfile(p.id)
-                                showProfiles = false
-                            }) { Text(p.name) }
-                        }
-                    }
-                },
-                confirmButton = { Button(onClick = { showProfiles = false }) { Text("Close") } }
-            )
         }
     }
 }

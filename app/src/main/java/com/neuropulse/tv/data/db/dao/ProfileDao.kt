@@ -13,6 +13,9 @@ interface ProfileDao {
     @Query("SELECT * FROM user_profiles ORDER BY id")
     fun observeProfiles(): Flow<List<UserProfileEntity>>
 
+    @Query("SELECT * FROM user_profiles WHERE id = :id")
+    suspend fun getProfile(id: Long): UserProfileEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProfile(profile: UserProfileEntity): Long
 

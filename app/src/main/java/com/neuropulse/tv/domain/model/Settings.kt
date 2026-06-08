@@ -6,5 +6,6 @@ data class AppSettings(
     val streamRetries: Int = 3,
     val preferredAudioLanguage: String = "en",
     val epgRowHeight: EpgRowHeight = EpgRowHeight.NORMAL,
+    val miniPlayerAudioEnabled: Boolean = false,
     val pinProtectedGroups: Set<String> = emptySet()
 )

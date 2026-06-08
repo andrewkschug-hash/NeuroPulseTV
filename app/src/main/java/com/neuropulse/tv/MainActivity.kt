@@ -9,8 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.neuropulse.tv.ui.navigation.AppNavHost
-import com.neuropulse.tv.ui.theme.StreamFlowTheme
+import com.neuropulse.tv.ui.navigation.AppRoot
+import com.neuropulse.tv.ui.theme.GridTheme
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.BufferedReader
@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        setTitle(getString(R.string.app_name))
 
         setContent {
             val settingsViewModel: SettingsViewModel = hiltViewModel()
@@ -48,8 +49,8 @@ class MainActivity : ComponentActivity() {
                 settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
             }
 
-            StreamFlowTheme {
-                AppNavHost(
+            GridTheme {
+                AppRoot(
                     onPickLocalFile = {
                         pickerMode = PickerMode.M3U
                         pickM3u.launch(arrayOf("*/*"))

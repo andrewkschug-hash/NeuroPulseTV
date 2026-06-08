@@ -60,7 +60,7 @@ fun SettingsScreen(
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { Text("Playlists & Settings") }
+        item { Text("GRID — Settings") }
         item {
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Playlist name") }, modifier = Modifier.fillMaxWidth())
         }
@@ -132,6 +132,19 @@ fun SettingsScreen(
             Text("Server: ${account.serverUrl}")
         }
 
+        item { Text("Playback") }
+        item {
+            Button(onClick = { viewModel.updateMiniPlayerAudio(!settings.miniPlayerAudioEnabled) }) {
+                Text(
+                    if (settings.miniPlayerAudioEnabled) {
+                        "Mini player audio while browsing: ON"
+                    } else {
+                        "Mini player audio while browsing: OFF"
+                    }
+                )
+            }
+        }
+
         item { Text("EPG Row Height") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -175,6 +188,7 @@ fun SettingsScreen(
             Text("Requires local storage planning, foreground service scheduling, and MediaMuxer pipeline for transport stream remuxing.")
         }
 
-        item { Text("About: NeuroPulseTV / StreamFlow profile v2.0.0") }
+        item { Text("About: GRID v2.0.0") }
+        item { Text("GRID — Live TV Guide for Android TV") }
     }
 }

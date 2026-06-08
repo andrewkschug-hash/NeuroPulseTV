@@ -1,285 +1,581 @@
 package com.neuropulse.tv.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material3.AlertDialog
-import androidx.tv.material3.Button
-import androidx.tv.material3.Text
-import com.neuropulse.tv.feature.recording.RecordingStatus
-import com.neuropulse.tv.domain.model.EpgResolutionStatus
-import coil.compose.AsyncImage
+import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
+import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.Program
-import com.neuropulse.tv.domain.model.ProgramGenre
-import com.neuropulse.tv.ui.component.FocusCard
+import com.neuropulse.tv.feature.recording.RecordingStatus
+import com.neuropulse.tv.player.LivePlayerManager
+import com.neuropulse.tv.ui.component.EpgChannelCell
+import com.neuropulse.tv.ui.component.EpgDetailPanel
+import com.neuropulse.tv.ui.component.EpgLayout
+import com.neuropulse.tv.ui.component.EpgNavTab
+import com.neuropulse.tv.ui.component.EpgNowLine
+import com.neuropulse.tv.ui.component.EpgProgramCell
+import com.neuropulse.tv.ui.component.EpgTimeJumpPills
+import com.neuropulse.tv.ui.component.EpgTimelineHeader
+import com.neuropulse.tv.ui.component.EpgTopBar
+import com.neuropulse.tv.ui.component.MiniNowPlayingPlayer
+import com.neuropulse.tv.ui.component.MiniPlayerLayout
+import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
-import com.neuropulse.tv.ui.viewmodel.EpgResolverViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
-import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.launch
+
+private enum class EpgFocusZone { GRID, TOP_NAV, MINI_PLAYER }
 
 @Composable
 fun HomeEpgScreen(
     onWatchChannel: (Long) -> Unit,
-    onOpenEpg: () -> Unit = {},
-    onPlayUrl: (String, String) -> Unit = { _, _ -> },
-    onOpenSeries: () -> Unit = {},
+    onNavigateSearch: () -> Unit = {},
+    onNavigateRecordings: () -> Unit = {},
+    onNavigateSettings: () -> Unit = {},
+    onNavigateProfile: () -> Unit = {},
     viewModel: HomeEpgViewModel = hiltViewModel(),
-    recordingViewModel: RecordingViewModel = hiltViewModel(),
-    epgResolverViewModel: EpgResolverViewModel = hiltViewModel()
+    recordingViewModel: RecordingViewModel = hiltViewModel()
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val channels by viewModel.channels.collectAsStateWithLifecycle()
-    val programs by viewModel.programs.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
-    val recommendations by viewModel.recommendations.collectAsStateWithLifecycle()
-    val sportsNow by viewModel.sportsNow.collectAsStateWithLifecycle()
-    val moviesSoon by viewModel.moviesSoon.collectAsStateWithLifecycle()
-    val topChannels by viewModel.topChannels.collectAsStateWithLifecycle()
-    val recent by viewModel.recentlyAdded.collectAsStateWithLifecycle()
-    val vod by viewModel.vod.collectAsStateWithLifecycle()
-    val series by viewModel.series.collectAsStateWithLifecycle()
     val epgWindow by viewModel.epgPrograms.collectAsStateWithLifecycle()
     val epgLoading by viewModel.epgLoading.collectAsStateWithLifecycle()
+    val windowStart by viewModel.windowStart.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
-    val suggestionsByChannelId by epgResolverViewModel.suggestionsByChannelId.collectAsStateWithLifecycle()
-    val hero = channels.firstOrNull()
-    val now = System.currentTimeMillis()
-    val current = hero?.epgId?.let { id -> programs.firstOrNull { it.channelEpgId == id && now in it.startTime..it.endTime } }
+    val livePlayerManager = viewModel.livePlayerManager
 
-    var selectedProgram by remember { mutableStateOf<Program?>(null) }
-    var selectedSuggestionChannelId by remember { mutableStateOf<String?>(null) }
-
-    Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenEpg) { Text("Open EPG") }
-            Button(onClick = onOpenSeries) { Text("Open Series") }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
         }
+    }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.weight(1f)) {
-            item {
-                Text("Continue Watching")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(continueWatching) { ch ->
-                        FocusCard(onClick = { onWatchChannel(ch.id) }) { Text("CH ${ch.number} ${ch.name}") }
-                    }
-                }
+    LaunchedEffect(Unit) {
+        viewModel.reloadPlaybackSettings()
+    }
+
+    LaunchedEffect(channels, continueWatching) {
+        if (channels.isNotEmpty()) viewModel.tuneLastWatched(context)
+    }
+
+    val liveChannelId = livePlayerManager.activeChannelId()
+    val watchingChannel = channels.find { it.id == liveChannelId }
+        ?: continueWatching.firstOrNull()
+        ?: channels.firstOrNull()
+    val watchingProgram = watchingChannel?.epgId?.let { epgId ->
+        epgWindow.firstOrNull { it.channelEpgId == epgId && now in it.startTime..it.endTime }
+    }
+
+    var selectedTab by remember { mutableStateOf(EpgNavTab.Home) }
+    var focusZone by remember { mutableStateOf(EpgFocusZone.GRID) }
+    var focusedNavTabIndex by remember { mutableIntStateOf(0) }
+    var focusChannelIndex by remember { mutableIntStateOf(0) }
+    var focusProgramIndex by remember { mutableIntStateOf(0) }
+    var focusOnChannelColumn by remember { mutableStateOf(false) }
+    var detailExpanded by remember { mutableStateOf(false) }
+    var detailActionIndex by remember { mutableIntStateOf(0) }
+    var confirmedProgramId by remember { mutableStateOf<Long?>(null) }
+
+    val hScroll = rememberScrollState()
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val gridFocusRequester = remember { FocusRequester() }
+    val miniFocusRequester = remember { FocusRequester() }
+    val topNavFocusRequester = remember { FocusRequester() }
+    val windowDurationMs = viewModel.windowDurationMs
+    val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
+    val livePlayer = livePlayerManager.activePlayer()
+
+    LaunchedEffect(windowStart) {
+        val nowOffset = (now - windowStart) * EpgLayout.dpPerMs()
+        val target = (nowOffset - 400f).coerceAtLeast(0f)
+        hScroll.scrollTo(target.toInt())
+    }
+
+    LaunchedEffect(channels.size, focusZone) {
+        when (focusZone) {
+            EpgFocusZone.GRID -> if (channels.isNotEmpty()) gridFocusRequester.requestFocus()
+            EpgFocusZone.MINI_PLAYER -> miniFocusRequester.requestFocus()
+            EpgFocusZone.TOP_NAV -> topNavFocusRequester.requestFocus()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+    }
+
+    val focusedChannel = channels.getOrNull(focusChannelIndex)
+    val channelPrograms = remember(focusedChannel, epgWindow) {
+        focusedChannel?.epgId?.let { epgId ->
+            epgWindow.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+        } ?: emptyList()
+    }
+    val focusedProgram = if (focusOnChannelColumn) {
+        channelPrograms.firstOrNull { now in it.startTime..it.endTime }
+            ?: channelPrograms.firstOrNull()
+    } else {
+        channelPrograms.getOrNull(focusProgramIndex)
+    }
+
+    fun programsForChannel(channel: Channel): List<Program> =
+        channel.epgId?.let { epgId ->
+            epgWindow.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+        } ?: emptyList()
+
+    fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
+        val progs = channels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
+        return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
+    }
+
+    fun scrollToProgram(program: Program?) {
+        program ?: return
+        val offset = ((program.startTime - windowStart) * EpgLayout.dpPerMs() - 200f).coerceAtLeast(0f)
+        scope.launch { hScroll.animateScrollTo(offset.toInt()) }
+    }
+
+    fun activateNavTab(tab: EpgNavTab) {
+        selectedTab = tab
+        when (tab) {
+            EpgNavTab.Home -> Unit
+            EpgNavTab.Search -> onNavigateSearch()
+            EpgNavTab.Recordings -> onNavigateRecordings()
+            EpgNavTab.Settings -> onNavigateSettings()
+            EpgNavTab.Profile -> onNavigateProfile()
+        }
+    }
+
+    fun handleTopNavKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        val tabs = EpgNavTab.entries
+        return when (event.key) {
+            Key.DirectionLeft -> {
+                focusedNavTabIndex = (focusedNavTabIndex - 1).coerceAtLeast(0)
+                true
             }
-            item {
-                Text("Recommended for You")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(recommendations) { rec ->
-                        FocusCard(onClick = { onWatchChannel(rec.channel.id) }) {
-                            Column {
-                                Text(rec.channel.name)
-                                Text(rec.reason)
+            Key.DirectionRight -> {
+                if (focusedNavTabIndex < tabs.lastIndex) {
+                    focusedNavTabIndex += 1
+                } else {
+                    focusZone = EpgFocusZone.MINI_PLAYER
+                }
+                true
+            }
+            Key.DirectionDown -> {
+                focusZone = EpgFocusZone.MINI_PLAYER
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                activateNavTab(tabs[focusedNavTabIndex])
+                true
+            }
+            else -> false
+        }
+    }
+
+    fun handleMiniPlayerKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.DirectionDown -> {
+                focusZone = EpgFocusZone.GRID
+                true
+            }
+            Key.DirectionLeft -> {
+                focusZone = EpgFocusZone.TOP_NAV
+                focusedNavTabIndex = EpgNavTab.entries.lastIndex
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                watchingChannel?.let { onWatchChannel(it.id) }
+                true
+            }
+            Key.Back, Key.Escape -> {
+                focusZone = EpgFocusZone.GRID
+                true
+            }
+            else -> false
+        }
+    }
+
+    fun handleGridKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        if (detailExpanded) {
+            return when (event.key) {
+                Key.DirectionLeft -> {
+                    detailActionIndex = (detailActionIndex - 1).coerceAtLeast(0)
+                    true
+                }
+                Key.DirectionRight -> {
+                    detailActionIndex = (detailActionIndex + 1).coerceAtMost(2)
+                    true
+                }
+                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                    when (detailActionIndex) {
+                        0 -> focusedChannel?.let { onWatchChannel(it.id) }
+                        1 -> focusedProgram?.let { prog ->
+                            val ch = focusedChannel ?: return@let
+                            if (prog.startTime <= now) {
+                                val duration = (prog.endTime - now).coerceAtLeast(10 * 60 * 1000)
+                                recordingViewModel.startImmediateRecording(context, ch, prog.title, duration)
+                            } else {
+                                recordingViewModel.scheduleProgram(ch, prog)
                             }
                         }
+                        2 -> Unit
                     }
+                    true
                 }
-            }
-            item {
-                Text("Live Sports Right Now")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(sportsNow) { p -> FocusCard(onClick = {}) { Text(p.title) } }
+                Key.Back, Key.Escape -> {
+                    detailExpanded = false
+                    true
                 }
-            }
-            item {
-                Text("Movies Starting Soon")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(moviesSoon) { p -> FocusCard(onClick = {}) { Text(p.title) } }
-                }
-            }
-            item {
-                Text("Your Top Channels")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(topChannels) { ch -> FocusCard(onClick = { onWatchChannel(ch.id) }) { Text(ch.name) } }
-                }
-            }
-            item {
-                Text("Recently Added")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(recent) { ch -> FocusCard(onClick = { onWatchChannel(ch.id) }) { Text(ch.name) } }
-                }
-            }
-            item {
-                Text("VOD")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(vod.take(20)) { v ->
-                        FocusCard(onClick = { onPlayUrl(v.streamUrl, v.title) }) {
-                            Column {
-                                AsyncImage(model = v.posterUrl, contentDescription = v.title, modifier = Modifier.width(120.dp).height(170.dp))
-                                Text(v.title)
-                                Text(v.genre ?: "")
-                                Text("${v.rating ?: "NR"} | ${v.duration ?: "N/A"}")
-                            }
-                        }
-                    }
-                }
-            }
-            item {
-                Text("Series")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(series.take(15)) { s ->
-                        FocusCard(onClick = onOpenSeries) {
-                            Column {
-                                AsyncImage(model = s.coverUrl, contentDescription = s.name, modifier = Modifier.width(120.dp).height(170.dp))
-                                Text(s.name)
-                            }
-                        }
-                    }
-                }
+                else -> false
             }
         }
 
-        // Dedicated EPG view retained under button-access mode.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { viewModel.loadPrevBlock() }) { Text("<- 2h") }
-            Button(onClick = { viewModel.loadNextBlock() }) { Text("2h ->") }
-            if (epgLoading) Text("Loading...")
-        }
-        Box(modifier = Modifier.fillMaxWidth().weight(0.4f).background(Color.Black)) {
-            if (hero != null) {
-                AsyncImage(model = hero.logoUrl, contentDescription = null, modifier = Modifier.padding(16.dp).width(140.dp).height(80.dp))
-                Box(modifier = Modifier.fillMaxWidth().align(androidx.compose.ui.Alignment.BottomCenter).background(
-                    Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000)))
-                ).padding(16.dp)) {
-                    Column {
-                        Text("Now Playing - CH ${hero.number} ${hero.name}")
-                        Text(current?.title ?: "No EPG data")
-                        val remaining = if (current != null) TimeUnit.MILLISECONDS.toMinutes(current.endTime - now).coerceAtLeast(0) else 0
-                        Text("$remaining min remaining")
+        return when (event.key) {
+            Key.DirectionDown -> {
+                if (focusChannelIndex < channels.lastIndex) {
+                    focusChannelIndex += 1
+                    if (!focusOnChannelColumn) {
+                        focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
+                    }
+                    scope.launch { listState.animateScrollToItem(focusChannelIndex) }
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (focusChannelIndex > 0) {
+                    focusChannelIndex -= 1
+                    if (!focusOnChannelColumn) {
+                        focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
+                    }
+                    scope.launch { listState.animateScrollToItem(focusChannelIndex) }
+                } else {
+                    focusZone = EpgFocusZone.MINI_PLAYER
+                }
+                true
+            }
+            Key.DirectionRight -> {
+                if (focusOnChannelColumn) {
+                    focusOnChannelColumn = false
+                    focusProgramIndex = 0
+                } else {
+                    val progs = programsForChannel(channels[focusChannelIndex])
+                    if (focusProgramIndex < progs.lastIndex) {
+                        focusProgramIndex += 1
+                        scrollToProgram(progs[focusProgramIndex])
+                    } else {
+                        scope.launch { hScroll.animateScrollBy(EpgLayout.ThirtyMinWidthDp) }
                     }
                 }
+                detailExpanded = true
+                true
             }
-        }
-
-        val hScroll = rememberScrollState()
-        val vScroll = rememberScrollState()
-        Column(modifier = Modifier.height(280.dp).fillMaxWidth().verticalScroll(vScroll).horizontalScroll(hScroll)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                repeat(12) { i ->
-                    val hour = (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) + i) % 24
-                    Text(String.format("%02d:00", hour), modifier = Modifier.width(170.dp))
+            Key.DirectionLeft -> {
+                if (!focusOnChannelColumn && focusProgramIndex > 0) {
+                    val progs = programsForChannel(channels[focusChannelIndex])
+                    focusProgramIndex -= 1
+                    scrollToProgram(progs[focusProgramIndex])
+                } else if (!focusOnChannelColumn) {
+                    focusOnChannelColumn = true
+                    scope.launch { hScroll.animateScrollBy(-EpgLayout.ThirtyMinWidthDp) }
+                } else {
+                    scope.launch { hScroll.animateScrollBy(-EpgLayout.ThirtyMinWidthDp) }
                 }
-                Box(modifier = Modifier.width(2.dp).height(20.dp).background(Color.Cyan))
+                detailExpanded = true
+                true
             }
+            Key.PageDown -> {
+                focusChannelIndex = (focusChannelIndex + 10).coerceAtMost(channels.lastIndex)
+                if (!focusOnChannelColumn) focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
+                scope.launch { listState.animateScrollToItem(focusChannelIndex) }
+                true
+            }
+            Key.PageUp -> {
+                focusChannelIndex = (focusChannelIndex - 10).coerceAtLeast(0)
+                if (!focusOnChannelColumn) focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
+                scope.launch { listState.animateScrollToItem(focusChannelIndex) }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                val prog = focusedProgram
+                if (prog != null && confirmedProgramId == prog.id) {
+                    focusedChannel?.let { onWatchChannel(it.id) }
+                } else if (prog != null) {
+                    confirmedProgramId = prog.id
+                    detailExpanded = true
+                } else {
+                    focusedChannel?.let { onWatchChannel(it.id) }
+                }
+                true
+            }
+            Key.Back, Key.Escape -> {
+                if (detailExpanded || confirmedProgramId != null) {
+                    detailExpanded = false
+                    confirmedProgramId = null
+                    true
+                } else false
+            }
+            else -> false
+        }
+    }
 
-            channels.forEach { channel ->
-                Row(modifier = Modifier.fillMaxWidth().height(72.dp).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("${channel.number}", modifier = Modifier.width(56.dp))
-                    AsyncImage(model = channel.logoUrl, contentDescription = null, modifier = Modifier.width(72.dp).height(40.dp))
-                    Text(channel.name, modifier = Modifier.width(180.dp))
-                    if (channel.epgResolutionStatus == EpgResolutionStatus.SUGGESTED) {
-                        val suggestion = suggestionsByChannelId[channel.id.toString()]
-                        Text(
-                            text = "SUGGESTED",
-                            color = Color.Yellow,
-                            modifier = Modifier
-                                .background(Color(0x664A4A00))
-                                .clickable { if (suggestion != null) selectedSuggestionChannelId = suggestion.channelId }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(EpgColors.Background)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            EpgTopBar(
+                watchingChannel = watchingChannel,
+                currentProgram = watchingProgram,
+                now = now,
+                selectedTab = selectedTab,
+                focusedNavTabIndex = focusedNavTabIndex,
+                navFocused = focusZone == EpgFocusZone.TOP_NAV,
+                onTabSelected = { tab ->
+                    focusZone = EpgFocusZone.TOP_NAV
+                    focusedNavTabIndex = EpgNavTab.entries.indexOf(tab)
+                    activateNavTab(tab)
+                },
+                modifier = Modifier
+                    .focusRequester(topNavFocusRequester)
+                    .focusable()
+                    .onPreviewKeyEvent {
+                        if (focusZone == EpgFocusZone.TOP_NAV) handleTopNavKey(it) else false
                     }
+            )
 
-                    epgWindow.filter { it.channelEpgId == channel.epgId }.forEach { p ->
-                        val color = when (p.genre) {
-                            ProgramGenre.NEWS -> Color.Red
-                            ProgramGenre.SPORTS -> Color(0xFF2E8B57)
-                            ProgramGenre.MOVIES -> Color(0xFF7B1FA2)
-                            ProgramGenre.KIDS -> Color(0xFFFFC107)
-                            ProgramGenre.GENERAL -> Color(0xFF5A5A5A)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusRequester(gridFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent {
+                            if (focusZone == EpgFocusZone.GRID) handleGridKey(it) else false
                         }
-                        val isCurrent = now in p.startTime..p.endTime
-                        val hasRec = scheduled.any {
-                            it.channelId == channel.id &&
-                                it.programTitle == p.title &&
-                                it.startTime == p.startTime &&
-                                it.status != RecordingStatus.FAILED.name
-                        }
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             modifier = Modifier
-                                .width(190.dp)
-                                .height(64.dp)
-                                .background(color)
-                                .then(if (isCurrent) Modifier.background(Color.White.copy(alpha = 0.15f)) else Modifier)
-                                .clickable { selectedProgram = p }
-                                .padding(8.dp)
+                                .width(EpgLayout.ChannelColumnWidth)
+                                .height(EpgLayout.TimelineHeaderHeight)
+                                .background(EpgColors.ChannelColumnBg)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(hScroll)
                         ) {
-                            Text((if (hasRec) "REC " else "") + (if (p.catchupUrl != null && p.endTime < now) "⏪ ${p.title}" else p.title))
+                            EpgTimelineHeader(
+                                windowStart = windowStart,
+                                windowDurationMs = windowDurationMs,
+                                now = now
+                            )
+                        }
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(channels.size) { index ->
+                                val channel = channels[index]
+                                val programs = programsForChannel(channel)
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    EpgChannelCell(
+                                        channel = channel,
+                                        isFocused = focusZone == EpgFocusZone.GRID &&
+                                            focusOnChannelColumn && index == focusChannelIndex,
+                                        modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
+                                    )
+                                    EpgChannelTimelineRow(
+                                        channel = channel,
+                                        programs = programs,
+                                        windowStart = windowStart,
+                                        now = now,
+                                        channelIndex = index,
+                                        focusChannelIndex = focusChannelIndex,
+                                        focusProgramIndex = focusProgramIndex,
+                                        focusOnChannelColumn = focusOnChannelColumn,
+                                        gridFocused = focusZone == EpgFocusZone.GRID,
+                                        confirmedProgramId = confirmedProgramId,
+                                        scheduled = scheduled,
+                                        hScrollModifier = Modifier.horizontalScroll(hScroll),
+                                        timelineWidth = timelineWidth
+                                    )
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .padding(start = EpgLayout.ChannelColumnWidth)
+                                .horizontalScroll(hScroll)
+                                .fillMaxHeight()
+                        ) {
+                            EpgNowLine(
+                                windowStart = windowStart,
+                                windowDurationMs = windowDurationMs,
+                                now = now,
+                                modifier = Modifier
+                                    .width(timelineWidth)
+                                    .fillMaxHeight()
+                            )
                         }
                     }
                 }
+
+                EpgTimeJumpPills(
+                    loading = epgLoading,
+                    onPrev2h = { viewModel.loadPrevBlock() },
+                    onLive = { viewModel.snapToLive() },
+                    onNext2h = { viewModel.loadNextBlock() },
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 8.dp, start = EpgLayout.ChannelColumnWidth + 12.dp)
+                )
             }
+
+            EpgDetailPanel(
+                channel = focusedChannel,
+                program = focusedProgram,
+                now = now,
+                detailActionFocused = detailActionIndex,
+                onActionFocusChange = { detailActionIndex = it },
+                onWatch = { focusedChannel?.let { onWatchChannel(it.id) } },
+                onRecord = {
+                    val prog = focusedProgram ?: return@EpgDetailPanel
+                    val ch = focusedChannel ?: return@EpgDetailPanel
+                    if (prog.startTime <= now) {
+                        val duration = (prog.endTime - now).coerceAtLeast(10 * 60 * 1000)
+                        recordingViewModel.startImmediateRecording(context, ch, prog.title, duration)
+                    } else {
+                        recordingViewModel.scheduleProgram(ch, prog)
+                    }
+                },
+                onMoreInfo = { detailExpanded = true },
+                visible = detailExpanded || focusedProgram != null,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
-    }
 
-    val selected = selectedProgram
-    if (selected != null) {
-        AlertDialog(
-            onDismissRequest = { selectedProgram = null },
-            title = { Text(selected.title) },
-            text = { Text("${selected.description}\n${java.util.Date(selected.startTime)} - ${java.util.Date(selected.endTime)}") },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onWatchChannel(channels.firstOrNull { it.epgId == selected.channelEpgId }?.id ?: return@Button) }) { Text("Watch") }
-                    Button(onClick = {
-                        val channel = channels.firstOrNull { it.epgId == selected.channelEpgId } ?: return@Button
-                        val nowMs = System.currentTimeMillis()
-                        if (selected.startTime <= nowMs) {
-                            val duration = (selected.endTime - nowMs).coerceAtLeast(10 * 60 * 1000)
-                            recordingViewModel.startImmediateRecording(context, channel, selected.title, duration)
-                        } else {
-                            recordingViewModel.scheduleProgram(channel, selected)
-                        }
-                    }) { Text("Record") }
+        MiniNowPlayingPlayer(
+            channel = watchingChannel,
+            program = watchingProgram,
+            player = livePlayer,
+            isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
+            onFocus = { focusZone = EpgFocusZone.MINI_PLAYER },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = MiniPlayerLayout.Margin, end = MiniPlayerLayout.Margin)
+                .zIndex(10f)
+                .focusRequester(miniFocusRequester)
+                .onPreviewKeyEvent {
+                    if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
                 }
-            }
         )
     }
+}
 
-    val selectedSuggestion = selectedSuggestionChannelId?.let { suggestionsByChannelId[it] }
-    if (selectedSuggestion != null) {
-        AlertDialog(
-            onDismissRequest = { selectedSuggestionChannelId = null },
-            title = { Text("Possible EPG match") },
-            text = { Text("We found a possible EPG match: ${selectedSuggestion.suggestedEpgName}. Accept?") },
-            confirmButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        epgResolverViewModel.acceptSuggestion(selectedSuggestion)
-                        selectedSuggestionChannelId = null
-                    }) { Text("Accept") }
-                    Button(onClick = {
-                        epgResolverViewModel.dismissSuggestion(selectedSuggestion)
-                        selectedSuggestionChannelId = null
-                    }) { Text("Dismiss") }
-                }
+@Composable
+private fun EpgChannelTimelineRow(
+    channel: Channel,
+    programs: List<Program>,
+    windowStart: Long,
+    now: Long,
+    channelIndex: Int,
+    focusChannelIndex: Int,
+    focusProgramIndex: Int,
+    focusOnChannelColumn: Boolean,
+    gridFocused: Boolean,
+    confirmedProgramId: Long?,
+    scheduled: List<ScheduledRecordingEntity>,
+    hScrollModifier: Modifier,
+    timelineWidth: Dp
+) {
+    Box(
+        modifier = hScrollModifier
+            .width(timelineWidth)
+            .height(EpgLayout.RowHeight)
+            .background(EpgColors.GridBg)
+    ) {
+        programs.forEachIndexed { programIndex, program ->
+            val width = EpgLayout.widthForDurationMs(program.endTime - program.startTime) - EpgLayout.CellGap
+            val offset = EpgLayout.offsetForTime(program.startTime, windowStart)
+            val isFocused = gridFocused &&
+                channelIndex == focusChannelIndex &&
+                !focusOnChannelColumn &&
+                programIndex == focusProgramIndex
+            val isSelected = confirmedProgramId == program.id
+            val hasRec = scheduled.any {
+                it.channelId == channel.id &&
+                    it.programTitle == program.title &&
+                    it.startTime == program.startTime &&
+                    it.status != RecordingStatus.FAILED.name
             }
-        )
+            val title = buildString {
+                if (hasRec) append("REC ")
+                if (program.catchupUrl != null && program.endTime < now) append("⏪ ")
+                append(program.title)
+            }
+
+            EpgProgramCell(
+                program = program.copy(title = title),
+                width = width.coerceAtLeast(40.dp),
+                now = now,
+                isFocused = isFocused,
+                isSelected = isSelected,
+                modifier = Modifier.offset(x = offset)
+            )
+        }
     }
 }

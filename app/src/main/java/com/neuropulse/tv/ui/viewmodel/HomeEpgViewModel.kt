@@ -8,6 +8,7 @@ import com.neuropulse.tv.domain.model.Recommendation
 import com.neuropulse.tv.domain.model.SeriesShow
 import com.neuropulse.tv.domain.model.VodItem
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.player.LivePlayerManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,8 +21,12 @@ import javax.inject.Inject
 
 @HiltViewModel
 class HomeEpgViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    val livePlayerManager: LivePlayerManager
 ) : ViewModel() {
+
+    private val _miniPlayerAudioEnabled = MutableStateFlow(false)
+    val miniPlayerAudioEnabled = _miniPlayerAudioEnabled.asStateFlow()
 
     val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -58,7 +63,10 @@ class HomeEpgViewModel @Inject constructor(
     private val _epgLoading = MutableStateFlow(false)
     val epgLoading = _epgLoading.asStateFlow()
 
-    private var windowStart = System.currentTimeMillis() - 2 * 60 * 60 * 1000
+    private val _windowStart = MutableStateFlow(System.currentTimeMillis() - 90 * 60 * 1000)
+    val windowStart: StateFlow<Long> = _windowStart.asStateFlow()
+
+    val windowDurationMs: Long = 4 * 60 * 60 * 1000
 
     val programs: StateFlow<List<Program>> = channels
         .flatMapLatest { ch ->
@@ -68,29 +76,56 @@ class HomeEpgViewModel @Inject constructor(
 
     init {
         loadWindow()
+        viewModelScope.launch {
+            _miniPlayerAudioEnabled.value = repository.loadSettings().miniPlayerAudioEnabled
+            livePlayerManager.setMiniAudioEnabled(_miniPlayerAudioEnabled.value)
+        }
+    }
+
+    fun reloadPlaybackSettings() {
+        viewModelScope.launch {
+            val settings = repository.loadSettings()
+            _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
+            livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+        }
+    }
+
+    fun tuneLastWatched(context: android.content.Context) {
+        viewModelScope.launch {
+            val ch = continueWatching.value.firstOrNull()
+                ?: channels.value.firstOrNull()
+                ?: return@launch
+            livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
+            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+            repository.saveWatchPosition(ch.id, 0L)
+        }
     }
 
     fun loadWindow() {
         viewModelScope.launch {
             _epgLoading.value = true
             val channelIds = channels.value.mapNotNull { it.epgId }
-            val start = windowStart
-            val end = start + 4 * 60 * 60 * 1000
+            val start = _windowStart.value
+            val end = start + windowDurationMs
             _epgPrograms.value = repository.programsWindow(channelIds, start, end)
             _epgLoading.value = false
 
-            // Prefetch next 2-hour block.
             repository.programsWindow(channelIds, end, end + 2 * 60 * 60 * 1000)
         }
     }
 
     fun loadNextBlock() {
-        windowStart += 2 * 60 * 60 * 1000
+        _windowStart.value += 2 * 60 * 60 * 1000
         loadWindow()
     }
 
     fun loadPrevBlock() {
-        windowStart -= 2 * 60 * 60 * 1000
+        _windowStart.value -= 2 * 60 * 60 * 1000
+        loadWindow()
+    }
+
+    fun snapToLive() {
+        _windowStart.value = System.currentTimeMillis() - 90 * 60 * 1000
         loadWindow()
     }
 }

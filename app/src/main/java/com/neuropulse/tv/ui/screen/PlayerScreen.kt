@@ -47,10 +47,12 @@ import androidx.media3.ui.PlayerView
 import androidx.compose.material3.AlertDialog
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
+import com.neuropulse.tv.di.PlayerEntryPoint
 import com.neuropulse.tv.feature.sports.SportsTickerService
 import com.neuropulse.tv.feature.recording.RecordingStatus
-import com.neuropulse.tv.player.PlayerFactory
+import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.player.SeekThumbnailProvider
+import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import kotlinx.coroutines.delay
@@ -63,7 +65,6 @@ fun PlayerScreen(
     onBack: () -> Unit,
     viewModel: PlayerViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
-    playerFactory: PlayerFactory = PlayerFactory(),
     tickerService: SportsTickerService = SportsTickerService(),
     seekThumbnailProvider: SeekThumbnailProvider = SeekThumbnailProvider()
 ) {
@@ -97,17 +98,24 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val isRecordingThisChannel = scheduled.any { it.channelId == channelId && it.status == RecordingStatus.RECORDING.name }
 
-    val player = remember { playerFactory.create(context) }
+    val livePlayerManager = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
+            .livePlayerManager()
+    }
+    val player = remember { livePlayerManager.getOrCreatePlayer(context) }
+
+    LaunchedEffect(Unit) {
+        livePlayerManager.setMode(LivePlayerManager.Mode.FULLSCREEN)
+    }
 
     LaunchedEffect(channelId) {
         viewModel.load(channelId)
     }
 
-    LaunchedEffect(channel?.streamUrl) {
-        val url = channel?.streamUrl ?: return@LaunchedEffect
-        player.setMediaItem(MediaItem.fromUri(url))
-        player.prepare()
-        player.playWhenReady = true
+    LaunchedEffect(channel?.id, channel?.streamUrl) {
+        val ch = channel ?: return@LaunchedEffect
+        val url = ch.streamUrl
+        livePlayerManager.tuneChannel(context, ch.id, url)
         failures = 0
     }
 
@@ -148,7 +156,7 @@ fun PlayerScreen(
         onDispose {
             viewModel.savePosition(player.currentPosition)
             player.removeListener(listener)
-            player.release()
+            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }
 
