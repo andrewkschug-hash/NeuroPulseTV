@@ -775,12 +775,13 @@ fun HomeEpgScreen(
                                     showFavoritePicker = false
                                 }) { androidx.tv.material3.Text("★ Favorites") }
                             }
-                        items(favoriteGroups.size) { idx ->
-                            val group = favoriteGroups[idx]
-                            androidx.tv.material3.Button(onClick = {
-                                focusedChannel?.let { viewModel.addChannelToFavorites(it.id, group.id) }
-                                showFavoritePicker = false
-                            }) { androidx.tv.material3.Text(group.name) }
+                            items(favoriteGroups.size) { idx ->
+                                val group = favoriteGroups[idx]
+                                androidx.tv.material3.Button(onClick = {
+                                    focusedChannel?.let { viewModel.addChannelToFavorites(it.id, group.id) }
+                                    showFavoritePicker = false
+                                }) { androidx.tv.material3.Text(group.name) }
+                            }
                         }
                     }
                 },
