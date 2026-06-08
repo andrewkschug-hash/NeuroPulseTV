@@ -379,7 +379,7 @@ private fun PinEntryOverlay(
     verifyPin: suspend (String) -> Boolean
 ) {
     var pin by remember { mutableStateOf("") }
-    var shakeOffset by remember { Animatable(0f) }
+    val shakeOffset = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
 
     Box(
