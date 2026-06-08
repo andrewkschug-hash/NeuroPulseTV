@@ -84,7 +84,8 @@ class StalkerPortalClient @Inject constructor(
         val out = ArrayList<ChannelEntity>(data.length())
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
-            val name = item.optString("name").ifBlank { continue }
+            val name = item.optString("name")
+            if (name.isBlank()) continue
             val number = item.optString("number").toIntOrNull() ?: (i + 1)
             val cmd = item.optString("cmd").ifBlank { item.optString("id") }
             if (cmd.isBlank()) continue

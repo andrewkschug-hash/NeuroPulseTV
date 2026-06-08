@@ -408,10 +408,11 @@ class IptvRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun addPlaylistFromUrl(name: String, url: String, epgUrl: String?, refreshHours: Int) =
+    override suspend fun addPlaylistFromUrl(name: String, url: String, epgUrl: String?, refreshHours: Int) {
         withContext(Dispatchers.IO) {
             insertM3uPlaylist(name, url, epgUrl, refreshHours)
         }
+    }
 
     override suspend fun addXtreamPlaylist(
         name: String,
@@ -420,8 +421,10 @@ class IptvRepositoryImpl @Inject constructor(
         password: String,
         epgUrl: String?,
         refreshHours: Int
-    ) = withContext(Dispatchers.IO) {
-        insertXtreamPlaylist(name, serverUrl, username, password, epgUrl, refreshHours)
+    ) {
+        withContext(Dispatchers.IO) {
+            insertXtreamPlaylist(name, serverUrl, username, password, epgUrl, refreshHours)
+        }
     }
 
     override suspend fun connectM3uPlaylist(name: String, url: String): PlaylistConnectResult =
