@@ -12,13 +12,33 @@ android {
 
     defaultConfig {
         applicationId = "com.neuropulse.tv"
-        minSdk = 26
+        minSdk = 21
         targetSdk = 34
         versionCode = 2
-        versionName = "2.0.0"
+        versionName = "2.1.0"
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+        }
+    }
+
+    flavorDimensions += "store"
+    productFlavors {
+        create("google") {
+            dimension = "store"
+        }
+        create("amazon") {
+            dimension = "store"
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = false
+        }
     }
 
     signingConfigs {
+        // CRITICAL: Back up keystore + passwords securely. Losing them blocks updates for existing installs.
         create("release") {
             storeFile = file("keystore/release.jks")
             storePassword = "TODO_STORE_PASSWORD"
@@ -73,6 +93,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -82,7 +103,6 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.google.fonts)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     implementation(libs.androidx.tv.foundation)

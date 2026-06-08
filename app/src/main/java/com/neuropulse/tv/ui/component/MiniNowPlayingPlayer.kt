@@ -52,6 +52,7 @@ fun MiniNowPlayingPlayer(
     player: ExoPlayer?,
     isFocused: Boolean,
     onFocus: () -> Unit,
+    sleepCountdown: String? = null,
     modifier: Modifier = Modifier
 ) {
     var isPlaying by remember { mutableStateOf(false) }
@@ -122,6 +123,21 @@ fun MiniNowPlayingPlayer(
                     )
                 }
             }
+        }
+
+        if (!sleepCountdown.isNullOrBlank()) {
+            Text(
+                text = "⏱ $sleepCountdown",
+                color = Color(0xFFFFB020),
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
         }
 
         if (isFocused) {

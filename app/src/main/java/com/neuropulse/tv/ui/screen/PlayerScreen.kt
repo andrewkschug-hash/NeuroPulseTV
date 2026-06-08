@@ -53,6 +53,8 @@ import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.player.SeekThumbnailProvider
 import dagger.hilt.android.EntryPointAccessors
+import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import kotlinx.coroutines.delay
@@ -63,14 +65,21 @@ import kotlinx.coroutines.launch
 fun PlayerScreen(
     channelId: Long,
     onBack: () -> Unit,
+    onOpenSplit: (Long) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
     tickerService: SportsTickerService = SportsTickerService(),
     seekThumbnailProvider: SeekThumbnailProvider = SeekThumbnailProvider()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val entryPoint = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
+    }
     val channel by viewModel.channel.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
+    val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
+    val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
+    val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val numberInput by viewModel.numberInput.collectAsStateWithLifecycle()
 
     var showOverlay by remember { mutableStateOf(true) }
@@ -81,14 +90,15 @@ fun PlayerScreen(
     var currentPosition by remember { mutableLongStateOf(0L) }
     var failures by remember { mutableStateOf(0) }
     var gameLockEnabled by remember { mutableStateOf(false) }
-    var sleepSeconds by remember { mutableStateOf(0) }
+    val sleepTimer = remember { entryPoint.sleepTimerController() }
+    val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
     var showStillWatching by remember { mutableStateOf(false) }
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var ticker by remember { mutableStateOf("Live scores loading...") }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
 
-    val dimAlpha by animateFloatAsState(if (sleepSeconds in 1..120) 0.35f else 0f, label = "sleepDim")
+    val dimAlpha by animateFloatAsState(if (sleepRemaining in 1..120) 0.35f else 0f, label = "sleepDim")
     val pulse = rememberInfiniteTransition(label = "recPulse").animateFloat(
         initialValue = 0.35f,
         targetValue = 1f,
@@ -98,11 +108,21 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     val isRecordingThisChannel = scheduled.any { it.channelId == channelId && it.status == RecordingStatus.RECORDING.name }
 
-    val livePlayerManager = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
-            .livePlayerManager()
-    }
+    val livePlayerManager = remember { entryPoint.livePlayerManager() }
     val player = remember { livePlayerManager.getOrCreatePlayer(context) }
+
+    LaunchedEffect(player) {
+        sleepTimer.onVolumeFade = { level -> player.volume = level }
+        sleepTimer.onExpired = {
+            player.pause()
+            showStillWatching = true
+        }
+    }
+
+    LaunchedEffect(channelId) {
+        val resume = viewModel.lastPosition()
+        if (resume > 0) player.seekTo(resume)
+    }
 
     LaunchedEffect(Unit) {
         livePlayerManager.setMode(LivePlayerManager.Mode.FULLSCREEN)
@@ -174,16 +194,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(sleepSeconds) {
-        while (sleepSeconds > 0) {
-            delay(1000)
-            sleepSeconds -= 1
-        }
-        if (sleepSeconds == 0) {
-            player.pause()
-            showStillWatching = true
-        }
-    }
 
     Box(
         modifier = Modifier
@@ -317,7 +327,10 @@ fun PlayerScreen(
                         Button(onClick = onBack) { Text("Back") }
                         Button(onClick = { showInfo = true }) { Text("Info") }
                         Button(onClick = { viewModel.jumpByNumber() }) { Text("Go") }
-                        Button(onClick = { showSleepDialog = true }) { Text("Sleep") }
+                        Button(onClick = { showSleepDialog = true }) {
+                            Text(if (sleepRemaining > 0) "Sleep ${sleepTimer.formatCountdown()}" else "Sleep")
+                        }
+                        Button(onClick = { onOpenSplit(channelId) }) { Text("Split") }
                         Button(onClick = {
                             if (isRecordingThisChannel) {
                                 showStopRecordingDialog = true
@@ -353,9 +366,9 @@ fun PlayerScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(15, 30, 45, 60, 90).forEach { min ->
-                        Button(onClick = { sleepSeconds = min * 60; showSleepDialog = false }) { Text("$min minutes") }
+                        Button(onClick = { sleepTimer.start(min); showSleepDialog = false }) { Text("$min minutes") }
                     }
-                    Button(onClick = { sleepSeconds = 120; showSleepDialog = false }) { Text("End of current program") }
+                    Button(onClick = { sleepTimer.cancel(); showSleepDialog = false }) { Text("Cancel timer") }
                 }
             },
             confirmButton = { Button(onClick = { showSleepDialog = false }) { Text("Close") } }
@@ -390,6 +403,24 @@ fun PlayerScreen(
                     Button(onClick = { showStopRecordingDialog = false }) { Text("Cancel") }
                 }
             }
+        )
+    }
+
+    if (showStoragePicker) {
+        StorageLocationPicker(
+            options = storageOptions,
+            onSelect = { recordingViewModel.onStorageSelected(it, context) },
+            onDismiss = { recordingViewModel.dismissStoragePicker() }
+        )
+    }
+
+    precheck?.let { check ->
+        RecordingPrecheckDialog(
+            estimateText = check.estimateText,
+            lowStorageWarning = check.lowStorageWarning,
+            insufficientSpaceWarning = check.insufficientSpaceWarning,
+            onConfirm = { recordingViewModel.confirmImmediateRecording(context) },
+            onDismiss = { recordingViewModel.dismissPrecheck() }
         )
     }
 }

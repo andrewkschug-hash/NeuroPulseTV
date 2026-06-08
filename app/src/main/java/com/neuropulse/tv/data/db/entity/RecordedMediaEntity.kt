@@ -12,5 +12,7 @@ data class RecordedMediaEntity(
     val filePath: String,
     val durationMs: Long,
     val fileSizeBytes: Long,
-    val recordedAt: Long
+    val recordedAt: Long,
+    val playbackPositionMs: Long = 0,
+    val thumbnailPath: String? = null
 )

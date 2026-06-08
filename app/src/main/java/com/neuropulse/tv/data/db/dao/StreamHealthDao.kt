@@ -20,4 +20,7 @@ interface StreamHealthDao {
 
     @Query("SELECT * FROM stream_health ORDER BY reliabilityScore ASC LIMIT :limit")
     fun worst(limit: Int): Flow<List<StreamHealthEntity>>
+
+    @Query("SELECT * FROM stream_health")
+    fun observeAll(): Flow<List<StreamHealthEntity>>
 }

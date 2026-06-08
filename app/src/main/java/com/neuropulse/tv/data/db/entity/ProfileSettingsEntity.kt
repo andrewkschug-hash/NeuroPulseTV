@@ -11,5 +11,8 @@ data class ProfileSettingsEntity(
     val streamRetries: Int = 3,
     val previewEnabled: Boolean = true,
     val gameLockEnabled: Boolean = false,
-    val lastSleepTimer: Int = 30
+    val lastSleepTimer: Int = 30,
+    val recordingStoragePath: String? = null,
+    val lastSeenVersion: String? = null,
+    val sleepTimerMinutes: Int = 30
 )

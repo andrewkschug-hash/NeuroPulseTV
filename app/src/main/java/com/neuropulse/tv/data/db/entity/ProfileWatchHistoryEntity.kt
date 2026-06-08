@@ -10,5 +10,6 @@ data class ProfileWatchHistoryEntity(
     val lastWatched: Long,
     val totalWatchMs: Long,
     val hourBucket: Int,
-    val genreHint: String?
+    val genreHint: String?,
+    val lastProgramTitle: String? = null
 )

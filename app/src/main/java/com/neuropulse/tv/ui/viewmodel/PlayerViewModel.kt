@@ -60,8 +60,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun savePosition(positionMs: Long) {
-        val id = _channel.value?.id ?: return
-        viewModelScope.launch { repository.saveWatchPosition(id, positionMs) }
+        val ch = _channel.value ?: return
+        viewModelScope.launch {
+            repository.saveWatchPosition(ch.id, positionMs, ch.currentProgram ?: ch.name)
+        }
     }
 
     fun reportStreamHealth(loadMs: Long, bufferEvents: Int, success: Boolean) {

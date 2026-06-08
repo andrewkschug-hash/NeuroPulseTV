@@ -170,4 +170,41 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE playlists ADD COLUMN stalkerPortalUrl TEXT")
+            db.execSQL("ALTER TABLE playlists ADD COLUMN stalkerMacAddress TEXT")
+        }
+    }
+
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN recordingStoragePath TEXT")
+            db.execSQL("ALTER TABLE recorded_media ADD COLUMN playbackPositionMs INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE recorded_media ADD COLUMN thumbnailPath TEXT")
+        }
+    }
+
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS favorite_groups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    profileId INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    sortOrder INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL("ALTER TABLE profile_favorites ADD COLUMN groupId INTEGER")
+            db.execSQL("ALTER TABLE profile_favorites ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE user_profiles ADD COLUMN allowedStartMinutes INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE user_profiles ADD COLUMN allowedEndMinutes INTEGER NOT NULL DEFAULT 1439")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN lastSeenVersion TEXT")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN sleepTimerMinutes INTEGER NOT NULL DEFAULT 30")
+            db.execSQL("ALTER TABLE profile_watch_history ADD COLUMN lastProgramTitle TEXT")
+        }
+    }
 }

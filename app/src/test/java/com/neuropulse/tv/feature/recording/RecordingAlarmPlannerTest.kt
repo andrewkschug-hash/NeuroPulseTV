@@ -6,10 +6,10 @@ import org.junit.Test
 class RecordingAlarmPlannerTest {
 
     @Test
-    fun triggerAt_returnsStartTime_whenFuture() {
+    fun triggerAt_returnsThirtySecondsBeforeStart_whenFarFuture() {
         val now = 1_000L
-        val start = 5_000L
-        assertEquals(start, RecordingAlarmPlanner.triggerAt(start, now))
+        val start = 40_000L
+        assertEquals(10_000L, RecordingAlarmPlanner.triggerAt(start, now))
     }
 
     @Test

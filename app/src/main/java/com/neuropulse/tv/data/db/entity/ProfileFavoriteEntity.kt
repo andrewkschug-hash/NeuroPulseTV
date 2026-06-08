@@ -6,5 +6,7 @@ import androidx.room.Entity
 data class ProfileFavoriteEntity(
     val profileId: Long,
     val channelId: Long,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val groupId: Long? = null,
+    val sortOrder: Int = 0
 )

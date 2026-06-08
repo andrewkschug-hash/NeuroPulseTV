@@ -1,6 +1,6 @@
 package com.neuropulse.tv.domain.model
 
-enum class PlaylistType { M3U, XTREAM }
+enum class PlaylistType { M3U, XTREAM, STALKER }
 
 data class XtreamAccountInfo(
     val playlistId: Long,

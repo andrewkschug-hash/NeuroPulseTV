@@ -10,6 +10,9 @@ import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.XtreamAccountInfo
 import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.dashboard.DashboardController
+import com.neuropulse.tv.feature.recording.RecordingStorageManager
+import com.neuropulse.tv.feature.recording.StorageOption
+import com.neuropulse.tv.worker.ChannelHealthScheduler
 import com.neuropulse.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,8 +28,14 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val scheduler: EpgScheduler,
-    private val dashboardController: DashboardController
+    private val dashboardController: DashboardController,
+    private val recordingStorageManager: RecordingStorageManager,
+    private val channelHealthScheduler: ChannelHealthScheduler
 ) : ViewModel() {
+
+    companion object {
+        const val APP_VERSION = "2.1.0"
+    }
 
     val playlists: StateFlow<List<Playlist>> = repository.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -49,10 +58,53 @@ class SettingsViewModel @Inject constructor(
     private val _dashboardUrl = MutableStateFlow<String?>(null)
     val dashboardUrl = _dashboardUrl.asStateFlow()
 
+    private val _storageOptions = MutableStateFlow<List<StorageOption>>(emptyList())
+    val storageOptions = _storageOptions.asStateFlow()
+
+    private val _currentStorageLabel = MutableStateFlow<String?>(null)
+    val currentStorageLabel = _currentStorageLabel.asStateFlow()
+
     init {
         viewModelScope.launch {
             _settings.value = repository.loadSettings()
             scheduler.scheduleAtLaunch()
+            channelHealthScheduler.schedule()
+            refreshStorageSettings()
+        }
+    }
+
+    suspend fun shouldShowWhatsNew(): Boolean = repository.shouldShowWhatsNew(APP_VERSION)
+
+    fun markWhatsNewSeen() {
+        viewModelScope.launch { repository.markVersionSeen(APP_VERSION) }
+    }
+
+    fun exportBackup(cacheDir: File) {
+        viewModelScope.launch {
+            val file = File(cacheDir, "grid-backup-${System.currentTimeMillis()}.grid")
+            _importSummary.value = repository.exportBackup(file)
+        }
+    }
+
+    fun updateSleepTimerMinutes(minutes: Int) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(sleepTimerMinutes = minutes)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
+    fun refreshStorageSettings() {
+        _storageOptions.value = recordingStorageManager.enumerateOptions()
+        viewModelScope.launch {
+            _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
+        }
+    }
+
+    fun setRecordingStorage(optionId: String) {
+        viewModelScope.launch {
+            recordingStorageManager.saveLocationById(optionId)
+            _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
         }
     }
 

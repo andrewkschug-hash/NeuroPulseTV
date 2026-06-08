@@ -9,6 +9,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -24,6 +25,8 @@ class RecordingAlarmReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val scheduled = scheduledRecordingDao.getById(id) ?: return@launch
+            val waitMs = scheduled.startTime - System.currentTimeMillis()
+            if (waitMs > 0) delay(waitMs)
             val serviceIntent = Intent(context, RecordingService::class.java).apply {
                 action = RecordingService.ACTION_START
                 putExtra(RecordingService.EXTRA_SCHEDULED_ID, scheduled.id)

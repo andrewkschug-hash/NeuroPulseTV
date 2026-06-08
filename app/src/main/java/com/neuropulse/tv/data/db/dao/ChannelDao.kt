@@ -15,6 +15,9 @@ interface ChannelDao {
     @Query("DELETE FROM channels WHERE playlistId = :playlistId")
     suspend fun clearByPlaylist(playlistId: Long)
 
+    @Query("SELECT COUNT(*) FROM channels WHERE playlistId = :playlistId")
+    suspend fun countByPlaylist(playlistId: Long): Int
+
     @Query("SELECT DISTINCT groupName FROM channels ORDER BY groupName")
     fun observeGroups(): Flow<List<String>>
 
@@ -24,11 +27,18 @@ interface ChannelDao {
       LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
         WHERE (:groupName IS NULL OR c.groupName = :groupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
-        ORDER BY c.number
+        ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
         """
     )
-    fun observeChannels(groupName: String?, search: String, onlyFavorites: Boolean, profileId: Long): Flow<List<ChannelEntity>>
+    fun observeChannels(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long = -1L
+    ): Flow<List<ChannelEntity>>
 
     @Query(
       """

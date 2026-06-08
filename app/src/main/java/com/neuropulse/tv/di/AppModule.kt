@@ -8,6 +8,7 @@ import com.neuropulse.tv.data.db.AppDatabase
 import com.neuropulse.tv.data.db.DbMigrations
 import com.neuropulse.tv.data.db.dao.ChannelDao
 import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
+import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
 import com.neuropulse.tv.data.db.dao.EpgSourceChannelDao
 import com.neuropulse.tv.data.db.dao.PlaylistDao
 import com.neuropulse.tv.data.db.dao.ProfileDao
@@ -48,6 +49,9 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_3_4)
             .addMigrations(DbMigrations.MIGRATION_4_5)
             .addMigrations(DbMigrations.MIGRATION_5_6)
+            .addMigrations(DbMigrations.MIGRATION_6_7)
+            .addMigrations(DbMigrations.MIGRATION_7_8)
+            .addMigrations(DbMigrations.MIGRATION_8_9)
             .build()
 
     @Provides
@@ -124,6 +128,9 @@ object AppProvidesModule {
 
     @Provides
     fun provideEpgResolutionSuggestionDao(db: AppDatabase): EpgResolutionSuggestionDao = db.epgResolutionSuggestionDao()
+
+    @Provides
+    fun provideFavoriteGroupDao(db: AppDatabase): FavoriteGroupDao = db.favoriteGroupDao()
 }
 
 @Module

@@ -21,6 +21,12 @@ interface RecordedMediaDao {
     @Query("SELECT * FROM recorded_media ORDER BY durationMs DESC")
     fun observeAllByDuration(): Flow<List<RecordedMediaEntity>>
 
+    @Query("SELECT * FROM recorded_media ORDER BY fileSizeBytes DESC")
+    fun observeAllBySize(): Flow<List<RecordedMediaEntity>>
+
+    @Query("UPDATE recorded_media SET playbackPositionMs = :positionMs WHERE id = :id")
+    suspend fun updatePlaybackPosition(id: Long, positionMs: Long)
+
     @Query("DELETE FROM recorded_media WHERE id = :id")
     suspend fun deleteById(id: Long)
 }

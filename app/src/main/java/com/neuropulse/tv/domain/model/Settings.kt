@@ -7,5 +7,6 @@ data class AppSettings(
     val preferredAudioLanguage: String = "en",
     val epgRowHeight: EpgRowHeight = EpgRowHeight.NORMAL,
     val miniPlayerAudioEnabled: Boolean = false,
-    val pinProtectedGroups: Set<String> = emptySet()
+    val pinProtectedGroups: Set<String> = emptySet(),
+    val sleepTimerMinutes: Int = 30
 )

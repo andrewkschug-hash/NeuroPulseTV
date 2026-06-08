@@ -99,20 +99,17 @@ fun genreLabel(genre: ProgramGenre): String = when (genre) {
     ProgramGenre.GENERAL -> "General"
 }
 
-val EpgTopBarTabs = listOf(
-    EpgNavTab.Home,
-    EpgNavTab.Search,
-    EpgNavTab.Recordings,
-    EpgNavTab.Settings
-)
-
 @Composable
 fun EpgTopBar(
     now: Long,
     selectedTab: EpgNavTab,
     focusedNavTabIndex: Int = -1,
     navFocused: Boolean = false,
+    profileFocused: Boolean = false,
+    profileInitials: String = "?",
+    isRecordingActive: Boolean = false,
     onTabSelected: (EpgNavTab) -> Unit,
+    onProfileClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -129,80 +126,47 @@ fun EpgTopBar(
             color = EpgColors.TextPrimary,
             fontFamily = DmSansFamily,
             fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(end = 16.dp)
         )
 
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            EpgTopBarTabs.forEachIndexed { index, tab ->
-                EpgTabIcon(
-                    tab = tab,
-                    selected = tab == selectedTab,
-                    focused = navFocused && index == focusedNavTabIndex,
-                    onClick = { onTabSelected(tab) }
+        if (isRecordingActive) {
+            Row(
+                modifier = Modifier.padding(end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(text = "●", color = Color(0xFFFF3B3B), fontSize = 14.sp)
+                Text(
+                    text = "REC",
+                    color = Color(0xFFFF3B3B),
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        miniPlayer()
+        GridNavIconRow(
+            selectedTab = selectedTab,
+            focusedIndex = focusedNavTabIndex,
+            navFocused = navFocused,
+            profileInitials = profileInitials,
+            profileFocused = profileFocused,
+            onTabSelected = onTabSelected,
+            onProfileClick = onProfileClick,
+            modifier = Modifier.weight(1f),
+            trailing = { miniPlayer() }
+        )
     }
 }
 
-enum class EpgNavTab(val icon: String) {
+enum class EpgNavTab(val glyph: String) {
     Home("⌂"),
     Search("⌕"),
-    Recordings("⏺"),
+    Recordings("●"),
     Settings("⚙"),
     Profile("◉")
-}
-
-@Composable
-private fun EpgTabIcon(
-    tab: EpgNavTab,
-    selected: Boolean,
-    focused: Boolean = false,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .size(40.dp)
-            .then(
-                if (focused) Modifier.border(2.dp, EpgColors.Accent, RoundedCornerShape(4.dp))
-                else Modifier
-            ),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = EpgColors.GridBg
-        )
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = tab.icon,
-                fontSize = 18.sp,
-                color = if (selected) EpgColors.Accent else EpgColors.TextSecondary
-            )
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .width(20.dp)
-                        .height(2.dp)
-                        .background(EpgColors.Accent)
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -266,6 +230,10 @@ fun EpgChannelCell(
                         )
                     }
                 }
+                ChannelHealthDot(
+                    reliabilityScore = channel.reliabilityScore,
+                    sessions = if (channel.reliabilityScore == 50) 0 else 1
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = channel.name,
@@ -468,55 +436,26 @@ fun EpgNowLine(
 }
 
 @Composable
-fun EpgTimeJumpPills(
-    loading: Boolean,
-    onPrev2h: () -> Unit,
-    onLive: () -> Unit,
-    onNext2h: () -> Unit,
-    atLivePosition: Boolean = true,
+fun EpgJumpToLiveButton(
+    visible: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        EpgPillButton(text = "← 2h", onClick = onPrev2h)
-        EpgPillButton(text = "Live", onClick = onLive, accent = atLivePosition)
-        EpgPillButton(text = "2h →", onClick = onNext2h)
-        if (loading) {
-            Text(
-                text = "…",
-                color = EpgColors.TextSecondary,
-                modifier = Modifier.padding(start = 4.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun EpgPillButton(
-    text: String,
-    onClick: () -> Unit,
-    accent: Boolean = false
-) {
+    if (!visible) return
     Surface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Black.copy(alpha = 0.6f),
-            focusedContainerColor = Color.Black.copy(alpha = 0.75f)
+            containerColor = Color.Red.copy(alpha = 0.15f),
+            focusedContainerColor = Color.Red.copy(alpha = 0.25f)
         ),
-        modifier = Modifier
+        modifier = modifier
             .height(32.dp)
-            .border(
-                width = 1.dp,
-                color = if (accent) EpgColors.Accent else Color.White.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(6.dp)
-            )
+            .border(1.dp, EpgColors.NowLine, RoundedCornerShape(6.dp))
     ) {
         Text(
-            text = text,
-            color = EpgColors.TextPrimary,
+            text = "● Live",
+            color = EpgColors.NowLine,
             fontFamily = DmSansFamily,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
@@ -534,6 +473,7 @@ fun EpgDetailPanel(
     onActionFocusChange: (Int) -> Unit,
     onWatch: () -> Unit,
     onRecord: () -> Unit,
+    onFavorite: () -> Unit = {},
     onMoreInfo: () -> Unit,
     visible: Boolean,
     modifier: Modifier = Modifier
@@ -607,8 +547,11 @@ fun EpgDetailPanel(
                 EpgActionButton("⏺ Record", detailActionFocused == 1, onClick = onRecord) {
                     onActionFocusChange(1)
                 }
-                EpgActionButton("ℹ Info", detailActionFocused == 2, onClick = onMoreInfo) {
+                EpgActionButton("★ Save", detailActionFocused == 2, onClick = onFavorite) {
                     onActionFocusChange(2)
+                }
+                EpgActionButton("ℹ Info", detailActionFocused == 3, onClick = onMoreInfo) {
+                    onActionFocusChange(3)
                 }
             }
         }

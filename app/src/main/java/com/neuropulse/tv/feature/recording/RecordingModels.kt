@@ -2,7 +2,24 @@ package com.neuropulse.tv.feature.recording
 
 enum class RecordingStatus { SCHEDULED, RECORDING, COMPLETED, FAILED }
 
-enum class RecordingSort { DATE, CHANNEL, DURATION }
+enum class RecordingSort { DATE, CHANNEL, DURATION, FILE_SIZE }
+
+data class PendingRecording(
+    val channelId: Long,
+    val channelName: String,
+    val title: String,
+    val streamUrl: String,
+    val durationMs: Long,
+    val scheduled: Boolean,
+    val programStartTime: Long? = null,
+    val programEndTime: Long? = null
+)
+
+data class RecordingPrecheck(
+    val estimateText: String,
+    val lowStorageWarning: String?,
+    val insufficientSpaceWarning: String?
+)
 
 data class ConflictDecision(
     val allowed: Boolean,

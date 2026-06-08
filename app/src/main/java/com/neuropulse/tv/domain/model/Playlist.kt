@@ -12,5 +12,7 @@ data class Playlist(
     val xtreamUsername: String? = null,
     val xtreamAccountStatus: String? = null,
     val xtreamExpiryDateEpochSec: Long? = null,
-    val xtreamMaxConnections: Int? = null
+    val xtreamMaxConnections: Int? = null,
+    val stalkerPortalUrl: String? = null,
+    val stalkerMacAddress: String? = null
 )

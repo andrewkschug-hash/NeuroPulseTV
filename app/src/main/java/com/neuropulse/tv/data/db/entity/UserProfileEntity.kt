@@ -9,5 +9,7 @@ data class UserProfileEntity(
     val name: String,
     val avatarColor: String,
     val pin: String? = null,
-    val isParental: Boolean = false
+    val isParental: Boolean = false,
+    val allowedStartMinutes: Int = 0,
+    val allowedEndMinutes: Int = 1439
 )

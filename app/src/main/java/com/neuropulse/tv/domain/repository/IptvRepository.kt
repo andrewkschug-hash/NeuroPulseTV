@@ -2,7 +2,10 @@ package com.neuropulse.tv.domain.repository
 
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.Channel
+import com.neuropulse.tv.domain.model.ContinueWatchingItem
+import com.neuropulse.tv.domain.model.FavoriteGroup
 import com.neuropulse.tv.domain.model.Playlist
+import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.model.Recommendation
 import com.neuropulse.tv.domain.model.SeriesSeason
@@ -20,12 +23,13 @@ import java.io.File
 interface IptvRepository {
     fun playlists(): Flow<List<Playlist>>
     fun groups(): Flow<List<String>>
-    fun channels(group: String?, search: String, favoritesOnly: Boolean): Flow<List<Channel>>
+    fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>>
     fun searchPrograms(query: String): Flow<List<Program>>
     fun recordings(): Flow<List<String>>
     fun recommendedChannels(limit: Int = 10): Flow<List<Recommendation>>
     fun continueWatching(limit: Int = 5): Flow<List<Channel>>
+    fun continueWatchingItems(limit: Int = 5): Flow<List<ContinueWatchingItem>>
     fun topChannels(limit: Int = 8): Flow<List<Channel>>
     fun recentlyAdded(limit: Int = 8): Flow<List<Channel>>
     fun liveSportsNow(): Flow<List<Program>>
@@ -38,6 +42,7 @@ interface IptvRepository {
     suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean
     suspend fun purgeDefaultProfiles()
     suspend fun activeProfileId(): Long
+    suspend fun activeProfile(): UserProfile?
 
     fun healthBest(limit: Int = 10): Flow<List<StreamHealth>>
     fun healthWorst(limit: Int = 10): Flow<List<StreamHealth>>
@@ -45,6 +50,9 @@ interface IptvRepository {
 
     suspend fun addPlaylistFromUrl(name: String, url: String, epgUrl: String?, refreshHours: Int)
     suspend fun addXtreamPlaylist(name: String, serverUrl: String, username: String, password: String, epgUrl: String?, refreshHours: Int)
+    suspend fun connectM3uPlaylist(name: String, url: String): PlaylistConnectResult
+    suspend fun connectXtreamPlaylist(name: String, serverUrl: String, username: String, password: String): PlaylistConnectResult
+    suspend fun connectStalkerPlaylist(name: String, portalUrl: String, macAddress: String): PlaylistConnectResult
     suspend fun addPlaylistFromLocal(name: String, content: String, epgUrl: String?, refreshHours: Int)
     suspend fun deletePlaylist(playlistId: Long)
     suspend fun refreshEpgNow()
@@ -57,8 +65,12 @@ interface IptvRepository {
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)
     fun isFavorite(channelId: Long): Flow<Boolean>
+    fun favoriteGroups(): Flow<List<FavoriteGroup>>
+    suspend fun createFavoriteGroup(name: String): Long
+    suspend fun addChannelToFavoriteGroup(channelId: Long, groupId: Long)
+    suspend fun removeChannelFromFavorites(channelId: Long)
 
-    suspend fun saveWatchPosition(channelId: Long, position: Long)
+    suspend fun saveWatchPosition(channelId: Long, position: Long, programTitle: String? = null)
     suspend fun watchHistory(channelId: Long): WatchHistory?
 
     suspend fun channelById(channelId: Long): Channel?
@@ -70,4 +82,10 @@ interface IptvRepository {
     fun buildCatchupUrl(program: Program, channel: Channel): String?
 
     suspend fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File): String
+
+    suspend fun refreshVodSeriesCatalog()
+
+    suspend fun shouldShowWhatsNew(currentVersion: String): Boolean
+    suspend fun markVersionSeen(currentVersion: String)
+    suspend fun exportBackup(file: File): String
 }
