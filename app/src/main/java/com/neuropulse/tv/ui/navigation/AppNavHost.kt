@@ -73,15 +73,15 @@ fun AppNavHost(
         return
     }
 
-    val isHome = current?.startsWith("home") == true
-    val selectedTab = when {
-        current?.startsWith("settings") == true -> EpgNavTab.Settings
-        current?.startsWith("recordings") == true -> EpgNavTab.Recordings
-        else -> EpgNavTab.Home
-    }
+    val hasEmbeddedTopBar = current?.startsWith("home") == true || current?.startsWith("recordings") == true
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (!isHome) {
+        if (!hasEmbeddedTopBar) {
+            val selectedTab = when {
+                current?.startsWith("settings") == true -> EpgNavTab.Settings
+                current?.startsWith("recordings") == true -> EpgNavTab.Recordings
+                else -> EpgNavTab.Home
+            }
             GridNavIconRow(
                 selectedTab = selectedTab,
                 focusedIndex = -1,
@@ -144,7 +144,21 @@ fun AppNavHost(
                 )
             }
             composable(Routes.Recordings.route) {
-                RecordingsScreen()
+                RecordingsScreen(
+                    profileInitials = profileInitials,
+                    onNavigateHome = {
+                        navController.navigate(Routes.Home.route) {
+                            popUpTo(Routes.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    },
+                    onNavigateSettings = { navController.navigate(Routes.Settings.route) { launchSingleTop = true } },
+                    onNavigateProfile = onSwitchProfile,
+                    onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
+                    onPlayRecording = { title, url ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    }
+                )
             }
             composable(
                 route = Routes.Series.route,

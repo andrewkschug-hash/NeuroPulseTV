@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
@@ -323,7 +324,7 @@ fun EpgProgramCell(
                 )
             }
         }
-        if (isAiring) {
+        if (isAiring && isFocused) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -380,16 +381,20 @@ fun EpgTimelineHeader(
         }
         val nowOffset = EpgLayout.offsetForTime(now, windowStart)
         if (now in windowStart..(windowStart + windowDurationMs)) {
-            Column(
-                modifier = Modifier.offset(x = nowOffset),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier
+                    .offset(x = nowOffset - 16.dp)
+                    .width(32.dp)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.TopCenter
             ) {
                 Text(
                     text = "NOW",
                     color = EpgColors.NowLine,
                     fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
         }
@@ -589,5 +594,278 @@ private fun EpgActionButton(
             fontFamily = DmSansFamily,
             fontSize = 13.sp
         )
+    }
+}
+
+@Composable
+fun EpgChipFilterBar(
+    labels: List<String>,
+    activeIndex: Int,
+    focusedIndex: Int,
+    barFocused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        labels.forEachIndexed { index, label ->
+            val selected = index == activeIndex
+            val chipFocused = barFocused && index == focusedIndex
+            val display = if (chipFocused || selected) "[$label]" else label
+            val bg = when {
+                chipFocused -> EpgColors.Accent.copy(alpha = 0.25f)
+                selected -> EpgColors.ChannelRowFocusBg
+                else -> EpgColors.ChannelColumnBg
+            }
+            val borderColor = if (chipFocused) EpgColors.Accent else EpgColors.BorderSubtle
+            Text(
+                text = display,
+                color = if (chipFocused || selected) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = if (chipFocused) FontWeight.SemiBold else FontWeight.Normal,
+                modifier = Modifier
+                    .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                    .background(bg, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun EpgFilterBar(
+    groupNames: List<String>,
+    activeGroupIndex: Int,
+    focusedIndex: Int,
+    barFocused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val labels = buildList {
+        add("All")
+        add("★ Favorites")
+        addAll(groupNames)
+        add("+ Group")
+    }
+    EpgChipFilterBar(
+        labels = labels,
+        activeIndex = activeGroupIndex,
+        focusedIndex = focusedIndex,
+        barFocused = barFocused,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun RecordingsListRow(
+    title: String,
+    subtitle: String,
+    badge: String?,
+    thumbnailPath: String?,
+    isFocused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val bg = if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(EpgLayout.RowHeight)
+            .background(bg)
+            .border(
+                width = if (isFocused) 1.dp else 0.dp,
+                color = EpgColors.FocusBorder,
+                shape = RoundedCornerShape(0.dp)
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isFocused) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(EpgColors.Accent)
+            )
+        }
+        if (thumbnailPath != null && java.io.File(thumbnailPath).exists()) {
+            AsyncImage(
+                model = java.io.File(thumbnailPath),
+                contentDescription = title,
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(72.dp, 44.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(72.dp, 44.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(EpgColors.ChannelColumnBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("▶", color = EpgColors.TextSecondary, fontSize = 18.sp)
+            }
+        }
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 14.dp)
+        ) {
+            Text(
+                text = title,
+                color = if (isFocused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = subtitle,
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        if (badge != null) {
+            Text(
+                text = badge,
+                color = if (badge.contains("REC")) EpgColors.LiveBadge else EpgColors.Accent,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .padding(end = 16.dp)
+                    .background(EpgColors.HdBadgeBg, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun RecordingsDetailPanel(
+    title: String,
+    subtitle: String,
+    meta: String,
+    thumbnailPath: String?,
+    detailActionFocused: Int,
+    actions: List<String>,
+    onActionFocusChange: (Int) -> Unit,
+    onAction: (Int) -> Unit,
+    visible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (!visible) return
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(EpgLayout.DetailPanelHeight)
+            .background(EpgColors.DetailPanelBg)
+            .border(width = 0.5.dp, color = EpgColors.BorderSubtle)
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (thumbnailPath != null && java.io.File(thumbnailPath).exists()) {
+                AsyncImage(
+                    model = java.io.File(thumbnailPath),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(EpgColors.ChannelColumnBg),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(EpgColors.ChannelColumnBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("▶", color = EpgColors.TextSecondary, fontSize = 16.sp)
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                Text(
+                    text = meta,
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.forEachIndexed { index, label ->
+                    EpgActionButton(
+                        label = label,
+                        isFocused = detailActionFocused == index,
+                        onClick = { onAction(index) },
+                        onFocus = { onActionFocusChange(index) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EpgListEmptyState(
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = message,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "Schedule from the live guide or record a program in progress.",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
     }
 }

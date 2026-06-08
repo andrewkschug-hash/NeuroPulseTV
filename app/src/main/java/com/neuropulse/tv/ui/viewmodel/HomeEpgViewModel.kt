@@ -14,6 +14,7 @@ import com.neuropulse.tv.domain.model.VodItem
 import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.parental.ProfileAccessGuard
 import com.neuropulse.tv.player.LivePlayerManager
+import com.neuropulse.tv.ui.component.EpgLayout
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +35,13 @@ class HomeEpgViewModel @Inject constructor(
     val livePlayerManager: LivePlayerManager
 ) : ViewModel() {
 
+    companion object {
+        /** Filter sentinel: show all favorited channels (any group). */
+        const val FAVORITES_FILTER = -1L
+        private const val WINDOW_CHUNK_MS = 2 * 60 * 60 * 1000L
+        private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
+    }
+
     private val _miniPlayerAudioEnabled = MutableStateFlow(false)
     val miniPlayerAudioEnabled = _miniPlayerAudioEnabled.asStateFlow()
 
@@ -50,8 +58,22 @@ class HomeEpgViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val channels: StateFlow<List<Channel>> = _favoriteGroupFilter
-        .flatMapLatest { groupId ->
-            repository.channels(group = null, search = "", favoritesOnly = groupId != null, favoriteGroupId = groupId)
+        .flatMapLatest { filter ->
+            when (filter) {
+                null -> repository.channels(group = null, search = "", favoritesOnly = false)
+                FAVORITES_FILTER -> repository.channels(
+                    group = null,
+                    search = "",
+                    favoritesOnly = true,
+                    favoriteGroupId = FAVORITES_FILTER
+                )
+                else -> repository.channels(
+                    group = null,
+                    search = "",
+                    favoritesOnly = true,
+                    favoriteGroupId = filter
+                )
+            }
         }
         .combine(_activeProfile) { channelList, profile ->
             profile?.let { p ->
@@ -103,7 +125,8 @@ class HomeEpgViewModel @Inject constructor(
     private val _windowStart = MutableStateFlow(System.currentTimeMillis() - 90 * 60 * 1000)
     val windowStart: StateFlow<Long> = _windowStart.asStateFlow()
 
-    val windowDurationMs: Long = 4 * 60 * 60 * 1000
+    private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
+    val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
     val programs: StateFlow<List<Program>> = channels
         .flatMapLatest { ch ->
@@ -129,6 +152,25 @@ class HomeEpgViewModel @Inject constructor(
 
     fun setFavoriteGroupFilter(groupId: Long?) {
         _favoriteGroupFilter.value = groupId
+    }
+
+    /** Extend the visible timeline forward when the user navigates past loaded data. */
+    fun extendWindowForward() {
+        val current = _windowDurationMs.value
+        if (current >= MAX_WINDOW_MS) return
+        _windowDurationMs.value = (current + WINDOW_CHUNK_MS).coerceAtMost(MAX_WINDOW_MS)
+        viewModelScope.launch { loadWindow() }
+    }
+
+    /** Extend the visible timeline backward (into the past). Returns scroll adjustment in px. */
+    fun extendWindowBackward(): Int {
+        val shift = WINDOW_CHUNK_MS
+        val earliest = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000L
+        if (_windowStart.value - shift < earliest) return 0
+        _windowStart.value -= shift
+        _windowDurationMs.value = (_windowDurationMs.value + shift).coerceAtMost(MAX_WINDOW_MS)
+        viewModelScope.launch { loadWindow() }
+        return (shift * EpgLayout.dpPerMs()).toInt()
     }
 
     fun createFavoriteGroup(name: String) {
@@ -193,7 +235,7 @@ class HomeEpgViewModel @Inject constructor(
         _epgLoading.value = true
         val channelIds = channels.value.mapNotNull { it.epgId }
         val start = _windowStart.value
-        val end = start + windowDurationMs
+        val end = start + _windowDurationMs.value
         _epgPrograms.value = withContext(Dispatchers.IO) {
             repository.programsWindow(channelIds, start, end)
         }

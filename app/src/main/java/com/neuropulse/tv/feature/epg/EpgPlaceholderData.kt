@@ -96,7 +96,7 @@ object EpgPlaceholderData {
             val defs = programDefs[epgId] ?: return@forEach
             var cursor = windowStart
             var defIndex = 0
-            while (cursor < windowEnd && defIndex < defs.size * 3) {
+            while (cursor < windowEnd) {
                 val def = defs[defIndex % defs.size]
                 val durationMs = def.second * 60_000L
                 val end = (cursor + durationMs).coerceAtMost(windowEnd)
