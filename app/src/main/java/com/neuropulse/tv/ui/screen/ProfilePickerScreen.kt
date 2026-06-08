@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,6 +52,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -151,22 +152,14 @@ fun ProfilePickerScreen(
             .background(Bg)
             .graphicsLayer { alpha = exitAlpha.value }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            GridWordmark(fontSize = 28.sp)
-        }
-
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 72.dp),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.fillMaxHeight(0.12f))
+            Spacer(modifier = Modifier.height(24.dp))
+            GridWordmark(fontSize = 28.sp)
+
+            Spacer(modifier = Modifier.height(48.dp))
 
             Text(
                 text = "Who's watching?",
@@ -174,7 +167,10 @@ fun ProfilePickerScreen(
                 fontFamily = DmSansFamily,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.offset(y = titleOffset.value.dp)
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = titleOffset.value.dp)
             )
             if (hasProfiles) {
                 Text(
@@ -182,13 +178,15 @@ fun ProfilePickerScreen(
                     color = TextSecondary.copy(alpha = titleAlpha.value),
                     fontFamily = DmSansFamily,
                     fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
+                        .fillMaxWidth()
                         .padding(top = 8.dp)
                         .offset(y = titleOffset.value.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             if (!hasProfiles) {
                 AddProfileCard(
@@ -210,77 +208,74 @@ fun ProfilePickerScreen(
                         }
                 )
             } else {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(
-                        modifier = Modifier
-                            .focusRequester(rowFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent { event ->
-                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                if (focusedOnAddLink) return@onPreviewKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionLeft -> {
-                                        focusedProfileIndex = (focusedProfileIndex - 1).coerceAtLeast(0)
-                                        true
-                                    }
-                                    Key.DirectionRight -> {
-                                        focusedProfileIndex = (focusedProfileIndex + 1).coerceAtMost(profiles.lastIndex)
-                                        true
-                                    }
-                                    Key.DirectionDown -> {
-                                        focusedOnAddLink = true
-                                        addLinkFocusRequester.requestFocus()
-                                        true
-                                    }
-                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                        selectProfile(profiles[focusedProfileIndex])
-                                        true
-                                    }
-                                    else -> false
+                Row(
+                    modifier = Modifier
+                        .focusRequester(rowFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            if (focusedOnAddLink) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionLeft -> {
+                                    focusedProfileIndex = (focusedProfileIndex - 1).coerceAtLeast(0)
+                                    true
                                 }
+                                Key.DirectionRight -> {
+                                    focusedProfileIndex = (focusedProfileIndex + 1).coerceAtMost(profiles.lastIndex)
+                                    true
+                                }
+                                Key.DirectionDown -> {
+                                    focusedOnAddLink = true
+                                    addLinkFocusRequester.requestFocus()
+                                    true
+                                }
+                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                    selectProfile(profiles[focusedProfileIndex])
+                                    true
+                                }
+                                else -> false
                             }
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 48.dp),
-                        horizontalArrangement = Arrangement.spacedBy(32.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        profiles.forEachIndexed { index, profile ->
-                            ProfileCard(
-                                name = profile.name,
-                                initials = profileInitials(profile.name),
-                                avatarColor = parseAvatarColor(profile.avatarColor, index),
-                                focused = !focusedOnAddLink && focusedProfileIndex == index,
-                                alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
-                                offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
-                                onClick = { selectProfile(profile) }
-                            )
                         }
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    profiles.forEachIndexed { index, profile ->
+                        ProfileCard(
+                            name = profile.name,
+                            initials = profileInitials(profile.name),
+                            avatarColor = parseAvatarColor(profile.avatarColor, index),
+                            focused = !focusedOnAddLink && focusedProfileIndex == index,
+                            alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
+                            offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
+                            onClick = { selectProfile(profile) }
+                        )
                     }
-
-                    AddAnotherProfileLink(
-                        focused = focusedOnAddLink,
-                        modifier = Modifier
-                            .padding(top = 24.dp)
-                            .focusRequester(addLinkFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent { event ->
-                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionUp -> {
-                                        focusedOnAddLink = false
-                                        rowFocusRequester.requestFocus()
-                                        true
-                                    }
-                                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                        showAddProfile = true
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            },
-                        onClick = { showAddProfile = true }
-                    )
                 }
+
+                AddAnotherProfileLink(
+                    focused = focusedOnAddLink,
+                    modifier = Modifier
+                        .padding(top = 24.dp)
+                        .focusRequester(addLinkFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionUp -> {
+                                    focusedOnAddLink = false
+                                    rowFocusRequester.requestFocus()
+                                    true
+                                }
+                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                    showAddProfile = true
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    onClick = { showAddProfile = true }
+                )
             }
         }
 
@@ -331,7 +326,8 @@ private fun ProfileCard(
     val nameColor = if (focused) TextPrimary else TextPrimary.copy(alpha = 0.85f)
     val translateY = if (focused) -6f else 0f
 
-    Column(
+    Surface(
+        onClick = onClick,
         modifier = Modifier
             .width(140.dp)
             .height(170.dp)
@@ -339,14 +335,18 @@ private fun ProfileCard(
                 this.alpha = alpha
                 this.translationY = offsetY + translateY
             },
-        horizontalAlignment = Alignment.CenterHorizontally
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp))
     ) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier.size(140.dp, 130.dp),
-            shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(CircleShape)
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     modifier = Modifier
                         .size(88.dp)
@@ -371,16 +371,24 @@ private fun ProfileCard(
                     )
                 }
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = name,
+                    color = nameColor,
+                    fontFamily = DmSansFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
-        Text(
-            text = name,
-            color = nameColor,
-            fontFamily = DmSansFamily,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 12.dp)
-        )
     }
 }
 
@@ -397,18 +405,26 @@ private fun AddProfileCard(
     val translateY = if (focused) -6f else 0f
     val nameColor = if (focused) TextPrimary else TextSecondary
 
-    Column(
+    Surface(
+        onClick = onClick,
         modifier = modifier
             .width(140.dp)
             .height(170.dp)
             .graphicsLayer {
                 this.alpha = alpha
                 this.translationY = offsetY + translateY
-            },
-        horizontalAlignment = Alignment.CenterHorizontally
+            }
     ) {
-        Surface(onClick = onClick, modifier = Modifier.size(140.dp, 130.dp)) {
-            Box(contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     modifier = Modifier
                         .size(88.dp)
@@ -431,15 +447,23 @@ private fun AddProfileCard(
                     )
                 }
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = nameColor,
+                    fontFamily = DmSansFamily,
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
-        Text(
-            text = label,
-            color = nameColor,
-            fontFamily = DmSansFamily,
-            fontSize = 15.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 12.dp)
-        )
     }
 }
 

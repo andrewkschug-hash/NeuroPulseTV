@@ -39,16 +39,17 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.Program
+import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.ui.component.EpgChannelCell
 import com.neuropulse.tv.ui.component.EpgDetailPanel
+import com.neuropulse.tv.ui.component.EpgEmptyState
 import com.neuropulse.tv.ui.component.EpgLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgNowLine
@@ -56,8 +57,8 @@ import com.neuropulse.tv.ui.component.EpgProgramCell
 import com.neuropulse.tv.ui.component.EpgTimeJumpPills
 import com.neuropulse.tv.ui.component.EpgTimelineHeader
 import com.neuropulse.tv.ui.component.EpgTopBar
+import com.neuropulse.tv.ui.component.EpgTopBarTabs
 import com.neuropulse.tv.ui.component.MiniNowPlayingPlayer
-import com.neuropulse.tv.ui.component.MiniPlayerLayout
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
@@ -76,6 +77,7 @@ fun HomeEpgScreen(
     recordingViewModel: RecordingViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
     val epgWindow by viewModel.epgPrograms.collectAsStateWithLifecycle()
@@ -96,16 +98,34 @@ fun HomeEpgScreen(
         viewModel.reloadPlaybackSettings()
     }
 
-    LaunchedEffect(channels, continueWatching) {
-        if (channels.isNotEmpty()) viewModel.tuneLastWatched(context)
+    val showEmptyState = playlists.isEmpty()
+    val usePlaceholder = playlists.isNotEmpty() && channels.isEmpty()
+    val displayChannels = when {
+        showEmptyState -> emptyList()
+        usePlaceholder -> EpgPlaceholderData.channels()
+        else -> channels
+    }
+    val displayPrograms = remember(displayChannels, epgWindow, windowStart, usePlaceholder, showEmptyState) {
+        when {
+            showEmptyState -> emptyList()
+            usePlaceholder -> EpgPlaceholderData.programs(
+                windowStart,
+                windowStart + viewModel.windowDurationMs
+            )
+            else -> epgWindow
+        }
+    }
+
+    LaunchedEffect(channels, continueWatching, usePlaceholder) {
+        if (channels.isNotEmpty() && !usePlaceholder) viewModel.tuneLastWatched(context)
     }
 
     val liveChannelId = livePlayerManager.activeChannelId()
-    val watchingChannel = channels.find { it.id == liveChannelId }
+    val watchingChannel = displayChannels.find { it.id == liveChannelId }
         ?: continueWatching.firstOrNull()
-        ?: channels.firstOrNull()
+        ?: displayChannels.firstOrNull()
     val watchingProgram = watchingChannel?.epgId?.let { epgId ->
-        epgWindow.firstOrNull { it.channelEpgId == epgId && now in it.startTime..it.endTime }
+        displayPrograms.firstOrNull { it.channelEpgId == epgId && now in it.startTime..it.endTime }
     }
 
     var selectedTab by remember { mutableStateOf(EpgNavTab.Home) }
@@ -134,9 +154,9 @@ fun HomeEpgScreen(
         hScroll.scrollTo(target.toInt())
     }
 
-    LaunchedEffect(channels.size, focusZone) {
+    LaunchedEffect(displayChannels.size, focusZone) {
         when (focusZone) {
-            EpgFocusZone.GRID -> if (channels.isNotEmpty()) gridFocusRequester.requestFocus()
+            EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) gridFocusRequester.requestFocus()
             EpgFocusZone.MINI_PLAYER -> miniFocusRequester.requestFocus()
             EpgFocusZone.TOP_NAV -> topNavFocusRequester.requestFocus()
         }
@@ -146,10 +166,10 @@ fun HomeEpgScreen(
         livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
     }
 
-    val focusedChannel = channels.getOrNull(focusChannelIndex)
-    val channelPrograms = remember(focusedChannel, epgWindow) {
+    val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
+    val channelPrograms = remember(focusedChannel, displayPrograms) {
         focusedChannel?.epgId?.let { epgId ->
-            epgWindow.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
         } ?: emptyList()
     }
     val focusedProgram = if (focusOnChannelColumn) {
@@ -161,11 +181,11 @@ fun HomeEpgScreen(
 
     fun programsForChannel(channel: Channel): List<Program> =
         channel.epgId?.let { epgId ->
-            epgWindow.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
         } ?: emptyList()
 
     fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
-        val progs = channels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
+        val progs = displayChannels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
     }
 
@@ -188,7 +208,7 @@ fun HomeEpgScreen(
 
     fun handleTopNavKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        val tabs = EpgNavTab.entries
+        val tabs = EpgTopBarTabs
         return when (event.key) {
             Key.DirectionLeft -> {
                 focusedNavTabIndex = (focusedNavTabIndex - 1).coerceAtLeast(0)
@@ -223,7 +243,7 @@ fun HomeEpgScreen(
             }
             Key.DirectionLeft -> {
                 focusZone = EpgFocusZone.TOP_NAV
-                focusedNavTabIndex = EpgNavTab.entries.lastIndex
+                focusedNavTabIndex = EpgTopBarTabs.lastIndex
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -276,7 +296,7 @@ fun HomeEpgScreen(
 
         return when (event.key) {
             Key.DirectionDown -> {
-                if (focusChannelIndex < channels.lastIndex) {
+                if (focusChannelIndex < displayChannels.lastIndex) {
                     focusChannelIndex += 1
                     if (!focusOnChannelColumn) {
                         focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
@@ -302,7 +322,7 @@ fun HomeEpgScreen(
                     focusOnChannelColumn = false
                     focusProgramIndex = 0
                 } else {
-                    val progs = programsForChannel(channels[focusChannelIndex])
+                    val progs = programsForChannel(displayChannels[focusChannelIndex])
                     if (focusProgramIndex < progs.lastIndex) {
                         focusProgramIndex += 1
                         scrollToProgram(progs[focusProgramIndex])
@@ -315,7 +335,7 @@ fun HomeEpgScreen(
             }
             Key.DirectionLeft -> {
                 if (!focusOnChannelColumn && focusProgramIndex > 0) {
-                    val progs = programsForChannel(channels[focusChannelIndex])
+                    val progs = programsForChannel(displayChannels[focusChannelIndex])
                     focusProgramIndex -= 1
                     scrollToProgram(progs[focusProgramIndex])
                 } else if (!focusOnChannelColumn) {
@@ -328,7 +348,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.PageDown -> {
-                focusChannelIndex = (focusChannelIndex + 10).coerceAtMost(channels.lastIndex)
+                focusChannelIndex = (focusChannelIndex + 10).coerceAtMost(displayChannels.lastIndex)
                 if (!focusOnChannelColumn) focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
                 scope.launch { listState.animateScrollToItem(focusChannelIndex) }
                 true
@@ -362,6 +382,20 @@ fun HomeEpgScreen(
         }
     }
 
+    val atLivePosition = kotlin.math.abs(windowStart - (now - 90 * 60 * 1000)) < 60_000L
+
+    if (showEmptyState) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(EpgColors.Background),
+            contentAlignment = Alignment.Center
+        ) {
+            EpgEmptyState(onAddPlaylist = onNavigateSettings)
+        }
+        return
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -369,16 +403,28 @@ fun HomeEpgScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
-                watchingChannel = watchingChannel,
-                currentProgram = watchingProgram,
                 now = now,
                 selectedTab = selectedTab,
                 focusedNavTabIndex = focusedNavTabIndex,
                 navFocused = focusZone == EpgFocusZone.TOP_NAV,
                 onTabSelected = { tab ->
                     focusZone = EpgFocusZone.TOP_NAV
-                    focusedNavTabIndex = EpgNavTab.entries.indexOf(tab)
+                    focusedNavTabIndex = EpgTopBarTabs.indexOf(tab)
                     activateNavTab(tab)
+                },
+                miniPlayer = {
+                    MiniNowPlayingPlayer(
+                        channel = watchingChannel,
+                        program = watchingProgram,
+                        player = livePlayer,
+                        isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
+                        onFocus = { focusZone = EpgFocusZone.MINI_PLAYER },
+                        modifier = Modifier
+                            .focusRequester(miniFocusRequester)
+                            .onPreviewKeyEvent {
+                                if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
+                            }
+                    )
                 },
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
@@ -427,14 +473,15 @@ fun HomeEpgScreen(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(channels.size) { index ->
-                                val channel = channels[index]
+                            items(displayChannels.size) { index ->
+                                val channel = displayChannels[index]
                                 val programs = programsForChannel(channel)
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     EpgChannelCell(
                                         channel = channel,
                                         isFocused = focusZone == EpgFocusZone.GRID &&
                                             focusOnChannelColumn && index == focusChannelIndex,
+                                        showBottomSeparator = index < displayChannels.lastIndex,
                                         modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
                                     )
                                     EpgChannelTimelineRow(
@@ -475,13 +522,14 @@ fun HomeEpgScreen(
                 }
 
                 EpgTimeJumpPills(
-                    loading = epgLoading,
+                    loading = epgLoading && !usePlaceholder,
                     onPrev2h = { viewModel.loadPrevBlock() },
                     onLive = { viewModel.snapToLive() },
                     onNext2h = { viewModel.loadNextBlock() },
+                    atLivePosition = atLivePosition,
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(top = 8.dp, start = EpgLayout.ChannelColumnWidth + 12.dp)
+                        .padding(top = 8.dp, start = EpgLayout.ChannelColumnWidth + 8.dp)
                 )
             }
 
@@ -507,22 +555,6 @@ fun HomeEpgScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-
-        MiniNowPlayingPlayer(
-            channel = watchingChannel,
-            program = watchingProgram,
-            player = livePlayer,
-            isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
-            onFocus = { focusZone = EpgFocusZone.MINI_PLAYER },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = MiniPlayerLayout.Margin, end = MiniPlayerLayout.Margin)
-                .zIndex(10f)
-                .focusRequester(miniFocusRequester)
-                .onPreviewKeyEvent {
-                    if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
-                }
-        )
     }
 }
 

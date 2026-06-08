@@ -3,6 +3,7 @@ package com.neuropulse.tv.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.Channel
+import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.model.Recommendation
 import com.neuropulse.tv.domain.model.SeriesShow
@@ -27,6 +28,9 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _miniPlayerAudioEnabled = MutableStateFlow(false)
     val miniPlayerAudioEnabled = _miniPlayerAudioEnabled.asStateFlow()
+
+    val playlists: StateFlow<List<Playlist>> = repository.playlists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

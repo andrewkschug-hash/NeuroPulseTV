@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -34,9 +40,8 @@ import com.neuropulse.tv.ui.theme.EpgColors
 object MiniPlayerLayout {
     val Width = 240.dp
     val Height = 135.dp
-    val Margin = 16.dp
     val CornerRadius = 10.dp
-    val ReservedWidth = Width + Margin
+    val IdleBg = Color(0xFF13131A)
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -49,8 +54,27 @@ fun MiniNowPlayingPlayer(
     onFocus: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.12f)
+    var isPlaying by remember { mutableStateOf(false) }
+
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isPlaying = player?.isPlaying == true
+            }
+        }
+        player?.addListener(listener)
+        isPlaying = player?.isPlaying == true && player.mediaItemCount > 0
+        onDispose { player?.removeListener(listener) }
+    }
+
+    val showVideo = player != null && isPlaying
+    val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.15f)
     val borderWidth = if (isFocused) 2.dp else 1.5.dp
+    val initials = channel?.name?.take(2)?.uppercase() ?: "TV"
 
     Box(
         modifier = modifier
@@ -60,7 +84,7 @@ fun MiniNowPlayingPlayer(
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocus() }
     ) {
-        if (player != null) {
+        if (showVideo) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -77,21 +101,27 @@ fun MiniNowPlayingPlayer(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(EpgColors.GridBg)
-            )
-        }
-
-        channel?.let { ch ->
-            AsyncImage(
-                model = ch.logoUrl,
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .size(20.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color.Black.copy(alpha = 0.55f))
-            )
+                    .background(MiniPlayerLayout.IdleBg),
+                contentAlignment = Alignment.Center
+            ) {
+                if (channel?.logoUrl != null) {
+                    AsyncImage(
+                        model = channel.logoUrl,
+                        contentDescription = channel.name,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                } else {
+                    Text(
+                        text = initials,
+                        color = EpgColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
 
         if (isFocused) {
