@@ -1,0 +1,32 @@
+package com.neuropulse.tv.data.db.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import com.neuropulse.tv.data.db.entity.EpgSourceChannelEntity
+
+@Dao
+interface EpgSourceChannelDao {
+    @Query("SELECT * FROM epg_source_channels WHERE source = :source")
+    suspend fun bySource(source: String): List<EpgSourceChannelEntity>
+
+    @Query("SELECT MAX(cachedAt) FROM epg_source_channels WHERE source = :source")
+    suspend fun lastCachedAt(source: String): Long?
+
+    @Query("DELETE FROM epg_source_channels WHERE source = :source")
+    suspend fun clearBySource(source: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(items: List<EpgSourceChannelEntity>)
+
+    @Query(
+        """
+        SELECT * FROM epg_source_channels
+        WHERE normalizedName LIKE '%' || :normalized || '%'
+        ORDER BY normalizedName ASC
+        LIMIT 50
+        """
+    )
+    suspend fun searchNormalized(normalized: String): List<EpgSourceChannelEntity>
+}
