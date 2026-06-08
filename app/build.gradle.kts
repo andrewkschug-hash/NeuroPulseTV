@@ -90,6 +90,15 @@ android {
     }
 }
 
+configurations.configureEach {
+    resolutionStrategy {
+        force("androidx.room:room-runtime:2.6.1")
+        force("androidx.room:room-runtime-android:2.6.1")
+        force("androidx.room:room-ktx:2.6.1")
+        force("androidx.room:room-common:2.6.1")
+    }
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
 
