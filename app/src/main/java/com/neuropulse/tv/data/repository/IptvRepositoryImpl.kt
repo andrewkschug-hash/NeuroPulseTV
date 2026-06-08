@@ -19,7 +19,7 @@ import com.neuropulse.tv.data.db.entity.ProfileSettingsEntity
 import com.neuropulse.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
-import com.neuropulse.tv.data.network.api.PlaylistApi
+import com.neuropulse.tv.data.network.RemoteTextFetcher
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
@@ -78,7 +78,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val programDao: ProgramDao,
     private val recordingDao: RecordingDao,
     private val streamHealthDao: StreamHealthDao,
-    private val api: PlaylistApi,
+    private val remoteTextFetcher: RemoteTextFetcher,
     private val m3uParser: M3uParser,
     private val xtreamParser: XtreamParser,
     private val xmlTvParser: XmlTvParser,
@@ -436,7 +436,6 @@ class IptvRepositoryImpl @Inject constructor(
                     return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
                 }
                 val playlistId = insertM3uPlaylist(displayName, trimmedUrl, null, 24)
-                secureCredentialStore.saveM3uUrl(playlistId, trimmedUrl)
                 val count = channelDao.countByPlaylist(playlistId)
                 if (count == 0) {
                     playlistDao.delete(playlistId)
@@ -461,7 +460,7 @@ class IptvRepositoryImpl @Inject constructor(
                 return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
             }
             val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-            val auth = xtreamParser.parseAuth(api.fetchText(authUrl))
+            val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
             if (auth.status.equals("Expired", ignoreCase = true)) {
                 return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
             }
@@ -503,20 +502,21 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
         val startedAt = System.currentTimeMillis()
+        val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
         val playlistId = playlistDao.insert(
             PlaylistEntity(
                 name = name,
-                url = url,
+                url = normalizedUrl,
                 epgUrl = epgUrl,
                 refreshIntervalHours = refreshHours,
                 type = PlaylistType.M3U.name
             )
         )
-        val raw = api.fetchText(url)
+        val raw = remoteTextFetcher.fetch(normalizedUrl)
         val final = m3uParser.parseAsFlow(playlistId, raw).first { it.done }
         channelDao.clearByPlaylist(playlistId)
         channelDao.insertAll(final.channels)
-        secureCredentialStore.saveM3uUrl(playlistId, url)
+        secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
         epgScheduler.runResolverForNewChannels(startedAt)
         return playlistId
     }
@@ -531,7 +531,7 @@ class IptvRepositoryImpl @Inject constructor(
     ): Long {
         val startedAt = System.currentTimeMillis()
         val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-        val auth = xtreamParser.parseAuth(api.fetchText(authUrl))
+        val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
         val normalizedServer = if (auth.serverUrl.isNotBlank()) auth.serverUrl else normalizeServerUrl(serverUrl)
 
         val playlistId = playlistDao.insert(
@@ -551,10 +551,10 @@ class IptvRepositoryImpl @Inject constructor(
         )
         secureCredentialStore.saveXtreamPassword(playlistId, password)
 
-        val categoriesRaw = api.fetchText(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories"))
-        val liveRaw = api.fetchText(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams"))
-        val vodRaw = api.fetchText(buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_streams"))
-        val seriesRaw = api.fetchText(buildXtreamApiUrl(normalizedServer, username, password, action = "get_series"))
+        val categoriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories"))
+        val liveRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams"))
+        val vodRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_streams"))
+        val seriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_series"))
 
         val categories = xtreamParser.parseLiveCategories(categoriesRaw)
         val liveChannels = xtreamParser.parseLiveChannels(playlistId, liveRaw, username, password, normalizedServer, categories)
@@ -616,10 +616,12 @@ class IptvRepositoryImpl @Inject constructor(
         programDao.purgeOlderThan(threshold)
         playlistDao.all().forEach { playlist ->
             val epgUrl = playlist.epgUrl ?: return@forEach
-            val xml = api.fetchText(epgUrl)
-            val parsed = xmlTvParser.parse(xml)
-            programDao.insertAll(parsed.programs)
-            playlistDao.update(playlist.copy(lastRefreshed = now))
+            runCatching {
+                val xml = remoteTextFetcher.fetch(epgUrl)
+                val parsed = xmlTvParser.parse(xml)
+                programDao.insertAll(parsed.programs)
+                playlistDao.update(playlist.copy(lastRefreshed = now))
+            }
         }
     }
 
@@ -628,7 +630,7 @@ class IptvRepositoryImpl @Inject constructor(
         val server = playlist.xtreamServerUrl ?: return emptyList()
         val user = playlist.xtreamUsername ?: return emptyList()
         val pass = resolveXtreamPassword(playlist) ?: return emptyList()
-        val raw = api.fetchText(
+        val raw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(server, user, pass, action = "get_simple_data_table", extra = "stream_id=$streamId")
         )
         return xtreamParser.parseSimpleDataTable(raw)
@@ -654,8 +656,8 @@ class IptvRepositoryImpl @Inject constructor(
         val server = playlist.xtreamServerUrl ?: return@withContext
         val user = playlist.xtreamUsername ?: return@withContext
         val pass = resolveXtreamPassword(playlist) ?: return@withContext
-        val vodRaw = api.fetchText(buildXtreamApiUrl(server, user, pass, action = "get_vod_streams"))
-        val seriesRaw = api.fetchText(buildXtreamApiUrl(server, user, pass, action = "get_series"))
+        val vodRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(server, user, pass, action = "get_vod_streams"))
+        val seriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(server, user, pass, action = "get_series"))
         vodCache.value = xtreamParser.parseVod(vodRaw, user, pass, server)
         seriesCache.value = xtreamParser.parseSeries(seriesRaw)
         seriesSeasonsCache.clear()
@@ -671,7 +673,7 @@ class IptvRepositoryImpl @Inject constructor(
         val server = playlist.xtreamServerUrl ?: return emptyList()
         val user = playlist.xtreamUsername ?: return emptyList()
         val pass = resolveXtreamPassword(playlist) ?: return emptyList()
-        val raw = api.fetchText(
+        val raw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
         )
         val seasons = xtreamParser.parseSeriesInfo(raw, user, pass, server)

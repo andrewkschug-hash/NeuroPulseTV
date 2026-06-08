@@ -20,7 +20,6 @@ import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
-import com.neuropulse.tv.data.network.api.PlaylistApi
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
@@ -34,8 +33,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
-import retrofit2.converter.scalars.ScalarsConverterFactory
 import javax.inject.Singleton
 
 @Module
@@ -60,16 +57,6 @@ object AppProvidesModule {
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
         .retryOnConnectionFailure(true)
         .build()
-
-    @Provides
-    @Singleton
-    fun provideApi(client: OkHttpClient): PlaylistApi =
-        Retrofit.Builder()
-            .baseUrl("https://localhost/")
-            .client(client)
-            .addConverterFactory(ScalarsConverterFactory.create())
-            .build()
-            .create(PlaylistApi::class.java)
 
     @Provides
     fun provideM3uParser(): M3uParser = M3uParser()

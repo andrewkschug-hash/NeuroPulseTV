@@ -225,6 +225,17 @@ fun HomeEpgScreen(
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
     }
 
+    LaunchedEffect(displayChannels.size) {
+        if (displayChannels.isEmpty()) {
+            focusChannelIndex = 0
+            focusProgramIndex = 0
+            focusOnChannelColumn = false
+        } else if (focusChannelIndex > displayChannels.lastIndex) {
+            focusChannelIndex = displayChannels.lastIndex
+            focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
+        }
+    }
+
     fun liveScrollTarget(): Int =
         ((now - windowStart) * EpgLayout.dpPerMs() - 400f).coerceAtLeast(0f).toInt()
 
@@ -372,6 +383,7 @@ fun HomeEpgScreen(
 
     fun handleGridKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (displayChannels.isEmpty()) return false
         if (detailExpanded) {
             return when (event.key) {
                 Key.DirectionLeft -> {
@@ -431,7 +443,8 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionRight -> {
-                val progs = programsForChannel(displayChannels[focusChannelIndex])
+                val channel = displayChannels.getOrNull(focusChannelIndex) ?: return false
+                val progs = programsForChannel(channel)
                 if (focusOnChannelColumn) {
                     focusOnChannelColumn = false
                     focusProgramIndex = 0
@@ -446,7 +459,8 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionLeft -> {
-                val progs = programsForChannel(displayChannels[focusChannelIndex])
+                val channel = displayChannels.getOrNull(focusChannelIndex) ?: return false
+                val progs = programsForChannel(channel)
                 if (!focusOnChannelColumn && focusProgramIndex > 0) {
                     focusProgramIndex -= 1
                     scrollToProgram(progs[focusProgramIndex])
