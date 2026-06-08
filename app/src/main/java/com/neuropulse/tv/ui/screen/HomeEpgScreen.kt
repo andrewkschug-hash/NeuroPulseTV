@@ -135,12 +135,12 @@ fun HomeEpgScreen(
         usePlaceholder -> EpgPlaceholderData.channels()
         else -> channels
     }
-    val displayPrograms = remember(displayChannels, epgWindow, windowStart, usePlaceholder, showEmptyState) {
+    val displayPrograms = remember(displayChannels, epgWindow, windowStart, windowDurationMs, usePlaceholder, showEmptyState) {
         when {
             showEmptyState -> emptyList()
             usePlaceholder -> EpgPlaceholderData.programs(
                 windowStart,
-                windowStart + viewModel.windowDurationMs
+                windowStart + windowDurationMs
             )
             else -> epgWindow
         }
