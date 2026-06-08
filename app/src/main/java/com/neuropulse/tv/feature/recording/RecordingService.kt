@@ -6,10 +6,9 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.ReturnCode
 import com.neuropulse.tv.R
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
@@ -17,6 +16,7 @@ import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import javax.inject.Inject
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,11 +36,15 @@ class RecordingService : Service() {
     @Inject
     lateinit var storageManager: RecordingStorageManager
 
+    @Inject
+    lateinit var okHttpClient: OkHttpClient
+
     private val scope = CoroutineScope(Dispatchers.IO)
     private var notificationJob: Job? = null
+    private var recordingJob: Job? = null
+    private var streamRecorder: TsStreamRecorder? = null
     private var currentOutputPath: String? = null
     private var recordingStartedAt: Long = 0L
-    private var ffmpegSessionId: Long = -1
     private var currentScheduledId: Long = -1
     private var currentChannelId: Long = -1
     private var currentChannelName: String = ""
@@ -111,25 +115,15 @@ class RecordingService : Service() {
             }
         }
 
-        val whitelist = if (streamUrl.contains(".m3u8", ignoreCase = true)) {
-            "-protocol_whitelist file,http,https,tcp,tls,crypto"
-        } else {
-            ""
-        }
-        val command = listOf(
-            whitelist,
-            "-i", "\"$streamUrl\"",
-            "-c", "copy",
-            "-f", "mpegts",
-            "\"${outputFile.absolutePath}\""
-        ).filter { it.isNotBlank() }.joinToString(" ")
-
-        val session = FFmpegKit.executeAsync(command) { completed ->
-            val ok = ReturnCode.isSuccess(completed.returnCode)
-            scope.launch { finalizeRecording(ok, outputDir) }
+        recordingJob?.cancel()
+        recordingJob = scope.launch {
+            val recorder = TsStreamRecorder(okHttpClient, outputFile)
+            streamRecorder = recorder
+            val success = recorder.record(streamUrl)
+            streamRecorder = null
+            finalizeRecording(success, outputDir)
             stopSelf()
         }
-        ffmpegSessionId = session.sessionId
 
         notificationJob?.cancel()
         notificationJob = scope.launch {
@@ -153,7 +147,7 @@ class RecordingService : Service() {
 
     private fun stopRecording(manual: Boolean) {
         notificationJob?.cancel()
-        if (ffmpegSessionId > 0) FFmpegKit.cancel(ffmpegSessionId)
+        streamRecorder?.cancel()
         if (manual) stopSelf()
     }
 
@@ -188,11 +182,13 @@ class RecordingService : Service() {
 
     override fun onDestroy() {
         notificationJob?.cancel()
-        if (ffmpegSessionId > 0) FFmpegKit.cancel(ffmpegSessionId)
+        streamRecorder?.cancel()
+        recordingJob?.cancel()
         super.onDestroy()
     }
 
     private fun createChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW)
         nm.createNotificationChannel(channel)

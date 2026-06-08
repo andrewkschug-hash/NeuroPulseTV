@@ -145,7 +145,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
-    implementation(libs.ffmpeg.kit.min)
 
     testImplementation(libs.junit4)
     testImplementation(libs.mockk)
