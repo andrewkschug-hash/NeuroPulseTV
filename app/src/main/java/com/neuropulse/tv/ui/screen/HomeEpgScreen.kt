@@ -76,6 +76,7 @@ import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
 import com.neuropulse.tv.ui.component.SearchOverlay
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.theme.EpgColors
+import com.neuropulse.tv.ui.viewmodel.EpgGuidePosition
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SearchViewModel
@@ -332,6 +333,19 @@ fun HomeEpgScreen(
         }
     }
 
+    val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
+    val channelPrograms = remember(focusedChannel, displayPrograms) {
+        focusedChannel?.epgId?.let { epgId ->
+            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+        } ?: emptyList()
+    }
+    val focusedProgram = if (focusOnChannelColumn) {
+        channelPrograms.firstOrNull { now in it.startTime..it.endTime }
+            ?: channelPrograms.firstOrNull()
+    } else {
+        channelPrograms.getOrNull(focusProgramIndex)
+    }
+
     fun previewFocusedChannel() {
         if (usePlaceholder) return
         val ch = displayChannels.getOrNull(focusChannelIndex) ?: return
@@ -355,18 +369,6 @@ fun HomeEpgScreen(
         livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
     }
 
-    val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
-    val channelPrograms = remember(focusedChannel, displayPrograms) {
-        focusedChannel?.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
-        } ?: emptyList()
-    }
-    val focusedProgram = if (focusOnChannelColumn) {
-        channelPrograms.firstOrNull { now in it.startTime..it.endTime }
-            ?: channelPrograms.firstOrNull()
-    } else {
-        channelPrograms.getOrNull(focusProgramIndex)
-    }
     val previewStreamStatus = if (focusedChannel?.id == liveChannelId) {
         playbackStatus
     } else {
