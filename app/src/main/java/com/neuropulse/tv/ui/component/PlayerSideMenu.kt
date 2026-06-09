@@ -31,24 +31,43 @@ import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
+enum class PlayerSideMenuSection { CHANNELS, SPORTS, NEWS, ACTIONS }
+
+data class PlayerSideMenuSportItem(
+    val channel: Channel,
+    val programTitle: String
+)
+
+data class PlayerSideMenuAction(
+    val id: String,
+    val label: String,
+    val glyph: String? = null
+)
+
 @Composable
 fun PlayerSideMenu(
     visible: Boolean,
     channels: List<Channel>,
+    sportsItems: List<PlayerSideMenuSportItem>,
+    newsChannels: List<Channel>,
+    actions: List<PlayerSideMenuAction>,
     currentChannelId: Long?,
-    focusedChannelIndex: Int,
-    focusedActionIndex: Int,
-    actions: List<String>,
-    onDismiss: () -> Unit,
-    onChannelSelected: (Channel) -> Unit,
+    focusedSection: PlayerSideMenuSection,
+    focusedIndex: Int,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
-    LaunchedEffect(focusedChannelIndex, visible) {
-        if (visible && focusedActionIndex < 0 && focusedChannelIndex in channels.indices) {
-            listState.animateScrollToItem(focusedChannelIndex)
-        }
+    LaunchedEffect(focusedSection, focusedIndex, visible) {
+        if (!visible) return@LaunchedEffect
+        val row = sectionStartRow(
+            focusedSection,
+            channels.size,
+            sportsItems.size,
+            newsChannels.size,
+            actions.size
+        ) + focusedIndex
+        listState.animateScrollToItem(row.coerceAtLeast(0))
     }
 
     AnimatedVisibility(
@@ -64,7 +83,8 @@ fun PlayerSideMenu(
                     .fillMaxHeight()
                     .background(EpgColors.Background.copy(alpha = 0.45f))
             )
-            Column(
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .width(300.dp)
                     .fillMaxHeight()
@@ -72,112 +92,216 @@ fun PlayerSideMenu(
                     .border(width = 1.dp, color = EpgColors.BorderSubtle)
                     .padding(vertical = 16.dp)
             ) {
-                Text(
-                    text = "Channels",
-                    color = EpgColors.TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    itemsIndexed(channels) { index, channel ->
-                        val focused = focusedActionIndex < 0 && index == focusedChannelIndex
-                        val selected = channel.id == currentChannelId
-                        val bg = when {
-                            focused -> EpgColors.ChannelRowFocusBg
-                            selected -> EpgColors.Accent.copy(alpha = 0.15f)
-                            else -> EpgColors.GridBg
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 2.dp)
-                                .background(bg, RoundedCornerShape(6.dp))
-                                .then(
-                                    if (focused) {
-                                        Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = channel.number.toString(),
-                                color = EpgColors.TextSecondary,
-                                fontFamily = DmSansFamily,
-                                fontSize = 12.sp,
-                                modifier = Modifier.width(28.dp)
-                            )
-                            Text(
-                                text = channel.name,
-                                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
-                                fontFamily = DmSansFamily,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            if (selected) {
-                                Text(
-                                    text = "●",
-                                    color = EpgColors.Accent,
-                                    fontSize = 10.sp
-                                )
-                            }
-                        }
-                    }
+                item {
+                    SectionHeader("Channels")
                 }
-                Text(
-                    text = "Quick actions",
-                    color = EpgColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                actions.forEachIndexed { index, label ->
-                    val focused = focusedActionIndex == index
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 2.dp)
-                            .background(
-                                if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
-                                RoundedCornerShape(6.dp)
-                            )
-                            .then(
-                                if (focused) {
-                                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp
+                itemsIndexed(channels, key = { _, ch -> "ch-${ch.id}" }) { index, channel ->
+                    ChannelRow(
+                        channel = channel,
+                        subtitle = null,
+                        focused = focusedSection == PlayerSideMenuSection.CHANNELS && index == focusedIndex,
+                        selected = channel.id == currentChannelId
+                    )
+                }
+                if (sportsItems.isNotEmpty()) {
+                    item { SectionHeader("Live Sports") }
+                    itemsIndexed(sportsItems, key = { _, item -> "sport-${item.channel.id}" }) { index, item ->
+                        ChannelRow(
+                            channel = item.channel,
+                            subtitle = item.programTitle,
+                            focused = focusedSection == PlayerSideMenuSection.SPORTS && index == focusedIndex,
+                            selected = item.channel.id == currentChannelId
                         )
                     }
                 }
-                Text(
-                    text = "← Close menu",
-                    color = EpgColors.TextDimmed,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
-                )
+                if (newsChannels.isNotEmpty()) {
+                    item { SectionHeader("News") }
+                    itemsIndexed(newsChannels, key = { _, ch -> "news-${ch.id}" }) { index, channel ->
+                        ChannelRow(
+                            channel = channel,
+                            subtitle = null,
+                            focused = focusedSection == PlayerSideMenuSection.NEWS && index == focusedIndex,
+                            selected = channel.id == currentChannelId
+                        )
+                    }
+                }
+                item { SectionHeader("Quick actions") }
+                itemsIndexed(actions, key = { _, action -> "action-${action.id}" }) { index, action ->
+                    ActionRow(
+                        action = action,
+                        focused = focusedSection == PlayerSideMenuSection.ACTIONS && index == focusedIndex
+                    )
+                }
+                item {
+                    Text(
+                        text = "← Close menu",
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        color = if (title == "Quick actions") EpgColors.TextSecondary else EpgColors.TextPrimary,
+        fontFamily = DmSansFamily,
+        fontSize = if (title == "Quick actions") 12.sp else 16.sp,
+        fontWeight = if (title == "Quick actions") FontWeight.Normal else FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun ChannelRow(
+    channel: Channel,
+    subtitle: String?,
+    focused: Boolean,
+    selected: Boolean
+) {
+    val bg = when {
+        focused -> EpgColors.ChannelRowFocusBg
+        selected -> EpgColors.Accent.copy(alpha = 0.15f)
+        else -> EpgColors.GridBg
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .background(bg, RoundedCornerShape(6.dp))
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                } else {
+                    Modifier
+                }
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = channel.number.toString(),
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                modifier = Modifier.width(28.dp)
+            )
+            Text(
+                text = channel.name,
+                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (selected) {
+                Text(text = "●", color = EpgColors.Accent, fontSize = 10.sp)
+            }
+        }
+        if (!subtitle.isNullOrBlank()) {
+            Text(
+                text = subtitle,
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 38.dp, top = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+            .background(
+                if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
+                RoundedCornerShape(6.dp)
+            )
+            .then(
+                if (focused) {
+                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                } else {
+                    Modifier
+                }
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (action.glyph != null) {
+            Text(
+                text = action.glyph,
+                color = if (focused) EpgColors.Accent else EpgColors.TextSecondary,
+                fontSize = 18.sp
+            )
+        }
+        Text(
+            text = action.label,
+            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp
+        )
+    }
+}
+
+fun visiblePlayerSideMenuSections(
+    sportsCount: Int,
+    newsCount: Int
+): List<PlayerSideMenuSection> = buildList {
+    add(PlayerSideMenuSection.CHANNELS)
+    if (sportsCount > 0) add(PlayerSideMenuSection.SPORTS)
+    if (newsCount > 0) add(PlayerSideMenuSection.NEWS)
+    add(PlayerSideMenuSection.ACTIONS)
+}
+
+fun sectionSize(
+    section: PlayerSideMenuSection,
+    channelCount: Int,
+    sportsCount: Int,
+    newsCount: Int,
+    actionCount: Int
+): Int = when (section) {
+    PlayerSideMenuSection.CHANNELS -> channelCount
+    PlayerSideMenuSection.SPORTS -> sportsCount
+    PlayerSideMenuSection.NEWS -> newsCount
+    PlayerSideMenuSection.ACTIONS -> actionCount
+}
+
+private fun sectionStartRow(
+    section: PlayerSideMenuSection,
+    channelCount: Int,
+    sportsCount: Int,
+    newsCount: Int,
+    actionCount: Int
+): Int {
+    var row = 1 // Channels header
+    if (section == PlayerSideMenuSection.CHANNELS) return row
+    row += channelCount
+    if (sportsCount > 0) {
+        row += 1 // Sports header
+        if (section == PlayerSideMenuSection.SPORTS) return row
+        row += sportsCount
+    }
+    if (newsCount > 0) {
+        row += 1 // News header
+        if (section == PlayerSideMenuSection.NEWS) return row
+        row += newsCount
+    }
+    row += 1 // Actions header
+    return row
 }

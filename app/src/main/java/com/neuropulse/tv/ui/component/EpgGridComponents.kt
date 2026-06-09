@@ -43,6 +43,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.neuropulse.tv.domain.model.Channel
+import com.neuropulse.tv.player.StreamPlaybackStatus
+import com.neuropulse.tv.player.userLabel
 import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.model.ProgramGenre
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -129,6 +131,10 @@ fun EpgTopBar(
     onProfileClick: () -> Unit = {},
     onSwitchAccounts: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    categoryFilterLabel: String = "Filter",
+    categoryFilterActive: Boolean = false,
+    categoryFilterFocused: Boolean = false,
+    onCategoryFilterClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -154,6 +160,13 @@ fun EpgTopBar(
                 onProfileClick = onProfileClick,
                 modifier = Modifier.weight(1f),
                 trailing = {
+                    EpgCategoryFilterChip(
+                        label = categoryFilterLabel,
+                        active = categoryFilterActive,
+                        focused = categoryFilterFocused,
+                        onClick = onCategoryFilterClick,
+                        modifier = Modifier.padding(end = 12.dp)
+                    )
                     Column(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier.padding(end = 12.dp)
@@ -548,6 +561,7 @@ fun EpgDetailPanel(
     onFavorite: () -> Unit = {},
     onMoreInfo: () -> Unit,
     visible: Boolean,
+    streamStatus: StreamPlaybackStatus? = null,
     previewContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -601,6 +615,11 @@ fun EpgDetailPanel(
                     EpgTagPill(genreLabel(program.genre), EpgColors.HdBadgeBg, EpgColors.TextSecondary)
                     if (programTimeState(program, now) == ProgramTimeState.AIRING) {
                         EpgTagPill("HD", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                    }
+                    streamStatus?.let { status ->
+                        if (status.userLabel().isNotBlank()) {
+                            StreamStatusBadge(status = status, compact = true)
+                        }
                     }
                 }
                 Text(

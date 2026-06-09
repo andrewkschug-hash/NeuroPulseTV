@@ -3,6 +3,12 @@ package com.neuropulse.tv.player
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,6 +22,12 @@ class LivePlayerManager @Inject constructor(
     private var currentChannelId: Long? = null
     private var currentStreamUrl: String? = null
     private var miniAudioEnabled: Boolean = false
+    private val _activeChannelId = MutableStateFlow<Long?>(null)
+    val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
+
+    private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
+    val playbackStatus: StateFlow<StreamPlaybackStatus> = playbackMonitor.status
 
     var mode: Mode = Mode.IDLE
         private set
@@ -34,13 +46,22 @@ class LivePlayerManager @Inject constructor(
 
     fun tuneChannel(context: Context, channelId: Long, streamUrl: String) {
         val exo = getOrCreatePlayer(context)
+        playbackMonitor.attach(exo)
+        playbackMonitor.onTuneStarted(streamUrl)
         if (currentChannelId == channelId && currentStreamUrl == streamUrl) {
             exo.playWhenReady = true
             applyVolume()
             return
         }
+        if (streamUrl.isBlank()) {
+            currentChannelId = channelId
+            currentStreamUrl = streamUrl
+            _activeChannelId.value = channelId
+            return
+        }
         currentChannelId = channelId
         currentStreamUrl = streamUrl
+        _activeChannelId.value = channelId
         exo.setMediaItem(MediaItem.fromUri(streamUrl))
         exo.prepare()
         exo.playWhenReady = true
@@ -71,10 +92,12 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun release() {
+        playbackMonitor.detach()
         player?.release()
         player = null
         currentChannelId = null
         currentStreamUrl = null
+        _activeChannelId.value = null
         mode = Mode.IDLE
     }
 }

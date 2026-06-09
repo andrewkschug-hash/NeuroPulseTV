@@ -12,7 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +34,9 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.Program
+import com.neuropulse.tv.player.StreamPlaybackStatus
+import com.neuropulse.tv.player.isHealthy
+import com.neuropulse.tv.player.userLabel
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
@@ -53,26 +56,28 @@ fun MiniNowPlayingPlayer(
     isFocused: Boolean,
     onFocus: () -> Unit,
     sleepCountdown: String? = null,
+    streamStatus: StreamPlaybackStatus = StreamPlaybackStatus.IDLE,
     modifier: Modifier = Modifier
 ) {
-    var isPlaying by remember { mutableStateOf(false) }
+    var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
             }
 
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                isPlaying = player?.isPlaying == true
+            override fun onIsPlayingChanged(playing: Boolean) {
+                playbackState = player?.playbackState ?: Player.STATE_IDLE
             }
         }
         player?.addListener(listener)
-        isPlaying = player?.isPlaying == true && player.mediaItemCount > 0
+        playbackState = player?.playbackState ?: Player.STATE_IDLE
         onDispose { player?.removeListener(listener) }
     }
 
-    val showVideo = player != null && isPlaying
+    val hasMedia = player != null && (player.mediaItemCount > 0)
+    val showVideo = hasMedia && playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED
     val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.15f)
     val borderWidth = if (isFocused) 2.dp else 1.5.dp
     val initials = channel?.name?.take(2)?.uppercase() ?: "TV"
@@ -85,7 +90,7 @@ fun MiniNowPlayingPlayer(
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocus() }
     ) {
-        if (showVideo) {
+        if (hasMedia) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
@@ -98,7 +103,9 @@ fun MiniNowPlayingPlayer(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        } else {
+        }
+
+        if (!showVideo) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -114,15 +121,46 @@ fun MiniNowPlayingPlayer(
                             .clip(RoundedCornerShape(6.dp))
                     )
                 } else {
-                    Text(
-                        text = initials,
-                        color = EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = initials,
+                            color = EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        val statusLabel = streamStatus.userLabel()
+                        if (statusLabel.isNotBlank()) {
+                            Text(
+                                text = statusLabel,
+                                color = EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
+        }
+
+        if (showVideo && !streamStatus.isHealthy()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center
+            ) {
+                StreamStatusBadge(status = streamStatus)
+            }
+        } else if (showVideo && streamStatus == StreamPlaybackStatus.PLAYING) {
+            StreamStatusBadge(
+                status = streamStatus,
+                compact = true,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+            )
         }
 
         if (!sleepCountdown.isNullOrBlank()) {

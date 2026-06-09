@@ -16,6 +16,7 @@ import com.neuropulse.tv.feature.epg.ChannelCategoryFilter
 import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
 import com.neuropulse.tv.feature.parental.ProfileAccessGuard
 import com.neuropulse.tv.player.LivePlayerManager
+import com.neuropulse.tv.player.StreamPlaybackStatus
 import com.neuropulse.tv.ui.component.EpgLayout
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+
+data class EpgGuidePosition(
+    val focusChannelIndex: Int = 0,
+    val focusProgramIndex: Int = 0,
+    val focusOnChannelColumn: Boolean = true,
+    val timelineScrollPx: Int = 0,
+    val hasSavedPosition: Boolean = false
+)
 
 @HiltViewModel
 class HomeEpgViewModel @Inject constructor(
@@ -74,6 +83,9 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _hideAdultContent = MutableStateFlow(true)
     val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
+
+    private val _guidePosition = MutableStateFlow(EpgGuidePosition())
+    val guidePosition: StateFlow<EpgGuidePosition> = _guidePosition.asStateFlow()
 
     val channels: StateFlow<List<Channel>> = _favoriteGroupFilter
         .flatMapLatest { filter ->
@@ -181,6 +193,10 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
+    fun saveGuidePosition(position: EpgGuidePosition) {
+        _guidePosition.value = position.copy(hasSavedPosition = true)
+    }
+
     fun setFavoriteGroupFilter(groupId: Long?) {
         _favoriteGroupFilter.value = groupId
     }
@@ -286,6 +302,39 @@ class HomeEpgViewModel @Inject constructor(
             livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
             repository.saveWatchPosition(ch.id, 0L)
+        }
+    }
+
+    private var lastHealthReport: Pair<Long, StreamPlaybackStatus>? = null
+
+    fun reportPlaybackHealth(channelId: Long, status: StreamPlaybackStatus) {
+        if (status == StreamPlaybackStatus.IDLE || status == StreamPlaybackStatus.LOADING) return
+        val key = channelId to status
+        if (lastHealthReport == key) return
+        lastHealthReport = key
+        val success = status == StreamPlaybackStatus.PLAYING ||
+            status == StreamPlaybackStatus.AUDIO_ONLY
+        viewModelScope.launch {
+            repository.reportStreamSession(
+                channelId = channelId,
+                loadMs = if (success) 1200 else 5000,
+                bufferEvents = when (status) {
+                    StreamPlaybackStatus.STALLED, StreamPlaybackStatus.NO_SIGNAL -> 3
+                    StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> 5
+                    else -> 0
+                },
+                success = success
+            )
+        }
+    }
+
+    fun previewChannel(context: android.content.Context, channel: Channel, programTitle: String? = null) {
+        lastHealthReport = null
+        viewModelScope.launch {
+            if (channel.streamUrl.isBlank()) return@launch
+            livePlayerManager.tuneChannel(context, channel.id, channel.streamUrl)
+            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+            repository.saveWatchPosition(channel.id, 0L, programTitle ?: channel.name)
         }
     }
 

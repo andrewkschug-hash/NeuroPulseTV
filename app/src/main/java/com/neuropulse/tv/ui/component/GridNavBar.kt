@@ -43,14 +43,23 @@ fun GridNavIcon(
     modifier: Modifier = Modifier
 ) {
     val iconColor = when {
-        selected -> EpgColors.Accent
-        focused -> EpgColors.TextPrimary
+        focused -> EpgColors.Accent
+        selected -> EpgColors.TextPrimary
         else -> EpgColors.TextSecondary
+    }
+    val bgColor = if (focused) EpgColors.Accent.copy(alpha = 0.18f) else Color.Transparent
+    val borderMod = if (focused) {
+        Modifier.border(2.dp, EpgColors.Accent, RoundedCornerShape(4.dp))
+    } else {
+        Modifier
     }
 
     Surface(
         onClick = onClick,
-        modifier = modifier.size(40.dp),
+        modifier = modifier
+            .size(40.dp)
+            .then(borderMod)
+            .background(bgColor, RoundedCornerShape(4.dp)),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,

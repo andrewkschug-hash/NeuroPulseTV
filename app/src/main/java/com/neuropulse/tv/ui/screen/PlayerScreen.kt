@@ -52,8 +52,16 @@ import com.neuropulse.tv.feature.sports.SportsTickerService
 import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.player.SeekThumbnailProvider
+import com.neuropulse.tv.player.StreamPlaybackStatus
+import com.neuropulse.tv.player.isHealthy
+import com.neuropulse.tv.player.userLabel
+import com.neuropulse.tv.ui.component.StreamStatusBadge
 import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.component.PlayerSideMenu
+import com.neuropulse.tv.ui.component.PlayerSideMenuAction
+import com.neuropulse.tv.ui.component.PlayerSideMenuSection
+import com.neuropulse.tv.ui.component.sectionSize
+import com.neuropulse.tv.ui.component.visiblePlayerSideMenuSections
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
 import androidx.compose.runtime.mutableIntStateOf
 import com.neuropulse.tv.ui.component.StorageLocationPicker
@@ -84,6 +92,9 @@ fun PlayerScreen(
     }
     val channel by viewModel.channel.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
+    val sportsMenuItems by viewModel.sportsMenuItems.collectAsStateWithLifecycle()
+    val newsChannels by viewModel.newsChannels.collectAsStateWithLifecycle()
+    val hasPreviousChannel by viewModel.hasPreviousChannel.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
     val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
     val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
@@ -93,15 +104,13 @@ fun PlayerScreen(
 
     var showOverlay by remember { mutableStateOf(true) }
     var showSideMenu by remember { mutableStateOf(false) }
-    var sideMenuChannelIndex by remember { mutableIntStateOf(0) }
-    var sideMenuActionIndex by remember { mutableIntStateOf(-1) }
+    var sideMenuSection by remember { mutableStateOf(PlayerSideMenuSection.CHANNELS) }
+    var sideMenuIndex by remember { mutableIntStateOf(0) }
     var showInfo by remember { mutableStateOf(false) }
-    var showSleepDialog by remember { mutableStateOf(false) }
     var streamInfo by remember { mutableStateOf("SD") }
     var bufferHealth by remember { mutableStateOf(Color.Green) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var failures by remember { mutableStateOf(0) }
-    var gameLockEnabled by remember { mutableStateOf(false) }
     var showStillWatching by remember { mutableStateOf(false) }
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var ticker by remember { mutableStateOf("Live scores loading...") }
@@ -122,27 +131,44 @@ fun PlayerScreen(
         it.channelId == (channel?.id ?: channelId) && it.status == RecordingStatus.RECORDING.name
     }
 
-    val sideMenuActionLabels = listOf(
-        "Back",
-        "Info",
-        "Go",
-        if (sleepRemaining > 0) "Sleep ${sleepTimer.formatCountdown()}" else "Sleep",
-        "Split",
-        if (isRecordingThisChannel) "Stop REC" else "Record",
-        if (gameLockEnabled) "Game Lock On" else "Game Lock Off",
-        "TV Guide",
-        "Recordings",
-        "Settings"
+    val sideMenuActions = remember(hasPreviousChannel, isRecordingThisChannel) {
+        buildList {
+            add(PlayerSideMenuAction("back", "Back", "←"))
+            add(PlayerSideMenuAction("info", "Info"))
+            if (hasPreviousChannel) {
+                add(PlayerSideMenuAction("last", "Last Channel", "↩"))
+            }
+            add(PlayerSideMenuAction("split", "Split"))
+            add(
+                PlayerSideMenuAction(
+                    id = "record",
+                    label = if (isRecordingThisChannel) "Stop REC" else "Record"
+                )
+            )
+        }
+    }
+
+    fun menuSections() = visiblePlayerSideMenuSections(
+        sportsCount = sportsMenuItems.size,
+        newsCount = newsChannels.size
     )
 
-    fun activatePlayerAction(index: Int) {
-        when (index) {
-            0 -> onBack()
-            1 -> showInfo = true
-            2 -> viewModel.jumpByNumber()
-            3 -> showSleepDialog = true
-            4 -> channel?.id?.let { onOpenSplit(it) }
-            5 -> {
+    fun currentSectionSize(section: PlayerSideMenuSection = sideMenuSection): Int =
+        sectionSize(
+            section = section,
+            channelCount = channels.size,
+            sportsCount = sportsMenuItems.size,
+            newsCount = newsChannels.size,
+            actionCount = sideMenuActions.size
+        )
+
+    fun activatePlayerAction(actionId: String) {
+        when (actionId) {
+            "back" -> onBack()
+            "info" -> showInfo = true
+            "last" -> viewModel.switchToPreviousChannel()
+            "split" -> channel?.id?.let { onOpenSplit(it) }
+            "record" -> {
                 if (isRecordingThisChannel) {
                     showStopRecordingDialog = true
                 } else {
@@ -154,33 +180,76 @@ fun PlayerScreen(
                     )
                 }
             }
-            6 -> gameLockEnabled = !gameLockEnabled
-            7 -> onNavigateGuide()
-            8 -> onNavigateRecordings()
-            9 -> onNavigateSettings()
         }
     }
 
+    fun selectedMenuChannelId(): Long? = when (sideMenuSection) {
+        PlayerSideMenuSection.CHANNELS -> channels.getOrNull(sideMenuIndex)?.id
+        PlayerSideMenuSection.SPORTS -> sportsMenuItems.getOrNull(sideMenuIndex)?.channel?.id
+        PlayerSideMenuSection.NEWS -> newsChannels.getOrNull(sideMenuIndex)?.id
+        PlayerSideMenuSection.ACTIONS -> null
+    }
+
     fun activateSideMenuSelection() {
-        if (sideMenuActionIndex >= 0) {
-            showSideMenu = false
-            activatePlayerAction(sideMenuActionIndex)
-            sideMenuActionIndex = -1
+        when (sideMenuSection) {
+            PlayerSideMenuSection.ACTIONS -> {
+                sideMenuActions.getOrNull(sideMenuIndex)?.let { action ->
+                    showSideMenu = false
+                    activatePlayerAction(action.id)
+                }
+            }
+            else -> {
+                selectedMenuChannelId()?.let { channelId ->
+                    viewModel.tuneChannel(channelId)
+                    showSideMenu = false
+                }
+            }
+        }
+    }
+
+    fun moveSideMenuVertical(delta: Int) {
+        val sections = menuSections()
+        val sectionIdx = sections.indexOf(sideMenuSection).coerceAtLeast(0)
+        val size = currentSectionSize()
+        if (delta > 0) {
+            if (sideMenuIndex < size - 1) {
+                sideMenuIndex += 1
+            } else if (sectionIdx < sections.lastIndex) {
+                sideMenuSection = sections[sectionIdx + 1]
+                sideMenuIndex = 0
+            }
         } else {
-            channels.getOrNull(sideMenuChannelIndex)?.let { selected ->
-                viewModel.tuneChannel(selected.id)
-                showSideMenu = false
+            if (sideMenuIndex > 0) {
+                sideMenuIndex -= 1
+            } else if (sectionIdx > 0) {
+                val prevSection = sections[sectionIdx - 1]
+                sideMenuSection = prevSection
+                sideMenuIndex = (sectionSize(
+                    section = prevSection,
+                    channelCount = channels.size,
+                    sportsCount = sportsMenuItems.size,
+                    newsCount = newsChannels.size,
+                    actionCount = sideMenuActions.size
+                ) - 1).coerceAtLeast(0)
             }
         }
     }
 
     LaunchedEffect(channel?.id, channels) {
-        val idx = channels.indexOfFirst { it.id == channel?.id }
-        if (idx >= 0) sideMenuChannelIndex = idx
+        if (sideMenuSection == PlayerSideMenuSection.CHANNELS) {
+            val idx = channels.indexOfFirst { it.id == channel?.id }
+            if (idx >= 0) sideMenuIndex = idx
+        }
+    }
+
+    LaunchedEffect(sideMenuSection, sideMenuActions.size, sportsMenuItems.size, newsChannels.size) {
+        val maxIdx = (currentSectionSize() - 1).coerceAtLeast(0)
+        if (sideMenuIndex > maxIdx) sideMenuIndex = maxIdx
     }
 
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
     val player = remember { livePlayerManager.getOrCreatePlayer(context) }
+    val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
 
     LaunchedEffect(player) {
         sleepTimer.onVolumeFade = { level -> player.volume = level }
@@ -215,6 +284,22 @@ fun PlayerScreen(
         val url = ch.streamUrl
         livePlayerManager.tuneChannel(context, ch.id, url)
         failures = 0
+    }
+
+    LaunchedEffect(channel?.id, playbackStatus) {
+        if (channel?.id == null) return@LaunchedEffect
+        if (playbackStatus == StreamPlaybackStatus.IDLE || playbackStatus == StreamPlaybackStatus.LOADING) return@LaunchedEffect
+        val success = playbackStatus == StreamPlaybackStatus.PLAYING ||
+            playbackStatus == StreamPlaybackStatus.AUDIO_ONLY
+        viewModel.reportStreamHealth(
+            loadMs = if (success) 1200 else 5000,
+            bufferEvents = when (playbackStatus) {
+                StreamPlaybackStatus.STALLED, StreamPlaybackStatus.NO_SIGNAL -> 3
+                StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> 5
+                else -> 0
+            },
+            success = success
+        )
     }
 
     DisposableEffect(Unit) {
@@ -281,13 +366,8 @@ fun PlayerScreen(
                 if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (it.key) {
                     Key.DirectionUp -> {
-                        if (gameLockEnabled) return@onPreviewKeyEvent true
                         if (showSideMenu) {
-                            if (sideMenuActionIndex >= 0) {
-                                sideMenuActionIndex = (sideMenuActionIndex - 1).coerceAtLeast(-1)
-                            } else {
-                                sideMenuChannelIndex = (sideMenuChannelIndex - 1).coerceAtLeast(0)
-                            }
+                            moveSideMenuVertical(-1)
                         } else {
                             viewModel.switchPrev()
                             showOverlay = true
@@ -295,17 +375,8 @@ fun PlayerScreen(
                         true
                     }
                     Key.DirectionDown -> {
-                        if (gameLockEnabled) return@onPreviewKeyEvent true
                         if (showSideMenu) {
-                            if (sideMenuActionIndex >= 0) {
-                                sideMenuActionIndex = (sideMenuActionIndex + 1)
-                                    .coerceAtMost(sideMenuActionLabels.lastIndex)
-                            } else if (sideMenuChannelIndex >= channels.lastIndex) {
-                                sideMenuActionIndex = 0
-                            } else {
-                                sideMenuChannelIndex = (sideMenuChannelIndex + 1)
-                                    .coerceAtMost(channels.lastIndex)
-                            }
+                            moveSideMenuVertical(1)
                         } else {
                             viewModel.switchNext()
                             showOverlay = true
@@ -315,7 +386,6 @@ fun PlayerScreen(
                     Key.DirectionLeft -> {
                         if (showSideMenu) {
                             showSideMenu = false
-                            sideMenuActionIndex = -1
                         } else {
                             player.seekBack()
                             val url = channel?.streamUrl
@@ -327,14 +397,12 @@ fun PlayerScreen(
                         true
                     }
                     Key.DirectionRight -> {
-                        if (showSideMenu) {
-                            if (sideMenuActionIndex < 0 && sideMenuChannelIndex < channels.lastIndex) {
-                                sideMenuChannelIndex += 1
-                            }
-                        } else {
+                        if (!showSideMenu) {
                             showSideMenu = true
                             showOverlay = false
-                            sideMenuActionIndex = -1
+                            sideMenuSection = PlayerSideMenuSection.CHANNELS
+                            sideMenuIndex = channels.indexOfFirst { it.id == channel?.id }
+                                .coerceAtLeast(0)
                         }
                         true
                     }
@@ -367,17 +435,12 @@ fun PlayerScreen(
                         true
                     }
                     Key.Back, Key.Escape -> {
-                        when {
-                            showSideMenu -> {
-                                showSideMenu = false
-                                sideMenuActionIndex = -1
-                                true
-                            }
-                            gameLockEnabled && (it.nativeKeyEvent?.repeatCount ?: 0) < 4 -> true
-                            else -> {
-                                onBack()
-                                true
-                            }
+                        if (showSideMenu) {
+                            showSideMenu = false
+                            true
+                        } else {
+                            onBack()
+                            true
                         }
                     }
                     else -> false
@@ -388,6 +451,17 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize(),
             factory = { PlayerView(it).apply { useController = false; this.player = player } }
         )
+
+        if (!playbackStatus.isHealthy()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f)),
+                contentAlignment = Alignment.Center
+            ) {
+                StreamStatusBadge(status = playbackStatus)
+            }
+        }
 
         if (dimAlpha > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
@@ -423,9 +497,16 @@ fun PlayerScreen(
 
                 Column(modifier = Modifier.fillMaxWidth().background(Color(0xAA000000)).padding(16.dp)) {
                     Text(channel?.currentProgram ?: "No current program")
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
                         Text("Quality: $streamInfo")
                         Box(modifier = Modifier.background(bufferHealth).padding(horizontal = 10.dp, vertical = 2.dp)) { Text("Buffer") }
+                        if (playbackStatus.userLabel().isNotBlank()) {
+                            StreamStatusBadge(status = playbackStatus)
+                        }
                         if (isRecordingThisChannel) {
                             Box(
                                 modifier = Modifier
@@ -443,12 +524,12 @@ fun PlayerScreen(
         PlayerSideMenu(
             visible = showSideMenu,
             channels = channels,
+            sportsItems = sportsMenuItems,
+            newsChannels = newsChannels,
+            actions = sideMenuActions,
             currentChannelId = channel?.id,
-            focusedChannelIndex = sideMenuChannelIndex,
-            focusedActionIndex = sideMenuActionIndex,
-            actions = sideMenuActionLabels,
-            onDismiss = { showSideMenu = false },
-            onChannelSelected = { viewModel.tuneChannel(it.id) }
+            focusedSection = sideMenuSection,
+            focusedIndex = sideMenuIndex
         )
     }
 
@@ -458,22 +539,6 @@ fun PlayerScreen(
             title = { Text(channel?.name ?: "Program Info") },
             text = { Text(channel?.currentProgram ?: "No details") },
             confirmButton = { Button(onClick = { showInfo = false }) { Text("Close") } }
-        )
-    }
-
-    if (showSleepDialog) {
-        AlertDialog(
-            onDismissRequest = { showSleepDialog = false },
-            title = { Text("Sleep Timer") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(15, 30, 45, 60, 90).forEach { min ->
-                        Button(onClick = { sleepTimer.start(min); showSleepDialog = false }) { Text("$min minutes") }
-                    }
-                    Button(onClick = { sleepTimer.cancel(); showSleepDialog = false }) { Text("Cancel timer") }
-                }
-            },
-            confirmButton = { Button(onClick = { showSleepDialog = false }) { Text("Close") } }
         )
     }
 
