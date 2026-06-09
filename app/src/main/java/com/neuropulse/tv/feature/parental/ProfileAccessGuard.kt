@@ -12,9 +12,9 @@ object ProfileAccessGuard {
         return adultPatterns.any { lower.contains(it) }
     }
 
-    fun shouldHideChannel(profile: UserProfile, channel: Channel): Boolean {
-        if (profile.hasPin && isAdultGroup(channel.group)) return true
-        return false
+    fun shouldHideChannel(profile: UserProfile, channel: Channel, hideAdultContent: Boolean = true): Boolean {
+        if (!hideAdultContent) return false
+        return isAdultGroup(channel.group)
     }
 
     fun isWithinAllowedHours(profile: UserProfile, nowMs: Long = System.currentTimeMillis()): Boolean {

@@ -53,10 +53,18 @@ import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.player.SeekThumbnailProvider
 import dagger.hilt.android.EntryPointAccessors
+import com.neuropulse.tv.ui.component.PlayerSideMenu
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.unit.sp
+import com.neuropulse.tv.ui.theme.DmSansFamily
+import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
+import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -66,8 +74,12 @@ fun PlayerScreen(
     channelId: Long,
     onBack: () -> Unit,
     onOpenSplit: (Long) -> Unit = {},
+    onNavigateGuide: () -> Unit = onBack,
+    onNavigateRecordings: () -> Unit = {},
+    onNavigateSettings: () -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
+    settingsViewModel: SettingsViewModel = hiltViewModel(),
     tickerService: SportsTickerService = SportsTickerService(),
     seekThumbnailProvider: SeekThumbnailProvider = SeekThumbnailProvider()
 ) {
@@ -76,13 +88,19 @@ fun PlayerScreen(
         EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
     }
     val channel by viewModel.channel.collectAsStateWithLifecycle()
+    val channels by viewModel.channels.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
     val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
     val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
     val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val numberInput by viewModel.numberInput.collectAsStateWithLifecycle()
+    val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
 
     var showOverlay by remember { mutableStateOf(true) }
+    var showSideMenu by remember { mutableStateOf(false) }
+    var sideMenuChannelIndex by remember { mutableIntStateOf(0) }
+    var sideMenuActionIndex by remember { mutableIntStateOf(-1) }
+    var overlayButtonIndex by remember { mutableIntStateOf(0) }
     var showInfo by remember { mutableStateOf(false) }
     var showSleepDialog by remember { mutableStateOf(false) }
     var streamInfo by remember { mutableStateOf("SD") }
@@ -90,14 +108,14 @@ fun PlayerScreen(
     var currentPosition by remember { mutableLongStateOf(0L) }
     var failures by remember { mutableStateOf(0) }
     var gameLockEnabled by remember { mutableStateOf(false) }
-    val sleepTimer = remember { entryPoint.sleepTimerController() }
-    val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
     var showStillWatching by remember { mutableStateOf(false) }
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var ticker by remember { mutableStateOf("Live scores loading...") }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
 
+    val sleepTimer = remember { entryPoint.sleepTimerController() }
+    val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
     val dimAlpha by animateFloatAsState(if (sleepRemaining in 1..120) 0.35f else 0f, label = "sleepDim")
     val pulse = rememberInfiniteTransition(label = "recPulse").animateFloat(
         initialValue = 0.35f,
@@ -106,7 +124,62 @@ fun PlayerScreen(
         label = "recPulseAnim"
     )
     val scope = rememberCoroutineScope()
-    val isRecordingThisChannel = scheduled.any { it.channelId == channelId && it.status == RecordingStatus.RECORDING.name }
+    val isRecordingThisChannel = scheduled.any {
+        it.channelId == (channel?.id ?: channelId) && it.status == RecordingStatus.RECORDING.name
+    }
+
+    val sideMenuActions = listOf(
+        { onNavigateGuide() },
+        { onNavigateRecordings() },
+        { onNavigateSettings() }
+    )
+
+    LaunchedEffect(channel?.id, channels) {
+        val idx = channels.indexOfFirst { it.id == channel?.id }
+        if (idx >= 0) sideMenuChannelIndex = idx
+    }
+
+    fun activateOverlayButton(index: Int) {
+        when (index) {
+            0 -> onBack()
+            1 -> showInfo = true
+            2 -> viewModel.jumpByNumber()
+            3 -> showSleepDialog = true
+            4 -> channel?.id?.let { onOpenSplit(it) }
+            5 -> {
+                if (isRecordingThisChannel) {
+                    showStopRecordingDialog = true
+                } else {
+                    val ch = channel ?: return
+                    recordingViewModel.startImmediateRecording(
+                        context = context,
+                        channel = ch,
+                        title = ch.currentProgram ?: ch.name
+                    )
+                }
+            }
+            6 -> gameLockEnabled = !gameLockEnabled
+        }
+    }
+
+    fun activateSideMenuSelection() {
+        if (sideMenuActionIndex >= 0) {
+            showSideMenu = false
+            sideMenuActions.getOrNull(sideMenuActionIndex)?.invoke()
+            sideMenuActionIndex = -1
+        } else {
+            channels.getOrNull(sideMenuChannelIndex)?.let { selected ->
+                viewModel.tuneChannel(selected.id)
+                showSideMenu = false
+            }
+        }
+    }
+
+    val overlayButtonLabels = listOf(
+        "Back", "Info", "Go", "Sleep", "Split",
+        if (isRecordingThisChannel) "Stop REC" else "Record",
+        if (gameLockEnabled) "Game Lock On" else "Game Lock Off"
+    )
 
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
     val player = remember { livePlayerManager.getOrCreatePlayer(context) }
@@ -130,6 +203,13 @@ fun PlayerScreen(
 
     LaunchedEffect(channelId) {
         viewModel.load(channelId)
+    }
+
+    LaunchedEffect(channel?.id, channel?.streamUrl, settings.sleepTimerAutoEnabled, settings.sleepTimerMinutes) {
+        val ch = channel ?: return@LaunchedEffect
+        if (settings.sleepTimerAutoEnabled) {
+            sleepTimer.start(settings.sleepTimerMinutes)
+        }
     }
 
     LaunchedEffect(channel?.id, channel?.streamUrl) {
@@ -204,43 +284,80 @@ fun PlayerScreen(
                 when (it.key) {
                     Key.DirectionUp -> {
                         if (gameLockEnabled) return@onPreviewKeyEvent true
-                        viewModel.switchPrev()
-                        showOverlay = true
+                        if (showSideMenu) {
+                            if (sideMenuActionIndex >= 0) {
+                                sideMenuActionIndex = (sideMenuActionIndex - 1).coerceAtLeast(-1)
+                            } else {
+                                sideMenuChannelIndex = (sideMenuChannelIndex - 1).coerceAtLeast(0)
+                            }
+                        } else if (showOverlay) {
+                            overlayButtonIndex = (overlayButtonIndex - 1).coerceAtLeast(0)
+                        } else {
+                            viewModel.switchPrev()
+                            showOverlay = true
+                        }
                         true
                     }
-
                     Key.DirectionDown -> {
                         if (gameLockEnabled) return@onPreviewKeyEvent true
-                        viewModel.switchNext()
-                        showOverlay = true
+                        if (showSideMenu) {
+                            if (sideMenuActionIndex >= 0) {
+                                sideMenuActionIndex = (sideMenuActionIndex + 1)
+                                    .coerceAtMost(sideMenuActions.lastIndex)
+                            } else if (sideMenuChannelIndex >= channels.lastIndex) {
+                                sideMenuActionIndex = 0
+                            } else {
+                                sideMenuChannelIndex = (sideMenuChannelIndex + 1)
+                                    .coerceAtMost(channels.lastIndex)
+                            }
+                        } else if (showOverlay) {
+                            overlayButtonIndex = (overlayButtonIndex + 1)
+                                .coerceAtMost(overlayButtonLabels.lastIndex)
+                        } else {
+                            viewModel.switchNext()
+                            showOverlay = true
+                        }
                         true
                     }
-
                     Key.DirectionLeft -> {
-                        player.seekBack()
-                        val url = channel?.streamUrl
-                        if (!url.isNullOrBlank()) {
-                            seekThumb = seekThumbnailProvider.thumbnail(url, player.currentPosition)
-                            showSeekThumb = true
+                        if (showSideMenu) {
+                            showSideMenu = false
+                            sideMenuActionIndex = -1
+                        } else if (showOverlay) {
+                            overlayButtonIndex = (overlayButtonIndex - 1).coerceAtLeast(0)
+                        } else {
+                            player.seekBack()
+                            val url = channel?.streamUrl
+                            if (!url.isNullOrBlank()) {
+                                seekThumb = seekThumbnailProvider.thumbnail(url, player.currentPosition)
+                                showSeekThumb = true
+                            }
                         }
                         true
                     }
-
                     Key.DirectionRight -> {
-                        player.seekForward()
-                        val url = channel?.streamUrl
-                        if (!url.isNullOrBlank()) {
-                            seekThumb = seekThumbnailProvider.thumbnail(url, player.currentPosition)
-                            showSeekThumb = true
+                        if (showSideMenu) {
+                            if (sideMenuActionIndex < 0 && sideMenuChannelIndex < channels.lastIndex) {
+                                sideMenuChannelIndex += 1
+                            }
+                        } else if (showOverlay) {
+                            overlayButtonIndex = (overlayButtonIndex + 1)
+                                .coerceAtMost(overlayButtonLabels.lastIndex)
+                        } else {
+                            showSideMenu = true
+                            showOverlay = false
+                            sideMenuActionIndex = -1
                         }
                         true
                     }
-
                     Key.Enter, Key.DirectionCenter -> {
-                        showOverlay = !showOverlay
+                        when {
+                            showSideMenu -> activateSideMenuSelection()
+                            showOverlay -> activateOverlayButton(overlayButtonIndex)
+                            else -> showOverlay = true
+                        }
                         true
                     }
-
                     Key.Zero, Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine -> {
                         val digit = when (it.key) {
                             Key.Zero -> 0
@@ -255,18 +372,27 @@ fun PlayerScreen(
                             else -> 9
                         }
                         viewModel.appendDigit(digit)
+                        showOverlay = true
                         true
                     }
-
                     Key.Backspace -> {
                         viewModel.clearNumberInput()
                         true
                     }
-
-                    Key.Back -> {
-                        if (gameLockEnabled && (it.nativeKeyEvent?.repeatCount ?: 0) < 4) true else { onBack(); true }
+                    Key.Back, Key.Escape -> {
+                        when {
+                            showSideMenu -> {
+                                showSideMenu = false
+                                sideMenuActionIndex = -1
+                                true
+                            }
+                            gameLockEnabled && (it.nativeKeyEvent?.repeatCount ?: 0) < 4 -> true
+                            else -> {
+                                onBack()
+                                true
+                            }
+                        }
                     }
-
                     else -> false
                 }
             }
@@ -324,30 +450,44 @@ fun PlayerScreen(
                     }
                     Text(ticker, modifier = Modifier.padding(top = 6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
-                        Button(onClick = onBack) { Text("Back") }
-                        Button(onClick = { showInfo = true }) { Text("Info") }
-                        Button(onClick = { viewModel.jumpByNumber() }) { Text("Go") }
-                        Button(onClick = { showSleepDialog = true }) {
-                            Text(if (sleepRemaining > 0) "Sleep ${sleepTimer.formatCountdown()}" else "Sleep")
-                        }
-                        Button(onClick = { onOpenSplit(channelId) }) { Text("Split") }
-                        Button(onClick = {
-                            if (isRecordingThisChannel) {
-                                showStopRecordingDialog = true
-                            } else {
-                                val ch = channel ?: return@Button
-                                recordingViewModel.startImmediateRecording(
-                                    context = context,
-                                    channel = ch,
-                                    title = ch.currentProgram ?: ch.name
+                        overlayButtonLabels.forEachIndexed { index, label ->
+                            val displayLabel = when (index) {
+                                3 -> if (sleepRemaining > 0) "Sleep ${sleepTimer.formatCountdown()}" else "Sleep"
+                                else -> label
+                            }
+                            val focused = index == overlayButtonIndex
+                            Button(
+                                onClick = { activateOverlayButton(index) },
+                                modifier = if (focused) {
+                                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                                } else {
+                                    Modifier
+                                }
+                            ) {
+                                Text(
+                                    text = displayLabel,
+                                    fontFamily = DmSansFamily,
+                                    fontSize = 13.sp
                                 )
                             }
-                        }) { Text(if (isRecordingThisChannel) "Stop REC" else "Record") }
-                        Button(onClick = { gameLockEnabled = !gameLockEnabled }) { Text(if (gameLockEnabled) "Game Lock On" else "Game Lock Off") }
+                        }
                     }
                 }
             }
         }
+
+        PlayerSideMenu(
+            visible = showSideMenu,
+            channels = channels,
+            currentChannelId = channel?.id,
+            focusedChannelIndex = sideMenuChannelIndex,
+            focusedActionIndex = sideMenuActionIndex,
+            onDismiss = { showSideMenu = false },
+            onChannelSelected = { viewModel.tuneChannel(it.id) },
+            onGuide = onNavigateGuide,
+            onRecordings = onNavigateRecordings,
+            onSettings = onNavigateSettings
+        )
     }
 
     if (showInfo) {

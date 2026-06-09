@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,6 +38,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -89,6 +93,7 @@ fun HomeEpgScreen(
     onNavigateSeries: (Long) -> Unit = {},
     onPlayVod: (String, String) -> Unit = { _, _ -> },
     profileInitials: String = "?",
+    openFavoritesInitially: Boolean = false,
     viewModel: HomeEpgViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
     searchViewModel: SearchViewModel = hiltViewModel()
@@ -105,12 +110,13 @@ fun HomeEpgScreen(
     val continueWatchingItems by viewModel.continueWatchingItems.collectAsStateWithLifecycle()
     val favoriteGroups by viewModel.favoriteGroups.collectAsStateWithLifecycle()
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
+    val demoFavoriteIds by viewModel.demoFavoriteIds.collectAsStateWithLifecycle()
+    val favoriteSavedMessage by viewModel.favoriteSavedMessage.collectAsStateWithLifecycle()
     val profileAccessMessage = viewModel.profileAccessMessage()
     val epgWindow by viewModel.epgPrograms.collectAsStateWithLifecycle()
     val windowStart by viewModel.windowStart.collectAsStateWithLifecycle()
     val windowDurationMs by viewModel.windowDurationMs.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
-    val isRecordingActive by recordingViewModel.isRecordingActive.collectAsStateWithLifecycle()
     val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
     val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
     val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
@@ -128,12 +134,32 @@ fun HomeEpgScreen(
         viewModel.reloadPlaybackSettings()
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.reloadPlaybackSettings()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val showEmptyState = playlists.isEmpty()
     val usePlaceholder = playlists.isNotEmpty() && channels.isEmpty()
-    val displayChannels = when {
-        showEmptyState -> emptyList()
-        usePlaceholder -> EpgPlaceholderData.channels()
-        else -> channels
+    val displayChannels = remember(channels, usePlaceholder, showEmptyState, favoriteGroupFilter, demoFavoriteIds) {
+        when {
+            showEmptyState -> emptyList()
+            usePlaceholder -> {
+                val all = EpgPlaceholderData.channels()
+                when (favoriteGroupFilter) {
+                    null -> all
+                    HomeEpgViewModel.FAVORITES_FILTER -> all.filter { it.id in demoFavoriteIds }
+                    else -> emptyList()
+                }
+            }
+            else -> channels
+        }
     }
     val displayPrograms = remember(displayChannels, epgWindow, windowStart, windowDurationMs, usePlaceholder, showEmptyState) {
         when {
@@ -143,6 +169,13 @@ fun HomeEpgScreen(
                 windowStart + windowDurationMs
             )
             else -> epgWindow
+        }
+    }
+
+    LaunchedEffect(favoriteSavedMessage) {
+        if (favoriteSavedMessage != null) {
+            delay(2500)
+            viewModel.clearFavoriteSavedMessage()
         }
     }
 
@@ -163,6 +196,8 @@ fun HomeEpgScreen(
     var showSearchOverlay by remember { mutableStateOf(false) }
 
     var selectedTab by remember { mutableStateOf(EpgNavTab.Home) }
+    var profileMenuOpen by remember { mutableStateOf(false) }
+    var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
     var focusZone by remember { mutableStateOf(EpgFocusZone.GRID) }
     var topBarRow by remember { mutableIntStateOf(0) }
     var topBarFocusIndex by remember { mutableIntStateOf(0) }
@@ -200,6 +235,23 @@ fun HomeEpgScreen(
         HomeEpgViewModel.FAVORITES_FILTER -> 1
         else -> favoriteGroups.indexOfFirst { it.id == favoriteGroupFilter }
             .takeIf { it >= 0 }?.plus(2) ?: 0
+    }
+
+    LaunchedEffect(favoriteGroupFilter, activeFilterIndex) {
+        focusedFilterIndex = activeFilterIndex
+        selectedTab = when (favoriteGroupFilter) {
+            HomeEpgViewModel.FAVORITES_FILTER -> EpgNavTab.Favorites
+            else -> if (selectedTab == EpgNavTab.Favorites) EpgNavTab.Home else selectedTab
+        }
+    }
+
+    LaunchedEffect(openFavoritesInitially) {
+        if (openFavoritesInitially) {
+            viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
+            selectedTab = EpgNavTab.Favorites
+            topBarRow = 1
+            focusedFilterIndex = 1
+        }
     }
 
     LaunchedEffect(displayChannels.size) {
@@ -259,14 +311,20 @@ fun HomeEpgScreen(
 
     fun scrollToProgram(program: Program?) {
         program ?: return
-        val offset = ((program.startTime - windowStart) * EpgLayout.dpPerMs() - 200f).coerceAtLeast(0f)
-        scope.launch { hScroll.animateScrollTo(offset.toInt()) }
+        val startPx = ((program.startTime - windowStart) * EpgLayout.dpPerMs()).coerceAtLeast(0f)
+        val widthPx = (program.endTime - program.startTime) * EpgLayout.dpPerMs()
+        val centerPx = startPx + widthPx / 2f
+        val viewportHalf = 420f
+        val target = (centerPx - viewportHalf).coerceAtLeast(0f).toInt()
+        scope.launch { hScroll.animateScrollTo(target.coerceAtMost(hScroll.maxValue)) }
     }
 
-    fun scrollByCellWidth(program: Program?, direction: Float) {
-        program ?: return
-        val cellWidth = EpgLayout.widthForDurationMs(program.endTime - program.startTime)
-        scope.launch { hScroll.animateScrollBy((cellWidth.value + EpgLayout.CellGap.value) * direction) }
+    fun scrollByTimeSlot(direction: Int) {
+        val slotPx = (EpgLayout.ThirtyMinWidthDp.value * direction).toInt()
+        scope.launch {
+            val target = (hScroll.value + slotPx).coerceIn(0, hScroll.maxValue)
+            hScroll.animateScrollTo(target)
+        }
     }
 
     fun scrollToLive() {
@@ -276,11 +334,18 @@ fun HomeEpgScreen(
     fun activateNavTab(tab: EpgNavTab) {
         selectedTab = tab
         when (tab) {
-            EpgNavTab.Home -> Unit
+            EpgNavTab.Home -> {
+                viewModel.setFavoriteGroupFilter(null)
+                topBarRow = 0
+            }
             EpgNavTab.Search -> showSearchOverlay = true
             EpgNavTab.Recordings -> onNavigateRecordings()
+            EpgNavTab.Favorites -> {
+                viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
+                topBarRow = 1
+                focusedFilterIndex = 1
+            }
             EpgNavTab.Settings -> onNavigateSettings()
-            EpgNavTab.Profile -> onNavigateProfile()
         }
     }
 
@@ -291,15 +356,20 @@ fun HomeEpgScreen(
             SearchResultType.CHANNEL -> result.channelId?.let { chId ->
                 val ch = displayChannels.find { it.id == chId } ?: channels.find { it.id == chId }
                 if (ch != null) {
-                    scope.launch {
-                        livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
-                        livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+                    if (!usePlaceholder) {
+                        scope.launch {
+                            livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
+                            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+                        }
                     }
                     val idx = displayChannels.indexOfFirst { it.id == chId }
                     if (idx >= 0) {
                         focusChannelIndex = idx
                         focusOnChannelColumn = true
                         focusZone = EpgFocusZone.GRID
+                    }
+                    if (ch.streamUrl.isNotBlank()) {
+                        onWatchChannel(ch.id)
                     }
                 }
             }
@@ -355,13 +425,42 @@ fun HomeEpgScreen(
                     recordingViewModel.scheduleProgram(ch, prog)
                 }
             }
-            2 -> showFavoritePicker = true
+            2 -> {
+                val ch = focusedChannel ?: return
+                viewModel.saveChannelToFavorites(ch.id, ch.name)
+                focusZone = EpgFocusZone.GRID
+            }
             3 -> detailExpanded = true
         }
     }
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (profileMenuOpen) {
+            return when (event.key) {
+                Key.DirectionUp -> {
+                    profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
+                    true
+                }
+                Key.DirectionDown -> {
+                    profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
+                    true
+                }
+                Key.Back, Key.Escape -> {
+                    profileMenuOpen = false
+                    true
+                }
+                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                    profileMenuOpen = false
+                    when (profileMenuFocusIndex) {
+                        0 -> onNavigateProfile()
+                        1 -> onNavigateSettings()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
         return when (event.key) {
             Key.DirectionLeft -> {
                 if (topBarRow == 1) {
@@ -405,7 +504,10 @@ fun HomeEpgScreen(
                 } else {
                     when (topBarFocusIndex) {
                         in GridNavTabs.indices -> activateNavTab(GridNavTabs[topBarFocusIndex])
-                        TopBarProfileIndex -> onNavigateProfile()
+                        TopBarProfileIndex -> {
+                            profileMenuOpen = true
+                            profileMenuFocusIndex = 0
+                        }
                         TopBarMiniIndex -> watchingChannel?.let { onWatchChannel(it.id) }
                     }
                 }
@@ -477,7 +579,8 @@ fun HomeEpgScreen(
                 val progs = programsForChannel(channel)
                 if (focusOnChannelColumn) {
                     focusOnChannelColumn = false
-                    focusProgramIndex = clampProgramIndex(focusChannelIndex, 0)
+                    val progsNow = progs.indexOfFirst { now in it.startTime..it.endTime }
+                    focusProgramIndex = if (progsNow >= 0) progsNow else clampProgramIndex(focusChannelIndex, 0)
                     scrollToProgram(progs.getOrNull(focusProgramIndex))
                 } else if (focusProgramIndex < progs.lastIndex) {
                     focusProgramIndex += 1
@@ -488,7 +591,7 @@ fun HomeEpgScreen(
                     if (last != null && last.endTime >= windowEnd - 15 * 60 * 1000) {
                         viewModel.extendWindowForward()
                     }
-                    scrollByCellWidth(last, direction = 1f)
+                    scrollByTimeSlot(1)
                 }
                 true
             }
@@ -508,7 +611,7 @@ fun HomeEpgScreen(
                             scope.launch { hScroll.scrollTo(hScroll.value + scrollAdjust) }
                         }
                     }
-                    scrollByCellWidth(first, direction = -1f)
+                    scrollByTimeSlot(-1)
                 }
                 true
             }
@@ -577,12 +680,16 @@ fun HomeEpgScreen(
                 navFocused = focusZone == EpgFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex <= GridNavTabs.lastIndex,
                 profileFocused = focusZone == EpgFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex == TopBarProfileIndex,
                 profileInitials = profileInitials,
-                isRecordingActive = isRecordingActive,
+                profileMenuExpanded = profileMenuOpen,
+                profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {
                     focusZone = EpgFocusZone.TOP_BAR
                     topBarFocusIndex = TopBarProfileIndex
-                    onNavigateProfile()
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
                 },
+                onSwitchAccounts = onNavigateProfile,
+                onOpenSettings = onNavigateSettings,
                 onTabSelected = { tab ->
                     focusZone = EpgFocusZone.TOP_BAR
                     topBarFocusIndex = GridNavTabs.indexOf(tab)
@@ -695,6 +802,7 @@ fun HomeEpgScreen(
                                         focusProgramIndex = focusProgramIndex,
                                         focusOnChannelColumn = focusOnChannelColumn,
                                         gridFocused = focusZone == EpgFocusZone.GRID,
+                                        isRowFocused = focusZone == EpgFocusZone.GRID && index == focusChannelIndex,
                                         confirmedProgramId = if (focusZone == EpgFocusZone.DETAIL) focusedProgram?.id else null,
                                         scheduled = scheduled,
                                         hScrollModifier = Modifier.horizontalScroll(hScroll, enabled = false),
@@ -741,7 +849,9 @@ fun HomeEpgScreen(
                     detailActionIndex = 0
                     executeDetailAction()
                 },
-                onFavorite = { showFavoritePicker = true },
+                onFavorite = {
+                    focusedChannel?.let { viewModel.saveChannelToFavorites(it.id, it.name) }
+                },
                 onRecord = {
                     detailActionIndex = 1
                     executeDetailAction()
@@ -758,28 +868,20 @@ fun HomeEpgScreen(
             )
         }
 
-        if (showFavoritePicker) {
+        if (showFavoritePicker && favoriteGroups.isNotEmpty()) {
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showFavoritePicker = false },
-                title = { androidx.tv.material3.Text("Add to Favorites") },
+                title = { androidx.tv.material3.Text("Add to group") },
                 text = {
                     Column {
-                        androidx.tv.material3.Text(
-                            "Saved channels appear under ★ Favorites in the filter row above the guide.",
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
                         androidx.compose.foundation.lazy.LazyColumn {
-                            item {
-                                androidx.tv.material3.Button(onClick = {
-                                    focusedChannel?.let { viewModel.addChannelToFavorites(it.id, null) }
-                                    showFavoritePicker = false
-                                }) { androidx.tv.material3.Text("★ Favorites") }
-                            }
                             items(favoriteGroups.size) { idx ->
                                 val group = favoriteGroups[idx]
                                 androidx.tv.material3.Button(onClick = {
-                                    focusedChannel?.let { viewModel.addChannelToFavorites(it.id, group.id) }
-                                    showFavoritePicker = false
+                                    focusedChannel?.let {
+                                        viewModel.addChannelToFavoriteGroup(it.id, group.id)
+                                        showFavoritePicker = false
+                                    }
                                 }) { androidx.tv.material3.Text(group.name) }
                             }
                         }
@@ -791,6 +893,26 @@ fun HomeEpgScreen(
                     }
                 }
             )
+        }
+
+        favoriteSavedMessage?.let { message ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = EpgLayout.DetailPanelHeight + 16.dp)
+                    .background(
+                        EpgColors.DetailPanelBg,
+                        androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                    )
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                androidx.tv.material3.Text(
+                    text = message,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = com.neuropulse.tv.ui.theme.DmSansFamily,
+                    fontSize = 14.sp
+                )
+            }
         }
 
         if (showCreateGroup) {
@@ -862,6 +984,7 @@ private fun EpgChannelTimelineRow(
     focusProgramIndex: Int,
     focusOnChannelColumn: Boolean,
     gridFocused: Boolean,
+    isRowFocused: Boolean,
     confirmedProgramId: Long?,
     scheduled: List<ScheduledRecordingEntity>,
     hScrollModifier: Modifier,
@@ -871,7 +994,7 @@ private fun EpgChannelTimelineRow(
         modifier = hScrollModifier
             .width(timelineWidth)
             .height(EpgLayout.RowHeight)
-            .background(EpgColors.GridBg)
+            .background(if (isRowFocused) EpgColors.ChannelRowFocusBg.copy(alpha = 0.35f) else EpgColors.GridBg)
     ) {
         programs.forEachIndexed { programIndex, program ->
             val width = EpgLayout.widthForDurationMs(program.endTime - program.startTime) - EpgLayout.CellGap

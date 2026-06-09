@@ -84,6 +84,8 @@ class GridBackupManager @Inject constructor(
                     .put("epgRowHeight", settings.epgRowHeight)
                     .put("streamRetries", settings.streamRetries)
                     .put("sleepTimerMinutes", settings.sleepTimerMinutes)
+                    .put("hideAdultContent", settings.hideAdultContent)
+                    .put("sleepTimerAutoEnabled", settings.sleepTimerAutoEnabled)
                     .put("recordingStoragePath", settings.recordingStoragePath)
             )
         }

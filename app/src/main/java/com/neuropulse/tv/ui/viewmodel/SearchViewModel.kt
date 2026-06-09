@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.domain.model.SearchResultType
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.search.FuzzySearch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
@@ -51,8 +52,15 @@ class SearchViewModel @Inject constructor(
             return
         }
         val now = System.currentTimeMillis()
-        val channels = repository.channels(group = null, search = "", favoritesOnly = false).first()
-        val programs = repository.searchPrograms(q).first()
+        val dbChannels = repository.channels(group = null, search = "", favoritesOnly = false).first()
+        val playlists = repository.playlists().first()
+        val usePlaceholder = dbChannels.isEmpty() && playlists.isNotEmpty()
+        val channels = if (usePlaceholder) EpgPlaceholderData.channels() else dbChannels
+        val programs = if (usePlaceholder) {
+            EpgPlaceholderData.programs(now - 4 * 60 * 60 * 1000, now + 4 * 60 * 60 * 1000)
+        } else {
+            repository.searchPrograms(q).first()
+        }
         val vod = repository.vodStreams().first()
         val series = repository.seriesShows().first()
 

@@ -207,4 +207,11 @@ object DbMigrations {
             db.execSQL("ALTER TABLE profile_watch_history ADD COLUMN lastProgramTitle TEXT")
         }
     }
+
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN hideAdultContent INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN sleepTimerAutoEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

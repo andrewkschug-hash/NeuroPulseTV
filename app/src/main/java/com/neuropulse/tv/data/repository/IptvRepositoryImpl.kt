@@ -10,7 +10,9 @@ import com.neuropulse.tv.data.db.dao.ProfileFavoriteDao
 import com.neuropulse.tv.data.db.dao.ProfileSettingsDao
 import com.neuropulse.tv.data.db.dao.ProfileWatchHistoryDao
 import com.neuropulse.tv.data.db.dao.ProgramDao
+import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
+import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
 import com.neuropulse.tv.data.db.entity.PlaylistEntity
@@ -77,6 +79,8 @@ class IptvRepositoryImpl @Inject constructor(
     private val profileSettingsDao: ProfileSettingsDao,
     private val programDao: ProgramDao,
     private val recordingDao: RecordingDao,
+    private val scheduledRecordingDao: ScheduledRecordingDao,
+    private val recordedMediaDao: RecordedMediaDao,
     private val streamHealthDao: StreamHealthDao,
     private val remoteTextFetcher: RemoteTextFetcher,
     private val m3uParser: M3uParser,
@@ -746,7 +750,9 @@ class IptvRepositoryImpl @Inject constructor(
             epgRowHeight = runCatching { EpgRowHeight.valueOf(db.epgRowHeight) }.getOrDefault(EpgRowHeight.NORMAL),
             miniPlayerAudioEnabled = db.previewEnabled,
             pinProtectedGroups = emptySet(),
-            sleepTimerMinutes = db.sleepTimerMinutes
+            sleepTimerMinutes = db.sleepTimerMinutes,
+            hideAdultContent = db.hideAdultContent,
+            sleepTimerAutoEnabled = db.sleepTimerAutoEnabled
         )
     }
 
@@ -765,7 +771,9 @@ class IptvRepositoryImpl @Inject constructor(
                 lastSleepTimer = settings.sleepTimerMinutes,
                 recordingStoragePath = old?.recordingStoragePath,
                 lastSeenVersion = old?.lastSeenVersion,
-                sleepTimerMinutes = settings.sleepTimerMinutes
+                sleepTimerMinutes = settings.sleepTimerMinutes,
+                hideAdultContent = settings.hideAdultContent,
+                sleepTimerAutoEnabled = settings.sleepTimerAutoEnabled
             )
         )
     }
@@ -800,5 +808,25 @@ class IptvRepositoryImpl @Inject constructor(
         ensureDefaultProfile()
         val summary = tiviMateImporter.importZip(contentResolver, uri, cacheDir, activeProfileId)
         return "Imported ${summary.channels} channels, ${summary.favorites} favorites, ${summary.playlists} playlists"
+    }
+
+    override suspend fun resetApp() = withContext(Dispatchers.IO) {
+        ensureDefaultProfile()
+        playlistDao.all().forEach { playlist ->
+            channelDao.clearByPlaylist(playlist.id)
+            secureCredentialStore.removePlaylistCredentials(playlist.id)
+            playlistDao.delete(playlist.id)
+        }
+        programDao.clearAll()
+        profileFavoriteDao.deleteAll()
+        profileWatchHistoryDao.deleteAll()
+        favoriteGroupDao.deleteAll()
+        streamHealthDao.deleteAll()
+        recordingDao.deleteAll()
+        scheduledRecordingDao.deleteAll()
+        recordedMediaDao.deleteAll()
+        epgCache.clear()
+        cachedSettings = AppSettings()
+        saveSettings(AppSettings())
     }
 }

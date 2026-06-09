@@ -6,8 +6,10 @@ import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,7 +24,16 @@ class PlayerViewModel @Inject constructor(
     private val _numberInput = MutableStateFlow("")
     val numberInput = _numberInput.asStateFlow()
 
+    val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun load(channelId: Long) {
+        viewModelScope.launch {
+            _channel.value = repository.channelById(channelId)
+        }
+    }
+
+    fun tuneChannel(channelId: Long) {
         viewModelScope.launch {
             _channel.value = repository.channelById(channelId)
         }

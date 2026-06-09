@@ -8,5 +8,7 @@ data class AppSettings(
     val epgRowHeight: EpgRowHeight = EpgRowHeight.NORMAL,
     val miniPlayerAudioEnabled: Boolean = false,
     val pinProtectedGroups: Set<String> = emptySet(),
-    val sleepTimerMinutes: Int = 30
+    val sleepTimerMinutes: Int = 30,
+    val hideAdultContent: Boolean = true,
+    val sleepTimerAutoEnabled: Boolean = false
 )

@@ -26,4 +26,7 @@ interface ProfileFavoriteDao {
 
     @Query("SELECT channelId FROM profile_favorites WHERE profileId = :profileId AND (:groupId IS NULL OR groupId = :groupId)")
     suspend fun channelIdsForGroup(profileId: Long, groupId: Long?): List<Long>
+
+    @Query("DELETE FROM profile_favorites")
+    suspend fun deleteAll()
 }

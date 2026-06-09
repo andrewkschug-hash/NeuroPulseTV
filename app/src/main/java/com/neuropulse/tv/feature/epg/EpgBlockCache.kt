@@ -15,4 +15,8 @@ class EpgBlockCache(private val maxBlocks: Int = 6) {
     fun put(key: String, programs: List<Program>) {
         map[key] = programs
     }
+
+    fun clear() {
+        map.clear()
+    }
 }

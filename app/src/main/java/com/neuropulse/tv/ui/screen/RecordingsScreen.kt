@@ -107,6 +107,7 @@ fun RecordingsScreen(
     profileInitials: String = "?",
     onNavigateHome: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
+    onOpenFavorites: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
     onWatchChannel: (Long) -> Unit = {},
     onPlayRecording: (String, String) -> Unit = { _, _ -> },
@@ -122,8 +123,10 @@ fun RecordingsScreen(
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val recorded by viewModel.recorded.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
-    val isRecordingActive by viewModel.isRecordingActive.collectAsStateWithLifecycle()
     val livePlayerManager = homeViewModel.livePlayerManager
+
+    var profileMenuOpen by remember { mutableStateOf(false) }
+    var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -186,9 +189,9 @@ fun RecordingsScreen(
         when (tabItem) {
             EpgNavTab.Home -> onNavigateHome()
             EpgNavTab.Recordings -> Unit
-            EpgNavTab.Settings -> onNavigateSettings()
+            EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()
-            EpgNavTab.Profile -> onNavigateProfile()
+            EpgNavTab.Settings -> onNavigateSettings()
         }
     }
 
@@ -224,6 +227,31 @@ fun RecordingsScreen(
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (profileMenuOpen) {
+            return when (event.key) {
+                Key.DirectionUp -> {
+                    profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
+                    true
+                }
+                Key.DirectionDown -> {
+                    profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
+                    true
+                }
+                Key.Back, Key.Escape -> {
+                    profileMenuOpen = false
+                    true
+                }
+                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                    profileMenuOpen = false
+                    when (profileMenuFocusIndex) {
+                        0 -> onNavigateProfile()
+                        1 -> onNavigateSettings()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
         return when (event.key) {
             Key.DirectionLeft -> {
                 when (topBarRow) {
@@ -274,7 +302,10 @@ fun RecordingsScreen(
                     2 -> applySort(sortFocusIndex)
                     else -> when (topBarFocusIndex) {
                         in GridNavTabs.indices -> activateNavTab(GridNavTabs[topBarFocusIndex])
-                        TopBarProfileIndex -> onNavigateProfile()
+                        TopBarProfileIndex -> {
+                            profileMenuOpen = true
+                            profileMenuFocusIndex = 0
+                        }
                         TopBarMiniIndex -> watchingChannel?.let { onWatchChannel(it.id) }
                     }
                 }
@@ -366,13 +397,17 @@ fun RecordingsScreen(
                 navFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex <= GridNavTabs.lastIndex,
                 profileFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex == TopBarProfileIndex,
                 profileInitials = profileInitials,
-                isRecordingActive = isRecordingActive,
+                profileMenuExpanded = profileMenuOpen,
+                profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {
                     focusZone = RecFocusZone.TOP_BAR
                     topBarRow = 0
                     topBarFocusIndex = TopBarProfileIndex
-                    onNavigateProfile()
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
                 },
+                onSwitchAccounts = onNavigateProfile,
+                onOpenSettings = onNavigateSettings,
                 onTabSelected = { tabItem ->
                     focusZone = RecFocusZone.TOP_BAR
                     topBarRow = 0

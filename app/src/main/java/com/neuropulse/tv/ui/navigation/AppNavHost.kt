@@ -3,6 +3,7 @@ package com.neuropulse.tv.ui.navigation
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,9 +12,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,6 +34,7 @@ import androidx.navigation.navArgument
 import com.neuropulse.tv.ui.component.EpgLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.GridNavIconRow
+import com.neuropulse.tv.ui.component.ProfileMenuDropdown
 import com.neuropulse.tv.ui.screen.DirectPlayerScreen
 import com.neuropulse.tv.ui.screen.EpgResolverScreen
 import com.neuropulse.tv.ui.screen.HomeEpgScreen
@@ -39,7 +47,6 @@ import com.neuropulse.tv.ui.screen.SeriesBrowserScreen
 import com.neuropulse.tv.ui.screen.SettingsScreen
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
-import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 
 @Composable
@@ -51,12 +58,25 @@ fun AppNavHost(
     val navController = rememberNavController()
     val current = navController.currentBackStackEntryAsState().value?.destination?.route
     val profileViewModel: ProfileViewModel = hiltViewModel()
-    val recordingViewModel: RecordingViewModel = hiltViewModel()
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
-    val isRecordingActive by recordingViewModel.isRecordingActive.collectAsStateWithLifecycle()
     val profileInitials = profiles.firstOrNull()?.name?.take(2)?.uppercase() ?: "?"
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     var showWhatsNew by remember { mutableStateOf(false) }
+
+    fun navigateToFavorites() {
+        val homeRoute = Routes.Home.route
+        if (navController.currentDestination?.route?.startsWith("home") == true) {
+            navController.currentBackStackEntry?.savedStateHandle?.set("openFavorites", true)
+        } else {
+            navController.navigate(homeRoute) {
+                popUpTo(homeRoute) { inclusive = false }
+                launchSingleTop = true
+            }
+            runCatching {
+                navController.getBackStackEntry(homeRoute).savedStateHandle.set("openFavorites", true)
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         showWhatsNew = settingsViewModel.shouldShowWhatsNew()
@@ -73,47 +93,96 @@ fun AppNavHost(
         return
     }
 
-    val hasEmbeddedTopBar = current?.startsWith("home") == true || current?.startsWith("recordings") == true
+    val hasEmbeddedTopBar = current?.startsWith("home") == true ||
+        current?.startsWith("recordings") == true ||
+        current?.startsWith("settings") == true
+
+    val hideGlobalTopNav = current?.startsWith("player/") == true ||
+        current?.startsWith("direct-player/") == true
 
     Column(modifier = Modifier.fillMaxSize()) {
-        if (!hasEmbeddedTopBar) {
+        if (!hasEmbeddedTopBar && !hideGlobalTopNav) {
             val selectedTab = when {
-                current?.startsWith("settings") == true -> EpgNavTab.Settings
                 current?.startsWith("recordings") == true -> EpgNavTab.Recordings
                 else -> EpgNavTab.Home
             }
-            GridNavIconRow(
-                selectedTab = selectedTab,
-                focusedIndex = -1,
-                navFocused = false,
-                profileInitials = profileInitials,
-                profileFocused = false,
-                isRecordingActive = isRecordingActive,
-                onTabSelected = { tab ->
-                    when (tab) {
-                        EpgNavTab.Home -> navController.navigate(Routes.Home.route) {
-                            popUpTo(Routes.Home.route) { inclusive = false }
-                            launchSingleTop = true
-                        }
-                        EpgNavTab.Search -> navController.navigate(Routes.Home.route) {
-                            launchSingleTop = true
-                        }
-                        EpgNavTab.Recordings -> navController.navigate(Routes.Recordings.route) {
-                            launchSingleTop = true
-                        }
-                        EpgNavTab.Settings -> navController.navigate(Routes.Settings.route) {
-                            launchSingleTop = true
-                        }
-                        EpgNavTab.Profile -> onSwitchProfile()
-                    }
-                },
-                onProfileClick = onSwitchProfile,
+            var profileMenuOpen by remember { mutableStateOf(false) }
+            var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
+
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(EpgLayout.TopBarHeight)
                     .background(EpgColors.Background)
-                    .padding(horizontal = 16.dp)
-            )
+                    .onPreviewKeyEvent { event ->
+                        if (!profileMenuOpen || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionUp -> {
+                                profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
+                                true
+                            }
+                            Key.Back, Key.Escape -> {
+                                profileMenuOpen = false
+                                true
+                            }
+                            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                profileMenuOpen = false
+                                when (profileMenuFocusIndex) {
+                                    0 -> onSwitchProfile()
+                                    1 -> navController.navigate(Routes.Settings.route) { launchSingleTop = true }
+                                }
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+            ) {
+                GridNavIconRow(
+                    selectedTab = selectedTab,
+                    focusedIndex = -1,
+                    navFocused = false,
+                    profileInitials = profileInitials,
+                    profileFocused = false,
+                    onTabSelected = { tab ->
+                        when (tab) {
+                            EpgNavTab.Home -> navController.navigate(Routes.Home.route) {
+                                popUpTo(Routes.Home.route) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                            EpgNavTab.Search -> navController.navigate(Routes.Home.route) {
+                                launchSingleTop = true
+                            }
+                            EpgNavTab.Recordings -> navController.navigate(Routes.Recordings.route) {
+                                launchSingleTop = true
+                            }
+                            EpgNavTab.Favorites -> navigateToFavorites()
+                            EpgNavTab.Settings -> navController.navigate(Routes.Settings.route) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    onProfileClick = {
+                        profileMenuOpen = true
+                        profileMenuFocusIndex = 0
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                )
+                ProfileMenuDropdown(
+                    expanded = profileMenuOpen,
+                    focusedIndex = profileMenuFocusIndex,
+                    onDismiss = { profileMenuOpen = false },
+                    onSwitchAccounts = onSwitchProfile,
+                    onOpenSettings = {
+                        navController.navigate(Routes.Settings.route) { launchSingleTop = true }
+                    }
+                )
+            }
         }
 
         NavHost(
@@ -125,8 +194,17 @@ fun AppNavHost(
             popEnterTransition = { slideInHorizontally { -it } },
             popExitTransition = { slideOutHorizontally { it } }
         ) {
-            composable(Routes.Home.route) {
+            composable(Routes.Home.route) { entry ->
+                val openFavorites by entry.savedStateHandle
+                    .getStateFlow("openFavorites", false)
+                    .collectAsStateWithLifecycle()
+                LaunchedEffect(openFavorites) {
+                    if (openFavorites) {
+                        entry.savedStateHandle["openFavorites"] = false
+                    }
+                }
                 HomeEpgScreen(
+                    openFavoritesInitially = openFavorites,
                     onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
                     onNavigateRecordings = { navController.navigate(Routes.Recordings.route) },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) },
@@ -153,6 +231,7 @@ fun AppNavHost(
                         }
                     },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) { launchSingleTop = true } },
+                    onOpenFavorites = { navigateToFavorites() },
                     onNavigateProfile = onSwitchProfile,
                     onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
                     onPlayRecording = { title, url ->
@@ -173,10 +252,21 @@ fun AppNavHost(
             }
             composable(Routes.Settings.route) {
                 SettingsScreen(
+                    profileInitials = profileInitials,
+                    onNavigateHome = {
+                        navController.navigate(Routes.Home.route) {
+                            popUpTo(Routes.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    },
+                    onNavigateRecordings = {
+                        navController.navigate(Routes.Recordings.route) { launchSingleTop = true }
+                    },
+                    onOpenFavorites = { navigateToFavorites() },
+                    onSwitchProfile = onSwitchProfile,
                     onPickLocalFile = onPickLocalFile,
                     onPickTiviMateZip = onPickTiviMateZip,
-                    onOpenEpgResolver = { navController.navigate(Routes.EpgResolver.route) },
-                    onBack = { navController.popBackStack() }
+                    onOpenEpgResolver = { navController.navigate(Routes.EpgResolver.route) }
                 )
             }
             composable(Routes.EpgResolver.route) {
@@ -192,7 +282,14 @@ fun AppNavHost(
                 PlayerScreen(
                     channelId = it.arguments?.getLong("channelId") ?: 0,
                     onBack = { navController.popBackStack() },
-                    onOpenSplit = { id -> navController.navigate(Routes.SplitView.build(id)) }
+                    onOpenSplit = { id -> navController.navigate(Routes.SplitView.build(id)) },
+                    onNavigateGuide = { navController.popBackStack() },
+                    onNavigateRecordings = {
+                        navController.navigate(Routes.Recordings.route) { launchSingleTop = true }
+                    },
+                    onNavigateSettings = {
+                        navController.navigate(Routes.Settings.route) { launchSingleTop = true }
+                    }
                 )
             }
             composable(

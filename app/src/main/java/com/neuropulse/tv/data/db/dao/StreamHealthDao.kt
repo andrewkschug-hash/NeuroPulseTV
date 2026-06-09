@@ -23,4 +23,7 @@ interface StreamHealthDao {
 
     @Query("SELECT * FROM stream_health")
     fun observeAll(): Flow<List<StreamHealthEntity>>
+
+    @Query("DELETE FROM stream_health")
+    suspend fun deleteAll()
 }

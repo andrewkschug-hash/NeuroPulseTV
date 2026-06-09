@@ -88,4 +88,5 @@ interface IptvRepository {
     suspend fun shouldShowWhatsNew(currentVersion: String): Boolean
     suspend fun markVersionSeen(currentVersion: String)
     suspend fun exportBackup(file: File): String
+    suspend fun resetApp()
 }

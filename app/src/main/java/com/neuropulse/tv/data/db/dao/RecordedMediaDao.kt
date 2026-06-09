@@ -29,4 +29,7 @@ interface RecordedMediaDao {
 
     @Query("DELETE FROM recorded_media WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM recorded_media")
+    suspend fun deleteAll()
 }

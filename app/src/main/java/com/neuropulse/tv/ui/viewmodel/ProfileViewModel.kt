@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.domain.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -18,12 +20,25 @@ class ProfileViewModel @Inject constructor(
     val profiles: StateFlow<List<UserProfile>> = repository.profiles()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _activeProfile = MutableStateFlow<UserProfile?>(null)
+    val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
+
     init {
         viewModelScope.launch { repository.purgeDefaultProfiles() }
+        refreshActiveProfile()
     }
 
     fun switchProfile(profileId: Long) {
-        viewModelScope.launch { repository.setActiveProfile(profileId) }
+        viewModelScope.launch {
+            repository.setActiveProfile(profileId)
+            refreshActiveProfile()
+        }
+    }
+
+    fun refreshActiveProfile() {
+        viewModelScope.launch {
+            _activeProfile.value = repository.activeProfile()
+        }
     }
 
     fun createProfile(name: String, color: String, pin: String?, parental: Boolean) {

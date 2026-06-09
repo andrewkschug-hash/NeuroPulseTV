@@ -94,6 +94,22 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun updateHideAdultContent(enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(hideAdultContent = enabled)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
+    fun updateSleepTimerAutoEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(sleepTimerAutoEnabled = enabled)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
     fun refreshStorageSettings() {
         _storageOptions.value = recordingStorageManager.enumerateOptions()
         viewModelScope.launch {
@@ -168,6 +184,10 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun deletePlaylist(playlistId: Long) {
+        viewModelScope.launch { repository.deletePlaylist(playlistId) }
+    }
+
     fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File) {
         viewModelScope.launch {
             _importSummary.value = repository.importTiviMate(contentResolver, uri, cacheDir)
@@ -176,5 +196,14 @@ class SettingsViewModel @Inject constructor(
 
     fun startDashboard() {
         _dashboardUrl.value = dashboardController.startOrGetUrl()
+    }
+
+    fun resetApp(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.resetApp()
+            _settings.value = AppSettings()
+            _importSummary.value = "App reset complete. Playlists, guide data, and favorites cleared."
+            onComplete()
+        }
     }
 }

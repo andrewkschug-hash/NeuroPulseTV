@@ -14,4 +14,7 @@ interface RecordingDao {
 
     @Query("SELECT * FROM recordings ORDER BY startTime DESC")
     fun observeAll(): Flow<List<RecordingEntity>>
+
+    @Query("DELETE FROM recordings")
+    suspend fun deleteAll()
 }

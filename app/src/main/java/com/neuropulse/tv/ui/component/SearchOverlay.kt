@@ -17,12 +17,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,6 +53,8 @@ import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
+private enum class SearchFocusZone { FIELD, RESULTS }
+
 @Composable
 fun SearchOverlay(
     query: String,
@@ -61,11 +65,64 @@ fun SearchOverlay(
     onResultSelected: (SearchResultItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val searchFocus = remember { FocusRequester() }
-    var focusedIndex by remember { mutableIntStateOf(-1) }
+    val fieldFocusRequester = remember { FocusRequester() }
+    val resultsFocusRequester = remember { FocusRequester() }
+    var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
+    var focusedIndex by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
-        searchFocus.requestFocus()
+        fieldFocusRequester.requestFocus()
+    }
+
+    LaunchedEffect(results) {
+        focusedIndex = if (results.isNotEmpty()) 0 else -1
+    }
+
+    LaunchedEffect(focusZone) {
+        when (focusZone) {
+            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocus()
+            SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocus()
+        }
+    }
+
+    fun selectAt(index: Int) {
+        results.getOrNull(index)?.let { onResultSelected(it) }
+    }
+
+    fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.Back, Key.Escape -> {
+                onDismiss()
+                true
+            }
+            Key.DirectionDown -> {
+                if (results.isNotEmpty()) {
+                    focusZone = SearchFocusZone.RESULTS
+                    if (focusedIndex < 0) focusedIndex = 0
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (focusZone == SearchFocusZone.RESULTS) {
+                    if (focusedIndex <= 0) {
+                        focusZone = SearchFocusZone.FIELD
+                    } else {
+                        focusedIndex -= 1
+                    }
+                }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                if (results.isNotEmpty()) {
+                    selectAt(focusedIndex.coerceAtLeast(0))
+                    true
+                } else {
+                    false
+                }
+            }
+            else -> false
+        }
     }
 
     Box(
@@ -73,12 +130,9 @@ fun SearchOverlay(
             .fillMaxSize()
             .zIndex(20f)
             .background(Color.Black.copy(alpha = 0.75f))
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && (event.key == Key.Back || event.key == Key.Escape)) {
-                    onDismiss()
-                    true
-                } else false
-            }
+            .focusRequester(resultsFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { handleKey(it) }
     ) {
         Column(
             modifier = Modifier
@@ -105,12 +159,18 @@ fun SearchOverlay(
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(
+                        onSearch = {
+                            if (results.isNotEmpty()) selectAt(focusedIndex.coerceAtLeast(0))
+                        }
+                    ),
                     cursorBrush = SolidColor(EpgColors.Accent),
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
-                        .focusRequester(searchFocus)
+                        .focusRequester(fieldFocusRequester)
                         .focusable()
+                        .onPreviewKeyEvent { handleKey(it) }
                         .background(Color(0xFF13131A), RoundedCornerShape(8.dp))
                         .border(1.5.dp, EpgColors.Accent, RoundedCornerShape(8.dp))
                         .padding(horizontal = 14.dp, vertical = 14.dp),
@@ -119,7 +179,7 @@ fun SearchOverlay(
                             if (query.isEmpty()) {
                                 Text(
                                     text = "Search channels and shows…",
-                                    color = Color(0xFF555568),
+                                    color = Color(0xFF888899),
                                     fontFamily = DmSansFamily,
                                     fontSize = 16.sp
                                 )
@@ -140,32 +200,34 @@ fun SearchOverlay(
                 }
             }
 
+            if (query.isNotBlank() && results.isEmpty()) {
+                Text(
+                    text = "No results for \"$query\"",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
+
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(results) { index, result ->
                     SearchResultRow(
                         result = result,
-                        focused = focusedIndex == index,
-                        onClick = { onResultSelected(result) },
-                        modifier = Modifier.onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.DirectionDown -> {
-                                    focusedIndex = (focusedIndex + 1).coerceAtMost(results.lastIndex)
-                                    true
-                                }
-                                Key.DirectionUp -> {
-                                    focusedIndex = (focusedIndex - 1).coerceAtLeast(0)
-                                    true
-                                }
-                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                    onResultSelected(result)
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
+                        focused = focusZone == SearchFocusZone.RESULTS && focusedIndex == index,
+                        onClick = { onResultSelected(result) }
                     )
                 }
+            }
+
+            if (results.isNotEmpty()) {
+                Text(
+                    text = "↓ results  ·  Enter to open",
+                    color = EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                )
             }
         }
     }
@@ -183,19 +245,16 @@ private fun SearchResultRow(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(56.dp),
+            .height(56.dp)
+            .then(
+                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(0.dp))
+                else Modifier
+            ),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (focused) Modifier.border(
-                        width = 0.dp,
-                        color = Color.Transparent
-                    ) else Modifier
-                ),
+            modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (focused) {

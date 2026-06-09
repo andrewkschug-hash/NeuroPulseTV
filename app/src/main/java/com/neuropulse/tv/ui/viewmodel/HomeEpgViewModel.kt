@@ -48,6 +48,13 @@ class HomeEpgViewModel @Inject constructor(
     private val _favoriteGroupFilter = MutableStateFlow<Long?>(null)
     val favoriteGroupFilter: StateFlow<Long?> = _favoriteGroupFilter.asStateFlow()
 
+    /** Demo-mode favorites for placeholder channels (negative IDs). */
+    private val _demoFavoriteIds = MutableStateFlow<Set<Long>>(emptySet())
+    val demoFavoriteIds: StateFlow<Set<Long>> = _demoFavoriteIds.asStateFlow()
+
+    private val _favoriteSavedMessage = MutableStateFlow<String?>(null)
+    val favoriteSavedMessage: StateFlow<String?> = _favoriteSavedMessage.asStateFlow()
+
     private val _activeProfile = MutableStateFlow<UserProfile?>(null)
     val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
 
@@ -56,6 +63,9 @@ class HomeEpgViewModel @Inject constructor(
 
     val favoriteGroups: StateFlow<List<FavoriteGroup>> = repository.favoriteGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _hideAdultContent = MutableStateFlow(true)
+    val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
     val channels: StateFlow<List<Channel>> = _favoriteGroupFilter
         .flatMapLatest { filter ->
@@ -75,10 +85,9 @@ class HomeEpgViewModel @Inject constructor(
                 )
             }
         }
-        .combine(_activeProfile) { channelList, profile ->
-            profile?.let { p ->
-                channelList.filter { !ProfileAccessGuard.shouldHideChannel(p, it) }
-            } ?: channelList
+        .combine(_activeProfile, _hideAdultContent) { channelList, _, hideAdult ->
+            if (!hideAdult) channelList
+            else channelList.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -86,9 +95,9 @@ class HomeEpgViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val continueWatching: StateFlow<List<Channel>> = continueWatchingItems
-        .combine(_activeProfile) { items, profile ->
+        .combine(_hideAdultContent) { items, hideAdult ->
             items.map { it.channel }.filter { ch ->
-                profile?.let { !ProfileAccessGuard.shouldHideChannel(it, ch) } ?: true
+                !hideAdult || !ProfileAccessGuard.isAdultGroup(ch.group)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -142,11 +151,21 @@ class HomeEpgViewModel @Inject constructor(
             channels.collectLatest { loadWindow() }
         }
         viewModelScope.launch {
-            _miniPlayerAudioEnabled.value = repository.loadSettings().miniPlayerAudioEnabled
-            livePlayerManager.setMiniAudioEnabled(_miniPlayerAudioEnabled.value)
+            val settings = repository.loadSettings()
+            _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
+            _hideAdultContent.value = settings.hideAdultContent
+            livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
         }
         viewModelScope.launch {
             repository.refreshVodSeriesCatalog()
+        }
+        viewModelScope.launch {
+            repository.playlists().collect { list ->
+                if (list.isEmpty()) {
+                    _demoFavoriteIds.value = emptySet()
+                    _favoriteGroupFilter.value = null
+                }
+            }
         }
     }
 
@@ -179,11 +198,40 @@ class HomeEpgViewModel @Inject constructor(
 
     fun addChannelToFavorites(channelId: Long, groupId: Long?) {
         viewModelScope.launch {
-            if (groupId != null) {
+            if (channelId < 0) {
+                _demoFavoriteIds.value = _demoFavoriteIds.value + channelId
+            } else if (groupId != null) {
                 repository.addChannelToFavoriteGroup(channelId, groupId)
             } else {
                 repository.toggleFavorite(channelId, true)
             }
+        }
+    }
+
+    fun saveChannelToFavorites(channelId: Long, channelName: String) {
+        viewModelScope.launch {
+            if (channelId < 0) {
+                _demoFavoriteIds.value = _demoFavoriteIds.value + channelId
+            } else {
+                repository.toggleFavorite(channelId, true)
+            }
+            _favoriteGroupFilter.value = FAVORITES_FILTER
+            _favoriteSavedMessage.value = "$channelName saved to ★ Favorites"
+        }
+    }
+
+    fun clearFavoriteSavedMessage() {
+        _favoriteSavedMessage.value = null
+    }
+
+    fun addChannelToFavoriteGroup(channelId: Long, groupId: Long) {
+        viewModelScope.launch {
+            if (channelId < 0) {
+                _demoFavoriteIds.value = _demoFavoriteIds.value + channelId
+            } else {
+                repository.addChannelToFavoriteGroup(channelId, groupId)
+            }
+            _favoriteGroupFilter.value = groupId
         }
     }
 
@@ -205,6 +253,7 @@ class HomeEpgViewModel @Inject constructor(
         viewModelScope.launch {
             val settings = repository.loadSettings()
             _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
+            _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
         }
     }

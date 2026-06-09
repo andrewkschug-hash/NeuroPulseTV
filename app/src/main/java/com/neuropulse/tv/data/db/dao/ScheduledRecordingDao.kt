@@ -30,4 +30,7 @@ interface ScheduledRecordingDao {
 
     @Query("DELETE FROM scheduled_recordings WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM scheduled_recordings")
+    suspend fun deleteAll()
 }

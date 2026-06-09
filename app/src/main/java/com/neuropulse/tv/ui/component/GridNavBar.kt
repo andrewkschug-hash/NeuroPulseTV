@@ -31,7 +31,7 @@ val GridNavTabs = listOf(
     EpgNavTab.Home,
     EpgNavTab.Search,
     EpgNavTab.Recordings,
-    EpgNavTab.Settings
+    EpgNavTab.Favorites
 )
 
 @Composable
@@ -45,7 +45,6 @@ fun GridNavIcon(
     val iconColor = when {
         selected -> EpgColors.Accent
         focused -> EpgColors.TextPrimary
-        tab == EpgNavTab.Recordings -> Color(0xFFFF3B3B)
         else -> EpgColors.TextSecondary
     }
 
@@ -127,7 +126,6 @@ fun GridNavIconRow(
     onTabSelected: (EpgNavTab) -> Unit,
     onProfileClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isRecordingActive: Boolean = false,
     trailing: @Composable () -> Unit = {}
 ) {
     Row(
@@ -145,22 +143,6 @@ fun GridNavIconRow(
                     selected = tab == selectedTab,
                     focused = navFocused && index == focusedIndex,
                     onClick = { onTabSelected(tab) }
-                )
-            }
-        }
-        if (isRecordingActive) {
-            Row(
-                modifier = Modifier.padding(end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(text = "●", fontSize = 14.sp, color = Color(0xFFFF3B3B))
-                Text(
-                    text = "REC",
-                    fontSize = 13.sp,
-                    color = Color(0xFFFF3B3B),
-                    fontFamily = DmSansFamily,
-                    fontWeight = FontWeight.Medium
                 )
             }
         }

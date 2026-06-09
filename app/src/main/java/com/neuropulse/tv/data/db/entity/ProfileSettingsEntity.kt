@@ -14,5 +14,7 @@ data class ProfileSettingsEntity(
     val lastSleepTimer: Int = 30,
     val recordingStoragePath: String? = null,
     val lastSeenVersion: String? = null,
-    val sleepTimerMinutes: Int = 30
+    val sleepTimerMinutes: Int = 30,
+    val hideAdultContent: Boolean = true,
+    val sleepTimerAutoEnabled: Boolean = false
 )
