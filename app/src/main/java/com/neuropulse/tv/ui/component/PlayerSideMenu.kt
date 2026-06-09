@@ -178,7 +178,7 @@ fun PlayerSideMenu(
                     color = EpgColors.TextDimmed,
                     fontFamily = DmSansFamily,
                     fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, top = 8.dp)
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
                 )
             }
         }

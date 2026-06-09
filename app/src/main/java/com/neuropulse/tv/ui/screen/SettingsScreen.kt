@@ -405,22 +405,25 @@ fun SettingsScreen(
             )
         }
 
-        if (showHideAdultPinDialog && activeProfile != null) {
-            PinEntryDialog(
-                profileName = activeProfile.name,
-                title = "Enter PIN",
-                subtitle = "PIN required to hide adult content",
-                onVerified = {
-                    showHideAdultPinDialog = false
-                    pendingHideAdultValue?.let { viewModel.updateHideAdultContent(it) }
-                    pendingHideAdultValue = null
-                },
-                onDismiss = {
-                    showHideAdultPinDialog = false
-                    pendingHideAdultValue = null
-                },
-                verifyPin = { pin -> profileViewModel.verifyPin(activeProfile.id, pin) }
-            )
+        if (showHideAdultPinDialog) {
+            val profile = activeProfile
+            if (profile != null) {
+                PinEntryDialog(
+                    profileName = profile.name,
+                    title = "Enter PIN",
+                    subtitle = "PIN required to hide adult content",
+                    onVerified = {
+                        showHideAdultPinDialog = false
+                        pendingHideAdultValue?.let { viewModel.updateHideAdultContent(it) }
+                        pendingHideAdultValue = null
+                    },
+                    onDismiss = {
+                        showHideAdultPinDialog = false
+                        pendingHideAdultValue = null
+                    },
+                    verifyPin = { pin -> profileViewModel.verifyPin(profile.id, pin) }
+                )
+            }
         }
     }
 }
