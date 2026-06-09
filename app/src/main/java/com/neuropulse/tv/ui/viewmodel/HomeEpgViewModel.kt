@@ -93,8 +93,10 @@ class HomeEpgViewModel @Inject constructor(
                 )
             }
         }
-        .combine(_categoryFilter, _hideAdultContent) { channelList, category, hideAdult ->
-            val byCategory = ChannelCategoryPresets.apply(channelList, category)
+        .combine(_categoryFilter) { channelList, category ->
+            ChannelCategoryPresets.apply(channelList, category)
+        }
+        .combine(_hideAdultContent) { byCategory, hideAdult ->
             if (!hideAdult) byCategory
             else byCategory.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         }
