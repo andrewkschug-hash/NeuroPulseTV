@@ -46,7 +46,10 @@ import com.neuropulse.tv.ui.screen.RecordingsScreen
 import com.neuropulse.tv.ui.screen.SeriesBrowserScreen
 import com.neuropulse.tv.ui.screen.SettingsScreen
 import com.neuropulse.tv.ui.theme.EpgColors
+import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
+import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
+import com.neuropulse.tv.ui.viewmodel.SearchViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 
 @Composable
@@ -195,6 +198,9 @@ fun AppNavHost(
             popExitTransition = { slideOutHorizontally { it } }
         ) {
             composable(Routes.Home.route) { entry ->
+                val viewModel: HomeEpgViewModel = hiltViewModel()
+                val recordingViewModel: RecordingViewModel = hiltViewModel()
+                val searchViewModel: SearchViewModel = hiltViewModel()
                 val openFavorites by entry.savedStateHandle
                     .getStateFlow("openFavorites", false)
                     .collectAsStateWithLifecycle()
@@ -204,6 +210,9 @@ fun AppNavHost(
                     }
                 }
                 HomeEpgScreen(
+                    viewModel = viewModel,
+                    recordingViewModel = recordingViewModel,
+                    searchViewModel = searchViewModel,
                     openFavoritesInitially = openFavorites,
                     onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
                     onNavigateRecordings = { navController.navigate(Routes.Recordings.route) },

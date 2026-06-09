@@ -44,7 +44,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.domain.model.Channel
@@ -99,9 +98,9 @@ fun HomeEpgScreen(
     onPlayVod: (String, String) -> Unit = { _, _ -> },
     profileInitials: String = "?",
     openFavoritesInitially: Boolean = false,
-    viewModel: HomeEpgViewModel = hiltViewModel(),
-    recordingViewModel: RecordingViewModel = hiltViewModel(),
-    searchViewModel: SearchViewModel = hiltViewModel()
+    viewModel: HomeEpgViewModel,
+    recordingViewModel: RecordingViewModel,
+    searchViewModel: SearchViewModel
 ) {
     val context = LocalContext.current
     val sleepTimer = remember {
