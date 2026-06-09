@@ -2,6 +2,7 @@ package com.neuropulse.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +18,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -28,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -370,4 +378,81 @@ fun ProfileAvatarBadge(
             fontWeight = FontWeight.Bold
         )
     }
+}
+
+@Composable
+fun ProfileColorPicker(
+    colors: List<Color>,
+    selectedHex: String,
+    onColorSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val normalizedSelected = selectedHex.trim().uppercase()
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        colors.chunked(4).forEach { rowColors ->
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                rowColors.forEach { color ->
+                    val hex = colorToHex(color)
+                    ProfileColorSwatch(
+                        color = color,
+                        selected = hex.uppercase() == normalizedSelected,
+                        onClick = { onColorSelected(hex) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileColorSwatch(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember { mutableStateOf(false) }
+    val ringColor = when {
+        selected -> Color.White
+        focused -> EpgColors.FocusBorder
+        else -> Color.Transparent
+    }
+    val ringWidth = if (selected || focused) 2.dp else 0.dp
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .size(44.dp)
+            .onFocusChanged { focused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(CircleShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(ringWidth, ringColor, CircleShape)
+                .padding(4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(color)
+            )
+            if (selected) {
+                Text(text = "✓", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+private fun colorToHex(color: Color): String {
+    val r = (color.red * 255).toInt()
+    val g = (color.green * 255).toInt()
+    val b = (color.blue * 255).toInt()
+    return String.format("#%06X", 0xFFFFFF and (r shl 16 or (g shl 8) or b))
 }

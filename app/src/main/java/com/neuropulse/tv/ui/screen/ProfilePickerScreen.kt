@@ -77,7 +77,11 @@ val ProfileAvatarColors = listOf(
     Color(0xFF1C3A6B),
     Color(0xFF1A3D2B),
     Color(0xFF3D1A1A),
-    Color(0xFF2A1A3D)
+    Color(0xFF2A1A3D),
+    Color(0xFF1A4D5C),
+    Color(0xFF4D3A1A),
+    Color(0xFF3B8FFF),
+    Color(0xFF8B3BFF)
 )
 
 @Composable
@@ -608,34 +612,78 @@ private fun AddProfileDialog(
     onDismiss: () -> Unit
 ) {
     var fieldFocused by remember { mutableStateOf(false) }
+    var createFocused by remember { mutableStateOf(false) }
+    var cancelFocused by remember { mutableStateOf(false) }
+    val fieldFocusRequester = remember { FocusRequester() }
+    val createFocusRequester = remember { FocusRequester() }
+    val cancelFocusRequester = remember { FocusRequester() }
+    val initials = profileInitials(name.ifBlank { "?" })
+
+    LaunchedEffect(Unit) { fieldFocusRequester.requestFocus() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.75f)),
+            .background(Color.Black.copy(alpha = 0.78f))
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
-                .width(400.dp)
-                .background(Color(0xFF1A1A28))
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .width(440.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color(0xFF14141E))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
+                .padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(
-                text = "Create Profile",
-                color = TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Column {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(ProfileAvatarColors.first()),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
-                    text = "Profile name",
+                    text = initials,
                     color = TextPrimary,
                     fontFamily = DmSansFamily,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Create Profile",
+                    color = TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Add a name for this household member",
+                    color = TextSecondary,
+                    fontFamily = DmSansFamily,
                     fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Profile name",
+                    color = TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
                 BasicTextField(
                     value = name,
@@ -643,21 +691,21 @@ private fun AddProfileDialog(
                     textStyle = TextStyle(
                         color = TextPrimary,
                         fontFamily = DmSansFamily,
-                        fontSize = 15.sp
+                        fontSize = 16.sp
                     ),
                     cursorBrush = SolidColor(Accent),
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .focusRequester(fieldFocusRequester)
                         .focusable()
                         .onFocusChanged { fieldFocused = it.isFocused }
                         .drawBehind {
                             val stroke = if (fieldFocused) 2.dp.toPx() else 1.dp.toPx()
                             val color = if (fieldFocused) Accent else BorderSubtle
-                            drawRect(
-                                color = InputBg,
-                                size = size
-                            )
+                            drawRect(color = InputBg, size = size)
                             drawRect(
                                 color = color,
                                 size = size,
@@ -667,12 +715,42 @@ private fun AddProfileDialog(
                         .padding(horizontal = 14.dp, vertical = 12.dp)
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onConfirm) {
-                    Text("Create", fontFamily = DmSansFamily, color = TextPrimary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .focusRequester(cancelFocusRequester)
+                        .onFocusChanged { cancelFocused = it.isFocused }
+                ) {
+                    Text(
+                        text = "Cancel",
+                        color = if (cancelFocused) TextPrimary else TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                    )
                 }
-                Button(onClick = onDismiss) {
-                    Text("Cancel", fontFamily = DmSansFamily, color = TextPrimary)
+                Spacer(modifier = Modifier.width(12.dp))
+                Surface(
+                    onClick = onConfirm,
+                    modifier = Modifier
+                        .focusRequester(createFocusRequester)
+                        .onFocusChanged { createFocused = it.isFocused }
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (createFocused) Color(0xFF5AA3FF) else Accent)
+                ) {
+                    Text(
+                        text = "Create",
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
+                    )
                 }
             }
         }

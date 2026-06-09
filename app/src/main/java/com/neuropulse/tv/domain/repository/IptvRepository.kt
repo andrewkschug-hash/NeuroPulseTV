@@ -39,6 +39,7 @@ interface IptvRepository {
 
     fun profiles(): Flow<List<UserProfile>>
     suspend fun createProfile(name: String, avatarColor: String, pin: String?, isParental: Boolean): Long
+    suspend fun updateProfileAvatarColor(profileId: Long, avatarColor: String)
     suspend fun setActiveProfile(profileId: Long)
     suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean
     suspend fun purgeDefaultProfiles()

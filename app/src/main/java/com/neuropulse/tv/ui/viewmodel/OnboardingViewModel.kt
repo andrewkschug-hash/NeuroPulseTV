@@ -27,6 +27,10 @@ class OnboardingViewModel @Inject constructor(
     private val repository: IptvRepository
 ) : ViewModel() {
 
+    companion object {
+        const val CONNECT_ERROR = "Login or URL invalid"
+    }
+
     val playlists: StateFlow<List<Playlist>> = repository.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -42,6 +46,10 @@ class OnboardingViewModel @Inject constructor(
     val deviceMac: String? = DeviceMacAddress.resolve()
 
     fun connectXtream(name: String, serverUrl: String, username: String, password: String) {
+        if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
+            showConnectError()
+            return
+        }
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
@@ -51,6 +59,10 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun connectM3u(name: String, url: String) {
+        if (url.isBlank()) {
+            showConnectError()
+            return
+        }
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
@@ -60,12 +72,21 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun connectStalker(name: String, portalUrl: String, macAddress: String) {
+        if (portalUrl.isBlank() || macAddress.isBlank()) {
+            showConnectError()
+            return
+        }
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
             val result = repository.connectStalkerPlaylist(name, portalUrl, macAddress)
             handleResult(result)
         }
+    }
+
+    private fun showConnectError() {
+        _connectState.value = OnboardingConnectState.Error
+        _errorMessage.value = CONNECT_ERROR
     }
 
     fun resetConnectState() {

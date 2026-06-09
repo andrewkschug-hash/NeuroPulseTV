@@ -97,7 +97,7 @@ class IptvRepositoryImpl @Inject constructor(
 ) : IptvRepository {
 
     companion object {
-        private const val CONNECT_ERROR = "Couldn't connect. Check your details and try again."
+        private const val CONNECT_ERROR = "Login or URL invalid"
     }
 
     private val recommendationEngine = RecommendationEngine()
@@ -371,6 +371,11 @@ class IptvRepositoryImpl @Inject constructor(
         return id
     }
 
+    override suspend fun updateProfileAvatarColor(profileId: Long, avatarColor: String) {
+        val profile = profileDao.getProfile(profileId) ?: return
+        profileDao.upsertProfile(profile.copy(avatarColor = avatarColor))
+    }
+
     override suspend fun setActiveProfile(profileId: Long) {
         profileDao.setActive(ActiveProfileEntity(profileId = profileId))
         activeProfileId = profileId
@@ -510,6 +515,11 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
         val startedAt = System.currentTimeMillis()
         val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
+        val raw = remoteTextFetcher.fetch(normalizedUrl)
+        val parsed = m3uParser.parseAsFlow(playlistId = 0L, raw).first { it.done }
+        if (parsed.channels.isEmpty()) {
+            throw IllegalStateException("No channels in playlist")
+        }
         val playlistId = playlistDao.insert(
             PlaylistEntity(
                 name = name,
@@ -519,10 +529,7 @@ class IptvRepositoryImpl @Inject constructor(
                 type = PlaylistType.M3U.name
             )
         )
-        val raw = remoteTextFetcher.fetch(normalizedUrl)
-        val final = m3uParser.parseAsFlow(playlistId, raw).first { it.done }
-        channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(final.channels)
+        channelDao.insertAll(parsed.channels.map { it.copy(playlistId = playlistId) })
         secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
         epgScheduler.runResolverForNewChannels(startedAt)
         return playlistId

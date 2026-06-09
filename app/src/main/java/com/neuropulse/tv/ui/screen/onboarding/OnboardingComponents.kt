@@ -71,6 +71,7 @@ internal val OnboardingBorderSubtle = Color(0x14FFFFFF)
 internal fun MethodCard(
     icon: String,
     iconColor: Color,
+    iconBg: Color,
     title: String,
     subtitle: String,
     badge: String? = null,
@@ -81,31 +82,37 @@ internal fun MethodCard(
     val scale by animateFloatAsState(if (focused) 1.02f else 1f, tween(150), label = "methodCardScale")
     val bg = if (focused) OnboardingCardFocusBg else OnboardingCardBg
     val borderColor = if (focused) OnboardingAccent else OnboardingBorderSubtle
-    val borderWidth = if (focused) 1.5.dp else 1.dp
+    val borderWidth = if (focused) 2.dp else 1.dp
     val arrowColor = if (focused) OnboardingTextPrimary else OnboardingTextMuted
 
     Surface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(84.dp)
             .scale(scale)
             .onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
-                .padding(horizontal = 20.dp),
-            contentAlignment = Alignment.CenterStart
+                .border(borderWidth, borderColor, RoundedCornerShape(12.dp))
         ) {
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .width(4.dp)
+                        .fillMaxSize()
+                        .background(OnboardingAccent, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                )
+            }
             if (badge != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 8.dp)
+                        .padding(top = 10.dp, end = 14.dp)
                         .background(Color(0xFF1C3A6B), RoundedCornerShape(10.dp))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
@@ -119,29 +126,67 @@ internal fun MethodCard(
                 }
             }
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(text = icon, fontSize = 24.sp, color = iconColor, modifier = Modifier.width(28.dp))
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(iconBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(text = icon, fontSize = 22.sp, color = iconColor)
+                }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = title,
                         color = OnboardingTextPrimary,
                         fontFamily = DmSansFamily,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = subtitle,
                         color = OnboardingTextSecondary,
                         fontFamily = DmSansFamily,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp
                     )
                 }
-                Text(text = ">", color = arrowColor, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                Text(text = "›", color = arrowColor, fontSize = 24.sp, fontWeight = FontWeight.Light)
             }
         }
+    }
+}
+
+@Composable
+internal fun OnboardingErrorBanner(
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0x26FF4444))
+            .border(1.dp, OnboardingError.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(text = "!", color = OnboardingError, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = message,
+            color = OnboardingError,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            lineHeight = 18.sp
+        )
     }
 }
 
@@ -188,7 +233,8 @@ internal fun OnboardingTextField(
                 cursorBrush = SolidColor(OnboardingAccent),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .focusable()
                     .onFocusChanged { focused = it.isFocused }
                     .drawBehind {
@@ -201,12 +247,12 @@ internal fun OnboardingTextField(
                         }
                         drawRect(color = color, size = size, style = Stroke(width = stroke))
                     }
-                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (value.isEmpty() && !focused) {
                             Text(
-                                text = if (focused || value.isNotBlank()) label else placeholder,
+                                text = placeholder,
                                 color = OnboardingTextMuted,
                                 fontFamily = DmSansFamily,
                                 fontSize = 15.sp
@@ -233,15 +279,6 @@ internal fun OnboardingTextField(
                 }
             }
         }
-        if (error != null) {
-            Text(
-                text = error,
-                color = OnboardingError,
-                fontFamily = DmSansFamily,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-        }
     }
 }
 
@@ -260,17 +297,23 @@ internal fun ConnectButton(
         enabled = !loading,
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(44.dp)
             .scale(scale)
             .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
             if (loading) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                         color = Color.White,
                         strokeWidth = 2.dp
                     )
@@ -278,7 +321,7 @@ internal fun ConnectButton(
                         text = "Connecting…",
                         color = Color.White,
                         fontFamily = DmSansFamily,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     )
                 }
@@ -287,11 +330,41 @@ internal fun ConnectButton(
                     text = "Connect",
                     color = Color.White,
                     fontFamily = DmSansFamily,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun OnboardingTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    muted: Boolean = false
+) {
+    var focused by remember { mutableStateOf(false) }
+    val color = when {
+        focused -> OnboardingTextPrimary
+        muted -> OnboardingTextMuted
+        else -> OnboardingTextSecondary
+    }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { focused = it.isFocused }
+    ) {
+        Text(
+            text = text,
+            color = color,
+            fontFamily = DmSansFamily,
+            fontSize = if (muted) 13.sp else 14.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+        )
     }
 }
 

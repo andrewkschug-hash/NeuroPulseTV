@@ -45,6 +45,8 @@ import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
 import com.neuropulse.tv.ui.component.ProfileAvatarBadge
+import com.neuropulse.tv.ui.component.ProfileColorPicker
+import com.neuropulse.tv.ui.screen.ProfileAvatarColors
 import com.neuropulse.tv.ui.component.PinEntryDialog
 import com.neuropulse.tv.ui.component.SettingsChip
 import com.neuropulse.tv.ui.component.SettingsListRow
@@ -311,6 +313,9 @@ fun SettingsScreen(
                                 } else {
                                     viewModel.updateHideAdultContent(next)
                                 }
+                            },
+                            onAvatarColorChange = { color ->
+                                activeProfile?.id?.let { profileViewModel.updateAvatarColor(it, color) }
                             }
                         )
                         SettingsSection.Connections -> ConnectionsSettingsContent(
@@ -445,7 +450,8 @@ private fun ProfileSettingsContent(
     onSwitchProfile: () -> Unit,
     onSelectProfile: (Long) -> Unit,
     onToggleMiniAudio: () -> Unit,
-    onToggleHideAdult: () -> Unit
+    onToggleHideAdult: () -> Unit,
+    onAvatarColorChange: (String) -> Unit
 ) {
     SettingsPanel(
         title = "Active profile",
@@ -477,6 +483,19 @@ private fun ProfileSettingsContent(
                 )
             }
             Button(onClick = onSwitchProfile) { Text("Manage profiles") }
+        }
+    }
+
+    if (activeProfile != null) {
+        SettingsPanel(
+            title = "Profile picture color",
+            description = "Choose a color for your profile avatar."
+        ) {
+            ProfileColorPicker(
+                colors = ProfileAvatarColors,
+                selectedHex = activeProfile.avatarColor,
+                onColorSelected = onAvatarColorChange
+            )
         }
     }
 

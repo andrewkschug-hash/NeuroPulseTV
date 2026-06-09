@@ -35,6 +35,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,6 +63,7 @@ private enum class OnboardingMethod { Xtream, M3u, Stalker }
 @Composable
 fun OnboardingScreen(
     onComplete: () -> Unit,
+    onSkip: () -> Unit = onComplete,
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
     val connectState by viewModel.connectState.collectAsStateWithLifecycle()
@@ -110,7 +112,8 @@ fun OnboardingScreen(
                             OnboardingMethod.Stalker -> OnboardingStep.Stalker
                         }
                     },
-                    onShowInfo = { showInfo = true }
+                    onShowInfo = { showInfo = true },
+                    onSkip = onSkip
                 )
                 OnboardingStep.Xtream -> XtreamEntryScreen(
                     loading = connectState == OnboardingConnectState.Connecting,
@@ -163,12 +166,14 @@ fun OnboardingScreen(
 @Composable
 private fun MethodPickerScreen(
     onSelect: (OnboardingMethod) -> Unit,
-    onShowInfo: () -> Unit
+    onShowInfo: () -> Unit,
+    onSkip: () -> Unit
 ) {
     val xtreamFocusRequester = remember { FocusRequester() }
     val m3uFocusRequester = remember { FocusRequester() }
     val stalkerFocusRequester = remember { FocusRequester() }
     val infoFocusRequester = remember { FocusRequester() }
+    val skipFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { xtreamFocusRequester.requestFocus() }
 
@@ -202,12 +207,13 @@ private fun MethodPickerScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         Column(
-            modifier = Modifier.width(520.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.width(540.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             MethodCard(
                 icon = "((o))",
                 iconColor = OnboardingAccent,
+                iconBg = Color(0xFF1C3A6B),
                 title = "Xtream Codes",
                 subtitle = "Server URL + username + password",
                 badge = "Most Common",
@@ -216,7 +222,8 @@ private fun MethodPickerScreen(
             )
             MethodCard(
                 icon = "∞",
-                iconColor = OnboardingTextSecondary,
+                iconColor = Color(0xFFB8C0D8),
+                iconBg = Color(0xFF1A1A28),
                 title = "M3U URL",
                 subtitle = "A single playlist link",
                 onClick = { onSelect(OnboardingMethod.M3u) },
@@ -224,7 +231,8 @@ private fun MethodPickerScreen(
             )
             MethodCard(
                 icon = "▣",
-                iconColor = OnboardingTextSecondary,
+                iconColor = Color(0xFFB8C0D8),
+                iconBg = Color(0xFF1A1A28),
                 title = "MAC / Stalker Portal",
                 subtitle = "Portal URL + device MAC address",
                 onClick = { onSelect(OnboardingMethod.Stalker) },
@@ -232,21 +240,22 @@ private fun MethodPickerScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(28.dp))
 
-        Surface(
+        OnboardingTextButton(
+            text = "What is IPTV? How do I get a provider?",
             onClick = onShowInfo,
-            modifier = Modifier.focusRequester(infoFocusRequester)
-        ) {
-            Text(
-                text = "What is IPTV? How do I get a provider?",
-                color = OnboardingTextMuted,
-                fontFamily = DmSansFamily,
-                fontSize = 13.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-        }
+            modifier = Modifier.focusRequester(infoFocusRequester),
+            muted = true
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OnboardingTextButton(
+            text = "Skip for now",
+            onClick = onSkip,
+            modifier = Modifier.focusRequester(skipFocusRequester)
+        )
     }
 }
 
@@ -268,13 +277,16 @@ private fun XtreamEntryScreen(
         subtitle = "Enter the details your IPTV provider gave you",
         onBack = onBack
     ) {
+        if (errorMessage != null) {
+            OnboardingErrorBanner(message = errorMessage)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
         OnboardingTextField(
             label = "Server URL",
             value = serverUrl,
             onValueChange = { serverUrl = it },
             placeholder = "http://provider.com:8080",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
-            error = errorMessage
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -335,13 +347,16 @@ private fun M3uEntryScreen(
         subtitle = "Paste the playlist link from your provider",
         onBack = onBack
     ) {
+        if (errorMessage != null) {
+            OnboardingErrorBanner(message = errorMessage)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
         OnboardingTextField(
             label = "M3U URL",
             value = url,
             onValueChange = { url = it },
             placeholder = "http://provider.com/playlist.m3u",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
-            error = errorMessage
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -400,13 +415,16 @@ private fun StalkerEntryScreen(
         subtitle = "Enter your portal URL and device MAC address",
         onBack = onBack
     ) {
+        if (errorMessage != null) {
+            OnboardingErrorBanner(message = errorMessage)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
         OnboardingTextField(
             label = "Portal URL",
             value = portalUrl,
             onValueChange = { portalUrl = it },
             placeholder = "http://provider.com/stalker_portal",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
-            error = errorMessage
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
