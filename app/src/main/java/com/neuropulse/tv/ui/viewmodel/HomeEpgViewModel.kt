@@ -12,6 +12,8 @@ import com.neuropulse.tv.domain.model.SeriesShow
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.domain.model.VodItem
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.feature.epg.ChannelCategoryFilter
+import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
 import com.neuropulse.tv.feature.parental.ProfileAccessGuard
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.ui.component.EpgLayout
@@ -64,6 +66,12 @@ class HomeEpgViewModel @Inject constructor(
     val favoriteGroups: StateFlow<List<FavoriteGroup>> = repository.favoriteGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _categoryFilter = MutableStateFlow(ChannelCategoryFilter.All)
+    val categoryFilter: StateFlow<ChannelCategoryFilter> = _categoryFilter.asStateFlow()
+
+    val channelGroups: StateFlow<List<String>> = repository.groups()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _hideAdultContent = MutableStateFlow(true)
     val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
@@ -85,9 +93,10 @@ class HomeEpgViewModel @Inject constructor(
                 )
             }
         }
-        .combine(_hideAdultContent) { channelList, hideAdult ->
-            if (!hideAdult) channelList
-            else channelList.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
+        .combine(_categoryFilter, _hideAdultContent) { channelList, category, hideAdult ->
+            val byCategory = ChannelCategoryPresets.apply(channelList, category)
+            if (!hideAdult) byCategory
+            else byCategory.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -164,6 +173,7 @@ class HomeEpgViewModel @Inject constructor(
                 if (list.isEmpty()) {
                     _demoFavoriteIds.value = emptySet()
                     _favoriteGroupFilter.value = null
+                    _categoryFilter.value = ChannelCategoryFilter.All
                 }
             }
         }
@@ -171,6 +181,14 @@ class HomeEpgViewModel @Inject constructor(
 
     fun setFavoriteGroupFilter(groupId: Long?) {
         _favoriteGroupFilter.value = groupId
+    }
+
+    fun setCategoryFilter(filter: ChannelCategoryFilter) {
+        _categoryFilter.value = filter
+    }
+
+    fun clearCategoryFilter() {
+        _categoryFilter.value = ChannelCategoryFilter.All
     }
 
     /** Extend the visible timeline forward when the user navigates past loaded data. */

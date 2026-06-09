@@ -12,14 +12,14 @@ import com.neuropulse.tv.domain.model.ProgramGenre
 object EpgPlaceholderData {
 
     private val channelDefs = listOf(
-        Triple(2, "CBC", "cbc"),
-        Triple(3, "CTV", "ctv"),
-        Triple(5, "Global", "global"),
-        Triple(9, "City TV", "citytv"),
-        Triple(25, "TSN", "tsn"),
-        Triple(28, "Sportsnet", "sportsnet"),
-        Triple(40, "Discovery", "discovery"),
-        Triple(45, "CNN", "cnn")
+        Triple(2, "CBC", "cbc") to "Canada | Entertainment",
+        Triple(3, "CTV", "ctv") to "Canada | Entertainment",
+        Triple(5, "Global", "global") to "Canada | Entertainment",
+        Triple(9, "City TV", "citytv") to "Canada | Entertainment",
+        Triple(25, "TSN", "tsn") to "Canada | Sports",
+        Triple(28, "Sportsnet", "sportsnet") to "Canada | Sports",
+        Triple(40, "Discovery", "discovery") to "USA | Entertainment",
+        Triple(45, "CNN", "cnn") to "USA | News"
     )
 
     private val programDefs = mapOf(
@@ -73,12 +73,13 @@ object EpgPlaceholderData {
         )
     )
 
-    fun channels(): List<Channel> = channelDefs.mapIndexed { index, (number, name, epgId) ->
+    fun channels(): List<Channel> = channelDefs.mapIndexed { index, (triple, group) ->
+        val (number, name, epgId) = triple
         Channel(
             id = -(index + 1).toLong(),
             number = number,
             name = name,
-            group = "Demo",
+            group = group,
             logoUrl = null,
             epgId = epgId,
             streamUrl = "",
@@ -92,7 +93,8 @@ object EpgPlaceholderData {
     fun programs(windowStart: Long, windowEnd: Long): List<Program> {
         val result = mutableListOf<Program>()
         var id = -1L
-        channelDefs.forEach { (_, _, epgId) ->
+        channelDefs.forEach { (triple, _) ->
+            val (_, _, epgId) = triple
             val defs = programDefs[epgId] ?: return@forEach
             var cursor = windowStart
             var defIndex = 0

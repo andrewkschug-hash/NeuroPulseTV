@@ -56,7 +56,7 @@ object EpgLayout {
     val ChannelColumnWidth = 180.dp
     val RowHeight = 64.dp
     val TimelineHeaderHeight = 32.dp
-    val DetailPanelHeight = 120.dp
+    val DetailPanelHeight = 180.dp
     val DpPerMinute = 4f
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
@@ -78,6 +78,17 @@ fun formatEpgTime(epochMs: Long): String =
 
 fun formatEpgClock(epochMs: Long): String =
     SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(epochMs))
+
+fun formatEpgDay(epochMs: Long): String {
+    val cal = java.util.Calendar.getInstance().apply { timeInMillis = epochMs }
+    val today = java.util.Calendar.getInstance()
+    val isToday = cal.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) &&
+        cal.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR)
+    val datePart = SimpleDateFormat("M/d", Locale.getDefault()).format(Date(epochMs))
+    return if (isToday) "Today $datePart" else {
+        SimpleDateFormat("EEE M/d", Locale.getDefault()).format(Date(epochMs))
+    }
+}
 
 fun programDurationMinutes(program: Program): Int =
     ((program.endTime - program.startTime) / 60_000).toInt()
@@ -133,15 +144,6 @@ fun EpgTopBar(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = formatEpgClock(now),
-                color = EpgColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(end = 16.dp)
-            )
-
             GridNavIconRow(
                 selectedTab = selectedTab,
                 focusedIndex = focusedNavTabIndex,
@@ -151,7 +153,27 @@ fun EpgTopBar(
                 onTabSelected = onTabSelected,
                 onProfileClick = onProfileClick,
                 modifier = Modifier.weight(1f),
-                trailing = { miniPlayer() }
+                trailing = {
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.padding(end = 12.dp)
+                    ) {
+                        Text(
+                            text = formatEpgDay(now),
+                            color = EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            text = formatEpgClock(now),
+                            color = EpgColors.TextPrimary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    miniPlayer()
+                }
             )
         }
 
@@ -374,6 +396,8 @@ fun EpgTimelineHeader(
     val totalWidth = EpgLayout.timelineWidthMs(windowDurationMs)
     val slotMs = 30 * 60 * 1000L
     val slotCount = (windowDurationMs / slotMs).toInt()
+    val showNow = now in windowStart..(windowStart + windowDurationMs)
+    val nowOffset = if (showNow) EpgLayout.offsetForTime(now, windowStart) else 0.dp
 
     Box(
         modifier = modifier
@@ -396,6 +420,38 @@ fun EpgTimelineHeader(
                         fontSize = 12.sp,
                         modifier = Modifier.padding(start = 4.dp)
                     )
+                }
+            }
+        }
+
+        if (showNow) {
+            val markerWidth = 48.dp
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .offset(x = nowOffset - markerWidth / 2)
+                    .width(markerWidth)
+                    .height(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(EpgColors.Accent)
+                )
+                androidx.compose.foundation.Canvas(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .size(width = 10.dp, height = 6.dp)
+                ) {
+                    val path = Path().apply {
+                        moveTo(size.width / 2f, size.height)
+                        lineTo(0f, 0f)
+                        lineTo(size.width, 0f)
+                        close()
+                    }
+                    drawPath(path, EpgColors.Accent, style = Fill)
                 }
             }
         }
@@ -492,6 +548,7 @@ fun EpgDetailPanel(
     onFavorite: () -> Unit = {},
     onMoreInfo: () -> Unit,
     visible: Boolean,
+    previewContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!visible || channel == null || program == null) return
@@ -508,14 +565,14 @@ fun EpgDetailPanel(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = channel.logoUrl,
-                contentDescription = null,
+            Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .size(MiniPlayerLayout.Width, MiniPlayerLayout.Height)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(EpgColors.ChannelColumnBg)
-            )
+            ) {
+                previewContent()
+            }
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -642,6 +699,47 @@ fun EpgChipFilterBar(
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             )
         }
+    }
+}
+
+@Composable
+fun EpgCategoryFilterChip(
+    label: String,
+    active: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val display = if (active) "⊞ $label" else "⊞ Filter"
+    val bg = when {
+        focused -> EpgColors.Accent.copy(alpha = 0.25f)
+        active -> EpgColors.ChannelRowFocusBg
+        else -> EpgColors.ChannelColumnBg
+    }
+    val borderColor = when {
+        focused -> EpgColors.Accent
+        active -> EpgColors.Accent.copy(alpha = 0.5f)
+        else -> EpgColors.BorderSubtle
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = bg,
+            focusedContainerColor = EpgColors.Accent.copy(alpha = 0.25f)
+        )
+    ) {
+        Text(
+            text = display,
+            color = if (focused || active) EpgColors.TextPrimary else EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier
+                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        )
     }
 }
 

@@ -38,15 +38,12 @@ fun PlayerSideMenu(
     currentChannelId: Long?,
     focusedChannelIndex: Int,
     focusedActionIndex: Int,
+    actions: List<String>,
     onDismiss: () -> Unit,
     onChannelSelected: (Channel) -> Unit,
-    onGuide: () -> Unit,
-    onRecordings: () -> Unit,
-    onSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
-    val actions = listOf("TV Guide", "Recordings", "Settings")
 
     LaunchedEffect(focusedChannelIndex, visible) {
         if (visible && focusedActionIndex < 0 && focusedChannelIndex in channels.indices) {
