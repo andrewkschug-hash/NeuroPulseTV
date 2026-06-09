@@ -29,10 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
-import com.neuropulse.tv.ui.theme.Accent
 import com.neuropulse.tv.ui.theme.DmSansFamily
-import com.neuropulse.tv.ui.theme.TextPrimary
-import com.neuropulse.tv.ui.theme.TextSecondary
+import com.neuropulse.tv.ui.theme.EpgColors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -64,14 +62,14 @@ fun PinEntryDialog(
         ) {
             Text(
                 text = title,
-                color = TextPrimary,
+                color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 text = subtitle ?: profileName,
-                color = TextSecondary,
+                color = EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp
             )
@@ -84,7 +82,7 @@ fun PinEntryDialog(
                         modifier = Modifier
                             .size(14.dp)
                             .clip(CircleShape)
-                            .background(if (i < pin.length) Accent else Color(0xFF2A2A3A))
+                            .background(if (i < pin.length) EpgColors.Accent else Color(0xFF2A2A3A))
                     )
                 }
             }

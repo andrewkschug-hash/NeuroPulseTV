@@ -85,7 +85,7 @@ class HomeEpgViewModel @Inject constructor(
                 )
             }
         }
-        .combine(_activeProfile, _hideAdultContent) { channelList, _, hideAdult ->
+        .combine(_hideAdultContent) { channelList, hideAdult ->
             if (!hideAdult) channelList
             else channelList.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         }

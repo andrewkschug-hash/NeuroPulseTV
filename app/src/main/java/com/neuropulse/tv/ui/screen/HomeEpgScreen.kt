@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
@@ -320,7 +321,7 @@ fun HomeEpgScreen(
     }
 
     fun scrollByTimeSlot(direction: Int) {
-        val slotPx = (EpgLayout.ThirtyMinWidthDp.value * direction).toInt()
+        val slotPx = (EpgLayout.ThirtyMinWidthDp * direction).toInt()
         scope.launch {
             val target = (hScroll.value + slotPx).coerceIn(0, hScroll.maxValue)
             hScroll.animateScrollTo(target)
