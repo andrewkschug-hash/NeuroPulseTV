@@ -22,28 +22,22 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,44 +48,57 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
+import com.neuropulse.tv.ui.component.GridGhostLink
+import com.neuropulse.tv.ui.component.GridModal
+import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.theme.DmSansFamily
 
 internal val OnboardingBg = Color(0xFF0A0A0F)
 internal val OnboardingTextPrimary = Color(0xFFF2F2F5)
 internal val OnboardingTextSecondary = Color(0xFF8888A0)
-internal val OnboardingTextMuted = Color(0xFF555568)
-internal val OnboardingAccent = Color(0xFF3B8FFF)
+internal val OnboardingTextMuted = Color(0xFF9CA3AF)
+internal val OnboardingAccent = Color(0xFF3B82F6)
 internal val OnboardingCardBg = Color(0xFF13131A)
-internal val OnboardingCardFocusBg = Color(0xFF1C1C2E)
-internal val OnboardingInputBg = Color(0xFF13131A)
+internal val OnboardingInputBg = Color(0xFF1E1E2E)
 internal val OnboardingError = Color(0xFFFF4444)
 internal val OnboardingBorderSubtle = Color(0x14FFFFFF)
+internal val OnboardingSelectedBg = Color(0x143B82F6)
+internal val MethodCardWidth = 540.dp
+private val IconBoxSize = 44.dp
 
 @Composable
 internal fun MethodCard(
     icon: String,
     iconColor: Color,
-    iconBg: Color,
     title: String,
     subtitle: String,
     badge: String? = null,
+    selected: Boolean = false,
     onClick: () -> Unit,
+    onFocused: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.02f else 1f, tween(150), label = "methodCardScale")
-    val bg = if (focused) OnboardingCardFocusBg else OnboardingCardBg
-    val borderColor = if (focused) OnboardingAccent else OnboardingBorderSubtle
-    val borderWidth = if (focused) 2.dp else 1.dp
-    val arrowColor = if (focused) OnboardingTextPrimary else OnboardingTextMuted
+    val isActive = focused || selected
+    val bg = if (isActive) OnboardingSelectedBg else OnboardingCardBg
+    val borderColor = if (isActive) OnboardingAccent else OnboardingBorderSubtle
+    val borderWidth = if (isActive) 2.dp else 1.dp
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isActive) 90f else 0f,
+        animationSpec = tween(200),
+        label = "chevronRotate"
+    )
 
     Surface(
         onClick = onClick,
         modifier = modifier
-            .fillMaxWidth()
+            .width(MethodCardWidth)
             .height(84.dp)
-            .scale(scale)
-            .onFocusChanged { focused = it.isFocused },
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .semantics { contentDescription = "$title, $subtitle" },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
@@ -100,14 +107,6 @@ internal fun MethodCard(
                 .fillMaxSize()
                 .border(borderWidth, borderColor, RoundedCornerShape(12.dp))
         ) {
-            if (focused) {
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
-                        .fillMaxSize()
-                        .background(OnboardingAccent, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
-                )
-            }
             if (badge != null) {
                 Box(
                     modifier = Modifier
@@ -134,12 +133,12 @@ internal fun MethodCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(IconBoxSize)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(iconBg),
+                        .background(Color.White.copy(alpha = 0.06f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = icon, fontSize = 22.sp, color = iconColor)
+                    Text(text = icon, fontSize = 20.sp, color = iconColor)
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -158,9 +157,43 @@ internal fun MethodCard(
                         lineHeight = 17.sp
                     )
                 }
-                Text(text = "›", color = arrowColor, fontSize = 24.sp, fontWeight = FontWeight.Light)
+                Text(
+                    text = "›",
+                    color = if (isActive) OnboardingTextPrimary else OnboardingTextMuted,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Light,
+                    modifier = Modifier.rotate(chevronRotation)
+                )
             }
         }
+    }
+}
+
+@Composable
+internal fun OnboardingInfoPill(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var focused by remember { mutableStateOf(false) }
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { focused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xCC1E1E2E),
+            focusedContainerColor = Color(0xE61E1E2E)
+        )
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
     }
 }
 
@@ -219,7 +252,7 @@ internal fun OnboardingTextField(
                 value = value,
                 onValueChange = onValueChange,
                 textStyle = TextStyle(
-                    color = OnboardingTextPrimary,
+                    color = Color.White,
                     fontFamily = DmSansFamily,
                     fontSize = 15.sp
                 ),
@@ -237,16 +270,16 @@ internal fun OnboardingTextField(
                     .clip(RoundedCornerShape(8.dp))
                     .focusable()
                     .onFocusChanged { focused = it.isFocused }
-                    .drawBehind {
-                        drawRect(color = OnboardingInputBg, size = size)
-                        val stroke = if (focused) 1.5.dp.toPx() else 1.dp.toPx()
-                        val color = when {
+                    .background(OnboardingInputBg)
+                    .border(
+                        width = if (focused) 1.5.dp else 1.dp,
+                        color = when {
                             error != null -> OnboardingError
                             focused -> OnboardingAccent
-                            else -> Color.White.copy(alpha = 0.10f)
-                        }
-                        drawRect(color = color, size = size, style = Stroke(width = stroke))
-                    }
+                            else -> Color(0xFF4B5563)
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    )
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
@@ -288,84 +321,38 @@ internal fun ConnectButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.02f else 1f, tween(150), label = "connectBtnScale")
-    val bg = if (focused) Color(0xFF5AA3FF) else OnboardingAccent
-
-    Surface(
-        onClick = onClick,
-        enabled = !loading,
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp)
-            .scale(scale)
-            .onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            if (loading) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                    Text(
-                        text = "Connecting…",
-                        color = Color.White,
-                        fontFamily = DmSansFamily,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            } else {
-                Text(
-                    text = "Connect",
-                    color = Color.White,
-                    fontFamily = DmSansFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                )
-            }
+    Box(modifier = modifier.fillMaxWidth()) {
+        GridPrimaryButton(
+            text = if (loading) "Connecting…" else "Connect",
+            onClick = onClick,
+            enabled = !loading,
+            modifier = Modifier.fillMaxWidth(),
+            contentDescription = if (loading) "Connecting" else "Connect"
+        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .size(16.dp)
+                    .align(Alignment.CenterStart)
+                    .padding(start = 16.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+            )
         }
     }
 }
 
 @Composable
-internal fun OnboardingTextButton(
-    text: String,
+internal fun OnboardingSkipLink(
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    muted: Boolean = false
+    modifier: Modifier = Modifier
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val color = when {
-        focused -> OnboardingTextPrimary
-        muted -> OnboardingTextMuted
-        else -> OnboardingTextSecondary
-    }
-
-    Surface(
+    GridGhostLink(
+        text = "Skip for now",
         onClick = onClick,
-        modifier = modifier.onFocusChanged { focused = it.isFocused }
-    ) {
-        Text(
-            text = text,
-            color = color,
-            fontFamily = DmSansFamily,
-            fontSize = if (muted) 13.sp else 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-        )
-    }
+        modifier = modifier,
+        contentDescription = "Skip IPTV setup for now"
+    )
 }
 
 @Composable
@@ -391,70 +378,35 @@ internal fun AnimatedCheckmark(modifier: Modifier = Modifier) {
 
 @Composable
 internal fun IptvInfoOverlay(onDismiss: () -> Unit) {
-    val dismissFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        dismissFocusRequester.requestFocus()
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.75f))
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
-                    onDismiss()
-                    true
-                } else {
-                    false
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            modifier = Modifier
-                .width(480.dp)
-                .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "What is IPTV?",
-                color = OnboardingTextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "IPTV delivers live TV channels over the internet instead of cable or satellite. " +
-                    "Your provider gives you login details — a server URL, M3U link, or portal address — " +
-                    "which GRID uses to load your channel list.",
-                color = OnboardingTextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                lineHeight = 20.sp
-            )
-            Text(
-                text = "Contact your IPTV provider if you don't have credentials yet. " +
-                    "They typically offer Xtream Codes, an M3U URL, or a Stalker portal with a MAC address.",
-                color = OnboardingTextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                lineHeight = 20.sp
-            )
-            Surface(
-                onClick = onDismiss,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .focusRequester(dismissFocusRequester)
-            ) {
-                Text(
-                    text = "Got it",
-                    color = OnboardingTextPrimary,
-                    fontFamily = DmSansFamily,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
+    GridModal(onDismiss = onDismiss, width = 480.dp) {
+        Text(
+            text = "What is IPTV?",
+            color = OnboardingTextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = "IPTV delivers live TV channels over the internet instead of cable or satellite. " +
+                "Your provider gives you login details — a server URL, M3U link, or portal address — " +
+                "which GRID uses to load your channel list.",
+            color = OnboardingTextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Text(
+            text = "Contact your IPTV provider if you don't have credentials yet. " +
+                "They typically offer Xtream Codes, an M3U URL, or a Stalker portal with a MAC address.",
+            color = OnboardingTextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), contentAlignment = Alignment.CenterEnd) {
+            GridPrimaryButton(text = "Got it", onClick = onDismiss)
         }
     }
 }

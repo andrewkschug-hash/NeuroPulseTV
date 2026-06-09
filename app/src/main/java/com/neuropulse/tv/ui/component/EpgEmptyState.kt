@@ -38,7 +38,7 @@ fun EpgEmptyState(
             color = Color(0xFF3B3B50)
         )
         Text(
-            text = "No channels yet",
+            text = "No service connected",
             color = EpgColors.TextPrimary,
             fontFamily = DmSansFamily,
             fontSize = 20.sp,
@@ -46,7 +46,7 @@ fun EpgEmptyState(
             textAlign = TextAlign.Center
         )
         Text(
-            text = "Add a playlist to get started",
+            text = "Connect an IPTV playlist in Settings to load channels",
             color = EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
             fontSize = 14.sp,

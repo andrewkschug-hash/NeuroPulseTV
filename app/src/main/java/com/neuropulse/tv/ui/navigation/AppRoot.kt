@@ -21,7 +21,7 @@ fun AppRoot(
         AppPhase.Splash -> SplashScreen(onFinished = { phase = AppPhase.Profile })
         AppPhase.Profile -> ProfilePickerScreen(onProfileSelected = { phase = AppPhase.Setup })
         AppPhase.Setup -> SetupGate(onComplete = { phase = AppPhase.Main })
-        AppPhase.Main -> AppNavHost(
+        AppPhase.Main -> MainContentGate(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
             onSwitchProfile = { phase = AppPhase.Profile }

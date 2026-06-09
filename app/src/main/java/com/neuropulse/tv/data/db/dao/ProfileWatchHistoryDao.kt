@@ -21,6 +21,9 @@ interface ProfileWatchHistoryDao {
     @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId ORDER BY totalWatchMs DESC LIMIT :limit")
     fun observeTop(profileId: Long, limit: Int): Flow<List<ProfileWatchHistoryEntity>>
 
+    @Query("DELETE FROM profile_watch_history WHERE profileId = :profileId")
+    suspend fun deleteByProfile(profileId: Long)
+
     @Query("DELETE FROM profile_watch_history")
     suspend fun deleteAll()
 }

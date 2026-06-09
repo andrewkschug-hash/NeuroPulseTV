@@ -19,6 +19,9 @@ interface ProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProfile(profile: UserProfileEntity): Long
 
+    @Query("DELETE FROM user_profiles WHERE id = :profileId")
+    suspend fun deleteProfile(profileId: Long)
+
     @Query("SELECT COUNT(*) FROM user_profiles")
     suspend fun countProfiles(): Int
 

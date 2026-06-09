@@ -21,6 +21,9 @@ interface FavoriteGroupDao {
     @Query("DELETE FROM favorite_groups WHERE id = :id AND profileId = :profileId")
     suspend fun delete(id: Long, profileId: Long)
 
+    @Query("DELETE FROM favorite_groups WHERE profileId = :profileId")
+    suspend fun deleteByProfile(profileId: Long)
+
     @Query("DELETE FROM favorite_groups")
     suspend fun deleteAll()
 }

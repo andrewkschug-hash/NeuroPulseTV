@@ -174,6 +174,7 @@ private fun MethodPickerScreen(
     val stalkerFocusRequester = remember { FocusRequester() }
     val infoFocusRequester = remember { FocusRequester() }
     val skipFocusRequester = remember { FocusRequester() }
+    var focusedMethod by remember { mutableStateOf(OnboardingMethod.Xtream) }
 
     LaunchedEffect(Unit) { xtreamFocusRequester.requestFocus() }
 
@@ -207,52 +208,53 @@ private fun MethodPickerScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         Column(
-            modifier = Modifier.width(540.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             MethodCard(
                 icon = "((o))",
                 iconColor = OnboardingAccent,
-                iconBg = Color(0xFF1C3A6B),
                 title = "Xtream Codes",
                 subtitle = "Server URL + username + password",
                 badge = "Most Common",
+                selected = focusedMethod == OnboardingMethod.Xtream,
                 onClick = { onSelect(OnboardingMethod.Xtream) },
+                onFocused = { focusedMethod = OnboardingMethod.Xtream },
                 modifier = Modifier.focusRequester(xtreamFocusRequester)
             )
             MethodCard(
                 icon = "∞",
                 iconColor = Color(0xFFB8C0D8),
-                iconBg = Color(0xFF1A1A28),
                 title = "M3U URL",
                 subtitle = "A single playlist link",
+                selected = focusedMethod == OnboardingMethod.M3u,
                 onClick = { onSelect(OnboardingMethod.M3u) },
+                onFocused = { focusedMethod = OnboardingMethod.M3u },
                 modifier = Modifier.focusRequester(m3uFocusRequester)
             )
             MethodCard(
                 icon = "▣",
                 iconColor = Color(0xFFB8C0D8),
-                iconBg = Color(0xFF1A1A28),
                 title = "MAC / Stalker Portal",
                 subtitle = "Portal URL + device MAC address",
+                selected = focusedMethod == OnboardingMethod.Stalker,
                 onClick = { onSelect(OnboardingMethod.Stalker) },
+                onFocused = { focusedMethod = OnboardingMethod.Stalker },
                 modifier = Modifier.focusRequester(stalkerFocusRequester)
             )
         }
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        OnboardingTextButton(
+        OnboardingInfoPill(
             text = "What is IPTV? How do I get a provider?",
             onClick = onShowInfo,
-            modifier = Modifier.focusRequester(infoFocusRequester),
-            muted = true
+            modifier = Modifier.focusRequester(infoFocusRequester)
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        OnboardingTextButton(
-            text = "Skip for now",
+        OnboardingSkipLink(
             onClick = onSkip,
             modifier = Modifier.focusRequester(skipFocusRequester)
         )

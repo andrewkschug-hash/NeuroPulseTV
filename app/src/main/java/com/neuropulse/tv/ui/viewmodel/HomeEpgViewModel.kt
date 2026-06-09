@@ -187,7 +187,7 @@ class HomeEpgViewModel @Inject constructor(
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
         }
         viewModelScope.launch {
-            repository.refreshVodSeriesCatalog()
+            runCatching { repository.refreshVodSeriesCatalog() }
         }
         viewModelScope.launch {
             repository.playlists().collect { list ->

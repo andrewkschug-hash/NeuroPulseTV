@@ -45,6 +45,20 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch { repository.createProfile(name, color, pin, parental) }
     }
 
+    fun updateProfileName(profileId: Long, name: String) {
+        viewModelScope.launch {
+            repository.updateProfileName(profileId, name)
+            refreshActiveProfile()
+        }
+    }
+
+    fun deleteProfile(profileId: Long) {
+        viewModelScope.launch {
+            repository.deleteProfile(profileId)
+            refreshActiveProfile()
+        }
+    }
+
     fun updateAvatarColor(profileId: Long, colorHex: String) {
         viewModelScope.launch {
             repository.updateProfileAvatarColor(profileId, colorHex)

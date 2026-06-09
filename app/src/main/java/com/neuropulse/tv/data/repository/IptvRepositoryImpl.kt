@@ -31,6 +31,7 @@ import com.neuropulse.tv.data.security.SecureCredentialStore
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.SearchInputMode
+import com.neuropulse.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
@@ -353,7 +354,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun createProfile(name: String, avatarColor: String, pin: String?, isParental: Boolean): Long {
         profileDao.deleteDefaultProfiles()
-        if (profileDao.countUserProfiles() >= 6) return -1
+        if (profileDao.countUserProfiles() >= MAX_HOUSEHOLD_PROFILES) return -1
         val id = profileDao.upsertProfile(
             UserProfileEntity(
                 name = name,
@@ -371,9 +372,25 @@ class IptvRepositoryImpl @Inject constructor(
         return id
     }
 
+    override suspend fun updateProfileName(profileId: Long, name: String) {
+        val profile = profileDao.getProfile(profileId) ?: return
+        profileDao.upsertProfile(profile.copy(name = name.trim()))
+    }
+
     override suspend fun updateProfileAvatarColor(profileId: Long, avatarColor: String) {
         val profile = profileDao.getProfile(profileId) ?: return
         profileDao.upsertProfile(profile.copy(avatarColor = avatarColor))
+    }
+
+    override suspend fun deleteProfile(profileId: Long) {
+        profileFavoriteDao.deleteByProfile(profileId)
+        profileWatchHistoryDao.deleteByProfile(profileId)
+        favoriteGroupDao.deleteByProfile(profileId)
+        profileSettingsDao.deleteByProfile(profileId)
+        profileDao.deleteProfile(profileId)
+        if (activeProfileId == profileId) {
+            profileDao.firstUserProfile()?.id?.let { setActiveProfile(it) }
+        }
     }
 
     override suspend fun setActiveProfile(profileId: Long) {

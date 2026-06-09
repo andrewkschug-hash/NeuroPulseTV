@@ -2,11 +2,14 @@ package com.neuropulse.tv.ui.screen
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +22,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -60,9 +62,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
 import com.neuropulse.tv.domain.model.UserProfile
+import com.neuropulse.tv.ui.component.GridModal
+import com.neuropulse.tv.ui.component.GridOutlinedButton
+import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.GridWordmark
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
+import com.neuropulse.tv.util.MAX_HOUSEHOLD_PROFILES
+import com.neuropulse.tv.util.profileInitials
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -93,24 +100,22 @@ fun ProfilePickerScreen(
     val scope = rememberCoroutineScope()
     val hasProfiles = profiles.isNotEmpty()
 
-    var focusedProfileIndex by remember { mutableIntStateOf(0) }
-    var focusedOnAddLink by remember { mutableStateOf(false) }
     var showPinFor by remember { mutableStateOf<UserProfile?>(null) }
     var showAddProfile by remember { mutableStateOf(false) }
+    var showEditProfile by remember { mutableStateOf<UserProfile?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf<UserProfile?>(null) }
+    var showMaxProfilesHint by remember { mutableStateOf(false) }
     var newProfileName by remember { mutableStateOf("") }
+    var editProfileName by remember { mutableStateOf("") }
     val exitAlpha = remember { Animatable(1f) }
+    val atProfileLimit = profiles.size >= MAX_HOUSEHOLD_PROFILES
 
     val titleAlpha = remember { Animatable(0f) }
     val titleOffset = remember { Animatable(-20f) }
     val cardCount = if (hasProfiles) profiles.size else 1
     val cardAlphas = remember(cardCount) { List(cardCount) { Animatable(0f) } }
     val cardOffsets = remember(cardCount) { List(cardCount) { Animatable(30f) } }
-    val rowFocusRequester = remember { FocusRequester() }
-    val addLinkFocusRequester = remember { FocusRequester() }
-
     LaunchedEffect(cardCount, hasProfiles) {
-        focusedProfileIndex = 0
-        focusedOnAddLink = false
         titleAlpha.snapTo(0f)
         titleOffset.snapTo(-20f)
         cardAlphas.forEach { it.snapTo(0f) }
@@ -124,7 +129,14 @@ fun ProfilePickerScreen(
                 cardOffsets[i].animateTo(0f, tween(280, easing = FastOutSlowInEasing))
             }
         }
-        rowFocusRequester.requestFocus()
+    }
+
+    fun tryOpenAddProfile() {
+        if (atProfileLimit) {
+            showMaxProfilesHint = true
+        } else {
+            showAddProfile = true
+        }
     }
 
     fun selectProfile(profile: UserProfile) {
@@ -195,91 +207,63 @@ fun ProfilePickerScreen(
             if (!hasProfiles) {
                 AddProfileCard(
                     label = "Add a Profile",
-                    focused = true,
                     alpha = cardAlphas.firstOrNull()?.value ?: 1f,
                     offsetY = cardOffsets.firstOrNull()?.value ?: 0f,
-                    onClick = { showAddProfile = true },
-                    modifier = Modifier
-                        .focusRequester(rowFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown &&
-                                (event.key == Key.Enter || event.key == Key.NumPadEnter || event.key == Key.DirectionCenter)
-                            ) {
-                                showAddProfile = true
-                                true
-                            } else false
-                        }
+                    onClick = { tryOpenAddProfile() }
                 )
             } else {
-                Row(
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 140.dp),
                     modifier = Modifier
-                        .focusRequester(rowFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            if (focusedOnAddLink) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.DirectionLeft -> {
-                                    focusedProfileIndex = (focusedProfileIndex - 1).coerceAtLeast(0)
-                                    true
-                                }
-                                Key.DirectionRight -> {
-                                    focusedProfileIndex = (focusedProfileIndex + 1).coerceAtMost(profiles.lastIndex)
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    focusedOnAddLink = true
-                                    addLinkFocusRequester.requestFocus()
-                                    true
-                                }
-                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                    selectProfile(profiles[focusedProfileIndex])
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(32.dp),
-                    verticalAlignment = Alignment.Top
+                        .fillMaxWidth(0.85f)
+                        .padding(horizontal = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    profiles.forEachIndexed { index, profile ->
+                    itemsIndexed(profiles) { index, profile ->
                         ProfileCard(
                             name = profile.name,
                             initials = profileInitials(profile.name),
                             avatarColor = parseAvatarColor(profile.avatarColor, index),
-                            focused = !focusedOnAddLink && focusedProfileIndex == index,
                             alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
                             offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
-                            onClick = { selectProfile(profile) }
+                            onClick = { selectProfile(profile) },
+                            onEdit = {
+                                editProfileName = profile.name
+                                showEditProfile = profile
+                            },
+                            onDelete = { showDeleteConfirm = profile }
                         )
+                    }
+                    if (!atProfileLimit) {
+                        item {
+                            AddProfileCard(
+                                label = "Add profile",
+                                alpha = 1f,
+                                offsetY = 0f,
+                                onClick = { tryOpenAddProfile() }
+                            )
+                        }
                     }
                 }
 
-                AddAnotherProfileLink(
-                    focused = focusedOnAddLink,
-                    modifier = Modifier
-                        .padding(top = 24.dp)
-                        .focusRequester(addLinkFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.DirectionUp -> {
-                                    focusedOnAddLink = false
-                                    rowFocusRequester.requestFocus()
-                                    true
-                                }
-                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                                    showAddProfile = true
-                                    true
-                                }
-                                else -> false
-                            }
-                        },
-                    onClick = { showAddProfile = true }
-                )
+                if (!atProfileLimit) {
+                    AddAnotherProfileLink(
+                        modifier = Modifier.padding(top = 20.dp),
+                        onClick = { tryOpenAddProfile() }
+                    )
+                }
+
+                if (showMaxProfilesHint || atProfileLimit) {
+                    Text(
+                        text = "Up to $MAX_HOUSEHOLD_PROFILES profiles per household",
+                        color = TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                }
             }
         }
 
@@ -313,6 +297,33 @@ fun ProfilePickerScreen(
                 }
             )
         }
+
+        showEditProfile?.let { profile ->
+            EditProfileDialog(
+                name = editProfileName,
+                onNameChange = { editProfileName = it },
+                onConfirm = {
+                    viewModel.updateProfileName(profile.id, editProfileName)
+                    showEditProfile = null
+                    editProfileName = ""
+                },
+                onDismiss = {
+                    showEditProfile = null
+                    editProfileName = ""
+                }
+            )
+        }
+
+        showDeleteConfirm?.let { profile ->
+            DeleteProfileDialog(
+                profileName = profile.name,
+                onConfirm = {
+                    viewModel.deleteProfile(profile.id)
+                    showDeleteConfirm = null
+                },
+                onDismiss = { showDeleteConfirm = null }
+            )
+        }
     }
 }
 
@@ -321,24 +332,25 @@ private fun ProfileCard(
     name: String,
     initials: String,
     avatarColor: Color,
-    focused: Boolean,
     alpha: Float,
     offsetY: Float,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    val scale = if (focused) 1.12f else 1f
-    val nameColor = if (focused) TextPrimary else TextPrimary.copy(alpha = 0.85f)
-    val translateY = if (focused) -6f else 0f
+    var focused by remember { mutableStateOf(false) }
+    val avatarScale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "avatarScale")
 
     Surface(
         onClick = onClick,
         modifier = Modifier
             .width(140.dp)
-            .height(170.dp)
+            .height(190.dp)
             .graphicsLayer {
                 this.alpha = alpha
-                this.translationY = offsetY + translateY
-            },
+                this.translationY = offsetY
+            }
+            .onFocusChanged { focused = it.isFocused },
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp))
     ) {
         Column(
@@ -348,15 +360,15 @@ private fun ProfileCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp),
+                    .height(130.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
                         .size(88.dp)
                         .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
+                            scaleX = avatarScale
+                            scaleY = avatarScale
                         }
                         .clip(CircleShape)
                         .background(avatarColor)
@@ -374,6 +386,24 @@ private fun ProfileCard(
                         fontWeight = FontWeight.Medium
                     )
                 }
+                if (focused) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 4.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(onClick = onEdit) {
+                            Text("✎", color = TextPrimary, fontSize = 14.sp, modifier = Modifier.padding(4.dp))
+                        }
+                        Surface(onClick = onDelete) {
+                            Text("🗑", color = Color(0xFFFF6B6B), fontSize = 14.sp, modifier = Modifier.padding(4.dp))
+                        }
+                    }
+                }
             }
             Box(
                 modifier = Modifier
@@ -383,7 +413,7 @@ private fun ProfileCard(
             ) {
                 Text(
                     text = name,
-                    color = nameColor,
+                    color = if (focused) TextPrimary else TextPrimary.copy(alpha = 0.85f),
                     fontFamily = DmSansFamily,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
@@ -399,14 +429,13 @@ private fun ProfileCard(
 @Composable
 private fun AddProfileCard(
     label: String,
-    focused: Boolean,
     alpha: Float,
     offsetY: Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val scale = if (focused) 1.12f else 1f
-    val translateY = if (focused) -6f else 0f
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "addScale")
     val nameColor = if (focused) TextPrimary else TextSecondary
 
     Surface(
@@ -416,8 +445,9 @@ private fun AddProfileCard(
             .height(170.dp)
             .graphicsLayer {
                 this.alpha = alpha
-                this.translationY = offsetY + translateY
+                this.translationY = offsetY
             }
+            .onFocusChanged { focused = it.isFocused }
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -473,21 +503,34 @@ private fun AddProfileCard(
 
 @Composable
 private fun AddAnotherProfileLink(
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val textColor = if (focused) TextPrimary else TextSecondary
-    Surface(onClick = onClick, modifier = modifier) {
-        Text(
-            text = "+ Add another profile",
-            color = textColor,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            textDecoration = if (focused) TextDecoration.Underline else TextDecoration.None,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+    var focused by remember { mutableStateOf(false) }
+    val bg = if (focused) Color(0xFF1E1E2E) else Color(0xFF16161F)
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { focused = it.isFocused },
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = bg,
+            focusedContainerColor = Color(0xFF242436)
         )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(text = "+", color = Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Add another profile",
+                color = if (focused) TextPrimary else Color(0xFFD0D0DC),
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+        }
     }
 }
 
@@ -611,158 +654,164 @@ private fun AddProfileDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var fieldFocused by remember { mutableStateOf(false) }
-    var createFocused by remember { mutableStateOf(false) }
-    var cancelFocused by remember { mutableStateOf(false) }
-    val fieldFocusRequester = remember { FocusRequester() }
-    val createFocusRequester = remember { FocusRequester() }
-    val cancelFocusRequester = remember { FocusRequester() }
-    val initials = profileInitials(name.ifBlank { "?" })
+    ProfileNameDialog(
+        title = "Create Profile",
+        subtitle = "Add a name for this household member",
+        name = name,
+        onNameChange = onNameChange,
+        confirmLabel = "Create",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
 
-    LaunchedEffect(Unit) { fieldFocusRequester.requestFocus() }
+@Composable
+private fun EditProfileDialog(
+    name: String,
+    onNameChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ProfileNameDialog(
+        title = "Edit Profile",
+        subtitle = "Update this profile name",
+        name = name,
+        onNameChange = onNameChange,
+        confirmLabel = "Save",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.78f))
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
-                    onDismiss()
-                    true
-                } else {
-                    false
-                }
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            modifier = Modifier
-                .width(440.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF14141E))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
-                .padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+@Composable
+private fun DeleteProfileDialog(
+    profileName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    GridModal(onDismiss = onDismiss, width = 400.dp, showCloseButton = false) {
+        Text(
+            text = "Delete profile?",
+            color = TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = "\"$profileName\" will be removed from this device.",
+            color = TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(CircleShape)
-                    .background(ProfileAvatarColors.first()),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = initials,
-                    color = TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Create Profile",
-                    color = TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "Add a name for this household member",
-                    color = TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 13.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "Profile name",
-                    color = TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                BasicTextField(
-                    value = name,
-                    onValueChange = onNameChange,
-                    textStyle = TextStyle(
-                        color = TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 16.sp
-                    ),
-                    cursorBrush = SolidColor(Accent),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .focusRequester(fieldFocusRequester)
-                        .focusable()
-                        .onFocusChanged { fieldFocused = it.isFocused }
-                        .drawBehind {
-                            val stroke = if (fieldFocused) 2.dp.toPx() else 1.dp.toPx()
-                            val color = if (fieldFocused) Accent else BorderSubtle
-                            drawRect(color = InputBg, size = size)
-                            drawRect(
-                                color = color,
-                                size = size,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-                            )
-                        }
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .focusRequester(cancelFocusRequester)
-                        .onFocusChanged { cancelFocused = it.isFocused }
-                ) {
-                    Text(
-                        text = "Cancel",
-                        color = if (cancelFocused) TextPrimary else TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Surface(
-                    onClick = onConfirm,
-                    modifier = Modifier
-                        .focusRequester(createFocusRequester)
-                        .onFocusChanged { createFocused = it.isFocused }
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (createFocused) Color(0xFF5AA3FF) else Accent)
-                ) {
-                    Text(
-                        text = "Create",
-                        color = Color.White,
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
-                    )
-                }
-            }
+            GridOutlinedButton(text = "Cancel", onClick = onDismiss)
+            Spacer(modifier = Modifier.width(12.dp))
+            GridPrimaryButton(text = "Delete", onClick = onConfirm)
         }
     }
 }
 
-private fun profileInitials(name: String): String {
-    val parts = name.trim().split(" ").filter { it.isNotBlank() }
-    return when {
-        parts.size >= 2 -> "${parts[0].first()}${parts[1].first()}".uppercase()
-        parts.isNotEmpty() -> parts[0].take(2).uppercase()
-        else -> "?"
+@Composable
+private fun ProfileNameDialog(
+    title: String,
+    subtitle: String,
+    name: String,
+    onNameChange: (String) -> Unit,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var fieldFocused by remember { mutableStateOf(false) }
+    var avatarFocused by remember { mutableStateOf(false) }
+    val fieldFocusRequester = remember { FocusRequester() }
+    val initials = profileInitials(name.ifBlank { "?" })
+    val avatarScale by animateFloatAsState(if (avatarFocused || fieldFocused) 1.05f else 1f, tween(150), label = "dlgAvatar")
+
+    LaunchedEffect(Unit) { fieldFocusRequester.requestFocus() }
+
+    GridModal(onDismiss = onDismiss, width = 440.dp) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .graphicsLayer {
+                    scaleX = avatarScale
+                    scaleY = avatarScale
+                }
+                .clip(CircleShape)
+                .background(ProfileAvatarColors.first())
+                .then(
+                    if (fieldFocused) Modifier.border(2.dp, Accent, CircleShape)
+                    else Modifier
+                )
+                .align(Alignment.CenterHorizontally)
+                .onFocusChanged { avatarFocused = it.isFocused },
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = initials,
+                color = TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Text(
+            text = title,
+            color = TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        Text(
+            text = subtitle,
+            color = TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+        Text(
+            text = "Profile name",
+            color = TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+        )
+        BasicTextField(
+            value = name,
+            onValueChange = onNameChange,
+            textStyle = TextStyle(color = Color.White, fontFamily = DmSansFamily, fontSize = 16.sp),
+            cursorBrush = SolidColor(Accent),
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .focusRequester(fieldFocusRequester)
+                .focusable()
+                .onFocusChanged { fieldFocused = it.isFocused }
+                .background(Color(0xFF1E1E2E))
+                .border(
+                    width = if (fieldFocused) 1.5.dp else 1.dp,
+                    color = if (fieldFocused) Accent else Color(0xFF4B5563),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GridOutlinedButton(text = "Cancel", onClick = onDismiss)
+            Spacer(modifier = Modifier.width(12.dp))
+            GridPrimaryButton(text = confirmLabel, onClick = onConfirm)
+        }
     }
 }
 
