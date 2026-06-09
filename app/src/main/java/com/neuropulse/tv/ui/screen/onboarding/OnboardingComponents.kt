@@ -22,12 +22,20 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
@@ -66,10 +74,10 @@ internal fun MethodCard(
     title: String,
     subtitle: String,
     badge: String? = null,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.02f else 1f, tween(150), label = "methodCardScale")
     val bg = if (focused) OnboardingCardFocusBg else OnboardingCardBg
     val borderColor = if (focused) OnboardingAccent else OnboardingBorderSubtle
@@ -81,7 +89,8 @@ internal fun MethodCard(
         modifier = modifier
             .fillMaxWidth()
             .height(72.dp)
-            .scale(scale),
+            .scale(scale)
+            .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
@@ -239,10 +248,10 @@ internal fun OnboardingTextField(
 @Composable
 internal fun ConnectButton(
     loading: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.02f else 1f, tween(150), label = "connectBtnScale")
     val bg = if (focused) Color(0xFF5AA3FF) else OnboardingAccent
 
@@ -252,7 +261,8 @@ internal fun ConnectButton(
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
-            .scale(scale),
+            .scale(scale)
+            .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
     ) {
@@ -308,10 +318,24 @@ internal fun AnimatedCheckmark(modifier: Modifier = Modifier) {
 
 @Composable
 internal fun IptvInfoOverlay(onDismiss: () -> Unit) {
+    val dismissFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        dismissFocusRequester.requestFocus()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.75f)),
+            .background(Color.Black.copy(alpha = 0.75f))
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -345,7 +369,12 @@ internal fun IptvInfoOverlay(onDismiss: () -> Unit) {
                 fontSize = 14.sp,
                 lineHeight = 20.sp
             )
-            Surface(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
+            Surface(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .focusRequester(dismissFocusRequester)
+            ) {
                 Text(
                     text = "Got it",
                     color = OnboardingTextPrimary,

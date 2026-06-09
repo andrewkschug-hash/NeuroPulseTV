@@ -16,5 +16,11 @@ data class ProfileSettingsEntity(
     val lastSeenVersion: String? = null,
     val sleepTimerMinutes: Int = 30,
     val hideAdultContent: Boolean = true,
-    val sleepTimerAutoEnabled: Boolean = false
+    val sleepTimerAutoEnabled: Boolean = false,
+    val autoScanEnabled: Boolean = true,
+    val scanIntervalMinutes: Int = 5,
+    val concurrentChecks: Int = 10,
+    val scanOnMetered: Boolean = false,
+    val lastFullScanAt: Long? = null,
+    val preferredSearchInput: String = "KEYBOARD"
 )

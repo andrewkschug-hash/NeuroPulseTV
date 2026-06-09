@@ -7,7 +7,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,6 +30,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -162,10 +165,12 @@ private fun MethodPickerScreen(
     onSelect: (OnboardingMethod) -> Unit,
     onShowInfo: () -> Unit
 ) {
-    var focusedIndex by remember { mutableIntStateOf(0) }
-    val focusRequester = remember { FocusRequester() }
+    val xtreamFocusRequester = remember { FocusRequester() }
+    val m3uFocusRequester = remember { FocusRequester() }
+    val stalkerFocusRequester = remember { FocusRequester() }
+    val infoFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) { xtreamFocusRequester.requestFocus() }
 
     Column(
         modifier = Modifier
@@ -197,10 +202,7 @@ private fun MethodPickerScreen(
         Spacer(modifier = Modifier.height(32.dp))
 
         Column(
-            modifier = Modifier
-                .width(520.dp)
-                .focusRequester(focusRequester)
-                .focusable(),
+            modifier = Modifier.width(520.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             MethodCard(
@@ -209,30 +211,33 @@ private fun MethodPickerScreen(
                 title = "Xtream Codes",
                 subtitle = "Server URL + username + password",
                 badge = "Most Common",
-                focused = focusedIndex == 0,
-                onClick = { onSelect(OnboardingMethod.Xtream) }
+                onClick = { onSelect(OnboardingMethod.Xtream) },
+                modifier = Modifier.focusRequester(xtreamFocusRequester)
             )
             MethodCard(
                 icon = "∞",
                 iconColor = OnboardingTextSecondary,
                 title = "M3U URL",
                 subtitle = "A single playlist link",
-                focused = focusedIndex == 1,
-                onClick = { onSelect(OnboardingMethod.M3u) }
+                onClick = { onSelect(OnboardingMethod.M3u) },
+                modifier = Modifier.focusRequester(m3uFocusRequester)
             )
             MethodCard(
                 icon = "▣",
                 iconColor = OnboardingTextSecondary,
                 title = "MAC / Stalker Portal",
                 subtitle = "Portal URL + device MAC address",
-                focused = focusedIndex == 2,
-                onClick = { onSelect(OnboardingMethod.Stalker) }
+                onClick = { onSelect(OnboardingMethod.Stalker) },
+                modifier = Modifier.focusRequester(stalkerFocusRequester)
             )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Surface(onClick = onShowInfo) {
+        Surface(
+            onClick = onShowInfo,
+            modifier = Modifier.focusRequester(infoFocusRequester)
+        ) {
             Text(
                 text = "What is IPTV? How do I get a provider?",
                 color = OnboardingTextMuted,
@@ -289,7 +294,6 @@ private fun XtreamEntryScreen(
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
             loading = loading,
-            focused = false,
             onClick = { onConnect(playlistName, serverUrl, username, password) }
         )
         if (!showNameField) {
@@ -352,7 +356,6 @@ private fun M3uEntryScreen(
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
             loading = loading,
-            focused = false,
             onClick = { onConnect(playlistName, url) }
         )
         if (!showNameField) {
@@ -440,7 +443,6 @@ private fun StalkerEntryScreen(
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
             loading = loading,
-            focused = false,
             onClick = {
                 val mac = if (useDeviceMac) deviceMac.orEmpty() else macAddress
                 onConnect(playlistName, portalUrl, mac)
@@ -476,15 +478,32 @@ private fun EntryScaffold(
     onBack: () -> Unit,
     content: @Composable () -> Unit
 ) {
+    val backFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) { backFocusRequester.requestFocus() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 40.dp, vertical = 24.dp),
+            .padding(horizontal = 40.dp, vertical = 24.dp)
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                    onBack()
+                    true
+                } else {
+                    false
+                }
+            },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            Surface(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
+            Surface(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .focusRequester(backFocusRequester)
+            ) {
                 Text(
                     text = "← Back",
                     color = OnboardingTextSecondary,

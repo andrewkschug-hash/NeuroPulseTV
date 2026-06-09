@@ -7,6 +7,7 @@ import androidx.work.WorkManager
 import com.neuropulse.tv.data.db.AppDatabase
 import com.neuropulse.tv.data.db.DbMigrations
 import com.neuropulse.tv.data.db.dao.ChannelDao
+import com.neuropulse.tv.data.db.dao.ChannelScanDao
 import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
 import com.neuropulse.tv.data.db.dao.EpgSourceChannelDao
@@ -50,6 +51,8 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_7_8)
             .addMigrations(DbMigrations.MIGRATION_8_9)
             .addMigrations(DbMigrations.MIGRATION_9_10)
+            .addMigrations(DbMigrations.MIGRATION_10_11)
+            .addMigrations(DbMigrations.MIGRATION_11_12)
             .build()
 
     @Provides
@@ -83,6 +86,9 @@ object AppProvidesModule {
 
     @Provides
     fun provideChannelDao(db: AppDatabase): ChannelDao = db.channelDao()
+
+    @Provides
+    fun provideChannelScanDao(db: AppDatabase): ChannelScanDao = db.channelScanDao()
 
     @Provides
     fun provideProgramDao(db: AppDatabase): ProgramDao = db.programDao()

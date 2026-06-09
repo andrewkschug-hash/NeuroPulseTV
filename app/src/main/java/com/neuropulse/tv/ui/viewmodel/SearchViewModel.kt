@@ -2,15 +2,22 @@ package com.neuropulse.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuropulse.tv.domain.model.SearchBarState
+import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.domain.model.SearchResultType
 import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.search.FuzzySearch
+import com.neuropulse.tv.feature.search.VoiceSearchController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
@@ -23,7 +30,8 @@ import javax.inject.Inject
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val voiceSearchController: VoiceSearchController
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val _results = MutableStateFlow<List<SearchResultItem>>(emptyList())
@@ -31,19 +39,99 @@ class SearchViewModel @Inject constructor(
 
     val queryText = query.asStateFlow()
 
+    private val _searchBarState = MutableStateFlow(SearchBarState.DEFAULT)
+    val searchBarState: StateFlow<SearchBarState> = _searchBarState.asStateFlow()
+
+    private val _preferredInputMode = MutableStateFlow(SearchInputMode.KEYBOARD)
+    val preferredInputMode: StateFlow<SearchInputMode> = _preferredInputMode.asStateFlow()
+
+    private val _toastMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
+
+    private var voiceSessionActive = false
+
     init {
         viewModelScope.launch {
-            query.debounce(150).collect { q -> search(q) }
+            query.debounce(150).collect { q ->
+                if (!voiceSessionActive) search(q)
+            }
+        }
+        viewModelScope.launch {
+            _preferredInputMode.value = repository.preferredSearchInput()
         }
     }
 
     fun updateQuery(newValue: String) {
         query.value = newValue
+        viewModelScope.launch { repository.setPreferredSearchInput(SearchInputMode.KEYBOARD) }
     }
 
     fun clearQuery() {
+        stopVoiceSearch()
         query.value = ""
         _results.value = emptyList()
+        _searchBarState.value = SearchBarState.DEFAULT
+    }
+
+    fun beginVoiceSearch() {
+        if (!voiceSearchController.isAvailable()) {
+            viewModelScope.launch {
+                _toastMessage.emit("Voice search not supported on this device")
+            }
+            return
+        }
+        stopVoiceSearch()
+        voiceSessionActive = true
+        _searchBarState.value = SearchBarState.LISTENING
+        voiceSearchController.start(
+            onPartial = { partial -> onVoicePartial(partial) },
+            onFinal = { final -> onVoiceFinal(final) },
+            onError = { onVoiceError() }
+        )
+    }
+
+    fun stopVoiceSearch() {
+        voiceSearchController.stop()
+        voiceSessionActive = false
+        if (_searchBarState.value == SearchBarState.LISTENING) {
+            _searchBarState.value = SearchBarState.DEFAULT
+        }
+    }
+
+    fun toggleVoiceSearch() {
+        if (_searchBarState.value == SearchBarState.LISTENING) {
+            stopVoiceSearch()
+        } else {
+            beginVoiceSearch()
+        }
+    }
+
+    private fun onVoicePartial(text: String) {
+        query.value = text
+        viewModelScope.launch { search(text) }
+    }
+
+    private fun onVoiceFinal(text: String) {
+        voiceSessionActive = false
+        query.value = text
+        _searchBarState.value = SearchBarState.CONFIRMED
+        viewModelScope.launch {
+            repository.setPreferredSearchInput(SearchInputMode.VOICE)
+            _preferredInputMode.value = SearchInputMode.VOICE
+            search(text)
+            delay(1500)
+            if (_searchBarState.value == SearchBarState.CONFIRMED) {
+                _searchBarState.value = SearchBarState.DEFAULT
+            }
+        }
+    }
+
+    private fun onVoiceError() {
+        voiceSessionActive = false
+        voiceSearchController.stop()
+        if (_searchBarState.value == SearchBarState.LISTENING) {
+            _searchBarState.value = SearchBarState.DEFAULT
+        }
     }
 
     private suspend fun search(q: String) {
@@ -136,5 +224,10 @@ class SearchViewModel @Inject constructor(
                     .thenBy { it.primaryTitle }
             )
             .take(8)
+    }
+
+    override fun onCleared() {
+        voiceSearchController.stop()
+        super.onCleared()
     }
 }

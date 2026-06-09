@@ -3,6 +3,7 @@ package com.neuropulse.tv.data.repository
 import android.content.ContentResolver
 import android.net.Uri
 import com.neuropulse.tv.data.db.dao.ChannelDao
+import com.neuropulse.tv.data.db.dao.ChannelScanDao
 import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
 import com.neuropulse.tv.data.db.dao.PlaylistDao
 import com.neuropulse.tv.data.db.dao.ProfileDao
@@ -29,6 +30,7 @@ import com.neuropulse.tv.data.network.stalker.StalkerPortalClient
 import com.neuropulse.tv.data.security.SecureCredentialStore
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.model.AppSettings
+import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
@@ -82,6 +84,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val scheduledRecordingDao: ScheduledRecordingDao,
     private val recordedMediaDao: RecordedMediaDao,
     private val streamHealthDao: StreamHealthDao,
+    private val channelScanDao: ChannelScanDao,
     private val remoteTextFetcher: RemoteTextFetcher,
     private val m3uParser: M3uParser,
     private val xtreamParser: XtreamParser,
@@ -752,7 +755,12 @@ class IptvRepositoryImpl @Inject constructor(
             pinProtectedGroups = emptySet(),
             sleepTimerMinutes = db.sleepTimerMinutes,
             hideAdultContent = db.hideAdultContent,
-            sleepTimerAutoEnabled = db.sleepTimerAutoEnabled
+            sleepTimerAutoEnabled = db.sleepTimerAutoEnabled,
+            autoScanEnabled = db.autoScanEnabled,
+            scanIntervalMinutes = db.scanIntervalMinutes,
+            concurrentChecks = db.concurrentChecks,
+            scanOnMetered = db.scanOnMetered,
+            preferredSearchInput = SearchInputMode.fromStored(db.preferredSearchInput)
         )
     }
 
@@ -773,9 +781,38 @@ class IptvRepositoryImpl @Inject constructor(
                 lastSeenVersion = old?.lastSeenVersion,
                 sleepTimerMinutes = settings.sleepTimerMinutes,
                 hideAdultContent = settings.hideAdultContent,
-                sleepTimerAutoEnabled = settings.sleepTimerAutoEnabled
+                sleepTimerAutoEnabled = settings.sleepTimerAutoEnabled,
+                autoScanEnabled = settings.autoScanEnabled,
+                scanIntervalMinutes = settings.scanIntervalMinutes,
+                concurrentChecks = settings.concurrentChecks,
+                scanOnMetered = settings.scanOnMetered,
+                lastFullScanAt = old?.lastFullScanAt,
+                preferredSearchInput = settings.preferredSearchInput.name
             )
         )
+    }
+
+    override suspend fun preferredSearchInput(): SearchInputMode {
+        ensureDefaultProfile()
+        return SearchInputMode.fromStored(profileSettingsDao.get(activeProfileId)?.preferredSearchInput)
+    }
+
+    override suspend fun setPreferredSearchInput(mode: SearchInputMode) {
+        ensureDefaultProfile()
+        val old = profileSettingsDao.get(activeProfileId) ?: ProfileSettingsEntity(profileId = activeProfileId)
+        profileSettingsDao.upsert(old.copy(preferredSearchInput = mode.name))
+        cachedSettings = cachedSettings.copy(preferredSearchInput = mode)
+    }
+
+    override suspend fun lastFullScanAt(): Long? {
+        ensureDefaultProfile()
+        return profileSettingsDao.get(activeProfileId)?.lastFullScanAt
+    }
+
+    override suspend fun updateLastFullScanAt(timestamp: Long) {
+        ensureDefaultProfile()
+        val old = profileSettingsDao.get(activeProfileId) ?: ProfileSettingsEntity(profileId = activeProfileId)
+        profileSettingsDao.upsert(old.copy(lastFullScanAt = timestamp))
     }
 
     override fun buildCatchupUrl(program: Program, channel: Channel): String? {
@@ -822,6 +859,7 @@ class IptvRepositoryImpl @Inject constructor(
         profileWatchHistoryDao.deleteAll()
         favoriteGroupDao.deleteAll()
         streamHealthDao.deleteAll()
+        channelScanDao.deleteAll()
         recordingDao.deleteAll()
         scheduledRecordingDao.deleteAll()
         recordedMediaDao.deleteAll()

@@ -1,6 +1,7 @@
 package com.neuropulse.tv.domain.repository
 
 import com.neuropulse.tv.domain.model.AppSettings
+import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
@@ -78,6 +79,10 @@ interface IptvRepository {
 
     suspend fun loadSettings(): AppSettings
     suspend fun saveSettings(settings: AppSettings)
+    suspend fun lastFullScanAt(): Long?
+    suspend fun updateLastFullScanAt(timestamp: Long)
+    suspend fun preferredSearchInput(): SearchInputMode
+    suspend fun setPreferredSearchInput(mode: SearchInputMode)
 
     fun buildCatchupUrl(program: Program, channel: Channel): String?
 

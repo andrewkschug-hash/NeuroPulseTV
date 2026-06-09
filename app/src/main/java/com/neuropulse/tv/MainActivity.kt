@@ -5,19 +5,25 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import com.neuropulse.tv.feature.search.MicSearchTrigger
+import com.neuropulse.tv.feature.search.VoiceSearchKeys
 import com.neuropulse.tv.ui.navigation.AppRoot
 import com.neuropulse.tv.ui.theme.GridTheme
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var micSearchTrigger: MicSearchTrigger
+
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
 
@@ -52,6 +58,14 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && VoiceSearchKeys.isMicKey(event.keyCode)) {
+            micSearchTrigger.trigger()
+            return true
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onUserLeaveHint() {

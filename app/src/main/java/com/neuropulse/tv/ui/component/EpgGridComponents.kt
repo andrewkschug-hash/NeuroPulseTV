@@ -213,6 +213,8 @@ fun EpgChannelCell(
     channel: Channel,
     isFocused: Boolean,
     showBottomSeparator: Boolean = true,
+    scanStatus: com.neuropulse.tv.domain.model.ChannelScanStatus? = null,
+    lastCheckedLabel: String? = null,
     modifier: Modifier = Modifier
 ) {
     val bgColor = if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.ChannelColumnBg
@@ -278,7 +280,8 @@ fun EpgChannelCell(
                 }
                 ChannelHealthDot(
                     reliabilityScore = channel.reliabilityScore,
-                    sessions = if (channel.reliabilityScore == 50) 0 else 1
+                    sessions = if (channel.reliabilityScore == 50) 0 else 1,
+                    scanStatus = scanStatus
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -289,12 +292,23 @@ fun EpgChannelCell(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Text(
-                        text = channel.number.toString(),
-                        color = EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = 11.sp
-                    )
+                    if (isFocused && lastCheckedLabel != null) {
+                        Text(
+                            text = lastCheckedLabel,
+                            color = EpgColors.TextDimmed,
+                            fontFamily = DmSansFamily,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Text(
+                            text = channel.number.toString(),
+                            color = EpgColors.TextDimmed,
+                            fontFamily = DmSansFamily,
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
         }

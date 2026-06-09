@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.EpgRowHeight
+import com.neuropulse.tv.domain.model.ScannerRuntimeState
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.EpgNavTab
@@ -96,6 +97,7 @@ fun SettingsScreen(
     val xtreamAccounts by viewModel.xtreamAccounts.collectAsStateWithLifecycle()
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
+    val scannerRuntime by viewModel.scannerRuntime.collectAsStateWithLifecycle()
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -349,9 +351,16 @@ fun SettingsScreen(
                         )
                         SettingsSection.Guide -> GuideSettingsContent(
                             settings = settings,
+                            scannerRuntime = scannerRuntime,
+                            now = now,
                             onRefreshEpg = { viewModel.refreshEpg() },
                             onOpenEpgResolver = onOpenEpgResolver,
-                            onRowHeight = { viewModel.updateRowHeight(it) }
+                            onRowHeight = { viewModel.updateRowHeight(it) },
+                            onToggleAutoScan = { viewModel.updateAutoScanEnabled(it) },
+                            onScanInterval = { viewModel.updateScanIntervalMinutes(it) },
+                            onConcurrentChecks = { viewModel.updateConcurrentChecks(it) },
+                            onToggleScanOnMetered = { viewModel.updateScanOnMetered(it) },
+                            onScanNow = { viewModel.scanChannelsNow() }
                         )
                         SettingsSection.Playback -> PlaybackSettingsContent(
                             settings = settings,
@@ -675,9 +684,16 @@ private fun ConnectionsSettingsContent(
 @Composable
 private fun GuideSettingsContent(
     settings: com.neuropulse.tv.domain.model.AppSettings,
+    scannerRuntime: ScannerRuntimeState,
+    now: Long,
     onRefreshEpg: () -> Unit,
     onOpenEpgResolver: () -> Unit,
-    onRowHeight: (EpgRowHeight) -> Unit
+    onRowHeight: (EpgRowHeight) -> Unit,
+    onToggleAutoScan: (Boolean) -> Unit,
+    onScanInterval: (Int) -> Unit,
+    onConcurrentChecks: (Int) -> Unit,
+    onToggleScanOnMetered: (Boolean) -> Unit,
+    onScanNow: () -> Unit
 ) {
     SettingsPanel(title = "EPG data", description = "Keep the guide up to date.") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -697,6 +713,77 @@ private fun GuideSettingsContent(
                 }
             }
         }
+    }
+    SettingsPanel(
+        title = "Channel Scanner",
+        description = "Background checks stream URLs without playing them."
+    ) {
+        SettingsToggleRow(
+            label = "Enable Auto-Scan",
+            enabled = settings.autoScanEnabled,
+            onToggle = { onToggleAutoScan(!settings.autoScanEnabled) }
+        )
+        Text(
+            text = "Scan interval (live channels)",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(1, 2, 5, 10, 30).forEach { minutes ->
+                Button(onClick = { onScanInterval(minutes) }) {
+                    Text(
+                        "${minutes}m",
+                        fontWeight = if (settings.scanIntervalMinutes == minutes) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (settings.scanIntervalMinutes == minutes) EpgColors.Accent else EpgColors.TextSecondary
+                    )
+                }
+            }
+        }
+        Text(
+            text = "Concurrent checks",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(5, 10, 20, 50).forEach { count ->
+                Button(onClick = { onConcurrentChecks(count) }) {
+                    Text(
+                        "$count",
+                        fontWeight = if (settings.concurrentChecks == count) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (settings.concurrentChecks == count) EpgColors.Accent else EpgColors.TextSecondary
+                    )
+                }
+            }
+        }
+        SettingsToggleRow(
+            label = "Scan on metered / mobile connections",
+            enabled = settings.scanOnMetered,
+            onToggle = { onToggleScanOnMetered(!settings.scanOnMetered) }
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Button(onClick = onScanNow, enabled = !scannerRuntime.isScanning) {
+                Text(if (scannerRuntime.isScanning) "Scanning…" else "Scan Now")
+            }
+        }
+        val lastFullScanLabel = scannerRuntime.lastFullScanAt?.let { at ->
+            val mins = ((now - at) / 60_000L).coerceAtLeast(0)
+            when (mins) {
+                0L -> "just now"
+                1L -> "1 min ago"
+                else -> "$mins mins ago"
+            }
+        } ?: "never"
+        Text(
+            text = "${scannerRuntime.liveCount} of ${scannerRuntime.totalCount} channels live · Last full scan: $lastFullScanLabel",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
     }
 }
 

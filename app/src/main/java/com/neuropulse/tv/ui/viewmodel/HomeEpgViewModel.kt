@@ -12,8 +12,11 @@ import com.neuropulse.tv.domain.model.SeriesShow
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.domain.model.VodItem
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.domain.model.ChannelScanSnapshot
+import com.neuropulse.tv.domain.model.ScannerRuntimeState
 import com.neuropulse.tv.feature.epg.ChannelCategoryFilter
 import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
+import com.neuropulse.tv.feature.scanner.ChannelScanner
 import com.neuropulse.tv.feature.parental.ProfileAccessGuard
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.player.StreamPlaybackStatus
@@ -43,8 +46,12 @@ data class EpgGuidePosition(
 @HiltViewModel
 class HomeEpgViewModel @Inject constructor(
     private val repository: IptvRepository,
-    val livePlayerManager: LivePlayerManager
+    val livePlayerManager: LivePlayerManager,
+    private val channelScanner: ChannelScanner
 ) : ViewModel() {
+
+    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = channelScanner.statuses
+    val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
 
     companion object {
         /** Filter sentinel: show all favorited channels (any group). */
@@ -313,6 +320,7 @@ class HomeEpgViewModel @Inject constructor(
         lastHealthReport = key
         val success = status == StreamPlaybackStatus.PLAYING ||
             status == StreamPlaybackStatus.AUDIO_ONLY
+        channelScanner.reportPlaybackResult(channelId, success)
         viewModelScope.launch {
             repository.reportStreamSession(
                 channelId = channelId,
@@ -325,6 +333,14 @@ class HomeEpgViewModel @Inject constructor(
                 success = success
             )
         }
+    }
+
+    fun updateScannerViewport(channelIds: List<Long>) {
+        channelScanner.setPriorityChannelIds(channelIds)
+    }
+
+    fun setScannerForeground(visible: Boolean) {
+        channelScanner.setAppInForeground(visible)
     }
 
     fun previewChannel(context: android.content.Context, channel: Channel, programTitle: String? = null) {

@@ -214,4 +214,31 @@ object DbMigrations {
             db.execSQL("ALTER TABLE profile_settings ADD COLUMN sleepTimerAutoEnabled INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS channel_scan (
+                    channelId INTEGER NOT NULL PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    lastCheckedAt INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN autoScanEnabled INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN scanIntervalMinutes INTEGER NOT NULL DEFAULT 5")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN concurrentChecks INTEGER NOT NULL DEFAULT 10")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN scanOnMetered INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN lastFullScanAt INTEGER")
+        }
+    }
+
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN preferredSearchInput TEXT NOT NULL DEFAULT 'KEYBOARD'"
+            )
+        }
+    }
 }

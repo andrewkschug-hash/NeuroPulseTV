@@ -3,6 +3,7 @@ package com.neuropulse.tv.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.neuropulse.tv.data.db.dao.ChannelDao
+import com.neuropulse.tv.data.db.dao.ChannelScanDao
 import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.neuropulse.tv.data.db.dao.FavoriteDao
 import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
@@ -20,6 +21,7 @@ import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
 import com.neuropulse.tv.data.db.entity.ChannelEntity
+import com.neuropulse.tv.data.db.entity.ChannelScanEntity
 import com.neuropulse.tv.data.db.entity.FavoriteEntity
 import com.neuropulse.tv.data.db.entity.FavoriteGroupEntity
 import com.neuropulse.tv.data.db.entity.PlaylistEntity
@@ -54,9 +56,10 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         RecordedMediaEntity::class,
         EpgSourceChannelEntity::class,
         EpgResolutionSuggestionEntity::class,
-        FavoriteGroupEntity::class
+        FavoriteGroupEntity::class,
+        ChannelScanEntity::class
     ],
-    version = 10,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -76,4 +79,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun epgSourceChannelDao(): EpgSourceChannelDao
     abstract fun epgResolutionSuggestionDao(): EpgResolutionSuggestionDao
     abstract fun favoriteGroupDao(): FavoriteGroupDao
+    abstract fun channelScanDao(): ChannelScanDao
 }

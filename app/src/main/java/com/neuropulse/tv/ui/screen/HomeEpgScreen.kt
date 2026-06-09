@@ -1,5 +1,10 @@
 package com.neuropulse.tv.ui.screen
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -38,6 +43,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -52,6 +58,9 @@ import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
 import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.di.PlayerEntryPoint
+import com.neuropulse.tv.di.SearchEntryPoint
+import com.neuropulse.tv.domain.model.SearchBarState
+import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.player.LivePlayerManager
 import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.component.EpgChannelCell
@@ -143,8 +152,13 @@ fun HomeEpgScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.reloadPlaybackSettings()
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    viewModel.reloadPlaybackSettings()
+                    viewModel.setScannerForeground(true)
+                }
+                Lifecycle.Event.ON_PAUSE -> viewModel.setScannerForeground(false)
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -210,11 +224,62 @@ fun HomeEpgScreen(
 
     val liveChannelId by livePlayerManager.activeChannelIdFlow.collectAsStateWithLifecycle()
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
+    val channelScanStatuses by viewModel.channelScanStatuses.collectAsStateWithLifecycle()
     val guidePosition by viewModel.guidePosition.collectAsStateWithLifecycle()
 
     val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
+    val preferredSearchInput by searchViewModel.preferredInputMode.collectAsStateWithLifecycle()
     var showSearchOverlay by remember { mutableStateOf(false) }
+
+    val micSearchTrigger = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, SearchEntryPoint::class.java)
+            .micSearchTrigger()
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            searchViewModel.beginVoiceSearch()
+        }
+    }
+
+    fun requestVoiceSearch() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            searchViewModel.beginVoiceSearch()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    fun openVoiceSearch() {
+        showSearchOverlay = true
+        requestVoiceSearch()
+    }
+
+    LaunchedEffect(Unit) {
+        micSearchTrigger.events.collect {
+            openVoiceSearch()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        searchViewModel.toastMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(showSearchOverlay) {
+        if (showSearchOverlay && preferredSearchInput == SearchInputMode.VOICE) {
+            requestVoiceSearch()
+        } else if (!showSearchOverlay) {
+            searchViewModel.stopVoiceSearch()
+        }
+    }
 
     var selectedTab by remember { mutableStateOf(EpgNavTab.Home) }
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -245,6 +310,16 @@ fun HomeEpgScreen(
 
     var didInitialScroll by remember { mutableStateOf(false) }
     var didRestoreGuide by remember { mutableStateOf(false) }
+
+    LaunchedEffect(focusChannelIndex, displayChannels, listState.layoutInfo.visibleItemsInfo) {
+        if (displayChannels.isEmpty()) return@LaunchedEffect
+        val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+            displayChannels.getOrNull(info.index)?.id
+        }.toSet()
+        val focusWindow = (focusChannelIndex - 3..focusChannelIndex + 3)
+            .mapNotNull { displayChannels.getOrNull(it)?.id }
+        viewModel.updateScannerViewport((visible + focusWindow).toList())
+    }
 
     LaunchedEffect(guidePosition, displayChannels.size, liveChannelId) {
         if (didRestoreGuide || displayChannels.isEmpty()) return@LaunchedEffect
@@ -947,6 +1022,11 @@ fun HomeEpgScreen(
                                         isFocused = focusZone == EpgFocusZone.GRID &&
                                             focusOnChannelColumn && index == focusChannelIndex,
                                         showBottomSeparator = index < displayChannels.lastIndex,
+                                        scanStatus = channelScanStatuses[channel.id]?.status,
+                                        lastCheckedLabel = com.neuropulse.tv.ui.component.formatLastChecked(
+                                            channelScanStatuses[channel.id]?.lastCheckedAt,
+                                            now
+                                        ),
                                         modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
                                     )
                                     EpgChannelTimelineRow(
@@ -1128,12 +1208,20 @@ fun HomeEpgScreen(
             SearchOverlay(
                 query = searchQuery,
                 results = searchResults,
+                searchBarState = searchBarState,
                 onQueryChange = searchViewModel::updateQuery,
                 onClear = searchViewModel::clearQuery,
                 onDismiss = {
                     showSearchOverlay = false
                     searchViewModel.clearQuery()
                     focusZone = EpgFocusZone.GRID
+                },
+                onMicClick = {
+                    if (searchBarState == SearchBarState.LISTENING) {
+                        searchViewModel.stopVoiceSearch()
+                    } else {
+                        requestVoiceSearch()
+                    }
                 },
                 onResultSelected = { handleSearchResult(it) }
             )

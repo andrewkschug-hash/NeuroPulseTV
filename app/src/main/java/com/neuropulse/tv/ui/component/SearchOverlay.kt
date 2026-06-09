@@ -1,5 +1,10 @@
 package com.neuropulse.tv.ui.component
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -15,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -49,26 +56,59 @@ import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import coil.compose.AsyncImage
+import com.neuropulse.tv.domain.model.SearchBarState
 import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
-private enum class SearchFocusZone { FIELD, RESULTS }
+private enum class SearchFocusZone { FIELD, MIC, RESULTS }
 
 @Composable
 fun SearchOverlay(
     query: String,
     results: List<SearchResultItem>,
+    searchBarState: SearchBarState,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
     onDismiss: () -> Unit,
+    onMicClick: () -> Unit,
     onResultSelected: (SearchResultItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val fieldFocusRequester = remember { FocusRequester() }
+    val micFocusRequester = remember { FocusRequester() }
     val resultsFocusRequester = remember { FocusRequester() }
     var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
     var focusedIndex by remember { mutableIntStateOf(0) }
+
+    val pulseTransition = rememberInfiniteTransition(label = "micPulse")
+    val micPulse by pulseTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.18f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "micPulseScale"
+    )
+
+    val fieldBorderColor = when (searchBarState) {
+        SearchBarState.DEFAULT -> EpgColors.Accent
+        SearchBarState.LISTENING -> Color(0xFFFF3B3B)
+        SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
+    }
+
+    val leadingIcon = when (searchBarState) {
+        SearchBarState.DEFAULT -> "⌕"
+        SearchBarState.LISTENING -> "🎤"
+        SearchBarState.CONFIRMED -> "✓"
+    }
+
+    val leadingIconColor = when (searchBarState) {
+        SearchBarState.DEFAULT -> EpgColors.TextSecondary
+        SearchBarState.LISTENING -> Color(0xFFFF3B3B)
+        SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
+    }
 
     LaunchedEffect(Unit) {
         fieldFocusRequester.requestFocus()
@@ -81,6 +121,7 @@ fun SearchOverlay(
     LaunchedEffect(focusZone) {
         when (focusZone) {
             SearchFocusZone.FIELD -> fieldFocusRequester.requestFocus()
+            SearchFocusZone.MIC -> micFocusRequester.requestFocus()
             SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocus()
         }
     }
@@ -97,28 +138,63 @@ fun SearchOverlay(
                 true
             }
             Key.DirectionDown -> {
-                if (results.isNotEmpty()) {
-                    focusZone = SearchFocusZone.RESULTS
-                    if (focusedIndex < 0) focusedIndex = 0
+                when (focusZone) {
+                    SearchFocusZone.FIELD -> focusZone = SearchFocusZone.MIC
+                    SearchFocusZone.MIC -> {
+                        if (results.isNotEmpty()) {
+                            focusZone = SearchFocusZone.RESULTS
+                            if (focusedIndex < 0) focusedIndex = 0
+                        }
+                    }
+                    SearchFocusZone.RESULTS -> Unit
                 }
                 true
             }
             Key.DirectionUp -> {
-                if (focusZone == SearchFocusZone.RESULTS) {
-                    if (focusedIndex <= 0) {
-                        focusZone = SearchFocusZone.FIELD
-                    } else {
-                        focusedIndex -= 1
+                when (focusZone) {
+                    SearchFocusZone.RESULTS -> {
+                        if (focusedIndex <= 0) {
+                            focusZone = SearchFocusZone.MIC
+                        } else {
+                            focusedIndex -= 1
+                        }
                     }
+                    SearchFocusZone.MIC -> focusZone = SearchFocusZone.FIELD
+                    SearchFocusZone.FIELD -> Unit
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (results.isNotEmpty()) {
-                    selectAt(focusedIndex.coerceAtLeast(0))
+            Key.DirectionRight -> {
+                if (focusZone == SearchFocusZone.FIELD) {
+                    focusZone = SearchFocusZone.MIC
                     true
                 } else {
                     false
+                }
+            }
+            Key.DirectionLeft -> {
+                if (focusZone == SearchFocusZone.MIC) {
+                    focusZone = SearchFocusZone.FIELD
+                    true
+                } else {
+                    false
+                }
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                when (focusZone) {
+                    SearchFocusZone.MIC -> {
+                        onMicClick()
+                        true
+                    }
+                    SearchFocusZone.RESULTS -> {
+                        if (results.isNotEmpty()) {
+                            selectAt(focusedIndex.coerceAtLeast(0))
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    SearchFocusZone.FIELD -> false
                 }
             }
             else -> false
@@ -148,7 +224,16 @@ fun SearchOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(text = "⌕", fontSize = 20.sp, color = EpgColors.TextSecondary)
+                Text(
+                    text = leadingIcon,
+                    fontSize = 20.sp,
+                    color = leadingIconColor,
+                    modifier = if (searchBarState == SearchBarState.LISTENING) {
+                        Modifier.scale(micPulse)
+                    } else {
+                        Modifier
+                    }
+                )
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
@@ -172,13 +257,17 @@ fun SearchOverlay(
                         .focusable()
                         .onPreviewKeyEvent { handleKey(it) }
                         .background(Color(0xFF13131A), RoundedCornerShape(8.dp))
-                        .border(1.5.dp, EpgColors.Accent, RoundedCornerShape(8.dp))
+                        .border(1.5.dp, fieldBorderColor, RoundedCornerShape(8.dp))
                         .padding(horizontal = 14.dp, vertical = 14.dp),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
-                                    text = "Search channels and shows…",
+                                    text = when (searchBarState) {
+                                        SearchBarState.LISTENING -> "Listening…"
+                                        SearchBarState.CONFIRMED -> "Search confirmed"
+                                        SearchBarState.DEFAULT -> "Search channels and shows…"
+                                    },
                                     color = Color(0xFF888899),
                                     fontFamily = DmSansFamily,
                                     fontSize = 16.sp
@@ -187,6 +276,16 @@ fun SearchOverlay(
                             inner()
                         }
                     }
+                )
+                MicButton(
+                    listening = searchBarState == SearchBarState.LISTENING,
+                    focused = focusZone == SearchFocusZone.MIC,
+                    pulseScale = micPulse,
+                    onClick = onMicClick,
+                    modifier = Modifier
+                        .focusRequester(micFocusRequester)
+                        .focusable()
+                        .onPreviewKeyEvent { handleKey(it) }
                 )
                 if (query.isNotEmpty()) {
                     Surface(onClick = onClear) {
@@ -200,7 +299,17 @@ fun SearchOverlay(
                 }
             }
 
-            if (query.isNotBlank() && results.isEmpty()) {
+            if (searchBarState == SearchBarState.LISTENING) {
+                Text(
+                    text = "Speak now — results update as you talk",
+                    color = Color(0xFFFF3B3B),
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                )
+            }
+
+            if (query.isNotBlank() && results.isEmpty() && searchBarState != SearchBarState.LISTENING) {
                 Text(
                     text = "No results for \"$query\"",
                     color = EpgColors.TextSecondary,
@@ -229,6 +338,46 @@ fun SearchOverlay(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MicButton(
+    listening: Boolean,
+    focused: Boolean,
+    pulseScale: Float,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bg = when {
+        listening -> Color(0x33FF3B3B)
+        focused -> Color(0xFF1C1C2E)
+        else -> Color(0xFF13131A)
+    }
+    val border = when {
+        listening -> Color(0xFFFF3B3B)
+        focused -> EpgColors.FocusBorder
+        else -> Color(0xFF2A2A38)
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .size(52.dp)
+            .scale(if (listening) pulseScale else 1f)
+            .border(1.5.dp, border, CircleShape),
+        shape = ClickableSurfaceDefaults.shape(CircleShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = bg,
+            focusedContainerColor = bg
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = if (listening) "🎤" else "🎙",
+                fontSize = 22.sp,
+                color = if (listening) Color(0xFFFF3B3B) else EpgColors.TextSecondary
+            )
         }
     }
 }

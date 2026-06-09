@@ -10,5 +10,10 @@ data class AppSettings(
     val pinProtectedGroups: Set<String> = emptySet(),
     val sleepTimerMinutes: Int = 30,
     val hideAdultContent: Boolean = true,
-    val sleepTimerAutoEnabled: Boolean = false
+    val sleepTimerAutoEnabled: Boolean = false,
+    val autoScanEnabled: Boolean = true,
+    val scanIntervalMinutes: Int = 5,
+    val concurrentChecks: Int = 10,
+    val scanOnMetered: Boolean = false,
+    val preferredSearchInput: SearchInputMode = SearchInputMode.KEYBOARD
 )

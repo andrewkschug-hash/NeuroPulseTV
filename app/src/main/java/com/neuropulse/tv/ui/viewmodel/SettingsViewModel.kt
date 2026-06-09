@@ -12,7 +12,8 @@ import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.dashboard.DashboardController
 import com.neuropulse.tv.feature.recording.RecordingStorageManager
 import com.neuropulse.tv.feature.recording.StorageOption
-import com.neuropulse.tv.worker.ChannelHealthScheduler
+import com.neuropulse.tv.domain.model.ScannerSettings
+import com.neuropulse.tv.feature.scanner.ChannelScanner
 import com.neuropulse.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,8 +31,10 @@ class SettingsViewModel @Inject constructor(
     private val scheduler: EpgScheduler,
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
-    private val channelHealthScheduler: ChannelHealthScheduler
+    private val channelScanner: ChannelScanner
 ) : ViewModel() {
+
+    val scannerRuntime = channelScanner.runtime
 
     companion object {
         const val APP_VERSION = "2.1.0"
@@ -68,8 +71,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _settings.value = repository.loadSettings()
             scheduler.scheduleAtLaunch()
-            channelHealthScheduler.schedule()
             refreshStorageSettings()
+            syncScannerSettings()
         }
     }
 
@@ -150,6 +153,46 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshEpg() {
         viewModelScope.launch { repository.refreshEpgNow() }
+    }
+
+    private fun syncScannerSettings() {
+        val current = _settings.value
+        channelScanner.updateSettings(
+            ScannerSettings(
+                autoScanEnabled = current.autoScanEnabled,
+                scanIntervalMinutes = current.scanIntervalMinutes,
+                concurrentChecks = current.concurrentChecks,
+                scanOnMetered = current.scanOnMetered
+            )
+        )
+    }
+
+    private fun persistScannerSettings(updated: com.neuropulse.tv.domain.model.AppSettings) {
+        _settings.value = updated
+        viewModelScope.launch {
+            repository.saveSettings(updated)
+            syncScannerSettings()
+        }
+    }
+
+    fun updateAutoScanEnabled(enabled: Boolean) {
+        persistScannerSettings(_settings.value.copy(autoScanEnabled = enabled))
+    }
+
+    fun updateScanIntervalMinutes(minutes: Int) {
+        persistScannerSettings(_settings.value.copy(scanIntervalMinutes = minutes))
+    }
+
+    fun updateConcurrentChecks(count: Int) {
+        persistScannerSettings(_settings.value.copy(concurrentChecks = count))
+    }
+
+    fun updateScanOnMetered(enabled: Boolean) {
+        persistScannerSettings(_settings.value.copy(scanOnMetered = enabled))
+    }
+
+    fun scanChannelsNow() {
+        channelScanner.scanNow()
     }
 
     fun updateRowHeight(value: EpgRowHeight) {
