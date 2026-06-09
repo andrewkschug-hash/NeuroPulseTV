@@ -59,13 +59,12 @@ fun PlayerSideMenu(
     val listState = rememberLazyListState()
 
     LaunchedEffect(focusedSection, focusedIndex, visible) {
-        if (!visible) return@LaunchedEffect
+        if (!visible || focusedSection == PlayerSideMenuSection.ACTIONS) return@LaunchedEffect
         val row = sectionStartRow(
             focusedSection,
             channels.size,
             sportsItems.size,
-            newsChannels.size,
-            actions.size
+            newsChannels.size
         ) + focusedIndex
         listState.animateScrollToItem(row.coerceAtLeast(0))
     }
@@ -83,8 +82,7 @@ fun PlayerSideMenu(
                     .fillMaxHeight()
                     .background(EpgColors.Background.copy(alpha = 0.45f))
             )
-            LazyColumn(
-                state = listState,
+            Column(
                 modifier = Modifier
                     .width(300.dp)
                     .fillMaxHeight()
@@ -92,55 +90,58 @@ fun PlayerSideMenu(
                     .border(width = 1.dp, color = EpgColors.BorderSubtle)
                     .padding(vertical = 16.dp)
             ) {
-                item {
-                    SectionHeader("Channels")
-                }
-                itemsIndexed(channels, key = { _, ch -> "ch-${ch.id}" }) { index, channel ->
-                    ChannelRow(
-                        channel = channel,
-                        subtitle = null,
-                        focused = focusedSection == PlayerSideMenuSection.CHANNELS && index == focusedIndex,
-                        selected = channel.id == currentChannelId
-                    )
-                }
-                if (sportsItems.isNotEmpty()) {
-                    item { SectionHeader("Live Sports") }
-                    itemsIndexed(sportsItems, key = { _, item -> "sport-${item.channel.id}" }) { index, item ->
-                        ChannelRow(
-                            channel = item.channel,
-                            subtitle = item.programTitle,
-                            focused = focusedSection == PlayerSideMenuSection.SPORTS && index == focusedIndex,
-                            selected = item.channel.id == currentChannelId
-                        )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    item {
+                        SectionHeader("Channels")
                     }
-                }
-                if (newsChannels.isNotEmpty()) {
-                    item { SectionHeader("News") }
-                    itemsIndexed(newsChannels, key = { _, ch -> "news-${ch.id}" }) { index, channel ->
+                    itemsIndexed(channels, key = { _, ch -> "ch-${ch.id}" }) { index, channel ->
                         ChannelRow(
                             channel = channel,
                             subtitle = null,
-                            focused = focusedSection == PlayerSideMenuSection.NEWS && index == focusedIndex,
+                            focused = focusedSection == PlayerSideMenuSection.CHANNELS && index == focusedIndex,
                             selected = channel.id == currentChannelId
                         )
                     }
+                    if (sportsItems.isNotEmpty()) {
+                        item { SectionHeader("Live Sports") }
+                        itemsIndexed(sportsItems, key = { _, item -> "sport-${item.channel.id}" }) { index, item ->
+                            ChannelRow(
+                                channel = item.channel,
+                                subtitle = item.programTitle,
+                                focused = focusedSection == PlayerSideMenuSection.SPORTS && index == focusedIndex,
+                                selected = item.channel.id == currentChannelId
+                            )
+                        }
+                    }
+                    if (newsChannels.isNotEmpty()) {
+                        item { SectionHeader("News") }
+                        itemsIndexed(newsChannels, key = { _, ch -> "news-${ch.id}" }) { index, channel ->
+                            ChannelRow(
+                                channel = channel,
+                                subtitle = null,
+                                focused = focusedSection == PlayerSideMenuSection.NEWS && index == focusedIndex,
+                                selected = channel.id == currentChannelId
+                            )
+                        }
+                    }
                 }
-                item { SectionHeader("Quick actions") }
-                itemsIndexed(actions, key = { _, action -> "action-${action.id}" }) { index, action ->
+                SectionHeader("Quick actions")
+                actions.forEachIndexed { index, action ->
                     ActionRow(
                         action = action,
                         focused = focusedSection == PlayerSideMenuSection.ACTIONS && index == focusedIndex
                     )
                 }
-                item {
-                    Text(
-                        text = "← Close menu",
-                        color = EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
-                    )
-                }
+                Text(
+                    text = "← Close menu",
+                    color = EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                )
             }
         }
     }
@@ -286,8 +287,7 @@ private fun sectionStartRow(
     section: PlayerSideMenuSection,
     channelCount: Int,
     sportsCount: Int,
-    newsCount: Int,
-    actionCount: Int
+    newsCount: Int
 ): Int {
     var row = 1 // Channels header
     if (section == PlayerSideMenuSection.CHANNELS) return row
@@ -302,6 +302,5 @@ private fun sectionStartRow(
         if (section == PlayerSideMenuSection.NEWS) return row
         row += newsCount
     }
-    row += 1 // Actions header
     return row
 }

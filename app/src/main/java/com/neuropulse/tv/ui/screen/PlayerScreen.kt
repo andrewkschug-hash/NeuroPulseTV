@@ -145,6 +145,9 @@ fun PlayerScreen(
                     label = if (isRecordingThisChannel) "Stop REC" else "Record"
                 )
             )
+            add(PlayerSideMenuAction("guide", "TV Guide"))
+            add(PlayerSideMenuAction("recordings", "Recordings"))
+            add(PlayerSideMenuAction("settings", "Settings"))
         }
     }
 
@@ -180,6 +183,9 @@ fun PlayerScreen(
                     )
                 }
             }
+            "guide" -> onNavigateGuide()
+            "recordings" -> onNavigateRecordings()
+            "settings" -> onNavigateSettings()
         }
     }
 

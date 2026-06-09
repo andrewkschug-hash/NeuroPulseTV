@@ -34,6 +34,7 @@ class PlayerViewModel @Inject constructor(
     val hasPreviousChannel: StateFlow<Boolean> = _hasPreviousChannel.asStateFlow()
 
     val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
+        .map { list -> list.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val sportsNow: StateFlow<List<Program>> = repository.liveSportsNow()
@@ -55,7 +56,7 @@ class PlayerViewModel @Inject constructor(
 
     fun load(channelId: Long) {
         viewModelScope.launch {
-            _channel.value = repository.channelById(channelId)
+            applyChannel(channelId, recordWatchHistory = true)
         }
     }
 
@@ -68,7 +69,7 @@ class PlayerViewModel @Inject constructor(
         val prevId = previousChannelId ?: return
         previousChannelId = current.id
         viewModelScope.launch {
-            _channel.value = repository.channelById(prevId)
+            applyChannel(prevId)
             _hasPreviousChannel.value = true
         }
     }
@@ -87,13 +88,22 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private suspend fun applyChannel(channelId: Long) {
+    private suspend fun applyChannel(channelId: Long, recordWatchHistory: Boolean = true) {
         val current = _channel.value
         if (current != null && current.id != channelId) {
             previousChannelId = current.id
             _hasPreviousChannel.value = true
         }
-        _channel.value = repository.channelById(channelId)
+        val ch = repository.channelById(channelId)
+        _channel.value = ch
+        if (recordWatchHistory && ch != null) {
+            val history = repository.watchHistory(ch.id)
+            repository.saveWatchPosition(
+                channelId = ch.id,
+                position = history?.lastPosition ?: 0L,
+                programTitle = ch.currentProgram ?: ch.name
+            )
+        }
     }
 
     fun appendDigit(d: Int) {

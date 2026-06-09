@@ -114,7 +114,7 @@ class HomeEpgViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> = repository.continueWatchingItems(5)
+    val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> = repository.continueWatchingItems(1)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val continueWatching: StateFlow<List<Channel>> = continueWatchingItems
@@ -301,7 +301,6 @@ class HomeEpgViewModel @Inject constructor(
                 ?: return@launch
             livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-            repository.saveWatchPosition(ch.id, 0L)
         }
     }
 
@@ -334,7 +333,6 @@ class HomeEpgViewModel @Inject constructor(
             if (channel.streamUrl.isBlank()) return@launch
             livePlayerManager.tuneChannel(context, channel.id, channel.streamUrl)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-            repository.saveWatchPosition(channel.id, 0L, programTitle ?: channel.name)
         }
     }
 
@@ -342,7 +340,6 @@ class HomeEpgViewModel @Inject constructor(
         viewModelScope.launch {
             livePlayerManager.tuneChannel(context, item.channel.id, item.channel.streamUrl)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-            repository.saveWatchPosition(item.channel.id, item.lastPosition, item.programTitle)
         }
     }
 

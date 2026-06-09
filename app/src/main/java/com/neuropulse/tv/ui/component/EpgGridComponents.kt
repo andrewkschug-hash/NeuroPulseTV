@@ -565,7 +565,16 @@ fun EpgDetailPanel(
     previewContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    if (!visible || channel == null || program == null) return
+    if (!visible || channel == null) return
+
+    val title = program?.title ?: channel.name
+    val timeLine = program?.let {
+        "${formatEpgTime(it.startTime)} – ${formatEpgTime(it.endTime)}  •  ${programDurationMinutes(it)} min"
+    } ?: "No program information"
+    val description = when {
+        program != null -> program.description.ifBlank { "No description available." }
+        else -> "No EPG data available for this channel."
+    }
 
     Column(
         modifier = modifier
@@ -593,7 +602,7 @@ fun EpgDetailPanel(
                     .padding(horizontal = 16.dp)
             ) {
                 Text(
-                    text = program.title,
+                    text = title,
                     color = EpgColors.TextPrimary,
                     fontFamily = DmSansFamily,
                     fontSize = 18.sp,
@@ -602,7 +611,7 @@ fun EpgDetailPanel(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${formatEpgTime(program.startTime)} – ${formatEpgTime(program.endTime)}  •  ${programDurationMinutes(program)} min",
+                    text = timeLine,
                     color = EpgColors.TextSecondary,
                     fontFamily = DmSansFamily,
                     fontSize = 12.sp,
@@ -612,9 +621,13 @@ fun EpgDetailPanel(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
-                    EpgTagPill(genreLabel(program.genre), EpgColors.HdBadgeBg, EpgColors.TextSecondary)
-                    if (programTimeState(program, now) == ProgramTimeState.AIRING) {
-                        EpgTagPill("HD", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                    if (program != null) {
+                        EpgTagPill(genreLabel(program.genre), EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                        if (programTimeState(program, now) == ProgramTimeState.AIRING) {
+                            EpgTagPill("HD", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                        }
+                    } else {
+                        EpgTagPill("Live", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
                     }
                     streamStatus?.let { status ->
                         if (status.userLabel().isNotBlank()) {
@@ -623,7 +636,7 @@ fun EpgDetailPanel(
                     }
                 }
                 Text(
-                    text = program.description.ifBlank { "No description available." },
+                    text = description,
                     color = EpgColors.TextSecondary,
                     fontFamily = DmSansFamily,
                     fontSize = 12.sp,
