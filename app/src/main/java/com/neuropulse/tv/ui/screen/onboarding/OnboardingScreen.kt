@@ -28,13 +28,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -43,8 +38,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Surface
 import com.neuropulse.tv.ui.component.GridWordmark
+import com.neuropulse.tv.ui.component.TvBackButton
+import com.neuropulse.tv.ui.component.TvFocusChain
+import com.neuropulse.tv.ui.component.TvTextLink
+import com.neuropulse.tv.ui.component.rememberTvFocusChain
+import com.neuropulse.tv.ui.component.tvVerticalDpadNavigation
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.viewmodel.OnboardingConnectState
 import com.neuropulse.tv.ui.viewmodel.OnboardingViewModel
@@ -71,7 +70,6 @@ fun OnboardingScreen(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     var step by remember { mutableStateOf(OnboardingStep.MethodPicker) }
-    var showInfo by remember { mutableStateOf(false) }
     var successAlpha by remember { mutableStateOf(1f) }
 
     LaunchedEffect(connectState, connectResult) {
@@ -112,7 +110,6 @@ fun OnboardingScreen(
                             OnboardingMethod.Stalker -> OnboardingStep.Stalker
                         }
                     },
-                    onShowInfo = { showInfo = true },
                     onSkip = onSkip
                 )
                 OnboardingStep.Xtream -> XtreamEntryScreen(
@@ -157,31 +154,27 @@ fun OnboardingScreen(
             }
         }
 
-        if (showInfo) {
-            IptvInfoOverlay(onDismiss = { showInfo = false })
-        }
     }
 }
 
 @Composable
 private fun MethodPickerScreen(
     onSelect: (OnboardingMethod) -> Unit,
-    onShowInfo: () -> Unit,
     onSkip: () -> Unit
 ) {
-    val xtreamFocusRequester = remember { FocusRequester() }
-    val m3uFocusRequester = remember { FocusRequester() }
-    val stalkerFocusRequester = remember { FocusRequester() }
-    val infoFocusRequester = remember { FocusRequester() }
-    val skipFocusRequester = remember { FocusRequester() }
+    val focusChain = rememberTvFocusChain(count = 4, startIndex = 0)
     var focusedMethod by remember { mutableStateOf(OnboardingMethod.Xtream) }
-
-    LaunchedEffect(Unit) { xtreamFocusRequester.requestFocus() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 40.dp),
+            .padding(horizontal = 40.dp)
+            .tvVerticalDpadNavigation(
+                chain = focusChain,
+                onBack = onSkip,
+                isEditing = { false },
+                onDismissEditing = {}
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.fillMaxHeight(0.12f))
@@ -219,8 +212,11 @@ private fun MethodPickerScreen(
                 badge = "Most Common",
                 selected = focusedMethod == OnboardingMethod.Xtream,
                 onClick = { onSelect(OnboardingMethod.Xtream) },
-                onFocused = { focusedMethod = OnboardingMethod.Xtream },
-                modifier = Modifier.focusRequester(xtreamFocusRequester)
+                onFocused = {
+                    focusedMethod = OnboardingMethod.Xtream
+                    focusChain.onItemFocused(0)
+                },
+                modifier = Modifier.focusRequester(focusChain.requesters[0])
             )
             MethodCard(
                 icon = "∞",
@@ -229,8 +225,11 @@ private fun MethodPickerScreen(
                 subtitle = "A single playlist link",
                 selected = focusedMethod == OnboardingMethod.M3u,
                 onClick = { onSelect(OnboardingMethod.M3u) },
-                onFocused = { focusedMethod = OnboardingMethod.M3u },
-                modifier = Modifier.focusRequester(m3uFocusRequester)
+                onFocused = {
+                    focusedMethod = OnboardingMethod.M3u
+                    focusChain.onItemFocused(1)
+                },
+                modifier = Modifier.focusRequester(focusChain.requesters[1])
             )
             MethodCard(
                 icon = "▣",
@@ -239,24 +238,21 @@ private fun MethodPickerScreen(
                 subtitle = "Portal URL + device MAC address",
                 selected = focusedMethod == OnboardingMethod.Stalker,
                 onClick = { onSelect(OnboardingMethod.Stalker) },
-                onFocused = { focusedMethod = OnboardingMethod.Stalker },
-                modifier = Modifier.focusRequester(stalkerFocusRequester)
+                onFocused = {
+                    focusedMethod = OnboardingMethod.Stalker
+                    focusChain.onItemFocused(2)
+                },
+                modifier = Modifier.focusRequester(focusChain.requesters[2])
             )
         }
 
         Spacer(modifier = Modifier.height(28.dp))
 
-        OnboardingInfoPill(
-            text = "What is IPTV? How do I get a provider?",
-            onClick = onShowInfo,
-            modifier = Modifier.focusRequester(infoFocusRequester)
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
         OnboardingSkipLink(
             onClick = onSkip,
-            modifier = Modifier.focusRequester(skipFocusRequester)
+            modifier = Modifier
+                .focusRequester(focusChain.requesters[3])
+                .onFocusChanged { if (it.isFocused) focusChain.onItemFocused(3) }
         )
     }
 }
@@ -273,11 +269,16 @@ private fun XtreamEntryScreen(
     var password by remember { mutableStateOf("") }
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    val focusChain = rememberTvFocusChain(count = 6, startIndex = 0)
 
     EntryScaffold(
         title = "Xtream Codes",
         subtitle = "Enter the details your IPTV provider gave you",
-        onBack = onBack
+        onBack = onBack,
+        focusChain = focusChain,
+        isEditing = isEditing,
+        onDismissEditing = { isEditing = false }
     ) {
         if (errorMessage != null) {
             OnboardingErrorBanner(message = errorMessage)
@@ -288,14 +289,22 @@ private fun XtreamEntryScreen(
             value = serverUrl,
             onValueChange = { serverUrl = it },
             placeholder = "http://provider.com:8080",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+            focusRequester = focusChain.requesters[1],
+            chainIndex = 1,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
             label = "Username",
             value = username,
             onValueChange = { username = it },
-            placeholder = "your_username"
+            placeholder = "your_username",
+            focusRequester = focusChain.requesters[2],
+            chainIndex = 2,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -303,31 +312,40 @@ private fun XtreamEntryScreen(
             value = password,
             onValueChange = { password = it },
             placeholder = "your_password",
-            isPassword = true
+            isPassword = true,
+            focusRequester = focusChain.requesters[3],
+            chainIndex = 3,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
             loading = loading,
-            onClick = { onConnect(playlistName, serverUrl, username, password) }
+            onClick = { onConnect(playlistName, serverUrl, username, password) },
+            focusRequester = focusChain.requesters[4],
+            chainIndex = 4,
+            chain = focusChain
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
-            Surface(onClick = { showNameField = true }) {
-                Text(
-                    text = "+ Add a name for this playlist",
-                    color = OnboardingTextMuted,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
+            TvTextLink(
+                text = "+ Add a name for this playlist",
+                onClick = { showNameField = true },
+                focusRequester = focusChain.requesters[5],
+                chainIndex = 5,
+                chain = focusChain
+            )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
             OnboardingTextField(
                 label = "Playlist name",
                 value = playlistName,
                 onValueChange = { playlistName = it },
-                placeholder = "Main TV"
+                placeholder = "Main TV",
+                focusRequester = focusChain.requesters[5],
+                chainIndex = 5,
+                chain = focusChain,
+                onEditingChanged = { isEditing = it }
             )
         }
     }
@@ -343,11 +361,16 @@ private fun M3uEntryScreen(
     var url by remember { mutableStateOf("") }
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    val focusChain = rememberTvFocusChain(count = 4, startIndex = 0)
 
     EntryScaffold(
         title = "M3U URL",
         subtitle = "Paste the playlist link from your provider",
-        onBack = onBack
+        onBack = onBack,
+        focusChain = focusChain,
+        isEditing = isEditing,
+        onDismissEditing = { isEditing = false }
     ) {
         if (errorMessage != null) {
             OnboardingErrorBanner(message = errorMessage)
@@ -358,7 +381,11 @@ private fun M3uEntryScreen(
             value = url,
             onValueChange = { url = it },
             placeholder = "http://provider.com/playlist.m3u",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+            focusRequester = focusChain.requesters[1],
+            chainIndex = 1,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -373,26 +400,31 @@ private fun M3uEntryScreen(
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
             loading = loading,
-            onClick = { onConnect(playlistName, url) }
+            onClick = { onConnect(playlistName, url) },
+            focusRequester = focusChain.requesters[2],
+            chainIndex = 2,
+            chain = focusChain
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
-            Surface(onClick = { showNameField = true }) {
-                Text(
-                    text = "+ Add a name for this playlist",
-                    color = OnboardingTextMuted,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
+            TvTextLink(
+                text = "+ Add a name for this playlist",
+                onClick = { showNameField = true },
+                focusRequester = focusChain.requesters[3],
+                chainIndex = 3,
+                chain = focusChain
+            )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
             OnboardingTextField(
                 label = "Playlist name",
                 value = playlistName,
                 onValueChange = { playlistName = it },
-                placeholder = "Main TV"
+                placeholder = "Main TV",
+                focusRequester = focusChain.requesters[3],
+                chainIndex = 3,
+                chain = focusChain,
+                onEditingChanged = { isEditing = it }
             )
         }
     }
@@ -411,11 +443,16 @@ private fun StalkerEntryScreen(
     var useDeviceMac by remember { mutableStateOf(deviceMac != null) }
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    val focusChain = rememberTvFocusChain(count = 5, startIndex = 0)
 
     EntryScaffold(
         title = "MAC / Stalker Portal",
         subtitle = "Enter your portal URL and device MAC address",
-        onBack = onBack
+        onBack = onBack,
+        focusChain = focusChain,
+        isEditing = isEditing,
+        onDismissEditing = { isEditing = false }
     ) {
         if (errorMessage != null) {
             OnboardingErrorBanner(message = errorMessage)
@@ -426,7 +463,11 @@ private fun StalkerEntryScreen(
             value = portalUrl,
             onValueChange = { portalUrl = it },
             placeholder = "http://provider.com/stalker_portal",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+            focusRequester = focusChain.requesters[1],
+            chainIndex = 1,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -436,7 +477,11 @@ private fun StalkerEntryScreen(
                 useDeviceMac = false
                 macAddress = it
             },
-            placeholder = "00:1A:79:XX:XX:XX"
+            placeholder = "00:1A:79:XX:XX:XX",
+            focusRequester = focusChain.requesters[2],
+            chainIndex = 2,
+            chain = focusChain,
+            onEditingChanged = { isEditing = it }
         )
         if (deviceMac != null) {
             Text(
@@ -447,18 +492,13 @@ private fun StalkerEntryScreen(
                 modifier = Modifier.padding(top = 6.dp)
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Surface(onClick = {
-                useDeviceMac = !useDeviceMac
-                if (useDeviceMac) macAddress = deviceMac
-            }) {
-                Text(
-                    text = if (useDeviceMac) "✓ Use device MAC automatically" else "Use device MAC automatically",
-                    color = if (useDeviceMac) OnboardingAccent else OnboardingTextMuted,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
+            TvTextLink(
+                text = if (useDeviceMac) "✓ Use device MAC automatically" else "Use device MAC automatically",
+                onClick = {
+                    useDeviceMac = !useDeviceMac
+                    if (useDeviceMac) macAddress = deviceMac
+                }
+            )
         }
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
@@ -466,26 +506,31 @@ private fun StalkerEntryScreen(
             onClick = {
                 val mac = if (useDeviceMac) deviceMac.orEmpty() else macAddress
                 onConnect(playlistName, portalUrl, mac)
-            }
+            },
+            focusRequester = focusChain.requesters[3],
+            chainIndex = 3,
+            chain = focusChain
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
-            Surface(onClick = { showNameField = true }) {
-                Text(
-                    text = "+ Add a name for this playlist",
-                    color = OnboardingTextMuted,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(vertical = 4.dp)
-                )
-            }
+            TvTextLink(
+                text = "+ Add a name for this playlist",
+                onClick = { showNameField = true },
+                focusRequester = focusChain.requesters[4],
+                chainIndex = 4,
+                chain = focusChain
+            )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
             OnboardingTextField(
                 label = "Playlist name",
                 value = playlistName,
                 onValueChange = { playlistName = it },
-                placeholder = "Main TV"
+                placeholder = "Main TV",
+                focusRequester = focusChain.requesters[4],
+                chainIndex = 4,
+                chain = focusChain,
+                onEditingChanged = { isEditing = it }
             )
         }
     }
@@ -496,42 +541,32 @@ private fun EntryScaffold(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
+    focusChain: TvFocusChain,
+    isEditing: Boolean,
+    onDismissEditing: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    val backFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) { backFocusRequester.requestFocus() }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 40.dp, vertical = 24.dp)
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
-                    onBack()
-                    true
-                } else {
-                    false
-                }
-            },
+            .tvVerticalDpadNavigation(
+                chain = focusChain,
+                onBack = onBack,
+                isEditing = { isEditing },
+                onDismissEditing = onDismissEditing
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
-            Surface(
+            TvBackButton(
                 onClick = onBack,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .focusRequester(backFocusRequester)
-            ) {
-                Text(
-                    text = "← Back",
-                    color = OnboardingTextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
+                modifier = Modifier.align(Alignment.CenterStart),
+                focusRequester = focusChain.requesters[0],
+                chainIndex = 0,
+                chain = focusChain
+            )
             GridWordmark(
                 fontSize = 22.sp,
                 modifier = Modifier.align(Alignment.Center)

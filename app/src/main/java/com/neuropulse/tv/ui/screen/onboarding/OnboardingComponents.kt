@@ -17,41 +17,37 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import com.neuropulse.tv.ui.component.GridGhostLink
-import com.neuropulse.tv.ui.component.GridModal
 import com.neuropulse.tv.ui.component.GridPrimaryButton
+import com.neuropulse.tv.ui.component.TvFocusChain
+import com.neuropulse.tv.ui.component.TvTextField
 import com.neuropulse.tv.ui.theme.DmSansFamily
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 internal val OnboardingBg = Color(0xFF0A0A0F)
 internal val OnboardingTextPrimary = Color(0xFFF2F2F5)
@@ -170,34 +166,6 @@ internal fun MethodCard(
 }
 
 @Composable
-internal fun OnboardingInfoPill(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var focused by remember { mutableStateOf(false) }
-
-    Surface(
-        onClick = onClick,
-        modifier = modifier.onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xCC1E1E2E),
-            focusedContainerColor = Color(0xE61E1E2E)
-        )
-    ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-        )
-    }
-}
-
-@Composable
 internal fun OnboardingErrorBanner(
     message: String,
     modifier: Modifier = Modifier
@@ -232,101 +200,46 @@ internal fun OnboardingTextField(
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
     error: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    chainIndex: Int = -1,
+    chain: TvFocusChain? = null,
+    onEditingChanged: (Boolean) -> Unit = {}
 ) {
-    var focused by remember { mutableStateOf(false) }
-    var showPassword by remember { mutableStateOf(false) }
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        if (value.isNotBlank() || focused) {
-            Text(
-                text = label,
-                color = OnboardingTextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
-        Box(modifier = Modifier.fillMaxWidth()) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontFamily = DmSansFamily,
-                    fontSize = 15.sp
-                ),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                visualTransformation = if (isPassword && !showPassword) {
-                    PasswordVisualTransformation()
-                } else {
-                    VisualTransformation.None
-                },
-                cursorBrush = SolidColor(OnboardingAccent),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .focusable()
-                    .onFocusChanged { focused = it.isFocused }
-                    .background(OnboardingInputBg)
-                    .border(
-                        width = if (focused) 1.5.dp else 1.dp,
-                        color = when {
-                            error != null -> OnboardingError
-                            focused -> OnboardingAccent
-                            else -> Color(0xFF4B5563)
-                        },
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty() && !focused) {
-                            Text(
-                                text = placeholder,
-                                color = OnboardingTextMuted,
-                                fontFamily = DmSansFamily,
-                                fontSize = 15.sp
-                            )
-                        }
-                        inner()
-                    }
-                }
-            )
-            if (isPassword) {
-                Surface(
-                    onClick = { showPassword = !showPassword },
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 8.dp)
-                ) {
-                    Text(
-                        text = if (showPassword) "Hide" else "Show",
-                        color = OnboardingTextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-    }
+    TvTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = placeholder,
+        label = label,
+        keyboardType = keyboardType,
+        isPassword = isPassword,
+        error = error,
+        modifier = modifier,
+        focusRequester = focusRequester,
+        chainIndex = chainIndex,
+        chain = chain,
+        onEditingChanged = onEditingChanged
+    )
 }
 
 @Composable
 internal fun ConnectButton(
     loading: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    chainIndex: Int = -1,
+    chain: TvFocusChain? = null
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
         GridPrimaryButton(
             text = if (loading) "Connecting…" else "Connect",
             onClick = onClick,
             enabled = !loading,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .onFocusChanged { if (it.isFocused) chain?.onItemFocused(chainIndex) },
             contentDescription = if (loading) "Connecting" else "Connect"
         )
         if (loading) {
@@ -348,10 +261,10 @@ internal fun OnboardingSkipLink(
     modifier: Modifier = Modifier
 ) {
     GridGhostLink(
-        text = "Skip for now",
+        text = "Set up later",
         onClick = onClick,
         modifier = modifier,
-        contentDescription = "Skip IPTV setup for now"
+        contentDescription = "Set up IPTV later"
     )
 }
 
@@ -376,37 +289,3 @@ internal fun AnimatedCheckmark(modifier: Modifier = Modifier) {
     )
 }
 
-@Composable
-internal fun IptvInfoOverlay(onDismiss: () -> Unit) {
-    GridModal(onDismiss = onDismiss, width = 480.dp) {
-        Text(
-            text = "What is IPTV?",
-            color = OnboardingTextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Text(
-            text = "IPTV delivers live TV channels over the internet instead of cable or satellite. " +
-                "Your provider gives you login details — a server URL, M3U link, or portal address — " +
-                "which GRID uses to load your channel list.",
-            color = OnboardingTextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        Text(
-            text = "Contact your IPTV provider if you don't have credentials yet. " +
-                "They typically offer Xtream Codes, an M3U URL, or a Stalker portal with a MAC address.",
-            color = OnboardingTextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        Box(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), contentAlignment = Alignment.CenterEnd) {
-            GridPrimaryButton(text = "Got it", onClick = onDismiss)
-        }
-    }
-}

@@ -51,6 +51,7 @@ fun GridPrimaryButton(
         modifier = modifier
             .height(ButtonHeight)
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing(focused = focused)
             .semantics { this.contentDescription = contentDescription },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
@@ -134,6 +135,7 @@ fun GridGhostLink(
         onClick = onClick,
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusRing(focused = focused, shape = RoundedCornerShape(6.dp), width = 1.5.dp)
             .semantics { this.contentDescription = contentDescription }
     ) {
         Text(
