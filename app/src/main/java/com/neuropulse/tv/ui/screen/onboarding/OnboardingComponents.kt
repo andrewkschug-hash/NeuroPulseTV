@@ -44,6 +44,7 @@ import com.neuropulse.tv.ui.component.GridGhostLink
 import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextField
+import com.neuropulse.tv.ui.component.tvFocusChainNavigation
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -205,7 +206,8 @@ internal fun OnboardingTextField(
     focusRequester: FocusRequester? = null,
     chainIndex: Int = -1,
     chain: TvFocusChain? = null,
-    onEditingChanged: (Boolean) -> Unit = {}
+    onEditingChanged: (Boolean) -> Unit = {},
+    onNavigateBack: () -> Unit = {}
 ) {
     TvTextField(
         value = value,
@@ -219,7 +221,8 @@ internal fun OnboardingTextField(
         focusRequester = focusRequester,
         chainIndex = chainIndex,
         chain = chain,
-        onEditingChanged = onEditingChanged
+        onEditingChanged = onEditingChanged,
+        onNavigateBack = onNavigateBack
     )
 }
 
@@ -230,7 +233,8 @@ internal fun ConnectButton(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     chainIndex: Int = -1,
-    chain: TvFocusChain? = null
+    chain: TvFocusChain? = null,
+    onNavigateBack: () -> Unit = {}
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
         GridPrimaryButton(
@@ -240,7 +244,14 @@ internal fun ConnectButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .onFocusChanged { if (it.isFocused) chain?.onItemFocused(chainIndex) },
+                .onFocusChanged { if (it.isFocused) chain?.onItemFocused(chainIndex) }
+                .then(
+                    if (chain != null && chainIndex >= 0) {
+                        Modifier.tvFocusChainNavigation(chain, chainIndex, onNavigateBack)
+                    } else {
+                        Modifier
+                    }
+                ),
             contentDescription = if (loading) "Connecting" else "Connect"
         )
         if (loading) {
@@ -259,12 +270,20 @@ internal fun ConnectButton(
 @Composable
 internal fun OnboardingSkipLink(
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    chain: TvFocusChain? = null,
+    chainIndex: Int = -1
 ) {
     GridGhostLink(
         text = "Set up later",
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.then(
+            if (chain != null && chainIndex >= 0) {
+                Modifier.tvFocusChainNavigation(chain, chainIndex, onClick)
+            } else {
+                Modifier
+            }
+        ),
         contentDescription = "Set up IPTV later"
     )
 }

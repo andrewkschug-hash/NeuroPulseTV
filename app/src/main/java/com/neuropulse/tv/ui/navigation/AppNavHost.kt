@@ -107,7 +107,7 @@ fun AppNavHost(
         if (!hasEmbeddedTopBar && !hideGlobalTopNav) {
             val selectedTab = when {
                 current?.startsWith("recordings") == true -> EpgNavTab.Recordings
-                else -> EpgNavTab.Home
+                else -> EpgNavTab.Guide
             }
             var profileMenuOpen by remember { mutableStateOf(false) }
             var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
@@ -152,7 +152,7 @@ fun AppNavHost(
                     profileFocused = false,
                     onTabSelected = { tab ->
                         when (tab) {
-                            EpgNavTab.Home -> navController.navigate(Routes.Home.route) {
+                            EpgNavTab.Guide, EpgNavTab.Home -> navController.navigate(Routes.Home.route) {
                                 popUpTo(Routes.Home.route) { inclusive = false }
                                 launchSingleTop = true
                             }

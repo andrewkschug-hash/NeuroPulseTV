@@ -1,16 +1,22 @@
 package com.neuropulse.tv.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -28,9 +34,8 @@ import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.theme.EpgColors
 
 val GridNavTabs = listOf(
-    EpgNavTab.Home,
     EpgNavTab.Search,
-    EpgNavTab.Recordings,
+    EpgNavTab.Guide,
     EpgNavTab.Favorites
 )
 
@@ -47,44 +52,83 @@ fun GridNavIcon(
         selected -> EpgColors.TextPrimary
         else -> EpgColors.TextSecondary
     }
-    val bgColor = if (focused) EpgColors.Accent.copy(alpha = 0.18f) else Color.Transparent
-    val borderMod = if (focused) {
-        Modifier.border(2.dp, EpgColors.Accent, RoundedCornerShape(4.dp))
-    } else {
-        Modifier
-    }
 
-    Surface(
-        onClick = onClick,
+    Box(
         modifier = modifier
-            .size(40.dp)
-            .then(borderMod)
-            .background(bgColor, RoundedCornerShape(4.dp)),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
-        )
+            .defaultMinSize(minWidth = 56.dp, minHeight = 48.dp)
+            .wrapContentSize(unbounded = true),
+        contentAlignment = Alignment.TopCenter
     ) {
         Column(
-            modifier = Modifier.fillMaxHeight(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(top = 4.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (focused) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(EpgColors.Accent.copy(alpha = 0.18f))
+                    )
+                }
+                Surface(
+                    onClick = onClick,
+                    modifier = Modifier.size(40.dp),
+                    shape = ClickableSurfaceDefaults.shape(CircleShape),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        pressedContainerColor = Color.Transparent
+                    )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = tab.glyph,
+                            fontSize = 22.sp,
+                            color = iconColor
+                        )
+                    }
+                }
+                if (focused || selected) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .offset(y = 2.dp)
+                            .width(if (focused) 20.dp else 16.dp)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(
+                                if (focused) EpgColors.Accent else EpgColors.Accent.copy(alpha = 0.6f)
+                            )
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = focused,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 46.dp)
         ) {
             Text(
-                text = tab.glyph,
-                fontSize = 24.sp,
-                color = iconColor
+                text = tab.label,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
+                    .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             )
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .width(24.dp)
-                        .height(2.dp)
-                        .background(EpgColors.Accent)
-                )
-            }
         }
     }
 }

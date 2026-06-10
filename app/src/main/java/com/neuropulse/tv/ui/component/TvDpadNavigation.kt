@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -94,25 +95,40 @@ fun rememberTvFocusChain(count: Int, startIndex: Int = 0): TvFocusChain {
     return chain
 }
 
-fun Modifier.tvVerticalDpadNavigation(
+fun handleTvFocusChainKey(
+    event: androidx.compose.ui.input.key.KeyEvent,
     chain: TvFocusChain,
     onBack: () -> Unit,
     isEditing: () -> Boolean,
     onDismissEditing: () -> Unit
-): Modifier = onPreviewKeyEvent { event ->
-    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-    when (event.key) {
-        Key.DirectionDown -> {
-            if (isEditing()) return@onPreviewKeyEvent false
-            if (chain.focusedIndex < chain.lastIndex) {
-                chain.move(1)
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    if (isEditing()) {
+        return when (event.key) {
+            Key.Back, Key.Escape -> {
+                onDismissEditing()
                 true
-            } else {
-                false
+            }
+            else -> false
+        }
+    }
+    return when (event.key) {
+        Key.DirectionDown -> {
+            when (chain.focusedIndex) {
+                0 -> if (chain.lastIndex > 0) {
+                    chain.move(1)
+                    true
+                } else {
+                    false
+                }
+                in 0 until chain.lastIndex -> {
+                    chain.move(1)
+                    true
+                }
+                else -> false
             }
         }
         Key.DirectionUp -> {
-            if (isEditing()) return@onPreviewKeyEvent false
             if (chain.focusedIndex > 0) {
                 chain.move(-1)
                 true
@@ -121,8 +137,6 @@ fun Modifier.tvVerticalDpadNavigation(
             }
         }
         Key.DirectionRight -> {
-            if (isEditing()) return@onPreviewKeyEvent false
-            // From first item (e.g. Back), Right moves to the next field.
             if (chain.focusedIndex == 0 && chain.lastIndex > 0) {
                 chain.move(1)
                 true
@@ -130,17 +144,40 @@ fun Modifier.tvVerticalDpadNavigation(
                 false
             }
         }
-        Key.Back, Key.Escape -> {
-            if (isEditing()) {
-                onDismissEditing()
+        Key.DirectionLeft -> {
+            if (chain.focusedIndex == 1) {
+                chain.move(-1)
                 true
             } else {
-                onBack()
-                true
+                false
             }
+        }
+        Key.Back, Key.Escape -> {
+            onBack()
+            true
         }
         else -> false
     }
+}
+
+fun Modifier.tvVerticalDpadNavigation(
+    chain: TvFocusChain,
+    onBack: () -> Unit,
+    isEditing: () -> Boolean,
+    onDismissEditing: () -> Unit
+): Modifier = onPreviewKeyEvent { event ->
+    handleTvFocusChainKey(event, chain, onBack, isEditing, onDismissEditing)
+}
+
+fun Modifier.tvFocusChainNavigation(
+    chain: TvFocusChain,
+    index: Int,
+    onBack: () -> Unit,
+    isEditing: () -> Boolean = { false },
+    onDismissEditing: () -> Unit = {}
+): Modifier = onPreviewKeyEvent { event ->
+    if (chain.focusedIndex != index) return@onPreviewKeyEvent false
+    handleTvFocusChainKey(event, chain, onBack, isEditing, onDismissEditing)
 }
 
 @Composable
@@ -157,7 +194,8 @@ fun TvTextField(
     chainIndex: Int = -1,
     chain: TvFocusChain? = null,
     onEditingChanged: (Boolean) -> Unit = {},
-    onHighlightChanged: (Boolean) -> Unit = {}
+    onHighlightChanged: (Boolean) -> Unit = {},
+    onNavigateBack: () -> Unit = {}
 ) {
     var highlighted by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
@@ -179,6 +217,14 @@ fun TvTextField(
 
     ColumnFieldLabel(label = label, value = value, showLabel = highlighted || editing || value.isNotBlank())
 
+    val fieldShape = RoundedCornerShape(8.dp)
+    val borderColor = when {
+        error != null -> Color(0xFFFF4444)
+        highlighted || editing -> TvFocusAccent
+        else -> TvInputBorder
+    }
+    val borderWidth = if (highlighted || editing) 2.dp else 1.dp
+
     Box(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = modifier
@@ -191,9 +237,23 @@ fun TvTextField(
                     onHighlightChanged(it.isFocused)
                     if (it.isFocused) {
                         chain?.onItemFocused(chainIndex)
+                        if (!editing) keyboard?.hide()
                     }
                     if (!it.isFocused) stopEditing()
                 }
+                .then(
+                    if (chain != null && chainIndex >= 0) {
+                        Modifier.tvFocusChainNavigation(
+                            chain = chain,
+                            index = chainIndex,
+                            onBack = onNavigateBack,
+                            isEditing = { editing },
+                            onDismissEditing = { stopEditing() }
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
@@ -218,17 +278,9 @@ fun TvTextField(
                         else -> false
                     }
                 }
-                .clip(RoundedCornerShape(8.dp))
-                .tvFocusRing(focused = highlighted || editing)
-                .border(
-                    width = 1.dp,
-                    color = when {
-                        error != null -> Color(0xFFFF4444)
-                        highlighted || editing -> Color.Transparent
-                        else -> TvInputBorder
-                    },
-                    shape = RoundedCornerShape(8.dp)
-                )
+                .clip(fieldShape)
+                .background(TvInputBg, fieldShape)
+                .border(borderWidth, borderColor, fieldShape)
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -253,7 +305,9 @@ fun TvTextField(
                     VisualTransformation.None
                 },
                 cursorBrush = SolidColor(TvFocusAccent),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusable(false),
                 decorationBox = { inner ->
                     if (value.isEmpty() && !editing) {
                         Text(
@@ -309,7 +363,8 @@ fun TvTextLink(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     chainIndex: Int = -1,
-    chain: TvFocusChain? = null
+    chain: TvFocusChain? = null,
+    onNavigateBack: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
     val color = if (focused) Color.White else TvTextMuted
@@ -322,14 +377,26 @@ fun TvTextLink(
                 focused = it.isFocused
                 if (it.isFocused) chain?.onItemFocused(chainIndex)
             }
-            .tvFocusRing(focused = focused, shape = RoundedCornerShape(6.dp), width = 1.5.dp)
+            .then(
+                if (chain != null && chainIndex >= 0) {
+                    Modifier.tvFocusChainNavigation(chain, chainIndex, onNavigateBack)
+                } else {
+                    Modifier
+                }
+            ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color.Transparent
+        )
     ) {
         Text(
             text = text,
             color = color,
             fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            fontSize = 13.sp,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         )
     }
 }
@@ -340,7 +407,9 @@ fun TvBackButton(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     chainIndex: Int = 0,
-    chain: TvFocusChain? = null
+    chain: TvFocusChain? = null,
+    isEditing: () -> Boolean = { false },
+    onDismissEditing: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
 
@@ -352,11 +421,25 @@ fun TvBackButton(
                 focused = it.isFocused
                 if (it.isFocused) chain?.onItemFocused(chainIndex)
             }
+            .then(
+                if (chain != null) {
+                    Modifier.tvFocusChainNavigation(
+                        chain = chain,
+                        index = chainIndex,
+                        onBack = onClick,
+                        isEditing = isEditing,
+                        onDismissEditing = onDismissEditing
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .tvFocusRing(focused = focused, shape = RoundedCornerShape(6.dp), width = 1.5.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = Color(0xFF1E1E2E)
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color.Transparent
         )
     ) {
         Text(

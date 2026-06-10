@@ -43,6 +43,7 @@ import com.neuropulse.tv.ui.component.TvBackButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextLink
 import com.neuropulse.tv.ui.component.rememberTvFocusChain
+import com.neuropulse.tv.ui.component.tvFocusChainNavigation
 import com.neuropulse.tv.ui.component.tvVerticalDpadNavigation
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.viewmodel.OnboardingConnectState
@@ -165,18 +166,22 @@ private fun MethodPickerScreen(
     val focusChain = rememberTvFocusChain(count = 4, startIndex = 0)
     var focusedMethod by remember { mutableStateOf(OnboardingMethod.Xtream) }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 40.dp)
             .tvVerticalDpadNavigation(
                 chain = focusChain,
                 onBack = onSkip,
                 isEditing = { false },
                 onDismissEditing = {}
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally
+            )
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Spacer(modifier = Modifier.fillMaxHeight(0.12f))
         GridWordmark(fontSize = 28.sp)
         Spacer(modifier = Modifier.height(32.dp))
@@ -216,7 +221,9 @@ private fun MethodPickerScreen(
                     focusedMethod = OnboardingMethod.Xtream
                     focusChain.onItemFocused(0)
                 },
-                modifier = Modifier.focusRequester(focusChain.requesters[0])
+                modifier = Modifier
+                    .focusRequester(focusChain.requesters[0])
+                    .tvFocusChainNavigation(focusChain, 0, onSkip)
             )
             MethodCard(
                 icon = "∞",
@@ -229,7 +236,9 @@ private fun MethodPickerScreen(
                     focusedMethod = OnboardingMethod.M3u
                     focusChain.onItemFocused(1)
                 },
-                modifier = Modifier.focusRequester(focusChain.requesters[1])
+                modifier = Modifier
+                    .focusRequester(focusChain.requesters[1])
+                    .tvFocusChainNavigation(focusChain, 1, onSkip)
             )
             MethodCard(
                 icon = "▣",
@@ -242,18 +251,24 @@ private fun MethodPickerScreen(
                     focusedMethod = OnboardingMethod.Stalker
                     focusChain.onItemFocused(2)
                 },
-                modifier = Modifier.focusRequester(focusChain.requesters[2])
+                modifier = Modifier
+                    .focusRequester(focusChain.requesters[2])
+                    .tvFocusChainNavigation(focusChain, 2, onSkip)
             )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.weight(1f))
 
         OnboardingSkipLink(
             onClick = onSkip,
+            chain = focusChain,
+            chainIndex = 3,
             modifier = Modifier
+                .padding(top = 24.dp, bottom = 40.dp)
                 .focusRequester(focusChain.requesters[3])
                 .onFocusChanged { if (it.isFocused) focusChain.onItemFocused(3) }
         )
+        }
     }
 }
 
@@ -270,7 +285,7 @@ private fun XtreamEntryScreen(
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
-    val focusChain = rememberTvFocusChain(count = 6, startIndex = 0)
+    val focusChain = rememberTvFocusChain(count = 6, startIndex = 1)
 
     EntryScaffold(
         title = "Xtream Codes",
@@ -293,7 +308,8 @@ private fun XtreamEntryScreen(
             focusRequester = focusChain.requesters[1],
             chainIndex = 1,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -304,7 +320,8 @@ private fun XtreamEntryScreen(
             focusRequester = focusChain.requesters[2],
             chainIndex = 2,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -316,7 +333,8 @@ private fun XtreamEntryScreen(
             focusRequester = focusChain.requesters[3],
             chainIndex = 3,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
@@ -324,7 +342,8 @@ private fun XtreamEntryScreen(
             onClick = { onConnect(playlistName, serverUrl, username, password) },
             focusRequester = focusChain.requesters[4],
             chainIndex = 4,
-            chain = focusChain
+            chain = focusChain,
+            onNavigateBack = onBack
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -333,7 +352,8 @@ private fun XtreamEntryScreen(
                 onClick = { showNameField = true },
                 focusRequester = focusChain.requesters[5],
                 chainIndex = 5,
-                chain = focusChain
+                chain = focusChain,
+                onNavigateBack = onBack
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
@@ -345,7 +365,8 @@ private fun XtreamEntryScreen(
                 focusRequester = focusChain.requesters[5],
                 chainIndex = 5,
                 chain = focusChain,
-                onEditingChanged = { isEditing = it }
+                onEditingChanged = { isEditing = it },
+                onNavigateBack = onBack
             )
         }
     }
@@ -362,7 +383,7 @@ private fun M3uEntryScreen(
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
-    val focusChain = rememberTvFocusChain(count = 4, startIndex = 0)
+    val focusChain = rememberTvFocusChain(count = 4, startIndex = 1)
 
     EntryScaffold(
         title = "M3U URL",
@@ -385,7 +406,8 @@ private fun M3uEntryScreen(
             focusRequester = focusChain.requesters[1],
             chainIndex = 1,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
@@ -403,7 +425,8 @@ private fun M3uEntryScreen(
             onClick = { onConnect(playlistName, url) },
             focusRequester = focusChain.requesters[2],
             chainIndex = 2,
-            chain = focusChain
+            chain = focusChain,
+            onNavigateBack = onBack
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -412,7 +435,8 @@ private fun M3uEntryScreen(
                 onClick = { showNameField = true },
                 focusRequester = focusChain.requesters[3],
                 chainIndex = 3,
-                chain = focusChain
+                chain = focusChain,
+                onNavigateBack = onBack
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
@@ -424,7 +448,8 @@ private fun M3uEntryScreen(
                 focusRequester = focusChain.requesters[3],
                 chainIndex = 3,
                 chain = focusChain,
-                onEditingChanged = { isEditing = it }
+                onEditingChanged = { isEditing = it },
+                onNavigateBack = onBack
             )
         }
     }
@@ -444,7 +469,7 @@ private fun StalkerEntryScreen(
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
-    val focusChain = rememberTvFocusChain(count = 5, startIndex = 0)
+    val focusChain = rememberTvFocusChain(count = 5, startIndex = 1)
 
     EntryScaffold(
         title = "MAC / Stalker Portal",
@@ -467,7 +492,8 @@ private fun StalkerEntryScreen(
             focusRequester = focusChain.requesters[1],
             chainIndex = 1,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -481,7 +507,8 @@ private fun StalkerEntryScreen(
             focusRequester = focusChain.requesters[2],
             chainIndex = 2,
             chain = focusChain,
-            onEditingChanged = { isEditing = it }
+            onEditingChanged = { isEditing = it },
+            onNavigateBack = onBack
         )
         if (deviceMac != null) {
             Text(
@@ -509,7 +536,8 @@ private fun StalkerEntryScreen(
             },
             focusRequester = focusChain.requesters[3],
             chainIndex = 3,
-            chain = focusChain
+            chain = focusChain,
+            onNavigateBack = onBack
         )
         if (!showNameField) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -518,7 +546,8 @@ private fun StalkerEntryScreen(
                 onClick = { showNameField = true },
                 focusRequester = focusChain.requesters[4],
                 chainIndex = 4,
-                chain = focusChain
+                chain = focusChain,
+                onNavigateBack = onBack
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
@@ -530,7 +559,8 @@ private fun StalkerEntryScreen(
                 focusRequester = focusChain.requesters[4],
                 chainIndex = 4,
                 chain = focusChain,
-                onEditingChanged = { isEditing = it }
+                onEditingChanged = { isEditing = it },
+                onNavigateBack = onBack
             )
         }
     }
@@ -546,50 +576,57 @@ private fun EntryScaffold(
     onDismissEditing: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 40.dp, vertical = 24.dp)
             .tvVerticalDpadNavigation(
                 chain = focusChain,
                 onBack = onBack,
                 isEditing = { isEditing },
                 onDismissEditing = onDismissEditing
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally
+            )
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            TvBackButton(
-                onClick = onBack,
-                modifier = Modifier.align(Alignment.CenterStart),
-                focusRequester = focusChain.requesters[0],
-                chainIndex = 0,
-                chain = focusChain
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 40.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                TvBackButton(
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    focusRequester = focusChain.requesters[0],
+                    chainIndex = 0,
+                    chain = focusChain,
+                    isEditing = { isEditing },
+                    onDismissEditing = onDismissEditing
+                )
+                GridWordmark(
+                    fontSize = 22.sp,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(
+                text = title,
+                color = OnboardingTextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Medium
             )
-            GridWordmark(
-                fontSize = 22.sp,
-                modifier = Modifier.align(Alignment.Center)
+            Text(
+                text = subtitle,
+                color = OnboardingTextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp)
             )
-        }
-        Spacer(modifier = Modifier.height(32.dp))
-        Text(
-            text = title,
-            color = OnboardingTextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Medium
-        )
-        Text(
-            text = subtitle,
-            color = OnboardingTextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-        Spacer(modifier = Modifier.height(28.dp))
-        Column(modifier = Modifier.width(480.dp)) {
-            content()
+            Spacer(modifier = Modifier.height(28.dp))
+            Column(modifier = Modifier.width(480.dp)) {
+                content()
+            }
         }
     }
 }

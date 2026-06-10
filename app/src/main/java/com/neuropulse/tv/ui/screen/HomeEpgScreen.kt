@@ -94,7 +94,6 @@ import kotlinx.coroutines.launch
 private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, GRID, DETAIL }
 
 private val TopBarProfileIndex get() = GridNavTabs.size
-private val TopBarCategoryFilterIndex get() = GridNavTabs.size + 1
 
 @Composable
 fun HomeEpgScreen(
@@ -281,7 +280,7 @@ fun HomeEpgScreen(
         }
     }
 
-    var selectedTab by remember { mutableStateOf(EpgNavTab.Home) }
+    var selectedTab by remember { mutableStateOf(EpgNavTab.Guide) }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
     var focusZone by remember { mutableStateOf(EpgFocusZone.GRID) }
@@ -374,7 +373,7 @@ fun HomeEpgScreen(
     LaunchedEffect(favoriteGroupFilter) {
         selectedTab = when (favoriteGroupFilter) {
             HomeEpgViewModel.FAVORITES_FILTER -> EpgNavTab.Favorites
-            else -> if (selectedTab == EpgNavTab.Favorites) EpgNavTab.Home else selectedTab
+            else -> if (selectedTab == EpgNavTab.Favorites) EpgNavTab.Guide else selectedTab
         }
     }
 
@@ -504,7 +503,11 @@ fun HomeEpgScreen(
     fun activateNavTab(tab: EpgNavTab) {
         selectedTab = tab
         when (tab) {
-            EpgNavTab.Home -> viewModel.setFavoriteGroupFilter(null)
+            EpgNavTab.Guide, EpgNavTab.Home -> {
+                viewModel.setFavoriteGroupFilter(null)
+                focusZone = EpgFocusZone.GRID
+                focusOnChannelColumn = true
+            }
             EpgNavTab.Search -> showSearchOverlay = true
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
@@ -649,7 +652,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionRight -> {
-                topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarCategoryFilterIndex)
+                topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarProfileIndex)
                 true
             }
             Key.DirectionDown -> {
@@ -667,10 +670,6 @@ fun HomeEpgScreen(
                     TopBarProfileIndex -> {
                         profileMenuOpen = true
                         profileMenuFocusIndex = 0
-                    }
-                    TopBarCategoryFilterIndex -> {
-                        categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter, channelGroups)
-                        showCategoryFilterMenu = true
                     }
                 }
                 true
@@ -694,7 +693,7 @@ fun HomeEpgScreen(
             }
             Key.DirectionUp -> {
                 focusZone = EpgFocusZone.TOP_BAR
-                topBarFocusIndex = TopBarCategoryFilterIndex
+                topBarFocusIndex = 0
                 true
             }
             Key.DirectionDown -> {
@@ -899,6 +898,9 @@ fun HomeEpgScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
+            .onPreviewKeyEvent {
+                if (showCategoryFilterMenu) handleTopBarKey(it) else false
+            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
@@ -912,11 +914,8 @@ fun HomeEpgScreen(
                 profileMenuFocusIndex = profileMenuFocusIndex,
                 categoryFilterLabel = categoryFilter.label,
                 categoryFilterActive = categoryFilter.isActive,
-                categoryFilterFocused = focusZone == EpgFocusZone.TOP_BAR &&
-                    topBarFocusIndex == TopBarCategoryFilterIndex,
                 onCategoryFilterClick = {
                     focusZone = EpgFocusZone.TOP_BAR
-                    topBarFocusIndex = TopBarCategoryFilterIndex
                     categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter, channelGroups)
                     showCategoryFilterMenu = true
                 },

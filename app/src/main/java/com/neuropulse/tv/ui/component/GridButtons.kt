@@ -135,16 +135,21 @@ fun GridGhostLink(
         onClick = onClick,
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }
-            .tvFocusRing(focused = focused, shape = RoundedCornerShape(6.dp), width = 1.5.dp)
-            .semantics { this.contentDescription = contentDescription }
+            .semantics { this.contentDescription = contentDescription },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color.Transparent
+        )
     ) {
         Text(
             text = text,
             color = color,
             fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
     }
 }

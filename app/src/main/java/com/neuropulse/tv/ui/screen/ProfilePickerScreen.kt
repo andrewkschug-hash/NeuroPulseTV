@@ -40,9 +40,13 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -52,7 +56,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,9 +67,10 @@ import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.GridModal
 import com.neuropulse.tv.ui.component.GridOutlinedButton
 import com.neuropulse.tv.ui.component.GridPrimaryButton
-import com.neuropulse.tv.ui.component.GridWordmark
 import com.neuropulse.tv.ui.component.TvTextField
+import com.neuropulse.tv.ui.theme.BarlowCondensedFamily
 import com.neuropulse.tv.ui.theme.DmSansFamily
+import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
 import com.neuropulse.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.neuropulse.tv.util.profileInitials
@@ -75,10 +79,14 @@ import kotlinx.coroutines.launch
 
 private val Bg = Color(0xFF0A0A0F)
 private val TextPrimary = Color(0xFFF2F2F5)
-private val TextSecondary = Color(0xFF8888A0)
-private val Accent = Color(0xFF3B8FFF)
-private val InputBg = Color(0xFF13131A)
-private val BorderSubtle = Color(0x1FFFFFFF)
+private val TextSecondary = Color(0xFF6B6B80)
+private val Accent = EpgColors.FocusBorder
+private val CardBg = Color(0xFF1A1A2E)
+private val CardBorderRest = Color(0xFF2A2A40)
+private val AvatarBorderRest = Color(0xFF3B3B50)
+private val CardShape = RoundedCornerShape(14.dp)
+private val CardWidth = 148.dp
+private val CardHeight = 200.dp
 
 val ProfileAvatarColors = listOf(
     Color(0xFF1C3A6B),
@@ -168,20 +176,24 @@ fun ProfilePickerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            GridWordmark(fontSize = 28.sp)
+            ProfilePickerWordmark(
+                alpha = titleAlpha.value,
+                offsetY = titleOffset.value
+            )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(64.dp))
 
             Text(
                 text = "Who's watching?",
                 color = TextPrimary.copy(alpha = titleAlpha.value),
                 fontFamily = DmSansFamily,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -192,16 +204,18 @@ fun ProfilePickerScreen(
                     text = "Select your profile",
                     color = TextSecondary.copy(alpha = titleAlpha.value),
                     fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal,
+                    letterSpacing = 0.3.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp)
+                        .padding(top = 14.dp)
                         .offset(y = titleOffset.value.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(52.dp))
 
             if (!hasProfiles) {
                 AddProfileCard(
@@ -215,7 +229,7 @@ fun ProfilePickerScreen(
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                    verticalArrangement = Arrangement.spacedBy(28.dp)
                 ) {
                     profiles.forEachIndexed { index, profile ->
                         ProfileCard(
@@ -225,7 +239,7 @@ fun ProfilePickerScreen(
                             alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
                             offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
                             onClick = { selectProfile(profile) },
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp)
                         )
                     }
                     if (!atProfileLimit) {
@@ -234,16 +248,9 @@ fun ProfilePickerScreen(
                             alpha = 1f,
                             offsetY = 0f,
                             onClick = { tryOpenAddProfile() },
-                            modifier = Modifier.padding(horizontal = 12.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp)
                         )
                     }
-                }
-
-                if (!atProfileLimit) {
-                    AddAnotherProfileLink(
-                        modifier = Modifier.padding(top = 20.dp),
-                        onClick = { tryOpenAddProfile() }
-                    )
                 }
 
                 if (showMaxProfilesHint || atProfileLimit) {
@@ -294,6 +301,55 @@ fun ProfilePickerScreen(
 }
 
 @Composable
+private fun ProfilePickerWordmark(
+    alpha: Float,
+    offsetY: Float
+) {
+    val accentLight = Color(0xFF7EB8FF)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .graphicsLayer {
+                this.alpha = alpha
+                translationY = offsetY
+            }
+    ) {
+        Text(
+            text = "GRID",
+            fontFamily = BarlowCondensedFamily,
+            fontSize = 44.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 14.sp,
+            style = TextStyle(
+                brush = Brush.linearGradient(
+                    colors = listOf(Accent, accentLight, Accent)
+                ),
+                shadow = Shadow(
+                    color = Accent.copy(alpha = 0.55f),
+                    offset = Offset(0f, 0f),
+                    blurRadius = 28f
+                )
+            )
+        )
+        Spacer(modifier = Modifier.height(18.dp))
+        Box(
+            modifier = Modifier
+                .width(140.dp)
+                .height(1.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Accent.copy(alpha = 0.45f),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+    }
+}
+
+@Composable
 private fun ProfileCard(
     name: String,
     initials: String,
@@ -304,71 +360,72 @@ private fun ProfileCard(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
-    val avatarScale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "avatarScale")
+    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "cardScale")
 
     Surface(
         onClick = onClick,
         modifier = modifier
-            .width(140.dp)
-            .height(190.dp)
+            .width(CardWidth)
+            .height(CardHeight)
             .graphicsLayer {
                 this.alpha = alpha
                 this.translationY = offsetY
+                scaleX = scale
+                scaleY = scale
             }
-            .onFocusChanged { focused = it.isFocused },
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp))
+            .onFocusChanged { focused = it.isFocused }
+            .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
+            .border(
+                width = if (focused) 2.5.dp else 1.dp,
+                color = if (focused) Accent else CardBorderRest,
+                shape = CardShape
+            ),
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(CardShape),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = CardBg,
+            focusedContainerColor = CardBg,
+            pressedContainerColor = CardBg
+        )
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(130.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(88.dp)
-                        .graphicsLayer {
-                            scaleX = avatarScale
-                            scaleY = avatarScale
-                        }
-                        .clip(CircleShape)
-                        .background(avatarColor)
-                        .then(
-                            if (focused) Modifier.border(2.5.dp, Accent, CircleShape)
-                            else Modifier
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = initials,
-                        color = TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp),
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(avatarColor)
+                    .border(
+                        width = if (focused) 2.5.dp else 1.5.dp,
+                        color = if (focused) Accent else AvatarBorderRest,
+                        shape = CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = name,
-                    color = if (focused) TextPrimary else TextPrimary.copy(alpha = 0.85f),
+                    text = initials,
+                    color = TextPrimary,
                     fontFamily = DmSansFamily,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = name,
+                color = TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.4.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -382,103 +439,82 @@ private fun AddProfileCard(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, tween(150), label = "addScale")
-    val nameColor = if (focused) TextPrimary else TextSecondary
+    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "addScale")
 
     Surface(
         onClick = onClick,
         modifier = modifier
-            .width(140.dp)
-            .height(170.dp)
+            .width(CardWidth)
+            .height(CardHeight)
             .graphicsLayer {
                 this.alpha = alpha
                 this.translationY = offsetY
+                scaleX = scale
+                scaleY = scale
             }
             .onFocusChanged { focused = it.isFocused }
+            .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
+            .border(
+                width = if (focused) 2.5.dp else 1.dp,
+                color = if (focused) Accent else CardBorderRest,
+                shape = CardShape
+            ),
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(CardShape),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = CardBg,
+            focusedContainerColor = CardBg,
+            pressedContainerColor = CardBg
+        )
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(88.dp)
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        }
-                        .clip(CircleShape)
-                        .border(
-                            width = if (focused) 2.5.dp else 2.dp,
-                            color = if (focused) Accent else Color(0xFF3B3B50),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "+",
-                        color = if (focused) TextPrimary else TextSecondary,
-                        fontSize = 32.sp
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp),
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF141420))
+                    .border(
+                        width = if (focused) 2.5.dp else 1.5.dp,
+                        color = if (focused) Accent else AvatarBorderRest,
+                        shape = CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = label,
-                    color = nameColor,
-                    fontFamily = DmSansFamily,
-                    fontSize = 15.sp,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = "+",
+                    color = if (focused) Accent else TextSecondary,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Light
                 )
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = label,
+                color = TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.4.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
 
-@Composable
-private fun AddAnotherProfileLink(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var focused by remember { mutableStateOf(false) }
-    val bg = if (focused) Color(0xFF1E1E2E) else Color(0xFF16161F)
-
-    Surface(
-        onClick = onClick,
-        modifier = modifier.onFocusChanged { focused = it.isFocused },
-        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
-        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
-            containerColor = bg,
-            focusedContainerColor = Color(0xFF242436)
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(text = "+", color = Accent, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(
-                text = "Add another profile",
-                color = if (focused) TextPrimary else Color(0xFFD0D0DC),
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp
-            )
-        }
-    }
+private fun Modifier.profileCardFocusGlow(): Modifier = drawBehind {
+    val corner = 16.dp.toPx()
+    drawRoundRect(
+        color = Accent.copy(alpha = 0.3f),
+        cornerRadius = CornerRadius(corner),
+        style = Stroke(width = 8.dp.toPx())
+    )
 }
 
 @Composable

@@ -145,7 +145,7 @@ fun SettingsScreen(
 
     fun activateNavTab(tab: EpgNavTab) {
         when (tab) {
-            EpgNavTab.Home -> onNavigateHome()
+            EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()

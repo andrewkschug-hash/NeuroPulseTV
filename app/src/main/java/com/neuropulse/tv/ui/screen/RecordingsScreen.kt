@@ -139,7 +139,7 @@ fun RecordingsScreen(
     var tab by remember { mutableIntStateOf(0) }
     var focusZone by remember { mutableStateOf(RecFocusZone.LIST) }
     var topBarRow by remember { mutableIntStateOf(0) }
-    var topBarFocusIndex by remember { mutableIntStateOf(2) }
+    var topBarFocusIndex by remember { mutableIntStateOf(1) }
     var tabFocusIndex by remember { mutableIntStateOf(0) }
     var sortFocusIndex by remember { mutableIntStateOf(0) }
     var listFocusIndex by remember { mutableIntStateOf(0) }
@@ -187,7 +187,7 @@ fun RecordingsScreen(
 
     fun activateNavTab(tabItem: EpgNavTab) {
         when (tabItem) {
-            EpgNavTab.Home -> onNavigateHome()
+            EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
             EpgNavTab.Recordings -> Unit
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()

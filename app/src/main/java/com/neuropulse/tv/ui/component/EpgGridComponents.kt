@@ -163,9 +163,11 @@ fun EpgTopBar(
                     EpgCategoryFilterChip(
                         label = categoryFilterLabel,
                         active = categoryFilterActive,
-                        focused = categoryFilterFocused,
+                        focused = false,
                         onClick = onCategoryFilterClick,
-                        modifier = Modifier.padding(end = 12.dp)
+                        modifier = Modifier
+                            .padding(end = 12.dp)
+                            .focusable(false)
                     )
                     Column(
                         horizontalAlignment = Alignment.End,
@@ -200,12 +202,13 @@ fun EpgTopBar(
     }
 }
 
-enum class EpgNavTab(val glyph: String) {
-    Home("⌂"),
-    Search("⌕"),
-    Recordings("▤"),
-    Favorites("★"),
-    Settings("⚙")
+enum class EpgNavTab(val glyph: String, val label: String) {
+    Guide("☰", "Guide"),
+    Search("⌕", "Search"),
+    Favorites("★", "Favorites"),
+    Home("⌂", "Home"),
+    Recordings("●", "Recordings"),
+    Settings("⚙", "Settings")
 }
 
 @Composable
