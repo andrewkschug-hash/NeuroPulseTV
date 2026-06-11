@@ -17,6 +17,9 @@ interface EpgSourceChannelDao {
     @Query("DELETE FROM epg_source_channels WHERE source = :source")
     suspend fun clearBySource(source: String)
 
+    @Query("DELETE FROM epg_source_channels")
+    suspend fun deleteAll()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<EpgSourceChannelEntity>)
 

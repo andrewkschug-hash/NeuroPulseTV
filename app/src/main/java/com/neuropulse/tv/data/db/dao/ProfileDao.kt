@@ -22,6 +22,12 @@ interface ProfileDao {
     @Query("DELETE FROM user_profiles WHERE id = :profileId")
     suspend fun deleteProfile(profileId: Long)
 
+    @Query("DELETE FROM user_profiles")
+    suspend fun deleteAllProfiles()
+
+    @Query("DELETE FROM active_profile")
+    suspend fun deleteActiveProfile()
+
     @Query("SELECT COUNT(*) FROM user_profiles")
     suspend fun countProfiles(): Int
 

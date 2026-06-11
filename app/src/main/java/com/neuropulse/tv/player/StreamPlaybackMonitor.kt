@@ -136,7 +136,7 @@ class StreamPlaybackMonitor(
                 val hasAudio = exo.audioFormat != null
                 _status.value = when {
                     !hasVideo && hasAudio -> StreamPlaybackStatus.AUDIO_ONLY
-                    hasVideo && exo.isPlaying -> StreamPlaybackStatus.NO_SIGNAL
+                    hasVideo && exo.isPlaying -> StreamPlaybackStatus.LOADING
                     exo.isPlaying -> StreamPlaybackStatus.LOADING
                     else -> StreamPlaybackStatus.LOADING
                 }

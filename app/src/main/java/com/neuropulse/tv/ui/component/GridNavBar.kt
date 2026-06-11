@@ -5,18 +5,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -25,18 +24,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import com.neuropulse.tv.ui.theme.DmSansFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
+
+/** Nav bar layout — shared with [EpgTopBar]. */
+val NavIconHitSize = 44.dp
+val NavBarMinHeight = 64.dp
+private val NavIconSlotWidth = 56.dp
 
 val GridNavTabs = listOf(
     EpgNavTab.Search,
     EpgNavTab.Guide,
-    EpgNavTab.Favorites
+    EpgNavTab.Favorites,
+    EpgNavTab.Recordings
 )
 
 @Composable
@@ -55,80 +58,98 @@ fun GridNavIcon(
 
     Box(
         modifier = modifier
-            .defaultMinSize(minWidth = 56.dp, minHeight = 48.dp)
-            .wrapContentSize(unbounded = true),
-        contentAlignment = Alignment.TopCenter
+            .size(NavIconHitSize)
+            .padding(0.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(top = 4.dp)
-        ) {
+        // Focus glow — drawn first, behind everything, NOT inside Surface
+        if (focused) {
             Box(
-                modifier = Modifier.size(40.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (focused) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(EpgColors.Accent.copy(alpha = 0.18f))
-                    )
-                }
-                Surface(
-                    onClick = onClick,
-                    modifier = Modifier.size(40.dp),
-                    shape = ClickableSurfaceDefaults.shape(CircleShape),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        pressedContainerColor = Color.Transparent
-                    )
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = tab.glyph,
-                            fontSize = 22.sp,
-                            color = iconColor
-                        )
-                    }
-                }
-                if (focused || selected) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .offset(y = 2.dp)
-                            .width(if (focused) 20.dp else 16.dp)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(1.dp))
-                            .background(
-                                if (focused) EpgColors.Accent else EpgColors.Accent.copy(alpha = 0.6f)
-                            )
-                    )
-                }
-            }
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(EpgColors.Accent.copy(alpha = 0.18f))
+            )
         }
 
-        AnimatedVisibility(
-            visible = focused,
-            enter = fadeIn(),
-            exit = fadeOut(),
+        // Icon text — drawn directly, no Surface wrapper causing clip issues
+        Text(
+            text = tab.glyph,
+            fontSize = 20.sp,
+            color = iconColor,
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(y = 46.dp)
-        ) {
-            Text(
-                text = tab.label,
-                color = EpgColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                .clickable { onClick() }
+                .padding(8.dp)
+        )
+
+        // Underline indicator at bottom
+        if (focused || selected) {
+            Box(
                 modifier = Modifier
-                    .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
-                    .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .align(Alignment.BottomCenter)
+                    .width(if (focused) 18.dp else 14.dp)
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(
+                        if (focused) EpgColors.Accent
+                        else EpgColors.Accent.copy(alpha = 0.6f)
+                    )
             )
+        }
+    }
+}
+
+@Composable
+private fun GridNavFocusTooltip(
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = label,
+        color = EpgColors.TextPrimary,
+        fontFamily = DmSansFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier
+            .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
+            .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
+fun GridNavTooltipRow(
+    visible: Boolean,
+    focusedIndex: Int,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible && focusedIndex in GridNavTabs.indices,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Top
+            ) {
+                GridNavTabs.forEachIndexed { index, tab ->
+                    Box(
+                        modifier = Modifier.width(NavIconSlotWidth),
+                        contentAlignment = Alignment.TopCenter
+                    ) {
+                        if (index == focusedIndex) {
+                            GridNavFocusTooltip(label = tab.label)
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(NavIconHitSize))
         }
     }
 }
@@ -140,22 +161,33 @@ fun GridProfileAvatar(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val borderColor = if (focused) EpgColors.Accent else Color.White.copy(alpha = 0.15f)
-    Surface(
-        onClick = onClick,
-        modifier = modifier.size(40.dp),
-        shape = ClickableSurfaceDefaults.shape(CircleShape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
-        )
+    Box(
+        modifier = modifier
+            .size(NavIconHitSize),
+        contentAlignment = Alignment.Center
     ) {
+        // Focus glow behind avatar
+        if (focused) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(EpgColors.Accent.copy(alpha = 0.18f))
+            )
+        }
+
+        // Avatar circle
         Box(
             modifier = Modifier
-                .size(32.dp)
+                .size(36.dp)
                 .clip(CircleShape)
                 .background(Color(0xFF1C3A6B))
-                .border(1.5.dp, borderColor, CircleShape),
+                .border(
+                    width = if (focused) 2.dp else 1.5.dp,
+                    color = if (focused) EpgColors.Accent else Color.White.copy(alpha = 0.15f),
+                    shape = CircleShape
+                )
+                .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -182,7 +214,10 @@ fun GridNavIconRow(
     trailing: @Composable () -> Unit = {}
 ) {
     Row(
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NavBarMinHeight)
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -204,6 +239,16 @@ fun GridNavIconRow(
             focused = profileFocused,
             onClick = onProfileClick
         )
-        trailing()
+        Box(
+            modifier = Modifier.padding(start = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                trailing()
+            }
+        }
     }
 }

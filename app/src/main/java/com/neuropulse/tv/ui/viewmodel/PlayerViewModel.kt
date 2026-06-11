@@ -3,16 +3,12 @@ package com.neuropulse.tv.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.Channel
-import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.repository.IptvRepository
-import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
-import com.neuropulse.tv.ui.component.PlayerSideMenuSportItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,28 +26,15 @@ class PlayerViewModel @Inject constructor(
     val numberInput = _numberInput.asStateFlow()
 
     private var previousChannelId: Long? = null
-    private val _hasPreviousChannel = MutableStateFlow(false)
-    val hasPreviousChannel: StateFlow<Boolean> = _hasPreviousChannel.asStateFlow()
+    private val _lastWatchedChannel = MutableStateFlow<Channel?>(null)
+    val lastWatchedChannel: StateFlow<Channel?> = _lastWatchedChannel.asStateFlow()
 
     val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
         .map { list -> list.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val sportsNow: StateFlow<List<Program>> = repository.liveSportsNow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val sportsMenuItems: StateFlow<List<PlayerSideMenuSportItem>> = combine(channels, sportsNow) { chs, progs ->
-        progs.mapNotNull { prog ->
-            chs.find { it.epgId == prog.channelEpgId }?.let { ch ->
-                PlayerSideMenuSportItem(channel = ch, programTitle = prog.title)
-            }
-        }.distinctBy { it.channel.id }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val newsChannels: StateFlow<List<Channel>> = channels
-        .map { chs ->
-            ChannelCategoryPresets.apply(chs, ChannelCategoryPresets.fromPreset("news")).take(25)
-        }
+    val sportsNowChannels: StateFlow<List<Channel>> = channels
+        .map { list -> list.filter { matchesSportsNow(it) }.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun load(channelId: Long) {
@@ -65,13 +48,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun switchToPreviousChannel() {
-        val current = _channel.value ?: return
         val prevId = previousChannelId ?: return
-        previousChannelId = current.id
-        viewModelScope.launch {
-            applyChannel(prevId)
-            _hasPreviousChannel.value = true
-        }
+        viewModelScope.launch { applyChannel(prevId) }
     }
 
     fun switchNext() {
@@ -92,7 +70,7 @@ class PlayerViewModel @Inject constructor(
         val current = _channel.value
         if (current != null && current.id != channelId) {
             previousChannelId = current.id
-            _hasPreviousChannel.value = true
+            _lastWatchedChannel.value = current
         }
         val ch = repository.channelById(channelId)
         _channel.value = ch
@@ -140,5 +118,17 @@ class PlayerViewModel @Inject constructor(
     suspend fun lastPosition(): Long {
         val id = _channel.value?.id ?: return 0L
         return repository.watchHistory(id)?.lastPosition ?: 0L
+    }
+
+    companion object {
+        private val SPORTS_NOW_KEYWORDS = listOf(
+            "sport", "espn", "tsn", "sky sports", "dazn", "bt sport",
+            "nfl", "nba", "mlb", "nhl"
+        )
+
+        private fun matchesSportsNow(channel: Channel): Boolean {
+            val name = channel.name.lowercase()
+            return SPORTS_NOW_KEYWORDS.any { keyword -> name.contains(keyword) }
+        }
     }
 }

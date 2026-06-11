@@ -15,6 +15,9 @@ interface ChannelDao {
     @Query("DELETE FROM channels WHERE playlistId = :playlistId")
     suspend fun clearByPlaylist(playlistId: Long)
 
+    @Query("DELETE FROM channels")
+    suspend fun deleteAll()
+
     @Query("SELECT COUNT(*) FROM channels WHERE playlistId = :playlistId")
     suspend fun countByPlaylist(playlistId: Long): Int
 

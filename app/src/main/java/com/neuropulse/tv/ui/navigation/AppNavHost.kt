@@ -56,7 +56,8 @@ import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 fun AppNavHost(
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
-    onSwitchProfile: () -> Unit = {}
+    onSwitchProfile: () -> Unit = {},
+    onRestartToOnboarding: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val current = navController.currentBackStackEntryAsState().value?.destination?.route
@@ -115,30 +116,17 @@ fun AppNavHost(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(EpgLayout.TopBarHeight)
                     .background(EpgColors.Background)
                     .onPreviewKeyEvent { event ->
                         if (!profileMenuOpen || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
-                            Key.DirectionUp -> {
-                                profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
-                                true
-                            }
                             Key.Back, Key.Escape -> {
                                 profileMenuOpen = false
                                 true
                             }
-                            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                            Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight -> {
                                 profileMenuOpen = false
-                                when (profileMenuFocusIndex) {
-                                    0 -> onSwitchProfile()
-                                    1 -> navController.navigate(Routes.Settings.route) { launchSingleTop = true }
-                                }
-                                true
+                                false
                             }
                             else -> false
                         }
@@ -180,8 +168,12 @@ fun AppNavHost(
                     expanded = profileMenuOpen,
                     focusedIndex = profileMenuFocusIndex,
                     onDismiss = { profileMenuOpen = false },
-                    onSwitchAccounts = onSwitchProfile,
+                    onSwitchAccounts = {
+                        profileMenuOpen = false
+                        onSwitchProfile()
+                    },
                     onOpenSettings = {
+                        profileMenuOpen = false
                         navController.navigate(Routes.Settings.route) { launchSingleTop = true }
                     }
                 )
@@ -273,9 +265,11 @@ fun AppNavHost(
                     },
                     onOpenFavorites = { navigateToFavorites() },
                     onSwitchProfile = onSwitchProfile,
+                    onBack = { navController.popBackStack() },
                     onPickLocalFile = onPickLocalFile,
                     onPickTiviMateZip = onPickTiviMateZip,
-                    onOpenEpgResolver = { navController.navigate(Routes.EpgResolver.route) }
+                    onOpenEpgResolver = { navController.navigate(Routes.EpgResolver.route) },
+                    onRestartToOnboarding = onRestartToOnboarding
                 )
             }
             composable(Routes.EpgResolver.route) {

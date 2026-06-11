@@ -76,6 +76,19 @@ class HomeEpgViewModel @Inject constructor(
     private val _activeProfile = MutableStateFlow<UserProfile?>(null)
     val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
 
+    private val _isInitializing = MutableStateFlow(true)
+    val isInitializing: StateFlow<Boolean> = _isInitializing.asStateFlow()
+
+    private val _lastPlayedChannel = MutableStateFlow<Channel?>(null)
+    val lastPlayedChannel: StateFlow<Channel?> = _lastPlayedChannel.asStateFlow()
+
+    fun setLastPlayedChannel(channel: Channel) {
+        _lastPlayedChannel.value = channel
+    }
+
+    private val _hasConnection = MutableStateFlow(false)
+    val hasConnection: StateFlow<Boolean> = _hasConnection.asStateFlow()
+
     val playlists: StateFlow<List<Playlist>> = repository.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -175,6 +188,10 @@ class HomeEpgViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            _hasConnection.value = repository.hasActiveConnection()
+            _isInitializing.value = false
+        }
+        viewModelScope.launch {
             _activeProfile.value = repository.activeProfile()
         }
         viewModelScope.launch {
@@ -191,6 +208,9 @@ class HomeEpgViewModel @Inject constructor(
         }
         viewModelScope.launch {
             repository.playlists().collect { list ->
+                if (!_isInitializing.value) {
+                    _hasConnection.value = list.isNotEmpty()
+                }
                 if (list.isEmpty()) {
                     _demoFavoriteIds.value = emptySet()
                     _favoriteGroupFilter.value = null
@@ -353,6 +373,7 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun resumeContinueWatching(context: android.content.Context, item: ContinueWatchingItem) {
+        setLastPlayedChannel(item.channel)
         viewModelScope.launch {
             livePlayerManager.tuneChannel(context, item.channel.id, item.channel.streamUrl)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)

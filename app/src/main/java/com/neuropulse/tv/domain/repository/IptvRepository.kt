@@ -2,6 +2,7 @@ package com.neuropulse.tv.domain.repository
 
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.SearchInputMode
+import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
@@ -23,6 +24,7 @@ import java.io.File
 
 interface IptvRepository {
     fun playlists(): Flow<List<Playlist>>
+    suspend fun hasActiveConnection(): Boolean
     fun groups(): Flow<List<String>>
     fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>>
@@ -58,6 +60,7 @@ interface IptvRepository {
     suspend fun connectXtreamPlaylist(name: String, serverUrl: String, username: String, password: String): PlaylistConnectResult
     suspend fun connectStalkerPlaylist(name: String, portalUrl: String, macAddress: String): PlaylistConnectResult
     suspend fun addPlaylistFromLocal(name: String, content: String, epgUrl: String?, refreshHours: Int)
+    suspend fun connectionFormForPlaylist(playlist: Playlist): ConnectionFormFields
     suspend fun deletePlaylist(playlistId: Long)
     suspend fun refreshEpgNow()
     suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>>

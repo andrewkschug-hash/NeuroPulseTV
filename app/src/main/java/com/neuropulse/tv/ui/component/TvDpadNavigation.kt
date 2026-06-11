@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,7 +50,8 @@ import com.neuropulse.tv.ui.theme.EpgColors
 /** Shared accent for TV focus rings across the app. */
 val TvFocusAccent = EpgColors.FocusBorder
 private val TvInputBg = Color(0xFF1E1E2E)
-private val TvInputBorder = Color(0xFF4B5563)
+private val TvInputBorder = Color(0xFF3A3A3A)
+private val TvInputFocusBorder = Color.White
 private val TvTextMuted = Color(0xFF9CA3AF)
 
 fun Modifier.tvFocusRing(
@@ -197,14 +199,15 @@ fun TvTextField(
     onHighlightChanged: (Boolean) -> Unit = {},
     onNavigateBack: () -> Unit = {}
 ) {
-    var highlighted by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val showFocusBorder = isFocused || editing
 
-    LaunchedEffect(highlighted) {
-        if (highlighted && !editing) keyboard?.hide()
+    LaunchedEffect(isFocused) {
+        if (isFocused && !editing) keyboard?.hide()
     }
 
     fun stopEditing() {
@@ -215,76 +218,80 @@ fun TvTextField(
         }
     }
 
-    ColumnFieldLabel(label = label, value = value, showLabel = highlighted || editing || value.isNotBlank())
+    ColumnFieldLabel(label = label, value = value, showLabel = showFocusBorder || value.isNotBlank())
 
     val fieldShape = RoundedCornerShape(8.dp)
     val borderColor = when {
         error != null -> Color(0xFFFF4444)
-        highlighted || editing -> TvFocusAccent
+        showFocusBorder -> TvInputFocusBorder
         else -> TvInputBorder
     }
-    val borderWidth = if (highlighted || editing) 2.dp else 1.dp
+    val borderWidth = if (showFocusBorder) 2.dp else 1.dp
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Box(
-            modifier = modifier
+            modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .focusable(interactionSource = interactionSource)
-                .onFocusChanged {
-                    highlighted = it.isFocused
-                    onHighlightChanged(it.isFocused)
-                    if (it.isFocused) {
-                        chain?.onItemFocused(chainIndex)
-                        if (!editing) keyboard?.hide()
-                    }
-                    if (!it.isFocused) stopEditing()
-                }
-                .then(
-                    if (chain != null && chainIndex >= 0) {
-                        Modifier.tvFocusChainNavigation(
-                            chain = chain,
-                            index = chainIndex,
-                            onBack = onNavigateBack,
-                            isEditing = { editing },
-                            onDismissEditing = { stopEditing() }
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                            if (highlighted && !editing) {
-                                editing = true
-                                onEditingChanged(true)
-                                keyboard?.show()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        Key.Back, Key.Escape -> {
-                            if (editing) {
-                                stopEditing()
-                                true
-                            } else {
-                                false
-                            }
-                        }
-                        else -> false
-                    }
-                }
-                .clip(fieldShape)
-                .background(TvInputBg, fieldShape)
                 .border(borderWidth, borderColor, fieldShape)
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.CenterStart
         ) {
-            BasicTextField(
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .focusable(interactionSource = interactionSource)
+                    .tvFocusScrollIntoView()
+                    .onFocusChanged {
+                        onHighlightChanged(it.isFocused)
+                        if (it.isFocused) {
+                            chain?.onItemFocused(chainIndex)
+                            if (!editing) keyboard?.hide()
+                        }
+                        if (!it.isFocused) stopEditing()
+                    }
+                    .then(
+                        if (chain != null && chainIndex >= 0) {
+                            Modifier.tvFocusChainNavigation(
+                                chain = chain,
+                                index = chainIndex,
+                                onBack = onNavigateBack,
+                                isEditing = { editing },
+                                onDismissEditing = { stopEditing() }
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                if (isFocused && !editing) {
+                                    editing = true
+                                    onEditingChanged(true)
+                                    keyboard?.show()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            Key.Back, Key.Escape -> {
+                                if (editing) {
+                                    stopEditing()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                            else -> false
+                        }
+                    }
+                    .clip(fieldShape)
+                    .background(TvInputBg)
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 readOnly = !editing,
@@ -320,6 +327,7 @@ fun TvTextField(
                     inner()
                 }
             )
+            }
         }
         if (isPassword) {
             var showFocused by remember { mutableStateOf(false) }
@@ -373,6 +381,7 @@ fun TvTextLink(
         onClick = onClick,
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .tvFocusScrollIntoView()
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) chain?.onItemFocused(chainIndex)
@@ -417,6 +426,7 @@ fun TvBackButton(
         onClick = onClick,
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .tvFocusScrollIntoView()
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) chain?.onItemFocused(chainIndex)

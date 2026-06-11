@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,8 +28,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -54,11 +57,14 @@ import java.util.Date
 import java.util.Locale
 
 object EpgLayout {
-    val TopBarHeight = 56.dp
+    val TopBarHeight = 72.dp
     val ChannelColumnWidth = 180.dp
     val RowHeight = 64.dp
     val TimelineHeaderHeight = 32.dp
-    val DetailPanelHeight = 180.dp
+    val DetailPanelHeight = 84.dp
+    val MiniPlayerWidth = 280.dp
+    val MiniPlayerHeight = 158.dp
+    val MiniPlayerTopOffset = TimelineHeaderHeight + 8.dp
     val DpPerMinute = 4f
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
@@ -129,27 +135,23 @@ fun EpgTopBar(
     profileMenuFocusIndex: Int = 0,
     onTabSelected: (EpgNavTab) -> Unit,
     onProfileClick: () -> Unit = {},
+    onProfileMenuDismiss: () -> Unit = {},
     onSwitchAccounts: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
-    categoryFilterLabel: String = "Filter",
-    categoryFilterActive: Boolean = false,
-    categoryFilterFocused: Boolean = false,
-    onCategoryFilterClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(EpgLayout.TopBarHeight)
-            .background(EpgColors.Background)
-    ) {
-        Row(
+    Column(modifier = modifier.fillMaxWidth()) {
+        Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .height(NavBarMinHeight)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(EpgColors.Background)
+            )
             GridNavIconRow(
                 selectedTab = selectedTab,
                 focusedIndex = focusedNavTabIndex,
@@ -158,21 +160,9 @@ fun EpgTopBar(
                 profileFocused = profileFocused,
                 onTabSelected = onTabSelected,
                 onProfileClick = onProfileClick,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 trailing = {
-                    EpgCategoryFilterChip(
-                        label = categoryFilterLabel,
-                        active = categoryFilterActive,
-                        focused = false,
-                        onClick = onCategoryFilterClick,
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .focusable(false)
-                    )
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.padding(end = 12.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = formatEpgDay(now),
                             color = EpgColors.TextSecondary,
@@ -190,14 +180,20 @@ fun EpgTopBar(
                     miniPlayer()
                 }
             )
+
+            ProfileMenuDropdown(
+                expanded = profileMenuExpanded,
+                focusedIndex = profileMenuFocusIndex,
+                onDismiss = onProfileMenuDismiss,
+                onSwitchAccounts = onSwitchAccounts,
+                onOpenSettings = onOpenSettings
+            )
         }
 
-        ProfileMenuDropdown(
-            expanded = profileMenuExpanded,
-            focusedIndex = profileMenuFocusIndex,
-            onDismiss = {},
-            onSwitchAccounts = onSwitchAccounts,
-            onOpenSettings = onOpenSettings
+        GridNavTooltipRow(
+            visible = navFocused,
+            focusedIndex = focusedNavTabIndex,
+            modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp)
         )
     }
 }
@@ -207,7 +203,7 @@ enum class EpgNavTab(val glyph: String, val label: String) {
     Search("⌕", "Search"),
     Favorites("★", "Favorites"),
     Home("⌂", "Home"),
-    Recordings("●", "Recordings"),
+    Recordings("⏺", "Recordings"),
     Settings("⚙", "Settings")
 }
 
@@ -575,107 +571,84 @@ fun EpgDetailPanel(
     onActionFocusChange: (Int) -> Unit,
     onWatch: () -> Unit,
     onRecord: () -> Unit,
-    onFavorite: () -> Unit = {},
-    onMoreInfo: () -> Unit,
     visible: Boolean,
     streamStatus: StreamPlaybackStatus? = null,
-    previewContent: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!visible || channel == null) return
 
-    val title = program?.title ?: channel.name
-    val timeLine = program?.let {
-        "${formatEpgTime(it.startTime)} – ${formatEpgTime(it.endTime)}  •  ${programDurationMinutes(it)} min"
-    } ?: "No program information"
-    val description = when {
-        program != null -> program.description.ifBlank { "No description available." }
+    val programInfo = when {
+        program != null -> {
+            val timeLine =
+                "${formatEpgTime(program.startTime)} – ${formatEpgTime(program.endTime)}  •  ${programDurationMinutes(program)} min"
+            "${program.title}  •  $timeLine"
+        }
         else -> "No EPG data available for this channel."
     }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .height(EpgLayout.DetailPanelHeight)
-            .background(EpgColors.DetailPanelBg)
+            .background(Color(0xFF0D0D1A))
             .border(width = 0.5.dp, color = EpgColors.BorderSubtle)
-            .padding(horizontal = 20.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(MiniPlayerLayout.Width, MiniPlayerLayout.Height)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(EpgColors.ChannelColumnBg)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = channel.name,
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = programInfo,
+                color = Color(0xFF9CA3AF),
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(top = 4.dp)
             ) {
-                previewContent()
-            }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-            ) {
-                Text(
-                    text = title,
-                    color = EpgColors.TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = timeLine,
-                    color = EpgColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(top = 6.dp)
-                ) {
-                    if (program != null) {
-                        EpgTagPill(genreLabel(program.genre), EpgColors.HdBadgeBg, EpgColors.TextSecondary)
-                        if (programTimeState(program, now) == ProgramTimeState.AIRING) {
-                            EpgTagPill("HD", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
-                        }
-                    } else {
+                if (program != null) {
+                    if (programTimeState(program, now) == ProgramTimeState.AIRING) {
                         EpgTagPill("Live", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
                     }
-                    streamStatus?.let { status ->
-                        if (status.userLabel().isNotBlank()) {
-                            StreamStatusBadge(status = status, compact = true)
-                        }
+                    EpgTagPill(genreLabel(program.genre), EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                } else {
+                    EpgTagPill("Live", EpgColors.HdBadgeBg, EpgColors.TextSecondary)
+                }
+                streamStatus?.let { status ->
+                    if (status.userLabel().isNotBlank()) {
+                        StreamStatusBadge(status = status, compact = true)
                     }
                 }
-                Text(
-                    text = description,
-                    color = EpgColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                EpgActionButton("▶ Watch", detailActionFocused == 0, onClick = onWatch) {
-                    onActionFocusChange(0)
-                }
-                EpgActionButton("⏺ Record", detailActionFocused == 1, onClick = onRecord) {
-                    onActionFocusChange(1)
-                }
-                EpgActionButton("★ Save", detailActionFocused == 2, onClick = onFavorite) {
-                    onActionFocusChange(2)
-                }
-                EpgActionButton("ℹ Info", detailActionFocused == 3, onClick = onMoreInfo) {
-                    onActionFocusChange(3)
-                }
-            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            EpgActionButton(
+                label = "▶ Watch",
+                isFocused = detailActionFocused == 0,
+                onClick = onWatch,
+                onFocus = { onActionFocusChange(0) },
+                primary = true,
+                compact = true
+            )
+            EpgActionButton(
+                label = "⏺ Record",
+                isFocused = detailActionFocused == 1,
+                onClick = onRecord,
+                onFocus = { onActionFocusChange(1) },
+                compact = true
+            )
         }
     }
 }
@@ -698,18 +671,35 @@ private fun EpgActionButton(
     label: String,
     isFocused: Boolean,
     onClick: () -> Unit,
-    onFocus: () -> Unit
+    onFocus: () -> Unit,
+    primary: Boolean = false,
+    compact: Boolean = false
 ) {
     Button(
         onClick = onClick,
         modifier = Modifier
+            .then(
+                if (primary) {
+                    Modifier.background(EpgColors.Accent.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
+                } else {
+                    Modifier
+                }
+            )
             .then(if (isFocused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp)) else Modifier)
             .focusable()
+            .onFocusChanged { if (it.isFocused) onFocus() }
     ) {
         Text(
             text = label,
             fontFamily = DmSansFamily,
-            fontSize = 13.sp
+            fontSize = when {
+                compact && primary -> 12.sp
+                compact -> 11.sp
+                primary -> 14.sp
+                else -> 13.sp
+            },
+            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (primary) EpgColors.Accent else EpgColors.TextPrimary
         )
     }
 }
@@ -772,23 +762,29 @@ fun EpgCategoryFilterChip(
     }
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.height(36.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
-            focusedContainerColor = EpgColors.Accent.copy(alpha = 0.25f)
+            focusedContainerColor = bg
         )
     ) {
-        Text(
-            text = display,
-            color = if (focused || active) EpgColors.TextPrimary else EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
+        Box(
             modifier = Modifier
+                .fillMaxHeight()
                 .border(1.dp, borderColor, RoundedCornerShape(6.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp)
-        )
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = display,
+                color = if (focused || active) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -1002,13 +998,23 @@ fun RecordingsDetailPanel(
 @Composable
 fun EpgListEmptyState(
     message: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hint: String = "Schedule from the live guide or record a program in progress.",
+    icon: String? = null
 ) {
     Box(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (icon != null) {
+                Text(
+                    text = icon,
+                    fontSize = 48.sp,
+                    color = EpgColors.TextDimmed,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
             Text(
                 text = message,
                 color = EpgColors.TextPrimary,
@@ -1017,7 +1023,7 @@ fun EpgListEmptyState(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "Schedule from the live guide or record a program in progress.",
+                text = hint,
                 color = EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 13.sp,

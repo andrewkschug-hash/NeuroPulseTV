@@ -45,6 +45,8 @@ class OnboardingViewModel @Inject constructor(
 
     val deviceMac: String? = DeviceMacAddress.resolve()
 
+    suspend fun hasActiveConnection(): Boolean = repository.hasActiveConnection()
+
     fun connectXtream(name: String, serverUrl: String, username: String, password: String) {
         if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
             showConnectError()

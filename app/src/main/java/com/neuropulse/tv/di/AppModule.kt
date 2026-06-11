@@ -9,6 +9,7 @@ import com.neuropulse.tv.data.db.DbMigrations
 import com.neuropulse.tv.data.db.dao.ChannelDao
 import com.neuropulse.tv.data.db.dao.ChannelScanDao
 import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
+import com.neuropulse.tv.data.db.dao.FavoriteDao
 import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
 import com.neuropulse.tv.data.db.dao.EpgSourceChannelDao
 import com.neuropulse.tv.data.db.dao.PlaylistDao
@@ -21,6 +22,7 @@ import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
+import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
@@ -98,6 +100,12 @@ object AppProvidesModule {
 
     @Provides
     fun provideProfileDao(db: AppDatabase): ProfileDao = db.profileDao()
+
+    @Provides
+    fun provideFavoriteDao(db: AppDatabase): FavoriteDao = db.favoriteDao()
+
+    @Provides
+    fun provideWatchHistoryDao(db: AppDatabase): WatchHistoryDao = db.watchHistoryDao()
 
     @Provides
     fun provideProfileFavoriteDao(db: AppDatabase): ProfileFavoriteDao = db.profileFavoriteDao()

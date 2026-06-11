@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
-import com.neuropulse.tv.ui.component.GridGhostLink
 import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextField
@@ -267,6 +266,10 @@ internal fun ConnectButton(
     }
 }
 
+/**
+ * Ghost "Set up later" link for the IPTV method-picker screen.
+ * Skips onboarding and navigates to home. Must stay on that screen — do not remove.
+ */
 @Composable
 internal fun OnboardingSkipLink(
     onClick: () -> Unit,
@@ -274,18 +277,41 @@ internal fun OnboardingSkipLink(
     chain: TvFocusChain? = null,
     chainIndex: Int = -1
 ) {
-    GridGhostLink(
-        text = "Set up later",
+    var focused by remember { mutableStateOf(false) }
+    val textColor = if (focused) OnboardingTextPrimary else OnboardingTextMuted
+
+    Surface(
         onClick = onClick,
-        modifier = modifier.then(
-            if (chain != null && chainIndex >= 0) {
-                Modifier.tvFocusChainNavigation(chain, chainIndex, onClick)
-            } else {
-                Modifier
+        modifier = modifier
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) chain?.onItemFocused(chainIndex)
             }
-        ),
-        contentDescription = "Set up IPTV later"
-    )
+            .then(
+                if (chain != null && chainIndex >= 0) {
+                    Modifier.tvFocusChainNavigation(chain, chainIndex, onClick)
+                } else {
+                    Modifier
+                }
+            )
+            .semantics { contentDescription = "Set up IPTV later" },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color.Transparent
+        )
+    ) {
+        Text(
+            text = "Set up later",
+            color = textColor,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+    }
 }
 
 @Composable
