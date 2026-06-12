@@ -21,8 +21,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import com.neuropulse.tv.util.CONNECTION_FAILED_ERROR
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_ERROR
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_MS
 import java.io.File
 import javax.inject.Inject
 
@@ -181,11 +186,13 @@ class SettingsViewModel @Inject constructor(
         _isConnecting.value = true
         _m3uProgress.value = progressLabel
         try {
-            block()
+            withTimeout(CONNECTION_TIMEOUT_MS) { block() }
             _connectionDialog.value = ConnectionDialogState.Success
+        } catch (_: TimeoutCancellationException) {
+            _connectionDialog.value = ConnectionDialogState.Failure(CONNECTION_TIMEOUT_ERROR)
         } catch (e: Exception) {
             _connectionDialog.value = ConnectionDialogState.Failure(
-                e.message ?: "Could not connect to the provided URL."
+                e.message?.takeIf { it.isNotBlank() } ?: CONNECTION_FAILED_ERROR
             )
         } finally {
             _isConnecting.value = false

@@ -169,6 +169,7 @@ fun SettingsPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .tvScrollIntoViewWhen(active = sectionHighlighted, preferTopAlign = true)
             .background(backgroundColor, RoundedCornerShape(10.dp))
             .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
             .padding(20.dp),

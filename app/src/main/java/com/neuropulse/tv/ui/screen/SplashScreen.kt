@@ -42,6 +42,14 @@ private val SplashBg = Color(0xFF080810)
 private val BloomBlue = Color(0xFF2563EB)
 private val LetterWhite = Color.White
 
+private const val BLOOM_LEAD_IN_MS = 600L
+private const val DELAY_PER_LETTER_MS = 220L
+private const val LETTER_FADE_MS = 450
+private const val UNDERLINE_PAUSE_MS = 300L
+private const val HOLD_BEFORE_FADE_MS = 1_200L
+private const val FADE_OUT_MS = 500
+private const val LETTER_COUNT = 4
+
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
     var bloomVisible by remember { mutableStateOf(false) }
@@ -51,14 +59,15 @@ fun SplashScreen(onFinished: () -> Unit) {
 
     LaunchedEffect(Unit) {
         bloomVisible = true
-        delay(300)
+        delay(BLOOM_LEAD_IN_MS)
         lettersVisible = true
-        delay(400)
+        val lettersFinishMs =
+            (LETTER_COUNT - 1) * DELAY_PER_LETTER_MS + LETTER_FADE_MS + UNDERLINE_PAUSE_MS
+        delay(lettersFinishMs)
         underlineVisible = true
-        delay(200)
-        delay(600)
+        delay(HOLD_BEFORE_FADE_MS)
         logoFadingOut = true
-        delay(100)
+        delay(FADE_OUT_MS.toLong())
         onFinished()
     }
 
@@ -76,7 +85,7 @@ fun SplashScreen(onFinished: () -> Unit) {
 
     val logoAlpha by animateFloatAsState(
         targetValue = if (logoFadingOut) 0f else 1f,
-        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = FADE_OUT_MS, easing = FastOutSlowInEasing),
         label = "logoAlpha"
     )
 
@@ -152,12 +161,11 @@ private fun SplashLetter(
     index: Int,
     lettersVisible: Boolean
 ) {
-    val delayPerLetter = 100
     var letterReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(lettersVisible) {
         if (lettersVisible) {
-            delay(index * delayPerLetter.toLong())
+            delay(index * DELAY_PER_LETTER_MS)
             letterReady = true
         } else {
             letterReady = false
@@ -167,7 +175,7 @@ private fun SplashLetter(
     val alpha by animateFloatAsState(
         targetValue = if (letterReady) 1f else 0f,
         animationSpec = tween(
-            durationMillis = 300,
+            durationMillis = LETTER_FADE_MS,
             easing = FastOutSlowInEasing
         ),
         label = "letterAlpha$index"
@@ -204,7 +212,7 @@ private fun SplashUnderline(
     val underlineWidth by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(
-            durationMillis = 300,
+            durationMillis = 400,
             delayMillis = 50,
             easing = FastOutSlowInEasing
         ),

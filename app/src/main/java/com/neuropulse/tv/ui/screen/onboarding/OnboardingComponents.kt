@@ -44,6 +44,7 @@ import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextField
 import com.neuropulse.tv.ui.component.tvFocusChainNavigation
+import com.neuropulse.tv.ui.component.tvFocusScrollIntoView
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,6 +92,7 @@ internal fun MethodCard(
         modifier = modifier
             .width(MethodCardWidth)
             .height(84.dp)
+            .tvFocusScrollIntoView()
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
@@ -243,6 +245,7 @@ internal fun ConnectButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .tvFocusScrollIntoView()
                 .onFocusChanged { if (it.isFocused) chain?.onItemFocused(chainIndex) }
                 .then(
                     if (chain != null && chainIndex >= 0) {
@@ -283,6 +286,7 @@ internal fun OnboardingSkipLink(
     Surface(
         onClick = onClick,
         modifier = modifier
+            .tvFocusScrollIntoView()
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) chain?.onItemFocused(chainIndex)

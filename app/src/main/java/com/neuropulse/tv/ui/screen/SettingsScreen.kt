@@ -1017,7 +1017,7 @@ private fun ConnectionsSettingsContent(
     onDeletePlaylist: (Long) -> Unit
 ) {
     SettingsPanel(
-        title = "Add connection",
+        title = "Connect",
         description = "Link your IPTV provider using M3U or Xtream Codes.",
         cardIndex = 0,
         focus = focus
@@ -1095,7 +1095,7 @@ private fun ConnectionsSettingsContent(
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsFocusButton(
-                text = "Add connection",
+                text = "Connect",
                 onClick = onAddPlaylist,
                 chainIndex = addIndex,
                 focus = focus,

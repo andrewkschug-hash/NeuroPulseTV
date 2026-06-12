@@ -63,6 +63,20 @@ class TvFocusScrollTest {
     }
 
     @Test
+    fun `preferTopAlign scrolls card top into view when below viewport`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 0,
+            maxScroll = 2000,
+            viewportHeight = 600,
+            itemTop = 700f,
+            itemBottom = 1100f,
+            safeZonePx = 80f,
+            preferTopAlign = true
+        )
+        assertEquals(620, result)
+    }
+
+    @Test
     fun `clamps target to max scroll`() {
         val result = calculateFocusScrollTarget(
             currentScroll = 1800,
