@@ -32,12 +32,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
@@ -52,8 +55,6 @@ import com.neuropulse.tv.feature.recording.SeriesTitleMatcher
 import com.neuropulse.tv.feature.recording.StorageFormat
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
-import com.neuropulse.tv.ui.component.EpgChipFilterBar
-import com.neuropulse.tv.ui.component.EpgListEmptyState
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
@@ -63,7 +64,11 @@ import com.neuropulse.tv.ui.component.RecordingGridCard
 import com.neuropulse.tv.ui.component.canResumeRecording
 import com.neuropulse.tv.ui.component.RecordingsSimpleDetailPanel
 import com.neuropulse.tv.ui.component.RecordingsListRow
+import com.neuropulse.tv.ui.component.RecordingsChipFilterBar
+import com.neuropulse.tv.ui.component.RecordingsEmptyState
+import com.neuropulse.tv.ui.component.RecordingsHubHeader
 import com.neuropulse.tv.ui.component.formatEpgTime
+import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
@@ -242,6 +247,17 @@ fun RecordingsScreen(
     val sortValues = listOf(RecordingSort.DATE, RecordingSort.CHANNEL, RecordingSort.DURATION, RecordingSort.FILE_SIZE)
     val activeSortIndex = sortValues.indexOf(sort).coerceAtLeast(0)
     val selectedRow = rows.getOrNull(listFocusIndex)
+
+    val hubTitle = when (tab) {
+        0 -> "My Recordings"
+        1 -> "Schedule"
+        else -> "Series Rules"
+    }
+    val hubSubtitle = when (tab) {
+        0 -> "Saved programs from your library"
+        1 -> "Upcoming and in-progress recordings"
+        else -> "Auto-record episodes from the TV Guide"
+    }
 
     LaunchedEffect(focusZone, topBarRow) {
         when (focusZone) {
@@ -606,26 +622,42 @@ fun RecordingsScreen(
                     }
             )
 
-            EpgChipFilterBar(
-                labels = listOf("My Recordings", "Schedule", "Series Rules"),
-                activeIndex = tab,
-                focusedIndex = tabFocusIndex,
-                barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 1,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-
-            if (tab == 0) {
-                EpgChipFilterBar(
-                    labels = sortLabels,
-                    activeIndex = activeSortIndex,
-                    focusedIndex = sortFocusIndex,
-                    barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 2,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF141420), EpgColors.Background)
+                        )
+                    )
+                    .padding(horizontal = 24.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                RecordingsHubHeader(
+                    title = hubTitle,
+                    subtitle = hubSubtitle
                 )
+                RecordingsChipFilterBar(
+                    labels = listOf("My Recordings", "Schedule", "Series Rules"),
+                    activeIndex = tab,
+                    focusedIndex = tabFocusIndex,
+                    barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 1
+                )
+                if (tab == 0) {
+                    Text(
+                        text = "Sort by",
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                    RecordingsChipFilterBar(
+                        labels = sortLabels,
+                        activeIndex = activeSortIndex,
+                        focusedIndex = sortFocusIndex,
+                        barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 2
+                    )
+                }
             }
 
             Box(
@@ -639,21 +671,21 @@ fun RecordingsScreen(
                     }
             ) {
                 if (rows.isEmpty()) {
-                    EpgListEmptyState(
-                        message = when (tab) {
+                    RecordingsEmptyState(
+                        title = when (tab) {
                             0 -> "No recordings yet"
                             1 -> "No upcoming recordings scheduled"
                             else -> "No series recording rules"
                         },
-                        hint = when (tab) {
+                        message = when (tab) {
                             0 -> "Go to TV Guide to schedule a recording"
                             1 -> "Browse the guide and tap Record on a program"
                             else -> "Open Series & Shows and tap Record Series"
                         },
                         icon = when (tab) {
-                            0 -> "⏺"
-                            1 -> "📅"
-                            else -> "📺"
+                            0 -> "●"
+                            1 -> "◷"
+                            else -> "▤"
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -663,7 +695,7 @@ fun RecordingsScreen(
                         state = gridState,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
@@ -715,7 +747,13 @@ fun RecordingsScreen(
                         }
                     }
                 } else {
-                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         itemsIndexed(rows, key = { _, row -> "${tab}_${row.id}" }) { index, row ->
                             RecordingsListRow(
                                 title = row.title,

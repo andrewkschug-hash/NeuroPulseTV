@@ -27,11 +27,13 @@ object TimeshiftManager {
         val duration = player.duration
         if (duration == C.TIME_UNSET || duration <= 0L) return
 
-        // End of the seekable live window — not contentBufferedPosition, which extends
-        // ahead of playback and inflates "behind live" while watching at live speed.
-        liveEdgePositionMs = duration
-
-        // Live window starts at 0; only content within [0, liveEdge] is actually available.
+        val liveOffset = player.currentLiveOffset
+        // Prefer offset-derived edge when available — duration alone can lag the true live edge.
+        liveEdgePositionMs = if (liveOffset != C.TIME_UNSET && liveOffset >= 0L) {
+            (player.currentPosition + liveOffset).coerceAtLeast(duration)
+        } else {
+            duration
+        }
         bufferStartMs = 0L
 
         if (isAtLiveEdge(player)) {
@@ -75,7 +77,12 @@ object TimeshiftManager {
         (liveEdgePositionMs - player.currentPosition).coerceAtLeast(0L)
 
     fun jumpToLive(player: ExoPlayer) {
-        player.seekToDefaultPosition()
+        val liveOffset = player.currentLiveOffset
+        if (liveOffset != C.TIME_UNSET && liveOffset > LIVE_EDGE_TOLERANCE_MS) {
+            player.seekTo(player.currentPosition + liveOffset)
+        } else {
+            player.seekToDefaultPosition()
+        }
         player.playWhenReady = true
         isTimeshifting = false
     }
@@ -89,6 +96,16 @@ object TimeshiftManager {
 
     fun fastForward(player: ExoPlayer, ms: Long = 30_000L) {
         if (!canFastForward(player)) return
+        val liveOffset = player.currentLiveOffset
+        if (liveOffset != C.TIME_UNSET && liveOffset >= 0L) {
+            if (liveOffset <= ms + FAST_FORWARD_LIVE_THRESHOLD_MS) {
+                jumpToLive(player)
+            } else {
+                player.seekTo(player.currentPosition + ms)
+                isTimeshifting = true
+            }
+            return
+        }
         val target = (player.currentPosition + ms).coerceAtMost(liveEdgePositionMs)
         if (target >= liveEdgePositionMs - FAST_FORWARD_LIVE_THRESHOLD_MS) {
             jumpToLive(player)
@@ -107,6 +124,15 @@ object TimeshiftManager {
     fun seekRelative(player: ExoPlayer, deltaMs: Long) {
         if (deltaMs < 0 && !canRewind(player)) return
         if (deltaMs > 0 && !canFastForward(player)) return
+        if (deltaMs > 0) {
+            val liveOffset = player.currentLiveOffset
+            if (liveOffset != C.TIME_UNSET && liveOffset >= 0L &&
+                liveOffset <= deltaMs + FAST_FORWARD_LIVE_THRESHOLD_MS
+            ) {
+                jumpToLive(player)
+                return
+            }
+        }
         seekTo(player, player.currentPosition + deltaMs)
     }
 

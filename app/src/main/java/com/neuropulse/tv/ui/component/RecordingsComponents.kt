@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
@@ -60,6 +61,123 @@ import java.util.concurrent.TimeUnit
 
 private val DialogBg = Color(0xFF1A1F2E)
 private val DialogBody = Color(0xFFB0B0C0)
+private val RecordingAccent = Color(0xFFE53935)
+
+@Composable
+fun RecordingsHubHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = title,
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = subtitle,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp
+        )
+        Text(
+            text = "Browse the TV Guide and tap Record on any program",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+@Composable
+fun RecordingsChipFilterBar(
+    labels: List<String>,
+    activeIndex: Int,
+    focusedIndex: Int,
+    barFocused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        labels.forEachIndexed { index, label ->
+            val selected = index == activeIndex
+            val chipFocused = barFocused && index == focusedIndex
+            val bg = when {
+                chipFocused -> EpgColors.Accent.copy(alpha = 0.22f)
+                selected -> EpgColors.ChannelRowFocusBg
+                else -> Color.Transparent
+            }
+            val borderColor = when {
+                chipFocused -> EpgColors.Accent
+                selected -> EpgColors.Accent.copy(alpha = 0.45f)
+                else -> EpgColors.BorderSubtle.copy(alpha = 0.65f)
+            }
+            Text(
+                text = label,
+                color = when {
+                    chipFocused || selected -> EpgColors.TextPrimary
+                    else -> EpgColors.TextSecondary
+                },
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                fontWeight = if (chipFocused || selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                modifier = Modifier
+                    .border(1.dp, borderColor, RoundedCornerShape(20.dp))
+                    .background(bg, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun RecordingsEmptyState(
+    title: String,
+    message: String,
+    icon: String = "●",
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = icon,
+            color = if (icon == "●") RecordingAccent.copy(alpha = 0.55f) else EpgColors.TextDimmed.copy(alpha = 0.45f),
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Light
+        )
+        Text(
+            text = title,
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        Text(
+            text = message,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
 
 fun formatRecordingRelativeDate(epochMs: Long, nowMs: Long = System.currentTimeMillis()): String {
     val dayMs = TimeUnit.DAYS.toMillis(1)
@@ -121,13 +239,11 @@ fun RecordingGridCard(
     nowMs: Long,
     modifier: Modifier = Modifier
 ) {
-    val borderColor = if (isFocused) EpgColors.Accent else Color.Transparent
-    val progress = if (durationMs > 0 && playbackPositionMs > 0) {
-        (playbackPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-    } else {
-        0f
+    val borderColor = when {
+        isFocused -> EpgColors.Accent
+        else -> EpgColors.BorderSubtle.copy(alpha = 0.65f)
     }
-    val watched = durationMs > 0 && playbackPositionMs >= durationMs * 0.9
+    val cardBg = if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF13131A)
 
     Column(
         modifier = modifier
@@ -135,10 +251,10 @@ fun RecordingGridCard(
             .clip(RoundedCornerShape(8.dp))
             .border(
                 width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) borderColor else EpgColors.BorderSubtle,
+                color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
-            .background(EpgColors.DetailPanelBg.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+            .background(cardBg, RoundedCornerShape(8.dp))
             .padding(8.dp)
     ) {
         Box(
@@ -146,7 +262,7 @@ fun RecordingGridCard(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(6.dp))
-                .background(EpgColors.ChannelColumnBg)
+                .background(Color(0xFF1A1A22))
         ) {
             if (thumbnailPath != null && File(thumbnailPath).exists()) {
                 AsyncImage(
@@ -155,16 +271,26 @@ fun RecordingGridCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
                 )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = title.take(2).uppercase(),
+                        color = EpgColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 18.sp
+                    )
+                }
             }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f)),
+                    .background(Color.Black.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("▶", color = Color.White, fontSize = 28.sp)
+                Text("▶", color = Color.White.copy(alpha = 0.85f), fontSize = 24.sp)
             }
             if (playbackPositionMs > 0 && durationMs > 0) {
+                val progress = (playbackPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -180,6 +306,7 @@ fun RecordingGridCard(
                     )
                 }
             }
+            val watched = durationMs > 0 && playbackPositionMs >= durationMs * 0.9
             if (watched) {
                 Text(
                     text = "WATCHED",
@@ -266,8 +393,12 @@ fun RecordingsBottomSheetPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(EpgLayout.DetailPanelHeight)
-                .background(EpgColors.DetailPanelBg)
-                .border(width = 0.5.dp, color = EpgColors.BorderSubtle)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color(0xFF161622), EpgColors.DetailPanelBg)
+                    )
+                )
+                .border(width = 0.5.dp, color = EpgColors.BorderSubtle.copy(alpha = 0.6f))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -364,8 +495,12 @@ fun RecordingsSimpleDetailPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(EpgLayout.DetailPanelHeight)
-                .background(EpgColors.DetailPanelBg)
-                .border(width = 0.5.dp, color = EpgColors.BorderSubtle)
+                .background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(Color(0xFF161622), EpgColors.DetailPanelBg)
+                    )
+                )
+                .border(width = 0.5.dp, color = EpgColors.BorderSubtle.copy(alpha = 0.6f))
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

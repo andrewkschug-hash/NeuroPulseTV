@@ -297,11 +297,40 @@ fun PlayerScreen(
             Key.DirectionUp -> moveSideMenuVertical(-1)
             Key.DirectionDown -> moveSideMenuVertical(1)
             Key.Enter, Key.DirectionCenter -> activateSideMenuSelection()
-            Key.DirectionLeft, Key.Back, Key.Escape -> {
+            Key.DirectionRight -> when (currentFocusTarget) {
+                PlayerSideMenuFocusTarget.ChannelsHeader -> {
+                    if (!channelsExpanded) channelsExpanded = true
+                }
+                PlayerSideMenuFocusTarget.FavoritesHeader -> {
+                    if (!favoritesExpanded) favoritesExpanded = true
+                }
+                else -> return false
+            }
+            Key.DirectionLeft -> when (currentFocusTarget) {
+                PlayerSideMenuFocusTarget.ChannelsHeader -> {
+                    if (channelsExpanded) {
+                        channelsExpanded = false
+                        return true
+                    }
+                }
+                PlayerSideMenuFocusTarget.FavoritesHeader -> {
+                    if (favoritesExpanded) {
+                        favoritesExpanded = false
+                        return true
+                    }
+                }
+                else -> Unit
+            }
+            Key.Back, Key.Escape -> {
                 showSideMenu = false
                 revealOverlay()
+                return true
             }
             else -> return false
+        }
+        if (key == Key.DirectionLeft) {
+            showSideMenu = false
+            revealOverlay()
         }
         return true
     }

@@ -895,17 +895,27 @@ fun RecordingsListRow(
     isFocused: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val bg = if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
+    val shape = RoundedCornerShape(8.dp)
+    val bg = when {
+        isFocused -> EpgColors.ChannelRowFocusBg
+        else -> Color(0xFF13131A)
+    }
+    val borderColor = when {
+        isFocused -> EpgColors.Accent
+        else -> EpgColors.BorderSubtle.copy(alpha = 0.55f)
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(EpgLayout.RowHeight)
-            .background(bg)
+            .clip(shape)
+            .background(bg, shape)
             .border(
-                width = if (isFocused) 1.dp else 0.dp,
-                color = EpgColors.FocusBorder,
-                shape = RoundedCornerShape(0.dp)
-            ),
+                width = if (isFocused) 2.dp else 1.dp,
+                color = borderColor,
+                shape = shape
+            )
+            .padding(end = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isFocused) {
@@ -923,7 +933,7 @@ fun RecordingsListRow(
                 modifier = Modifier
                     .padding(start = 12.dp)
                     .size(72.dp, 44.dp)
-                    .clip(RoundedCornerShape(4.dp)),
+                    .clip(RoundedCornerShape(6.dp)),
                 contentScale = ContentScale.Crop
             )
         } else {
@@ -931,11 +941,11 @@ fun RecordingsListRow(
                 modifier = Modifier
                     .padding(start = 12.dp)
                     .size(72.dp, 44.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(EpgColors.ChannelColumnBg),
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF1A1A22)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("▶", color = EpgColors.TextSecondary, fontSize = 18.sp)
+                Text("▶", color = EpgColors.TextSecondary, fontSize = 16.sp)
             }
         }
         Column(
@@ -963,16 +973,25 @@ fun RecordingsListRow(
             )
         }
         if (badge != null) {
+            val isRec = badge.contains("REC")
             Text(
                 text = badge,
-                color = if (badge.contains("REC")) EpgColors.LiveBadge else EpgColors.Accent,
+                color = if (isRec) EpgColors.LiveBadge else EpgColors.Accent,
                 fontFamily = DmSansFamily,
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .padding(end = 16.dp)
-                    .background(EpgColors.HdBadgeBg, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(end = 12.dp)
+                    .border(
+                        1.dp,
+                        if (isRec) EpgColors.LiveBadge.copy(alpha = 0.5f) else EpgColors.Accent.copy(alpha = 0.45f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .background(
+                        if (isRec) EpgColors.LiveBadge.copy(alpha = 0.12f) else EpgColors.Accent.copy(alpha = 0.12f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             )
         }
     }

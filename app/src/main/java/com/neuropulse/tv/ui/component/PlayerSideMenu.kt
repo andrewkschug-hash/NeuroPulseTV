@@ -182,7 +182,7 @@ fun PlayerSideMenu(
                 ) {
                     Column(
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1f, fill = false)
                             .verticalScroll(scrollState)
                     ) {
                         CollapsibleSectionHeader(
