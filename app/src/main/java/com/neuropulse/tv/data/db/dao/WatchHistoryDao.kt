@@ -13,4 +13,7 @@ interface WatchHistoryDao {
 
     @Query("SELECT * FROM watch_history WHERE channelId = :channelId")
     suspend fun get(channelId: Long): WatchHistoryEntity?
+
+    @Query("DELETE FROM watch_history")
+    suspend fun deleteAll()
 }

@@ -28,6 +28,15 @@ fun StreamPlaybackStatus.userLabel(): String = when (this) {
 fun StreamPlaybackStatus.isHealthy(): Boolean =
     this == StreamPlaybackStatus.PLAYING || this == StreamPlaybackStatus.AUDIO_ONLY || this == StreamPlaybackStatus.LOADING
 
+/** Full-screen blocking overlay — only for confirmed failures, not buffering. */
+fun StreamPlaybackStatus.shouldShowBlockingOverlay(): Boolean = when (this) {
+    StreamPlaybackStatus.ERROR,
+    StreamPlaybackStatus.UNAVAILABLE,
+    StreamPlaybackStatus.NO_SIGNAL,
+    StreamPlaybackStatus.STALLED -> true
+    else -> false
+}
+
 fun StreamPlaybackStatus.badgeColor(): Color = when (this) {
     StreamPlaybackStatus.PLAYING -> Color(0xFF2ECC71)
     StreamPlaybackStatus.AUDIO_ONLY -> Color(0xFF5B9BD5)

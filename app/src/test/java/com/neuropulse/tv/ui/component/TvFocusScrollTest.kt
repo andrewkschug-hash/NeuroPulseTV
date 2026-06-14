@@ -1,4 +1,4 @@
-package com.neuropulse.tv.ui.component
+﻿package com.neuropulse.tv.ui.component
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -60,6 +60,20 @@ class TvFocusScrollTest {
             preferCenter = false
         )
         assertEquals(220, result)
+    }
+
+    @Test
+    fun `preferTopAlign scrolls card top into view when below viewport`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 0,
+            maxScroll = 2000,
+            viewportHeight = 600,
+            itemTop = 700f,
+            itemBottom = 1100f,
+            safeZonePx = 80f,
+            preferTopAlign = true
+        )
+        assertEquals(620, result)
     }
 
     @Test

@@ -45,18 +45,24 @@ fun GridPrimaryButton(
     var focused by remember { mutableStateOf(false) }
     val bg = if (focused) PrimaryBlueFocus else PrimaryBlue
 
+    val buttonShape = RoundedCornerShape(8.dp)
     Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
             .height(ButtonHeight)
             .onFocusChanged { focused = it.isFocused }
-            .tvFocusRing(focused = focused)
+            .border(
+                width = if (focused) 2.dp else 0.dp,
+                color = if (focused) Color.White else Color.Transparent,
+                shape = buttonShape
+            )
             .semantics { this.contentDescription = contentDescription },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(buttonShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg,
+            pressedContainerColor = bg,
             disabledContainerColor = bg.copy(alpha = 0.5f)
         )
     ) {

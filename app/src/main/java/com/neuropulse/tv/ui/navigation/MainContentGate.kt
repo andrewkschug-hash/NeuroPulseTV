@@ -29,7 +29,8 @@ import kotlinx.coroutines.delay
 fun MainContentGate(
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
-    onSwitchProfile: () -> Unit
+    onSwitchProfile: () -> Unit,
+    onRestartToOnboarding: () -> Unit
 ) {
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -53,7 +54,8 @@ fun MainContentGate(
         else -> AppNavHost(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
-            onSwitchProfile = onSwitchProfile
+            onSwitchProfile = onSwitchProfile,
+            onRestartToOnboarding = onRestartToOnboarding
         )
     }
 }

@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -39,6 +37,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.EpgRowHeight
 import com.neuropulse.tv.domain.model.ScannerRuntimeState
+import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.EpgNavTab
@@ -48,13 +47,32 @@ import com.neuropulse.tv.ui.component.ProfileAvatarBadge
 import com.neuropulse.tv.ui.component.ProfileColorPicker
 import com.neuropulse.tv.ui.screen.ProfileAvatarColors
 import com.neuropulse.tv.ui.component.PinEntryDialog
+import com.neuropulse.tv.ui.component.ConnectionResultDialog
+import com.neuropulse.tv.ui.component.FactoryResetConfirmDialog
+import com.neuropulse.tv.ui.component.TvScrollContainer
 import com.neuropulse.tv.ui.component.SettingsChip
+import com.neuropulse.tv.ui.component.SettingsContentFocus
+import com.neuropulse.tv.ui.component.SettingsFocusButton
+import com.neuropulse.tv.ui.component.SettingsFocusLevel
+import com.neuropulse.tv.ui.component.SettingsFocusPanel
+import com.neuropulse.tv.ui.component.SettingsFocusToggleRow
 import com.neuropulse.tv.ui.component.SettingsListRow
 import com.neuropulse.tv.ui.component.SettingsNavItem
 import com.neuropulse.tv.ui.component.SettingsPanel
+import com.neuropulse.tv.ui.component.SettingsSectionKind
 import com.neuropulse.tv.ui.component.SettingsSidebar
 import com.neuropulse.tv.ui.component.SettingsTextField
-import com.neuropulse.tv.ui.component.SettingsToggleRow
+import com.neuropulse.tv.ui.component.SettingsFocusTextField
+import com.neuropulse.tv.ui.component.SettingsFocusPillGroup
+import com.neuropulse.tv.ui.component.connectionsAddFocusCount
+import com.neuropulse.tv.ui.component.connectionsFocusCount
+import com.neuropulse.tv.ui.component.guideFocusCount
+import com.neuropulse.tv.ui.component.handleSettingsHorizontalKey
+import com.neuropulse.tv.ui.component.buildSettingsSectionCards
+import com.neuropulse.tv.ui.component.moveProfileSwatchFocus
+import com.neuropulse.tv.ui.component.moveSettingsVerticalFocus
+import com.neuropulse.tv.ui.component.profileContentFocusCount
+import com.neuropulse.tv.ui.component.rememberSettingsFocusChain
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
@@ -73,9 +91,39 @@ private enum class SettingsSection(val title: String, val subtitle: String) {
     About("About", "Version, backup & info")
 }
 
-private enum class SettingsFocusZone { TOP_BAR, SIDEBAR, CONTENT }
-
 private val TopBarProfileIndex get() = GridNavTabs.size
+private const val PROFILE_SWATCH_START = 1
+private const val PROFILE_SWATCH_COUNT = 8
+
+private fun SettingsSection.toKind(): SettingsSectionKind = when (this) {
+    SettingsSection.Profile -> SettingsSectionKind.Profile
+    SettingsSection.Connections -> SettingsSectionKind.Connections
+    SettingsSection.Guide -> SettingsSectionKind.Guide
+    SettingsSection.Playback -> SettingsSectionKind.Playback
+    SettingsSection.Recordings -> SettingsSectionKind.Recordings
+    SettingsSection.About -> SettingsSectionKind.About
+}
+
+private fun exitToSidebar(
+    focusPanel: (SettingsFocusPanel) -> Unit,
+    focusLevel: (SettingsFocusLevel) -> Unit,
+    sidebarFocusIndex: (Int) -> Unit,
+    selectedSection: Int
+) {
+    focusPanel(SettingsFocusPanel.LEFT)
+    focusLevel(SettingsFocusLevel.SIDEBAR)
+    sidebarFocusIndex(selectedSection)
+}
+
+private fun exitCardToSection(
+    focusLevel: (SettingsFocusLevel) -> Unit,
+    contentAreaFocusRequester: FocusRequester
+) {
+    focusLevel(SettingsFocusLevel.SECTION)
+    contentAreaFocusRequester.requestFocus()
+}
+
+private fun playbackFocusCount() = 10
 
 @Composable
 fun SettingsScreen(
@@ -84,9 +132,11 @@ fun SettingsScreen(
     onNavigateRecordings: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
+    onBack: () -> Unit = {},
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
     onOpenEpgResolver: () -> Unit = {},
+    onRestartToOnboarding: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     profileViewModel: ProfileViewModel = hiltViewModel()
 ) {
@@ -95,6 +145,8 @@ fun SettingsScreen(
     val storageOptions by viewModel.storageOptions.collectAsStateWithLifecycle()
     val currentStorageLabel by viewModel.currentStorageLabel.collectAsStateWithLifecycle()
     val progress by viewModel.m3uProgress.collectAsStateWithLifecycle()
+    val isConnecting by viewModel.isConnecting.collectAsStateWithLifecycle()
+    val connectionDialog by viewModel.connectionDialog.collectAsStateWithLifecycle()
     val importSummary by viewModel.importSummary.collectAsStateWithLifecycle()
     val xtreamAccounts by viewModel.xtreamAccounts.collectAsStateWithLifecycle()
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
@@ -118,7 +170,9 @@ fun SettingsScreen(
     val navItems = sections.map { SettingsNavItem(it.title, it.subtitle) }
 
     var selectedSection by remember { mutableIntStateOf(0) }
-    var focusZone by remember { mutableStateOf(SettingsFocusZone.SIDEBAR) }
+    var focusPanel by remember { mutableStateOf(SettingsFocusPanel.LEFT) }
+    var focusLevel by remember { mutableStateOf(SettingsFocusLevel.SIDEBAR) }
+    var focusedSectionIndex by remember { mutableIntStateOf(0) }
     var sidebarFocusIndex by remember { mutableIntStateOf(0) }
     var topBarFocusIndex by remember { mutableIntStateOf(3) }
 
@@ -130,17 +184,150 @@ fun SettingsScreen(
     var xtreamServer by remember { mutableStateOf("") }
     var xtreamUser by remember { mutableStateOf("") }
     var xtreamPass by remember { mutableStateOf("") }
+    var seededPlaylistId by remember { mutableLongStateOf(-1L) }
+
+    LaunchedEffect(playlists) {
+        val primary = playlists.firstOrNull()
+        if (primary == null) {
+            if (seededPlaylistId != -1L) {
+                name = ""
+                url = ""
+                epgUrl = ""
+                refreshHours = "24"
+                playlistType = PlaylistType.M3U
+                xtreamServer = ""
+                xtreamUser = ""
+                xtreamPass = ""
+                seededPlaylistId = -1L
+            }
+            return@LaunchedEffect
+        }
+        if (primary.id == seededPlaylistId) return@LaunchedEffect
+        val form = viewModel.connectionFormFor(primary)
+        name = form.name
+        playlistType = form.playlistType
+        url = form.m3uUrl
+        epgUrl = form.epgUrl
+        refreshHours = form.refreshHours
+        xtreamServer = form.xtreamServer
+        xtreamUser = form.xtreamUser
+        xtreamPass = form.xtreamPassword
+        seededPlaylistId = primary.id
+    }
+
+    val contentFocusCount = when (sections[selectedSection]) {
+        SettingsSection.Profile -> profileContentFocusCount(
+            profileCount = profiles.size,
+            activeProfileId = activeProfile?.id,
+            hasActiveProfile = activeProfile != null
+        )
+        SettingsSection.Connections -> connectionsFocusCount(playlistType, playlists.size)
+        SettingsSection.Guide -> guideFocusCount()
+        SettingsSection.Playback -> playbackFocusCount()
+        SettingsSection.Recordings -> storageOptions.size
+        SettingsSection.About -> 2
+    }
+    val sectionCards = remember(
+        selectedSection,
+        contentFocusCount,
+        playlists.size,
+        playlistType,
+        profiles.size,
+        activeProfile?.id,
+        activeProfile != null,
+        storageOptions.size
+    ) {
+        buildSettingsSectionCards(
+            kind = sections[selectedSection].toKind(),
+            contentFocusCount = contentFocusCount,
+            playlistCount = playlists.size,
+            connectionsPlaylistType = playlistType,
+            profileCount = profiles.size,
+            activeProfileId = activeProfile?.id,
+            hasActiveProfile = activeProfile != null,
+            storageOptionCount = storageOptions.size
+        )
+    }
+    val contentChain = rememberSettingsFocusChain(contentFocusCount, 0)
+    val contentFocus = SettingsContentFocus(
+        chain = contentChain,
+        level = focusLevel,
+        focusedSectionIndex = focusedSectionIndex,
+        sectionCards = sectionCards
+    )
 
     val sidebarFocusRequester = remember { FocusRequester() }
-    val contentFocusRequester = remember { FocusRequester() }
     val topNavFocusRequester = remember { FocusRequester() }
+    val contentAreaFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(focusZone) {
-        when (focusZone) {
-            SettingsFocusZone.TOP_BAR -> topNavFocusRequester.requestFocus()
-            SettingsFocusZone.SIDEBAR -> sidebarFocusRequester.requestFocus()
-            SettingsFocusZone.CONTENT -> contentFocusRequester.requestFocus()
+    LaunchedEffect(Unit) {
+        sidebarFocusIndex = selectedSection
+        focusPanel = SettingsFocusPanel.LEFT
+        focusLevel = SettingsFocusLevel.SIDEBAR
+    }
+
+    LaunchedEffect(selectedSection) {
+        sidebarFocusIndex = selectedSection
+        focusedSectionIndex = 0
+        if (focusPanel == SettingsFocusPanel.RIGHT) {
+            focusLevel = SettingsFocusLevel.SECTION
         }
+    }
+
+    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, contentFocusCount, sectionCards) {
+        when (focusPanel) {
+            SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocus()
+            SettingsFocusPanel.LEFT -> sidebarFocusRequester.requestFocus()
+            SettingsFocusPanel.RIGHT -> when (focusLevel) {
+                SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocus()
+                SettingsFocusLevel.INSIDE_CARD -> {
+                    sectionCards.getOrNull(focusedSectionIndex)
+                        ?.takeIf { it.hasFocusableItems }
+                        ?.let { contentChain.moveTo(it.firstFocusIndex) }
+                }
+                SettingsFocusLevel.SIDEBAR -> Unit
+            }
+        }
+    }
+
+    fun selectSidebarSection(index: Int) {
+        val clamped = index.coerceIn(0, sections.lastIndex)
+        sidebarFocusIndex = clamped
+        selectedSection = clamped
+        focusedSectionIndex = 0
+        focusLevel = SettingsFocusLevel.SIDEBAR
+    }
+
+    fun enterContentFromSidebar() {
+        selectSidebarSection(sidebarFocusIndex)
+        focusPanel = SettingsFocusPanel.RIGHT
+        focusLevel = SettingsFocusLevel.SECTION
+        focusedSectionIndex = 0
+    }
+
+    fun handleBackKey(): Boolean {
+        when {
+            connectionDialog != null -> viewModel.dismissConnectionDialog()
+            showHideAdultPinDialog -> {
+                showHideAdultPinDialog = false
+                pendingHideAdultValue = null
+            }
+            showResetConfirm -> showResetConfirm = false
+            profileMenuOpen -> profileMenuOpen = false
+            focusPanel == SettingsFocusPanel.RIGHT && focusLevel == SettingsFocusLevel.INSIDE_CARD -> {
+                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+            }
+            focusPanel == SettingsFocusPanel.RIGHT && focusLevel == SettingsFocusLevel.SECTION -> {
+                exitToSidebar(
+                    focusPanel = { focusPanel = it },
+                    focusLevel = { focusLevel = it },
+                    sidebarFocusIndex = { sidebarFocusIndex = it },
+                    selectedSection = selectedSection
+                )
+            }
+            else -> onBack()
+        }
+        return true
     }
 
     fun activateNavTab(tab: EpgNavTab) {
@@ -157,25 +344,13 @@ fun SettingsScreen(
         if (event.type != KeyEventType.KeyDown) return false
         if (profileMenuOpen) {
             return when (event.key) {
-                Key.DirectionUp -> {
-                    profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
-                    true
-                }
-                Key.DirectionDown -> {
-                    profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
-                    true
-                }
                 Key.Back, Key.Escape -> {
                     profileMenuOpen = false
                     true
                 }
-                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight -> {
                     profileMenuOpen = false
-                    when (profileMenuFocusIndex) {
-                        0 -> onSwitchProfile()
-                        1 -> Unit
-                    }
-                    true
+                    false
                 }
                 else -> false
             }
@@ -190,7 +365,8 @@ fun SettingsScreen(
                 true
             }
             Key.DirectionDown -> {
-                focusZone = SettingsFocusZone.SIDEBAR
+                focusPanel = SettingsFocusPanel.LEFT
+                focusLevel = SettingsFocusLevel.SIDEBAR
                 sidebarFocusIndex = selectedSection
                 true
             }
@@ -212,25 +388,210 @@ fun SettingsScreen(
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionUp -> {
-                if (sidebarFocusIndex > 0) sidebarFocusIndex -= 1 else {
-                    focusZone = SettingsFocusZone.TOP_BAR
+                if (sidebarFocusIndex > 0) {
+                    selectSidebarSection(sidebarFocusIndex - 1)
+                } else {
+                    focusPanel = SettingsFocusPanel.TOP_BAR
                 }
                 true
             }
             Key.DirectionDown -> {
-                if (sidebarFocusIndex < sections.lastIndex) sidebarFocusIndex += 1
+                if (sidebarFocusIndex < sections.lastIndex) {
+                    selectSidebarSection(sidebarFocusIndex + 1)
+                }
+                true
+            }
+            Key.DirectionLeft -> {
+                onBack()
                 true
             }
             Key.DirectionRight -> {
-                focusZone = SettingsFocusZone.CONTENT
+                enterContentFromSidebar()
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                selectedSection = sidebarFocusIndex
-                focusZone = SettingsFocusZone.CONTENT
+                enterContentFromSidebar()
                 true
             }
+            Key.Back, Key.Escape -> handleBackKey()
             else -> false
+        }
+    }
+
+    fun handleContentKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        if (sectionCards.isEmpty()) return false
+
+        return when (focusLevel) {
+            SettingsFocusLevel.SECTION -> when (event.key) {
+                Key.DirectionLeft -> {
+                    exitToSidebar(
+                        focusPanel = { focusPanel = it },
+                        focusLevel = { focusLevel = it },
+                        sidebarFocusIndex = { sidebarFocusIndex = it },
+                        selectedSection = selectedSection
+                    )
+                    true
+                }
+                Key.DirectionUp -> {
+                    focusedSectionIndex = (focusedSectionIndex - 1).coerceAtLeast(0)
+                    true
+                }
+                Key.DirectionDown -> {
+                    focusedSectionIndex = (focusedSectionIndex + 1).coerceAtMost(sectionCards.lastIndex)
+                    true
+                }
+                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                    sectionCards.getOrNull(focusedSectionIndex)
+                        ?.takeIf { it.hasFocusableItems }
+                        ?.let {
+                            focusLevel = SettingsFocusLevel.INSIDE_CARD
+                            contentChain.moveTo(it.firstFocusIndex)
+                        }
+                    true
+                }
+                else -> false
+            }
+            SettingsFocusLevel.INSIDE_CARD -> {
+                val card = sectionCards.getOrNull(focusedSectionIndex) ?: return false
+                val sectionKind = sections[selectedSection].toKind()
+                when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                        true
+                    }
+                    Key.DirectionLeft -> {
+                        if (handleSettingsHorizontalKey(
+                                sectionKind,
+                                contentChain.focusedIndex,
+                                event.key,
+                                contentChain
+                            )
+                        ) {
+                            return true
+                        }
+                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
+                            moveProfileSwatchFocus(
+                                contentChain.focusedIndex,
+                                PROFILE_SWATCH_START,
+                                PROFILE_SWATCH_COUNT,
+                                event.key
+                            )?.let {
+                                contentChain.moveTo(it)
+                                true
+                            } ?: run {
+                                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                                true
+                            }
+                        } else {
+                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                            true
+                        }
+                    }
+                    Key.DirectionRight -> {
+                        if (handleSettingsHorizontalKey(
+                                sectionKind,
+                                contentChain.focusedIndex,
+                                event.key,
+                                contentChain
+                            )
+                        ) {
+                            return true
+                        }
+                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
+                            moveProfileSwatchFocus(
+                                contentChain.focusedIndex,
+                                PROFILE_SWATCH_START,
+                                PROFILE_SWATCH_COUNT,
+                                event.key
+                            )?.let {
+                                contentChain.moveTo(it)
+                                true
+                            } ?: false
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionUp -> {
+                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
+                            val swatchTarget = moveProfileSwatchFocus(
+                                contentChain.focusedIndex,
+                                PROFILE_SWATCH_START,
+                                PROFILE_SWATCH_COUNT,
+                                event.key
+                            )
+                            if (swatchTarget != null) {
+                                contentChain.moveTo(swatchTarget)
+                            } else if (!moveSettingsVerticalFocus(
+                                    contentChain.focusedIndex,
+                                    -1,
+                                    focusedSectionIndex,
+                                    sectionCards,
+                                    contentChain
+                                ) { focusedSectionIndex = it }
+                            ) {
+                                if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                                    exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                                } else {
+                                    contentChain.moveTo(contentChain.focusedIndex - 1)
+                                }
+                            }
+                        } else if (!moveSettingsVerticalFocus(
+                                contentChain.focusedIndex,
+                                -1,
+                                focusedSectionIndex,
+                                sectionCards,
+                                contentChain
+                            ) { focusedSectionIndex = it }
+                        ) {
+                            if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                            } else {
+                                contentChain.moveTo(contentChain.focusedIndex - 1)
+                            }
+                        }
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
+                            val swatchTarget = moveProfileSwatchFocus(
+                                contentChain.focusedIndex,
+                                PROFILE_SWATCH_START,
+                                PROFILE_SWATCH_COUNT,
+                                event.key
+                            )
+                            if (swatchTarget != null) {
+                                contentChain.moveTo(swatchTarget)
+                            } else if (!moveSettingsVerticalFocus(
+                                    contentChain.focusedIndex,
+                                    1,
+                                    focusedSectionIndex,
+                                    sectionCards,
+                                    contentChain
+                                ) { focusedSectionIndex = it }
+                            ) {
+                                contentChain.moveTo(
+                                    (contentChain.focusedIndex + 1).coerceAtMost(card.lastFocusIndex)
+                                )
+                            }
+                        } else if (!moveSettingsVerticalFocus(
+                                contentChain.focusedIndex,
+                                1,
+                                focusedSectionIndex,
+                                sectionCards,
+                                contentChain
+                            ) { focusedSectionIndex = it }
+                        ) {
+                            contentChain.moveTo(
+                                (contentChain.focusedIndex + 1).coerceAtMost(card.lastFocusIndex)
+                            )
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+            SettingsFocusLevel.SIDEBAR -> false
         }
     }
 
@@ -238,15 +599,22 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Back, Key.Escape -> handleBackKey()
+                    else -> false
+                }
+            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
                 now = now,
                 selectedTab = EpgNavTab.Settings,
                 focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
-                navFocused = focusZone == SettingsFocusZone.TOP_BAR &&
+                navFocused = focusPanel == SettingsFocusPanel.TOP_BAR &&
                     topBarFocusIndex <= GridNavTabs.lastIndex,
-                profileFocused = focusZone == SettingsFocusZone.TOP_BAR &&
+                profileFocused = focusPanel == SettingsFocusPanel.TOP_BAR &&
                     topBarFocusIndex == TopBarProfileIndex,
                 profileInitials = profileInitials,
                 profileMenuExpanded = profileMenuOpen,
@@ -255,8 +623,12 @@ fun SettingsScreen(
                     profileMenuOpen = true
                     profileMenuFocusIndex = 0
                 },
-                onSwitchAccounts = onSwitchProfile,
+                onSwitchAccounts = {
+                    profileMenuOpen = false
+                    onSwitchProfile()
+                },
                 onOpenSettings = { profileMenuOpen = false },
+                onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tab ->
                     topBarFocusIndex = GridNavTabs.indexOf(tab)
                     activateNavTab(tab)
@@ -266,7 +638,7 @@ fun SettingsScreen(
                     .focusRequester(topNavFocusRequester)
                     .focusable()
                     .onPreviewKeyEvent {
-                        if (focusZone == SettingsFocusZone.TOP_BAR) handleTopBarKey(it) else false
+                        if (focusPanel == SettingsFocusPanel.TOP_BAR) handleTopBarKey(it) else false
                     }
             )
 
@@ -276,32 +648,47 @@ fun SettingsScreen(
                         .focusRequester(sidebarFocusRequester)
                         .focusable()
                         .onPreviewKeyEvent {
-                            if (focusZone == SettingsFocusZone.SIDEBAR) handleSidebarKey(it) else false
+                            if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
                         }
                 ) {
                     SettingsSidebar(
                         items = navItems,
                         selectedIndex = selectedSection,
                         focusedIndex = sidebarFocusIndex,
-                        sidebarFocused = focusZone == SettingsFocusZone.SIDEBAR
+                        sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
+                        onSectionSelected = { index ->
+                            selectSidebarSection(index)
+                            focusPanel = SettingsFocusPanel.LEFT
+                            focusLevel = SettingsFocusLevel.SIDEBAR
+                        }
                     )
                 }
 
-                Column(
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .focusRequester(contentFocusRequester)
+                        .focusRequester(contentAreaFocusRequester)
+                        .focusProperties {
+                            canFocus = focusPanel == SettingsFocusPanel.RIGHT
+                        }
                         .focusable()
-                        .verticalScroll(rememberScrollState())
-                        .padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .onPreviewKeyEvent {
+                            if (focusPanel == SettingsFocusPanel.RIGHT) handleContentKey(it) else false
+                        }
                 ) {
+                    TvScrollContainer(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
                     when (sections[selectedSection]) {
                         SettingsSection.Profile -> ProfileSettingsContent(
                             activeProfile = activeProfile,
                             profiles = profiles,
                             settings = settings,
+                            focus = contentFocus,
                             onSwitchProfile = onSwitchProfile,
                             onSelectProfile = { profileViewModel.switchProfile(it) },
                             onToggleMiniAudio = { viewModel.updateMiniPlayerAudio(!settings.miniPlayerAudioEnabled) },
@@ -319,6 +706,7 @@ fun SettingsScreen(
                             }
                         )
                         SettingsSection.Connections -> ConnectionsSettingsContent(
+                            focus = contentFocus,
                             name = name,
                             onNameChange = { name = it },
                             url = url,
@@ -336,6 +724,7 @@ fun SettingsScreen(
                             xtreamPass = xtreamPass,
                             onXtreamPassChange = { xtreamPass = it },
                             progress = progress,
+                            isConnecting = isConnecting,
                             playlists = playlists,
                             xtreamAccounts = xtreamAccounts,
                             onAddPlaylist = {
@@ -358,6 +747,7 @@ fun SettingsScreen(
                             settings = settings,
                             scannerRuntime = scannerRuntime,
                             now = now,
+                            focus = contentFocus,
                             onRefreshEpg = { viewModel.refreshEpg() },
                             onOpenEpgResolver = onOpenEpgResolver,
                             onRowHeight = { viewModel.updateRowHeight(it) },
@@ -369,6 +759,7 @@ fun SettingsScreen(
                         )
                         SettingsSection.Playback -> PlaybackSettingsContent(
                             settings = settings,
+                            focus = contentFocus,
                             onRetries = { viewModel.updateRetries(it) },
                             onAudioLanguage = { viewModel.updateAudioLanguage(it) },
                             onSleepTimer = { viewModel.updateSleepTimerMinutes(it) },
@@ -378,43 +769,41 @@ fun SettingsScreen(
                         SettingsSection.Recordings -> RecordingsSettingsContent(
                             currentStorageLabel = currentStorageLabel,
                             storageOptions = storageOptions,
+                            focus = contentFocus,
                             onSelectStorage = { viewModel.setRecordingStorage(it) }
                         )
                         SettingsSection.About -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
                             AboutSettingsContent(
                                 importSummary = importSummary,
+                                focus = contentFocus,
                                 onExportBackup = { viewModel.exportBackup(context.cacheDir) },
                                 onResetApp = { showResetConfirm = true }
                             )
                         }
                     }
+                    }
                 }
             }
         }
 
+        connectionDialog?.let { dialogState ->
+            ConnectionResultDialog(
+                state = dialogState,
+                onDismiss = { viewModel.dismissConnectionDialog() },
+                onGoToGuide = {
+                    viewModel.dismissConnectionDialog()
+                    onNavigateHome()
+                }
+            )
+        }
+
         if (showResetConfirm) {
-            AlertDialog(
-                onDismissRequest = { showResetConfirm = false },
-                title = { Text("Reset app?") },
-                text = {
-                    Text(
-                        "This clears all playlists, channels, guide data, favorites, watch history, and recordings. Your profiles will be kept.",
-                        fontFamily = DmSansFamily
-                    )
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        showResetConfirm = false
-                        viewModel.resetApp { onNavigateHome() }
-                    }) {
-                        Text("Reset")
-                    }
-                },
-                dismissButton = {
-                    Button(onClick = { showResetConfirm = false }) {
-                        Text("Cancel")
-                    }
+            FactoryResetConfirmDialog(
+                onDismiss = { showResetConfirm = false },
+                onConfirm = {
+                    showResetConfirm = false
+                    viewModel.resetAllData(onRestartToOnboarding)
                 }
             )
         }
@@ -447,15 +836,23 @@ private fun ProfileSettingsContent(
     activeProfile: UserProfile?,
     profiles: List<UserProfile>,
     settings: com.neuropulse.tv.domain.model.AppSettings,
+    focus: SettingsContentFocus,
     onSwitchProfile: () -> Unit,
     onSelectProfile: (Long) -> Unit,
     onToggleMiniAudio: () -> Unit,
     onToggleHideAdult: () -> Unit,
     onAvatarColorChange: (String) -> Unit
 ) {
+    val swatchCount = if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
+    val hideAdultIndex = focus.chain.lastIndex - 1
+    val miniAudioIndex = focus.chain.lastIndex
+    var useButtonIndex = 1 + swatchCount
+    var cardIdx = 0
     SettingsPanel(
         title = "Active profile",
-        description = "Profiles keep separate favorites, watch history, and parental rules."
+        description = "Profiles keep separate favorites, watch history, and parental rules.",
+        cardIndex = cardIdx++,
+        focus = focus
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -482,26 +879,41 @@ private fun ProfileSettingsContent(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            Button(onClick = onSwitchProfile) { Text("Manage profiles") }
+            SettingsFocusButton(
+                text = "Manage profiles",
+                onClick = onSwitchProfile,
+                chainIndex = 0,
+                focus = focus
+            )
         }
     }
 
     if (activeProfile != null) {
         SettingsPanel(
             title = "Profile picture color",
-            description = "Choose a color for your profile avatar."
+            description = "Choose a color for your profile avatar.",
+            cardIndex = cardIdx++,
+            focus = focus
         ) {
             ProfileColorPicker(
                 colors = ProfileAvatarColors,
                 selectedHex = activeProfile.avatarColor,
-                onColorSelected = onAvatarColorChange
+                onColorSelected = onAvatarColorChange,
+                swatchStartIndex = PROFILE_SWATCH_START,
+                focus = focus
             )
         }
     }
 
-    SettingsPanel(title = "All profiles", description = "Select a profile for this device.") {
+    SettingsPanel(
+        title = "All profiles",
+        description = "Select a profile for this device.",
+        cardIndex = cardIdx++,
+        focus = focus
+    ) {
         profiles.forEach { profile ->
             val isActive = profile.id == activeProfile?.id
+            val rowFocusIndex = if (!isActive) useButtonIndex++ else -1
             SettingsListRow(
                 title = profile.name,
                 subtitle = buildString {
@@ -509,13 +921,18 @@ private fun ProfileSettingsContent(
                     if (profile.hasPin) append("PIN protected · ")
                     append(if (isActive) "Active" else "Tap to switch")
                 },
-                isFocused = false,
+                isFocused = rowFocusIndex >= 0 && focus.isFocused(rowFocusIndex),
                 modifier = Modifier.padding(vertical = 4.dp),
                 trailing = {
                     if (isActive) {
                         Text("●", color = EpgColors.Accent, fontSize = 12.sp)
                     } else {
-                        Button(onClick = { onSelectProfile(profile.id) }) { Text("Use") }
+                        SettingsFocusButton(
+                            text = "Use",
+                            onClick = { onSelectProfile(profile.id) },
+                            chainIndex = rowFocusIndex,
+                            focus = focus
+                        )
                     }
                 }
             )
@@ -532,9 +949,11 @@ private fun ProfileSettingsContent(
 
     SettingsPanel(
         title = "Parental controls",
-        description = "Filter adult channel groups from the guide and search."
+        description = "Filter adult channel groups from the guide and search.",
+        cardIndex = cardIdx++,
+        focus = focus
     ) {
-        SettingsToggleRow(
+        SettingsFocusToggleRow(
             label = "Hide adult content",
             description = if (activeProfile?.hasPin == true) {
                 "PIN required to turn on"
@@ -542,25 +961,36 @@ private fun ProfileSettingsContent(
                 "Blocks channels in adult groups (18+, XXX, etc.)"
             },
             enabled = settings.hideAdultContent,
-            onToggle = onToggleHideAdult
+            onToggle = onToggleHideAdult,
+            chainIndex = hideAdultIndex,
+            focus = focus
         )
     }
 
-    SettingsPanel(title = "Profile preferences") {
+    SettingsPanel(
+        title = "Profile preferences",
+        cardIndex = cardIdx++,
+        focus = focus
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsChip(
                 label = if (settings.miniPlayerAudioEnabled) "Mini player audio ON" else "Mini player audio OFF",
-                selected = settings.miniPlayerAudioEnabled
+                selected = settings.miniPlayerAudioEnabled,
+                focused = focus.isFocused(miniAudioIndex)
             )
-            Button(onClick = onToggleMiniAudio) {
-                Text(if (settings.miniPlayerAudioEnabled) "Turn off" else "Turn on")
-            }
+            SettingsFocusButton(
+                text = if (settings.miniPlayerAudioEnabled) "Turn off" else "Turn on",
+                onClick = onToggleMiniAudio,
+                chainIndex = miniAudioIndex,
+                focus = focus
+            )
         }
     }
 }
 
 @Composable
 private fun ConnectionsSettingsContent(
+    focus: SettingsContentFocus,
     name: String,
     onNameChange: (String) -> Unit,
     url: String,
@@ -578,6 +1008,7 @@ private fun ConnectionsSettingsContent(
     xtreamPass: String,
     onXtreamPassChange: (String) -> Unit,
     progress: String,
+    isConnecting: Boolean,
     playlists: List<com.neuropulse.tv.domain.model.Playlist>,
     xtreamAccounts: List<com.neuropulse.tv.domain.model.XtreamAccountInfo>,
     onAddPlaylist: () -> Unit,
@@ -586,74 +1017,103 @@ private fun ConnectionsSettingsContent(
     onDeletePlaylist: (Long) -> Unit
 ) {
     SettingsPanel(
-        title = "Add connection",
-        description = "Link your IPTV provider using M3U or Xtream Codes."
+        title = "Connect",
+        description = "Link your IPTV provider using M3U or Xtream Codes.",
+        cardIndex = 0,
+        focus = focus
     ) {
-        SettingsTextField(
+        SettingsFocusTextField(
             label = "Connection name",
             value = name,
             onValueChange = onNameChange,
-            placeholder = "e.g. Home IPTV"
+            placeholder = "e.g. Home IPTV",
+            chainIndex = 0,
+            focus = focus
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { onPlaylistTypeChange(PlaylistType.M3U) }) {
-                Text(
-                    "M3U",
-                    fontWeight = if (playlistType == PlaylistType.M3U) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (playlistType == PlaylistType.M3U) EpgColors.Accent else EpgColors.TextSecondary
-                )
+        SettingsFocusPillGroup(
+            labels = listOf("M3U", "Xtream"),
+            selectedIndex = if (playlistType == PlaylistType.XTREAM) 1 else 0,
+            startChainIndex = 1,
+            focus = focus,
+            onSelect = { index ->
+                onPlaylistTypeChange(if (index == 0) PlaylistType.M3U else PlaylistType.XTREAM)
             }
-            Button(onClick = { onPlaylistTypeChange(PlaylistType.XTREAM) }) {
-                Text(
-                    "Xtream",
-                    fontWeight = if (playlistType == PlaylistType.XTREAM) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (playlistType == PlaylistType.XTREAM) EpgColors.Accent else EpgColors.TextSecondary
-                )
-            }
-        }
+        )
         if (playlistType == PlaylistType.M3U) {
-            SettingsTextField(
+            SettingsFocusTextField(
                 label = "M3U URL",
                 value = url,
                 onValueChange = onUrlChange,
-                placeholder = "https://provider.com/playlist.m3u"
+                placeholder = "https://provider.com/playlist.m3u",
+                chainIndex = 3,
+                focus = focus
             )
         } else {
-            SettingsTextField(
+            SettingsFocusTextField(
                 label = "Server URL",
                 value = xtreamServer,
                 onValueChange = onXtreamServerChange,
-                placeholder = "http://server:port"
+                placeholder = "http://server:port",
+                chainIndex = 3,
+                focus = focus
             )
-            SettingsTextField(
+            SettingsFocusTextField(
                 label = "Username",
                 value = xtreamUser,
                 onValueChange = onXtreamUserChange,
-                placeholder = "Username"
+                placeholder = "Username",
+                chainIndex = 4,
+                focus = focus
             )
-            SettingsTextField(
+            SettingsFocusTextField(
                 label = "Password",
                 value = xtreamPass,
                 onValueChange = onXtreamPassChange,
-                placeholder = "Password"
+                placeholder = "Password",
+                chainIndex = 5,
+                focus = focus
             )
         }
-        SettingsTextField(
+        val epgIndex = if (playlistType == PlaylistType.M3U) 4 else 6
+        val refreshIndex = if (playlistType == PlaylistType.M3U) 5 else 7
+        val addIndex = if (playlistType == PlaylistType.M3U) 6 else 8
+        SettingsFocusTextField(
             label = "EPG URL (optional)",
             value = epgUrl,
             onValueChange = onEpgUrlChange,
-            placeholder = "https://provider.com/epg.xml"
+            placeholder = "https://provider.com/epg.xml",
+            chainIndex = epgIndex,
+            focus = focus
         )
-        SettingsTextField(
+        SettingsFocusTextField(
             label = "Refresh every (hours)",
             value = refreshHours,
             onValueChange = onRefreshHoursChange,
-            placeholder = "24"
+            placeholder = "24",
+            chainIndex = refreshIndex,
+            focus = focus
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onAddPlaylist) { Text("Add connection") }
-            Button(onClick = onPickLocalFile) { Text("Local M3U file") }
-            Button(onClick = onPickTiviMateZip) { Text("Import TiviMate") }
+            SettingsFocusButton(
+                text = "Connect",
+                onClick = onAddPlaylist,
+                chainIndex = addIndex,
+                focus = focus,
+                isLoading = isConnecting,
+                loadingLabel = "Connecting..."
+            )
+            SettingsFocusButton(
+                text = "Local M3U file",
+                onClick = onPickLocalFile,
+                chainIndex = addIndex + 1,
+                focus = focus
+            )
+            SettingsFocusButton(
+                text = "Import TiviMate",
+                onClick = onPickTiviMateZip,
+                chainIndex = addIndex + 2,
+                focus = focus
+            )
         }
         Text(
             text = "Status: $progress",
@@ -663,9 +1123,12 @@ private fun ConnectionsSettingsContent(
         )
     }
 
+    val installedStart = connectionsAddFocusCount(playlistType)
     SettingsPanel(
         title = "Installed connections",
-        description = "${playlists.size} playlist(s) on this device."
+        description = "${playlists.size} playlist(s) on this device.",
+        cardIndex = 1,
+        focus = focus
     ) {
         if (playlists.isEmpty()) {
             Text(
@@ -675,14 +1138,20 @@ private fun ConnectionsSettingsContent(
                 fontSize = 13.sp
             )
         }
-        playlists.forEach { playlist ->
+        playlists.forEachIndexed { index, playlist ->
+            val chainIndex = installedStart + index
             SettingsListRow(
                 title = playlist.name,
-                subtitle = "${playlist.type} · refresh every ${playlist.refreshIntervalHours}h",
-                isFocused = false,
+                subtitle = playlistConnectionSubtitle(playlist),
+                isFocused = focus.isFocused(chainIndex),
                 modifier = Modifier.padding(vertical = 4.dp),
                 trailing = {
-                    Button(onClick = { onDeletePlaylist(playlist.id) }) { Text("Remove") }
+                    SettingsFocusButton(
+                        text = "Remove",
+                        onClick = { onDeletePlaylist(playlist.id) },
+                        chainIndex = chainIndex,
+                        focus = focus
+                    )
                 }
             )
         }
@@ -705,6 +1174,7 @@ private fun GuideSettingsContent(
     settings: com.neuropulse.tv.domain.model.AppSettings,
     scannerRuntime: ScannerRuntimeState,
     now: Long,
+    focus: SettingsContentFocus,
     onRefreshEpg: () -> Unit,
     onOpenEpgResolver: () -> Unit,
     onRowHeight: (EpgRowHeight) -> Unit,
@@ -714,33 +1184,51 @@ private fun GuideSettingsContent(
     onToggleScanOnMetered: (Boolean) -> Unit,
     onScanNow: () -> Unit
 ) {
-    SettingsPanel(title = "EPG data", description = "Keep the guide up to date.") {
+    SettingsPanel(
+        title = "EPG data",
+        description = "Keep the guide up to date.",
+        cardIndex = 0,
+        focus = focus
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onRefreshEpg) { Text("Refresh EPG now") }
-            Button(onClick = onOpenEpgResolver) { Text("Auto-match channels") }
-        }
-    }
-    SettingsPanel(title = "Guide row height") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            EpgRowHeight.entries.forEach { height ->
-                SettingsChip(
-                    label = height.name.lowercase().replaceFirstChar { it.uppercase() },
-                    selected = settings.epgRowHeight == height
-                )
-                Button(onClick = { onRowHeight(height) }) {
-                    Text(height.name.lowercase().replaceFirstChar { it.uppercase() })
-                }
-            }
+            SettingsFocusButton(text = "Refresh EPG now", onClick = onRefreshEpg, chainIndex = 0, focus = focus)
+            SettingsFocusButton(text = "Auto-match channels", onClick = onOpenEpgResolver, chainIndex = 1, focus = focus)
         }
     }
     SettingsPanel(
-        title = "Channel Scanner",
-        description = "Background checks stream URLs without playing them."
+        title = "Guide row height",
+        cardIndex = 1,
+        focus = focus
     ) {
-        SettingsToggleRow(
-            label = "Enable Auto-Scan",
-            enabled = settings.autoScanEnabled,
-            onToggle = { onToggleAutoScan(!settings.autoScanEnabled) }
+        val rowLabels = EpgRowHeight.entries.map { height ->
+            height.name.lowercase().replaceFirstChar { it.uppercase() }
+        }
+        SettingsFocusPillGroup(
+            labels = rowLabels,
+            selectedIndex = EpgRowHeight.entries.indexOf(settings.epgRowHeight).coerceAtLeast(0),
+            startChainIndex = 2,
+            focus = focus,
+            onSelect = { index -> onRowHeight(EpgRowHeight.entries[index]) }
+        )
+    }
+    SettingsPanel(
+        title = "Channel Scanner",
+        description = "Background checks stream URLs without playing them.",
+        cardIndex = 2,
+        focus = focus
+    ) {
+        Text(
+            text = "Enable Auto-Scan",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp
+        )
+        SettingsFocusPillGroup(
+            labels = listOf("On", "Turn off"),
+            selectedIndex = if (settings.autoScanEnabled) 0 else 1,
+            startChainIndex = 5,
+            focus = focus,
+            onSelect = { index -> onToggleAutoScan(index == 0) }
         )
         Text(
             text = "Scan interval (live channels)",
@@ -749,17 +1237,14 @@ private fun GuideSettingsContent(
             fontSize = 14.sp,
             modifier = Modifier.padding(top = 8.dp)
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(1, 2, 5, 10, 30).forEach { minutes ->
-                Button(onClick = { onScanInterval(minutes) }) {
-                    Text(
-                        "${minutes}m",
-                        fontWeight = if (settings.scanIntervalMinutes == minutes) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (settings.scanIntervalMinutes == minutes) EpgColors.Accent else EpgColors.TextSecondary
-                    )
-                }
-            }
-        }
+        val scanIntervals = listOf(1, 2, 5, 10, 30)
+        SettingsFocusPillGroup(
+            labels = scanIntervals.map { "${it}m" },
+            selectedIndex = scanIntervals.indexOf(settings.scanIntervalMinutes).coerceAtLeast(0),
+            startChainIndex = 7,
+            focus = focus,
+            onSelect = { index -> onScanInterval(scanIntervals[index]) }
+        )
         Text(
             text = "Concurrent checks",
             color = EpgColors.TextSecondary,
@@ -767,26 +1252,29 @@ private fun GuideSettingsContent(
             fontSize = 14.sp,
             modifier = Modifier.padding(top = 8.dp)
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(5, 10, 20, 50).forEach { count ->
-                Button(onClick = { onConcurrentChecks(count) }) {
-                    Text(
-                        "$count",
-                        fontWeight = if (settings.concurrentChecks == count) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (settings.concurrentChecks == count) EpgColors.Accent else EpgColors.TextSecondary
-                    )
-                }
-            }
-        }
-        SettingsToggleRow(
+        val concurrentCounts = listOf(5, 10, 20, 50)
+        SettingsFocusPillGroup(
+            labels = concurrentCounts.map { it.toString() },
+            selectedIndex = concurrentCounts.indexOf(settings.concurrentChecks).coerceAtLeast(0),
+            startChainIndex = 12,
+            focus = focus,
+            onSelect = { index -> onConcurrentChecks(concurrentCounts[index]) }
+        )
+        SettingsFocusToggleRow(
             label = "Scan on metered / mobile connections",
             enabled = settings.scanOnMetered,
-            onToggle = { onToggleScanOnMetered(!settings.scanOnMetered) }
+            onToggle = { onToggleScanOnMetered(!settings.scanOnMetered) },
+            chainIndex = 16,
+            focus = focus
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            Button(onClick = onScanNow, enabled = !scannerRuntime.isScanning) {
-                Text(if (scannerRuntime.isScanning) "Scanning…" else "Scan Now")
-            }
+            SettingsFocusButton(
+                text = if (scannerRuntime.isScanning) "Scanning…" else "Scan Now",
+                onClick = onScanNow,
+                chainIndex = 17,
+                focus = focus,
+                enabled = !scannerRuntime.isScanning
+            )
         }
         val lastFullScanLabel = scannerRuntime.lastFullScanAt?.let { at ->
             val mins = ((now - at) / 60_000L).coerceAtLeast(0)
@@ -809,13 +1297,18 @@ private fun GuideSettingsContent(
 @Composable
 private fun PlaybackSettingsContent(
     settings: com.neuropulse.tv.domain.model.AppSettings,
+    focus: SettingsContentFocus,
     onRetries: (Int) -> Unit,
     onAudioLanguage: (String) -> Unit,
     onSleepTimer: (Int) -> Unit,
     onToggleMiniAudio: () -> Unit,
     onToggleSleepTimerAuto: () -> Unit
 ) {
-    SettingsPanel(title = "Stream playback") {
+    SettingsPanel(
+        title = "Stream playback",
+        cardIndex = 0,
+        focus = focus
+    ) {
         Text(
             "Stream retries: ${settings.streamRetries}",
             color = EpgColors.TextSecondary,
@@ -823,14 +1316,13 @@ private fun PlaybackSettingsContent(
             fontSize = 14.sp
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(2, 3, 5).forEach { n ->
-                Button(onClick = { onRetries(n) }) {
-                    Text(
-                        "$n",
-                        fontWeight = if (settings.streamRetries == n) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (settings.streamRetries == n) EpgColors.Accent else EpgColors.TextSecondary
-                    )
-                }
+            listOf(2, 3, 5).forEachIndexed { index, n ->
+                SettingsFocusButton(
+                    text = "$n",
+                    onClick = { onRetries(n) },
+                    chainIndex = index,
+                    focus = focus
+                )
             }
         }
         SettingsTextField(
@@ -842,16 +1334,19 @@ private fun PlaybackSettingsContent(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsChip(
                 label = if (settings.miniPlayerAudioEnabled) "Mini player audio ON" else "Mini player audio OFF",
-                selected = settings.miniPlayerAudioEnabled
+                selected = settings.miniPlayerAudioEnabled,
+                focused = focus.isFocused(3)
             )
-            Button(onClick = onToggleMiniAudio) { Text("Toggle") }
+            SettingsFocusButton(text = "Toggle", onClick = onToggleMiniAudio, chainIndex = 3, focus = focus)
         }
     }
     SettingsPanel(
         title = "Auto sleep timer",
-        description = "Automatically start a sleep timer when full-screen playback begins."
+        description = "Automatically start a sleep timer when full-screen playback begins.",
+        cardIndex = 1,
+        focus = focus
     ) {
-        SettingsToggleRow(
+        SettingsFocusToggleRow(
             label = "Auto sleep timer",
             description = if (settings.sleepTimerAutoEnabled) {
                 "Starts a ${settings.sleepTimerMinutes} min timer when you open the player"
@@ -859,10 +1354,16 @@ private fun PlaybackSettingsContent(
                 "Off — set a timer manually from the player menu"
             },
             enabled = settings.sleepTimerAutoEnabled,
-            onToggle = onToggleSleepTimerAuto
+            onToggle = onToggleSleepTimerAuto,
+            chainIndex = 4,
+            focus = focus
         )
     }
-    SettingsPanel(title = "Sleep timer duration") {
+    SettingsPanel(
+        title = "Sleep timer duration",
+        cardIndex = 2,
+        focus = focus
+    ) {
         Text(
             "Default: ${settings.sleepTimerMinutes} minutes",
             color = EpgColors.TextSecondary,
@@ -870,14 +1371,13 @@ private fun PlaybackSettingsContent(
             fontSize = 14.sp
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(15, 30, 45, 60, 90).forEach { min ->
-                Button(onClick = { onSleepTimer(min) }) {
-                    Text(
-                        "$min",
-                        fontWeight = if (settings.sleepTimerMinutes == min) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (settings.sleepTimerMinutes == min) EpgColors.Accent else EpgColors.TextSecondary
-                    )
-                }
+            listOf(15, 30, 45, 60, 90).forEachIndexed { index, min ->
+                SettingsFocusButton(
+                    text = "$min",
+                    onClick = { onSleepTimer(min) },
+                    chainIndex = 5 + index,
+                    focus = focus
+                )
             }
         }
     }
@@ -887,11 +1387,14 @@ private fun PlaybackSettingsContent(
 private fun RecordingsSettingsContent(
     currentStorageLabel: String?,
     storageOptions: List<com.neuropulse.tv.feature.recording.StorageOption>,
+    focus: SettingsContentFocus,
     onSelectStorage: (String) -> Unit
 ) {
     SettingsPanel(
         title = "Recording storage",
-        description = "Choose where completed recordings are saved."
+        description = "Choose where completed recordings are saved.",
+        cardIndex = 0,
+        focus = focus
     ) {
         Text(
             text = currentStorageLabel ?: "Not configured",
@@ -899,42 +1402,76 @@ private fun RecordingsSettingsContent(
             fontFamily = DmSansFamily,
             fontSize = 14.sp
         )
-        storageOptions.forEach { option ->
+        storageOptions.forEachIndexed { index, option ->
             SettingsListRow(
                 title = option.label,
                 subtitle = option.displayLine(),
-                isFocused = false,
+                isFocused = focus.isFocused(index),
                 modifier = Modifier.padding(vertical = 4.dp),
                 trailing = {
-                    Button(onClick = { onSelectStorage(option.id) }) { Text("Use") }
+                    SettingsFocusButton(
+                        text = "Use",
+                        onClick = { onSelectStorage(option.id) },
+                        chainIndex = index,
+                        focus = focus
+                    )
                 }
             )
         }
     }
 }
 
+private fun playlistConnectionSubtitle(playlist: Playlist): String {
+    val endpoint = when (playlist.type) {
+        PlaylistType.M3U -> {
+            if (playlist.url.startsWith("local://")) {
+                "Local file · ${playlist.url.removePrefix("local://")}"
+            } else {
+                playlist.url
+            }
+        }
+        PlaylistType.XTREAM -> playlist.xtreamServerUrl ?: playlist.url
+        PlaylistType.STALKER -> playlist.stalkerPortalUrl ?: playlist.url
+    }
+    return "${playlist.type} · $endpoint · refresh every ${playlist.refreshIntervalHours}h"
+}
+
 @Composable
 private fun AboutSettingsContent(
     importSummary: String?,
+    focus: SettingsContentFocus,
     onExportBackup: () -> Unit,
     onResetApp: () -> Unit
 ) {
-    SettingsPanel(title = "GRID") {
+    SettingsPanel(
+        title = "GRID",
+        cardIndex = 0,
+        focus = focus
+    ) {
         Text("Version ${SettingsViewModel.APP_VERSION}", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
         Text("Live TV Guide for Android TV", color = EpgColors.TextDimmed, fontFamily = DmSansFamily, fontSize = 13.sp)
-        Button(onClick = onExportBackup, modifier = Modifier.padding(top = 8.dp)) {
-            Text("Export .grid backup")
-        }
+        SettingsFocusButton(
+            text = "Export .grid backup",
+            onClick = onExportBackup,
+            chainIndex = 0,
+            focus = focus,
+            modifier = Modifier.padding(top = 8.dp)
+        )
         importSummary?.let {
             Text(it, color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 13.sp)
         }
     }
     SettingsPanel(
         title = "Reset app",
-        description = "Clear all playlists, guide data, favorites, and recordings. Profiles are kept."
+        description = "Delete all profiles, connections, watch history, favorites, and settings. Restarts as a fresh install.",
+        cardIndex = 1,
+        focus = focus
     ) {
-        Button(onClick = onResetApp) {
-            Text("Reset app", color = EpgColors.TextPrimary)
-        }
+        SettingsFocusButton(
+            text = "Reset everything",
+            onClick = onResetApp,
+            chainIndex = 1,
+            focus = focus
+        )
     }
 }

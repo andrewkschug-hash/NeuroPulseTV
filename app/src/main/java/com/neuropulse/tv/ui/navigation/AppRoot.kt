@@ -24,7 +24,8 @@ fun AppRoot(
         AppPhase.Main -> MainContentGate(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
-            onSwitchProfile = { phase = AppPhase.Profile }
+            onSwitchProfile = { phase = AppPhase.Profile },
+            onRestartToOnboarding = { phase = AppPhase.Splash }
         )
     }
 }

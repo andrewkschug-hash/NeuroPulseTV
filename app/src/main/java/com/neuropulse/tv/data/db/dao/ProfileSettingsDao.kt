@@ -16,4 +16,7 @@ interface ProfileSettingsDao {
 
     @Query("DELETE FROM profile_settings WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: Long)
+
+    @Query("DELETE FROM profile_settings")
+    suspend fun deleteAll()
 }

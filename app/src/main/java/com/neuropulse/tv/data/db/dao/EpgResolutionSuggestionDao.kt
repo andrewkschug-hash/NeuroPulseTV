@@ -23,4 +23,7 @@ interface EpgResolutionSuggestionDao {
 
     @Query("SELECT * FROM epg_resolution_suggestions WHERE isDismissed = 0")
     suspend fun activeNow(): List<EpgResolutionSuggestionEntity>
+
+    @Query("DELETE FROM epg_resolution_suggestions")
+    suspend fun deleteAll()
 }

@@ -107,6 +107,7 @@ fun ProfilePickerScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val hasProfiles = profiles.isNotEmpty()
+    val firstProfileFocusRequester = remember { FocusRequester() }
 
     var showPinFor by remember { mutableStateOf<UserProfile?>(null) }
     var showAddProfile by remember { mutableStateOf(false) }
@@ -134,6 +135,12 @@ fun ProfilePickerScreen(
                 cardOffsets[i].animateTo(0f, tween(280, easing = FastOutSlowInEasing))
             }
         }
+    }
+
+    LaunchedEffect(hasProfiles, profiles.map { it.id }, showPinFor, showAddProfile) {
+        if (showPinFor != null || showAddProfile) return@LaunchedEffect
+        delay(350)
+        runCatching { firstProfileFocusRequester.requestFocus() }
     }
 
     fun tryOpenAddProfile() {
@@ -222,7 +229,8 @@ fun ProfilePickerScreen(
                     label = "Add a Profile",
                     alpha = cardAlphas.firstOrNull()?.value ?: 1f,
                     offsetY = cardOffsets.firstOrNull()?.value ?: 0f,
-                    onClick = { tryOpenAddProfile() }
+                    onClick = { tryOpenAddProfile() },
+                    focusRequester = firstProfileFocusRequester
                 )
             } else {
                 @OptIn(ExperimentalLayoutApi::class)
@@ -239,7 +247,8 @@ fun ProfilePickerScreen(
                             alpha = cardAlphas.getOrNull(index)?.value ?: 1f,
                             offsetY = cardOffsets.getOrNull(index)?.value ?: 0f,
                             onClick = { selectProfile(profile) },
-                            modifier = Modifier.padding(horizontal = 14.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp),
+                            focusRequester = if (index == 0) firstProfileFocusRequester else null
                         )
                     }
                     if (!atProfileLimit) {
@@ -357,7 +366,8 @@ private fun ProfileCard(
     alpha: Float,
     offsetY: Float,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "cardScale")
@@ -373,6 +383,7 @@ private fun ProfileCard(
                 scaleX = scale
                 scaleY = scale
             }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
             .border(
@@ -436,7 +447,8 @@ private fun AddProfileCard(
     alpha: Float,
     offsetY: Float,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "addScale")
@@ -452,6 +464,7 @@ private fun AddProfileCard(
                 scaleX = scale
                 scaleY = scale
             }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
             .border(

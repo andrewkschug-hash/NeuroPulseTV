@@ -6,6 +6,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.EpgRowHeight
+import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.XtreamAccountInfo
 import com.neuropulse.tv.domain.repository.IptvRepository
@@ -20,10 +21,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import com.neuropulse.tv.util.CONNECTION_FAILED_ERROR
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_ERROR
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_MS
 import java.io.File
 import javax.inject.Inject
+
+sealed interface ConnectionDialogState {
+    data object Success : ConnectionDialogState
+    data class Failure(val errorMessage: String) : ConnectionDialogState
+}
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -54,6 +65,12 @@ class SettingsViewModel @Inject constructor(
 
     private val _m3uProgress = MutableStateFlow("Idle")
     val m3uProgress = _m3uProgress.asStateFlow()
+
+    private val _isConnecting = MutableStateFlow(false)
+    val isConnecting: StateFlow<Boolean> = _isConnecting.asStateFlow()
+
+    private val _connectionDialog = MutableStateFlow<ConnectionDialogState?>(null)
+    val connectionDialog: StateFlow<ConnectionDialogState?> = _connectionDialog.asStateFlow()
 
     private val _importSummary = MutableStateFlow<String?>(null)
     val importSummary = _importSummary.asStateFlow()
@@ -129,25 +146,57 @@ class SettingsViewModel @Inject constructor(
 
     fun addPlaylistFromUrl(name: String, url: String, epg: String?, refreshHours: Int) {
         viewModelScope.launch {
-            _m3uProgress.value = "Parsing..."
-            repository.addPlaylistFromUrl(name, url, epg, refreshHours)
-            _m3uProgress.value = "Done"
+            runConnectionJob(progressLabel = "Parsing...") {
+                repository.addPlaylistFromUrl(name, url, epg, refreshHours)
+            }
         }
     }
 
     fun addPlaylistFromLocal(name: String, content: String, epg: String?, refreshHours: Int) {
         viewModelScope.launch {
-            _m3uProgress.value = "Parsing..."
-            repository.addPlaylistFromLocal(name, content, epg, refreshHours)
-            _m3uProgress.value = "Done"
+            runConnectionJob(progressLabel = "Parsing...") {
+                repository.addPlaylistFromLocal(name, content, epg, refreshHours)
+            }
         }
     }
 
-    fun addXtreamPlaylist(name: String, serverUrl: String, username: String, password: String, epg: String?, refreshHours: Int) {
+    fun addXtreamPlaylist(
+        name: String,
+        serverUrl: String,
+        username: String,
+        password: String,
+        epg: String?,
+        refreshHours: Int
+    ) {
         viewModelScope.launch {
-            _m3uProgress.value = "Connecting Xtream..."
-            repository.addXtreamPlaylist(name, serverUrl, username, password, epg, refreshHours)
-            _m3uProgress.value = "Done"
+            runConnectionJob(progressLabel = "Connecting Xtream...") {
+                repository.addXtreamPlaylist(name, serverUrl, username, password, epg, refreshHours)
+            }
+        }
+    }
+
+    fun dismissConnectionDialog() {
+        _connectionDialog.value = null
+    }
+
+    suspend fun connectionFormFor(playlist: Playlist): ConnectionFormFields =
+        repository.connectionFormForPlaylist(playlist)
+
+    private suspend fun runConnectionJob(progressLabel: String, block: suspend () -> Unit) {
+        _isConnecting.value = true
+        _m3uProgress.value = progressLabel
+        try {
+            withTimeout(CONNECTION_TIMEOUT_MS) { block() }
+            _connectionDialog.value = ConnectionDialogState.Success
+        } catch (_: TimeoutCancellationException) {
+            _connectionDialog.value = ConnectionDialogState.Failure(CONNECTION_TIMEOUT_ERROR)
+        } catch (e: Exception) {
+            _connectionDialog.value = ConnectionDialogState.Failure(
+                e.message?.takeIf { it.isNotBlank() } ?: CONNECTION_FAILED_ERROR
+            )
+        } finally {
+            _isConnecting.value = false
+            _m3uProgress.value = "Idle"
         }
     }
 
@@ -241,11 +290,11 @@ class SettingsViewModel @Inject constructor(
         _dashboardUrl.value = dashboardController.startOrGetUrl()
     }
 
-    fun resetApp(onComplete: () -> Unit = {}) {
+    fun resetAllData(onComplete: () -> Unit = {}) {
         viewModelScope.launch {
             repository.resetApp()
             _settings.value = AppSettings()
-            _importSummary.value = "App reset complete. Playlists, guide data, and favorites cleared."
+            syncScannerSettings()
             onComplete()
         }
     }

@@ -40,11 +40,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
-import com.neuropulse.tv.ui.component.GridGhostLink
 import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextField
 import com.neuropulse.tv.ui.component.tvFocusChainNavigation
+import com.neuropulse.tv.ui.component.tvFocusScrollIntoView
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -92,6 +92,7 @@ internal fun MethodCard(
         modifier = modifier
             .width(MethodCardWidth)
             .height(84.dp)
+            .tvFocusScrollIntoView()
             .onFocusChanged {
                 focused = it.isFocused
                 if (it.isFocused) onFocused()
@@ -244,6 +245,7 @@ internal fun ConnectButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .tvFocusScrollIntoView()
                 .onFocusChanged { if (it.isFocused) chain?.onItemFocused(chainIndex) }
                 .then(
                     if (chain != null && chainIndex >= 0) {
@@ -267,6 +269,10 @@ internal fun ConnectButton(
     }
 }
 
+/**
+ * Ghost "Set up later" link for the IPTV method-picker screen.
+ * Skips onboarding and navigates to home. Must stay on that screen — do not remove.
+ */
 @Composable
 internal fun OnboardingSkipLink(
     onClick: () -> Unit,
@@ -274,18 +280,42 @@ internal fun OnboardingSkipLink(
     chain: TvFocusChain? = null,
     chainIndex: Int = -1
 ) {
-    GridGhostLink(
-        text = "Set up later",
+    var focused by remember { mutableStateOf(false) }
+    val textColor = if (focused) OnboardingTextPrimary else OnboardingTextMuted
+
+    Surface(
         onClick = onClick,
-        modifier = modifier.then(
-            if (chain != null && chainIndex >= 0) {
-                Modifier.tvFocusChainNavigation(chain, chainIndex, onClick)
-            } else {
-                Modifier
+        modifier = modifier
+            .tvFocusScrollIntoView()
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) chain?.onItemFocused(chainIndex)
             }
-        ),
-        contentDescription = "Set up IPTV later"
-    )
+            .then(
+                if (chain != null && chainIndex >= 0) {
+                    Modifier.tvFocusChainNavigation(chain, chainIndex, onClick)
+                } else {
+                    Modifier
+                }
+            )
+            .semantics { contentDescription = "Set up IPTV later" },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color.Transparent
+        )
+    ) {
+        Text(
+            text = "Set up later",
+            color = textColor,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Normal,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+    }
 }
 
 @Composable

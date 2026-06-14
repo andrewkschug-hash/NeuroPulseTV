@@ -4,6 +4,9 @@ import android.content.ContentResolver
 import android.net.Uri
 import com.neuropulse.tv.data.db.dao.ChannelDao
 import com.neuropulse.tv.data.db.dao.ChannelScanDao
+import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
+import com.neuropulse.tv.data.db.dao.EpgSourceChannelDao
+import com.neuropulse.tv.data.db.dao.FavoriteDao
 import com.neuropulse.tv.data.db.dao.FavoriteGroupDao
 import com.neuropulse.tv.data.db.dao.PlaylistDao
 import com.neuropulse.tv.data.db.dao.ProfileDao
@@ -15,6 +18,7 @@ import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
+import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
 import com.neuropulse.tv.data.db.entity.PlaylistEntity
 import com.neuropulse.tv.data.db.entity.ProfileFavoriteEntity
@@ -28,6 +32,7 @@ import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
 import com.neuropulse.tv.data.network.stalker.StalkerPortalClient
 import com.neuropulse.tv.data.security.SecureCredentialStore
+import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.SearchInputMode
@@ -86,6 +91,10 @@ class IptvRepositoryImpl @Inject constructor(
     private val recordedMediaDao: RecordedMediaDao,
     private val streamHealthDao: StreamHealthDao,
     private val channelScanDao: ChannelScanDao,
+    private val favoriteDao: FavoriteDao,
+    private val watchHistoryDao: WatchHistoryDao,
+    private val epgSourceChannelDao: EpgSourceChannelDao,
+    private val epgResolutionSuggestionDao: EpgResolutionSuggestionDao,
     private val remoteTextFetcher: RemoteTextFetcher,
     private val m3uParser: M3uParser,
     private val xtreamParser: XtreamParser,
@@ -181,6 +190,8 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
     }
+
+    override suspend fun hasActiveConnection(): Boolean = playlistDao.all().isNotEmpty()
 
     private fun resolveXtreamPassword(playlist: PlaylistEntity): String? =
         secureCredentialStore.getXtreamPassword(playlist.id) ?: playlist.xtreamPassword
@@ -590,6 +601,12 @@ class IptvRepositoryImpl @Inject constructor(
         val categories = xtreamParser.parseLiveCategories(categoriesRaw)
         val liveChannels = xtreamParser.parseLiveChannels(playlistId, liveRaw, username, password, normalizedServer, categories)
 
+        if (liveChannels.isEmpty()) {
+            playlistDao.delete(playlistId)
+            secureCredentialStore.removePlaylistCredentials(playlistId)
+            throw IllegalStateException(CONNECT_ERROR)
+        }
+
         channelDao.clearByPlaylist(playlistId)
         channelDao.insertAll(liveChannels)
         vodCache.value = xtreamParser.parseVod(vodRaw, username, password, normalizedServer)
@@ -634,6 +651,43 @@ class IptvRepositoryImpl @Inject constructor(
             channelDao.clearByPlaylist(playlistId)
             channelDao.insertAll(final.channels)
             epgScheduler.runResolverForNewChannels(startedAt)
+        }
+
+    override suspend fun connectionFormForPlaylist(playlist: Playlist): ConnectionFormFields =
+        withContext(Dispatchers.IO) {
+            when (playlist.type) {
+                PlaylistType.M3U -> {
+                    val storedUrl = secureCredentialStore.getM3uUrl(playlist.id) ?: playlist.url
+                    val displayUrl = if (storedUrl.startsWith("local://")) {
+                        storedUrl.removePrefix("local://")
+                    } else {
+                        storedUrl
+                    }
+                    ConnectionFormFields(
+                        name = playlist.name,
+                        playlistType = PlaylistType.M3U,
+                        m3uUrl = displayUrl,
+                        epgUrl = playlist.epgUrl.orEmpty(),
+                        refreshHours = playlist.refreshIntervalHours.toString()
+                    )
+                }
+                PlaylistType.XTREAM -> ConnectionFormFields(
+                    name = playlist.name,
+                    playlistType = PlaylistType.XTREAM,
+                    epgUrl = playlist.epgUrl.orEmpty(),
+                    refreshHours = playlist.refreshIntervalHours.toString(),
+                    xtreamServer = playlist.xtreamServerUrl ?: playlist.url,
+                    xtreamUser = playlist.xtreamUsername.orEmpty(),
+                    xtreamPassword = secureCredentialStore.getXtreamPassword(playlist.id).orEmpty()
+                )
+                PlaylistType.STALKER -> ConnectionFormFields(
+                    name = playlist.name,
+                    playlistType = PlaylistType.STALKER,
+                    m3uUrl = playlist.stalkerPortalUrl ?: playlist.url,
+                    epgUrl = playlist.epgUrl.orEmpty(),
+                    refreshHours = playlist.refreshIntervalHours.toString()
+                )
+            }
         }
 
     override suspend fun deletePlaylist(playlistId: Long) {
@@ -872,22 +926,39 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun resetApp() = withContext(Dispatchers.IO) {
-        ensureDefaultProfile()
         playlistDao.all().forEach { playlist ->
-            channelDao.clearByPlaylist(playlist.id)
             secureCredentialStore.removePlaylistCredentials(playlist.id)
-            playlistDao.delete(playlist.id)
         }
+
+        channelDao.deleteAll()
+        playlistDao.deleteAll()
+        secureCredentialStore.clearAll()
+
         programDao.clearAll()
+        epgSourceChannelDao.deleteAll()
+        epgResolutionSuggestionDao.deleteAll()
+        streamHealthDao.deleteAll()
+        channelScanDao.deleteAll()
+
         profileFavoriteDao.deleteAll()
         profileWatchHistoryDao.deleteAll()
         favoriteGroupDao.deleteAll()
-        streamHealthDao.deleteAll()
-        channelScanDao.deleteAll()
+        profileSettingsDao.deleteAll()
+        favoriteDao.deleteAll()
+        watchHistoryDao.deleteAll()
+
+        profileDao.deleteActiveProfile()
+        profileDao.deleteAllProfiles()
+
         recordingDao.deleteAll()
         scheduledRecordingDao.deleteAll()
         recordedMediaDao.deleteAll()
+
         epgCache.clear()
+        vodCache.value = emptyList()
+        seriesCache.value = emptyList()
+        seriesSeasonsCache.clear()
+        activeProfileId = 0L
         cachedSettings = AppSettings()
         saveSettings(AppSettings())
     }

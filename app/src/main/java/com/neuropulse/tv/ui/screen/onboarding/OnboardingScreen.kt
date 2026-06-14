@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuropulse.tv.ui.component.GridWordmark
+import com.neuropulse.tv.ui.component.TvScrollContainer
 import com.neuropulse.tv.ui.component.TvBackButton
 import com.neuropulse.tv.ui.component.TvFocusChain
 import com.neuropulse.tv.ui.component.TvTextLink
@@ -158,6 +157,12 @@ fun OnboardingScreen(
     }
 }
 
+/**
+ * "Connect your IPTV service" — method picker.
+ *
+ * IMPORTANT: The "Set up later" button at the bottom of this screen must always remain.
+ * It skips IPTV setup (calls [onSkip] → home). Do not remove it in future edits.
+ */
 @Composable
 private fun MethodPickerScreen(
     onSelect: (OnboardingMethod) -> Unit,
@@ -176,98 +181,98 @@ private fun MethodPickerScreen(
                 onDismissEditing = {}
             )
     ) {
-        Column(
+        TvScrollContainer(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-        Spacer(modifier = Modifier.fillMaxHeight(0.12f))
-        GridWordmark(fontSize = 28.sp)
-        Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(48.dp))
+            GridWordmark(fontSize = 28.sp)
+            Spacer(modifier = Modifier.height(32.dp))
 
-        Text(
-            text = "Connect your IPTV service",
-            color = OnboardingTextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center
-        )
-        Text(
-            text = "Choose how your provider gave you access",
-            color = OnboardingTextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            MethodCard(
-                icon = "((o))",
-                iconColor = OnboardingAccent,
-                title = "Xtream Codes",
-                subtitle = "Server URL + username + password",
-                badge = "Most Common",
-                selected = focusedMethod == OnboardingMethod.Xtream,
-                onClick = { onSelect(OnboardingMethod.Xtream) },
-                onFocused = {
-                    focusedMethod = OnboardingMethod.Xtream
-                    focusChain.onItemFocused(0)
-                },
-                modifier = Modifier
-                    .focusRequester(focusChain.requesters[0])
-                    .tvFocusChainNavigation(focusChain, 0, onSkip)
+            Text(
+                text = "Connect your IPTV service",
+                color = OnboardingTextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center
             )
-            MethodCard(
-                icon = "∞",
-                iconColor = Color(0xFFB8C0D8),
-                title = "M3U URL",
-                subtitle = "A single playlist link",
-                selected = focusedMethod == OnboardingMethod.M3u,
-                onClick = { onSelect(OnboardingMethod.M3u) },
-                onFocused = {
-                    focusedMethod = OnboardingMethod.M3u
-                    focusChain.onItemFocused(1)
-                },
-                modifier = Modifier
-                    .focusRequester(focusChain.requesters[1])
-                    .tvFocusChainNavigation(focusChain, 1, onSkip)
+            Text(
+                text = "Choose how your provider gave you access",
+                color = OnboardingTextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp)
             )
-            MethodCard(
-                icon = "▣",
-                iconColor = Color(0xFFB8C0D8),
-                title = "MAC / Stalker Portal",
-                subtitle = "Portal URL + device MAC address",
-                selected = focusedMethod == OnboardingMethod.Stalker,
-                onClick = { onSelect(OnboardingMethod.Stalker) },
-                onFocused = {
-                    focusedMethod = OnboardingMethod.Stalker
-                    focusChain.onItemFocused(2)
-                },
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                MethodCard(
+                    icon = "((o))",
+                    iconColor = OnboardingAccent,
+                    title = "Xtream Codes",
+                    subtitle = "Server URL + username + password",
+                    badge = "Most Common",
+                    selected = focusedMethod == OnboardingMethod.Xtream,
+                    onClick = { onSelect(OnboardingMethod.Xtream) },
+                    onFocused = {
+                        focusedMethod = OnboardingMethod.Xtream
+                        focusChain.onItemFocused(0)
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusChain.requesters[0])
+                        .tvFocusChainNavigation(focusChain, 0, onSkip)
+                )
+                MethodCard(
+                    icon = "∞",
+                    iconColor = Color(0xFFB8C0D8),
+                    title = "M3U URL",
+                    subtitle = "A single playlist link",
+                    selected = focusedMethod == OnboardingMethod.M3u,
+                    onClick = { onSelect(OnboardingMethod.M3u) },
+                    onFocused = {
+                        focusedMethod = OnboardingMethod.M3u
+                        focusChain.onItemFocused(1)
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusChain.requesters[1])
+                        .tvFocusChainNavigation(focusChain, 1, onSkip)
+                )
+                MethodCard(
+                    icon = "▣",
+                    iconColor = Color(0xFFB8C0D8),
+                    title = "MAC / Stalker Portal",
+                    subtitle = "Portal URL + device MAC address",
+                    selected = focusedMethod == OnboardingMethod.Stalker,
+                    onClick = { onSelect(OnboardingMethod.Stalker) },
+                    onFocused = {
+                        focusedMethod = OnboardingMethod.Stalker
+                        focusChain.onItemFocused(2)
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusChain.requesters[2])
+                        .tvFocusChainNavigation(focusChain, 2, onSkip)
+                )
+            }
+
+            // Set up later — skips IPTV setup and navigates to home. DO NOT REMOVE.
+            Spacer(modifier = Modifier.height(28.dp))
+            OnboardingSkipLink(
+                onClick = onSkip,
+                chain = focusChain,
+                chainIndex = 3,
                 modifier = Modifier
-                    .focusRequester(focusChain.requesters[2])
-                    .tvFocusChainNavigation(focusChain, 2, onSkip)
+                    .padding(bottom = 48.dp)
+                    .focusRequester(focusChain.requesters[3])
+                    .onFocusChanged { if (it.isFocused) focusChain.onItemFocused(3) }
             )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        OnboardingSkipLink(
-            onClick = onSkip,
-            chain = focusChain,
-            chainIndex = 3,
-            modifier = Modifier
-                .padding(top = 24.dp, bottom = 40.dp)
-                .focusRequester(focusChain.requesters[3])
-                .onFocusChanged { if (it.isFocused) focusChain.onItemFocused(3) }
-        )
         }
     }
 }
@@ -586,10 +591,9 @@ private fun EntryScaffold(
                 onDismissEditing = onDismissEditing
             )
     ) {
-        Column(
+        TvScrollContainer(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 40.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

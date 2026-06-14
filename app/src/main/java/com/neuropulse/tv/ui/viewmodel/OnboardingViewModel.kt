@@ -5,9 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_ERROR
+import com.neuropulse.tv.util.CONNECTION_TIMEOUT_MS
 import com.neuropulse.tv.util.DeviceMacAddress
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +49,8 @@ class OnboardingViewModel @Inject constructor(
 
     val deviceMac: String? = DeviceMacAddress.resolve()
 
+    suspend fun hasActiveConnection(): Boolean = repository.hasActiveConnection()
+
     fun connectXtream(name: String, serverUrl: String, username: String, password: String) {
         if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
             showConnectError()
@@ -53,8 +59,11 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
-            val result = repository.connectXtreamPlaylist(name, serverUrl, username, password)
-            handleResult(result)
+            handleResult(
+                runConnectWithTimeout {
+                    repository.connectXtreamPlaylist(name, serverUrl, username, password)
+                }
+            )
         }
     }
 
@@ -66,8 +75,11 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
-            val result = repository.connectM3uPlaylist(name, url)
-            handleResult(result)
+            handleResult(
+                runConnectWithTimeout {
+                    repository.connectM3uPlaylist(name, url)
+                }
+            )
         }
     }
 
@@ -79,8 +91,25 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             _connectState.value = OnboardingConnectState.Connecting
             _errorMessage.value = null
-            val result = repository.connectStalkerPlaylist(name, portalUrl, macAddress)
-            handleResult(result)
+            handleResult(
+                runConnectWithTimeout {
+                    repository.connectStalkerPlaylist(name, portalUrl, macAddress)
+                }
+            )
+        }
+    }
+
+    private suspend fun runConnectWithTimeout(
+        block: suspend () -> PlaylistConnectResult
+    ): PlaylistConnectResult {
+        return try {
+            withTimeout(CONNECTION_TIMEOUT_MS) { block() }
+        } catch (_: TimeoutCancellationException) {
+            PlaylistConnectResult(
+                success = false,
+                playlistName = "",
+                errorMessage = CONNECTION_TIMEOUT_ERROR
+            )
         }
     }
 

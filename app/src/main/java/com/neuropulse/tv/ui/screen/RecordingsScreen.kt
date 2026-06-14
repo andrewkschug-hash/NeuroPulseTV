@@ -139,7 +139,9 @@ fun RecordingsScreen(
     var tab by remember { mutableIntStateOf(0) }
     var focusZone by remember { mutableStateOf(RecFocusZone.LIST) }
     var topBarRow by remember { mutableIntStateOf(0) }
-    var topBarFocusIndex by remember { mutableIntStateOf(1) }
+    var topBarFocusIndex by remember {
+        mutableIntStateOf(GridNavTabs.indexOf(EpgNavTab.Recordings).coerceAtLeast(0))
+    }
     var tabFocusIndex by remember { mutableIntStateOf(0) }
     var sortFocusIndex by remember { mutableIntStateOf(0) }
     var listFocusIndex by remember { mutableIntStateOf(0) }
@@ -160,8 +162,10 @@ fun RecordingsScreen(
         }
     }
     val rows: List<RecordingRow> = remember(tab, upcoming, recorded, now) {
-        if (tab == 0) upcoming.map { RecordingRow.Scheduled(it, now) }
-        else recorded.map { RecordingRow.Saved(it) }
+        when (tab) {
+            0 -> recorded.map { RecordingRow.Saved(it) }
+            else -> upcoming.map { RecordingRow.Scheduled(it, now) }
+        }
     }
     val sortLabels = listOf("Date", "Channel", "Duration", "Size")
     val sortValues = listOf(RecordingSort.DATE, RecordingSort.CHANNEL, RecordingSort.DURATION, RecordingSort.FILE_SIZE)
@@ -212,13 +216,17 @@ fun RecordingsScreen(
         null -> emptyList()
     }
 
+    fun playSavedRecording(row: RecordingRow.Saved) {
+        onPlayRecording(row.item.programTitle, Uri.fromFile(File(row.item.filePath)).toString())
+    }
+
     fun executeDetailAction() {
         when (val row = selectedRow) {
             is RecordingRow.Scheduled -> when (detailActionIndex) {
                 0 -> deleteScheduledId = row.item.id
             }
             is RecordingRow.Saved -> when (detailActionIndex) {
-                0 -> onPlayRecording(row.item.programTitle, Uri.fromFile(File(row.item.filePath)).toString())
+                0 -> playSavedRecording(row)
                 1 -> deleteMedia = row.item
             }
             null -> Unit
@@ -229,25 +237,13 @@ fun RecordingsScreen(
         if (event.type != KeyEventType.KeyDown) return false
         if (profileMenuOpen) {
             return when (event.key) {
-                Key.DirectionUp -> {
-                    profileMenuFocusIndex = (profileMenuFocusIndex - 1).coerceAtLeast(0)
-                    true
-                }
-                Key.DirectionDown -> {
-                    profileMenuFocusIndex = (profileMenuFocusIndex + 1).coerceAtMost(1)
-                    true
-                }
                 Key.Back, Key.Escape -> {
                     profileMenuOpen = false
                     true
                 }
-                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight -> {
                     profileMenuOpen = false
-                    when (profileMenuFocusIndex) {
-                        0 -> onNavigateProfile()
-                        1 -> onNavigateSettings()
-                    }
-                    true
+                    false
                 }
                 else -> false
             }
@@ -276,7 +272,7 @@ fun RecordingsScreen(
                         tabFocusIndex = tab
                     }
                     1 -> {
-                        if (tab == 1) {
+                        if (tab == 0) {
                             topBarRow = 2
                             sortFocusIndex = activeSortIndex
                         } else {
@@ -320,7 +316,7 @@ fun RecordingsScreen(
         if (rows.isEmpty()) {
             if (event.key == Key.DirectionUp) {
                 focusZone = RecFocusZone.TOP_BAR
-                topBarRow = if (tab == 1) 2 else 1
+                topBarRow = if (tab == 0) 2 else 1
                 return true
             }
             return false
@@ -339,13 +335,19 @@ fun RecordingsScreen(
                     scope.launch { listState.animateScrollToItem(listFocusIndex) }
                 } else {
                     focusZone = RecFocusZone.TOP_BAR
-                    topBarRow = if (tab == 1) 2 else 1
+                    topBarRow = if (tab == 0) 2 else 1
                 }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                focusZone = RecFocusZone.DETAIL
-                detailActionIndex = 0
+                when (val row = rows.getOrNull(listFocusIndex)) {
+                    is RecordingRow.Saved -> playSavedRecording(row)
+                    is RecordingRow.Scheduled -> {
+                        focusZone = RecFocusZone.DETAIL
+                        detailActionIndex = 0
+                    }
+                    null -> Unit
+                }
                 true
             }
             else -> false
@@ -388,6 +390,38 @@ fun RecordingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Back, Key.Escape -> when {
+                        deleteScheduledId != null -> {
+                            deleteScheduledId = null
+                            true
+                        }
+                        deleteMedia != null -> {
+                            deleteMedia = null
+                            true
+                        }
+                        profileMenuOpen -> {
+                            profileMenuOpen = false
+                            true
+                        }
+                        focusZone == RecFocusZone.DETAIL -> {
+                            focusZone = RecFocusZone.LIST
+                            true
+                        }
+                        focusZone == RecFocusZone.LIST && topBarRow > 0 -> {
+                            focusZone = RecFocusZone.TOP_BAR
+                            true
+                        }
+                        else -> {
+                            onNavigateHome()
+                            true
+                        }
+                    }
+                    else -> false
+                }
+            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
@@ -406,8 +440,15 @@ fun RecordingsScreen(
                     profileMenuOpen = true
                     profileMenuFocusIndex = 0
                 },
-                onSwitchAccounts = onNavigateProfile,
-                onOpenSettings = onNavigateSettings,
+                onSwitchAccounts = {
+                    profileMenuOpen = false
+                    onNavigateProfile()
+                },
+                onOpenSettings = {
+                    profileMenuOpen = false
+                    onNavigateSettings()
+                },
+                onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tabItem ->
                     focusZone = RecFocusZone.TOP_BAR
                     topBarRow = 0
@@ -438,7 +479,7 @@ fun RecordingsScreen(
             )
 
             EpgChipFilterBar(
-                labels = listOf("Scheduled", "Recordings"),
+                labels = listOf("My Recordings", "Schedule"),
                 activeIndex = tab,
                 focusedIndex = tabFocusIndex,
                 barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 1,
@@ -447,7 +488,7 @@ fun RecordingsScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             )
 
-            if (tab == 1) {
+            if (tab == 0) {
                 EpgChipFilterBar(
                     labels = sortLabels,
                     activeIndex = activeSortIndex,
@@ -471,7 +512,13 @@ fun RecordingsScreen(
             ) {
                 if (rows.isEmpty()) {
                     EpgListEmptyState(
-                        message = if (tab == 0) "No scheduled recordings" else "No saved recordings",
+                        message = if (tab == 0) "No recordings yet" else "No upcoming recordings scheduled",
+                        hint = if (tab == 0) {
+                            "Go to TV Guide to schedule a recording"
+                        } else {
+                            "Browse the guide and tap Record on a program"
+                        },
+                        icon = if (tab == 0) "⏺" else "📅",
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {

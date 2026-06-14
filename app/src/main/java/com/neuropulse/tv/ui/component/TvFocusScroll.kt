@@ -1,16 +1,20 @@
-package com.neuropulse.tv.ui.component
+﻿package com.neuropulse.tv.ui.component
 
 import android.content.pm.PackageManager
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -27,6 +31,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -51,7 +56,8 @@ fun calculateFocusScrollTarget(
     itemTop: Float,
     itemBottom: Float,
     safeZonePx: Float,
-    preferCenter: Boolean = true
+    preferCenter: Boolean = true,
+    preferTopAlign: Boolean = false
 ): Int? {
     if (viewportHeight <= 0) return null
     val viewportTop = currentScroll.toFloat()
@@ -59,19 +65,29 @@ fun calculateFocusScrollTarget(
     val topSafe = viewportTop + safeZonePx
     val bottomSafe = viewportBottom - safeZonePx
 
-    if (itemTop >= topSafe && itemBottom <= bottomSafe) return null
+    if (!preferTopAlign && itemTop >= topSafe && itemBottom <= bottomSafe) return null
 
-    val rawTarget = if (preferCenter) {
-        val itemCenter = (itemTop + itemBottom) / 2f
-        itemCenter - viewportHeight / 2f
-    } else {
-        when {
+    val rawTarget = when {
+        preferTopAlign -> {
+            when {
+                itemTop < topSafe -> currentScroll + (itemTop - topSafe)
+                itemTop > bottomSafe -> currentScroll + (itemTop - topSafe)
+                itemBottom > bottomSafe -> currentScroll + (itemTop - topSafe)
+                else -> currentScroll.toFloat()
+            }
+        }
+        preferCenter -> {
+            val itemCenter = (itemTop + itemBottom) / 2f
+            itemCenter - viewportHeight / 2f
+        }
+        else -> when {
             itemTop < topSafe -> currentScroll + (itemTop - topSafe)
             itemBottom > bottomSafe -> currentScroll + (itemBottom - bottomSafe)
             else -> currentScroll.toFloat()
         }
     }
-    return rawTarget.roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
+    val target = rawTarget.roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
+    return if (target == currentScroll) null else target
 }
 
 @Stable
@@ -85,30 +101,38 @@ class TvFocusScrollState(
         containerCoords = coords
     }
 
-    suspend fun scrollIntoViewIfNeeded(itemCoords: LayoutCoordinates, safeZonePx: Float) {
+    suspend fun scrollIntoViewIfNeeded(
+        itemCoords: LayoutCoordinates,
+        safeZonePx: Float,
+        preferTopAlign: Boolean = false
+    ) {
         if (!TvFocusScrollConfig.enabled) return
         val container = containerCoords ?: return
         if (!container.isAttached || !itemCoords.isAttached) return
 
-        val itemTop = container.localPositionOf(itemCoords, Offset.Zero).y
-        val itemBottom = itemTop + itemCoords.size.height
-        val viewportHeight = container.size.height
-        val target = calculateFocusScrollTarget(
-            currentScroll = scrollState.value,
-            maxScroll = scrollState.maxValue,
-            viewportHeight = viewportHeight,
-            itemTop = itemTop,
-            itemBottom = itemBottom,
-            safeZonePx = safeZonePx,
-            preferCenter = TvFocusScrollConfig.preferCenter
-        ) ?: return
+        repeat(3) { attempt ->
+            val itemTop = container.localPositionOf(itemCoords, Offset.Zero).y
+            val itemBottom = itemTop + itemCoords.size.height
+            val viewportHeight = container.size.height
+            val target = calculateFocusScrollTarget(
+                currentScroll = scrollState.value,
+                maxScroll = scrollState.maxValue,
+                viewportHeight = viewportHeight,
+                itemTop = itemTop,
+                itemBottom = itemBottom,
+                safeZonePx = safeZonePx,
+                preferCenter = TvFocusScrollConfig.preferCenter,
+                preferTopAlign = preferTopAlign
+            ) ?: return
 
-        val delta = target - scrollState.value
-        if (delta == 0) return
-        if (TvFocusScrollConfig.animateScroll) {
-            scrollState.animateScrollBy(delta.toFloat())
-        } else {
-            scrollState.scrollTo(target)
+            val delta = target - scrollState.value
+            if (delta == 0) return
+            if (TvFocusScrollConfig.animateScroll) {
+                scrollState.animateScrollBy(delta.toFloat())
+            } else {
+                scrollState.scrollTo(target)
+            }
+            if (attempt < 2) delay(32)
         }
     }
 }
@@ -143,14 +167,21 @@ fun TvScrollContainer(
 ) {
     val focusScrollState = rememberTvFocusScrollState()
     CompositionLocalProvider(LocalTvFocusScrollState provides focusScrollState) {
-        Column(
+        // Measure the visible viewport (Box), not the full scrollable Column height.
+        Box(
             modifier = modifier
-                .verticalScroll(focusScrollState.scrollState)
-                .onGloballyPositioned { focusScrollState.updateContainer(it) },
-            verticalArrangement = verticalArrangement,
-            horizontalAlignment = horizontalAlignment,
-            content = content
-        )
+                .fillMaxSize()
+                .onGloballyPositioned { focusScrollState.updateContainer(it) }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(focusScrollState.scrollState),
+                verticalArrangement = verticalArrangement,
+                horizontalAlignment = horizontalAlignment,
+                content = content
+            )
+        }
     }
 }
 
@@ -177,11 +208,41 @@ fun Modifier.tvFocusScrollIntoView(
                 val coords = coordinates
                 if (coords != null) {
                     scope.launch {
+                        // Allow layout to settle after programmatic focus moves (D-pad chains).
+                        delay(16)
                         scrollState.scrollIntoViewIfNeeded(coords, safeZonePx)
                     }
                 }
             }
         }
+}
+
+/**
+ * Scrolls this element into view when [active] becomes true (e.g. section highlight without
+ * moving focus to a child). Uses top-align so card headers and content below stay visible.
+ */
+@Composable
+fun Modifier.tvScrollIntoViewWhen(
+    active: Boolean,
+    scrollState: TvFocusScrollState? = LocalTvFocusScrollState.current,
+    preferTopAlign: Boolean = true,
+    enabled: Boolean = true
+): Modifier {
+    if (!enabled || scrollState == null || !active) return this
+
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val safeZonePx = with(density) { TvFocusScrollConfig.safeZoneDp.toPx() }
+    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    LaunchedEffect(active, coordinates) {
+        if (!active) return@LaunchedEffect
+        val coords = coordinates ?: return@LaunchedEffect
+        delay(16)
+        scrollState.scrollIntoViewIfNeeded(coords, safeZonePx, preferTopAlign = preferTopAlign)
+    }
+
+    return this.onGloballyPositioned { coordinates = it }
 }
 
 /** Wrapper for arbitrary focusable TV controls. */
