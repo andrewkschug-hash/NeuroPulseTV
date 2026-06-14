@@ -77,7 +77,7 @@ class TvFocusChain(
         if (requesters.isEmpty()) return
         val target = index.coerceIn(0, requesters.lastIndex)
         focusedIndex = target
-        requesters[target].requestFocus()
+        requesters[target].requestFocusSafely()
     }
 
     fun move(delta: Int) = moveTo(focusedIndex + delta)

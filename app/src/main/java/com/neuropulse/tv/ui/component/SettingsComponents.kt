@@ -525,7 +525,7 @@ fun ConnectionResultDialog(
 ) {
     val confirmFocusRequester = remember { FocusRequester() }
     LaunchedEffect(state) {
-        confirmFocusRequester.requestFocus()
+        confirmFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     when (state) {
@@ -606,7 +606,7 @@ fun FactoryResetConfirmDialog(
 ) {
     val confirmFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
-        confirmFocusRequester.requestFocus()
+        confirmFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     AlertDialog(

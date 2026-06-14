@@ -51,6 +51,7 @@ import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.feature.recording.SeriesTitleMatcher
 import com.neuropulse.tv.feature.recording.StorageFormat
 import com.neuropulse.tv.player.LivePlayerManager
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.EpgChipFilterBar
 import com.neuropulse.tv.ui.component.EpgListEmptyState
 import com.neuropulse.tv.ui.component.EpgNavTab
@@ -244,9 +245,9 @@ fun RecordingsScreen(
 
     LaunchedEffect(focusZone, topBarRow) {
         when (focusZone) {
-            RecFocusZone.TOP_BAR -> topNavFocusRequester.requestFocus()
-            RecFocusZone.LIST -> listFocusRequester.requestFocus()
-            RecFocusZone.DETAIL -> detailFocusRequester.requestFocus()
+            RecFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
+            RecFocusZone.LIST -> listFocusRequester.requestFocusSafelyAfterLayout()
+            RecFocusZone.DETAIL -> detailFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 

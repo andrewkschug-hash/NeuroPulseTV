@@ -94,6 +94,7 @@ import com.neuropulse.tv.ui.component.EpgCategoryFilterChip
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
 import com.neuropulse.tv.ui.component.MiniPlayerOverlay
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
 import com.neuropulse.tv.ui.component.SearchOverlay
 import com.neuropulse.tv.ui.component.StorageLocationPicker
@@ -419,25 +420,6 @@ fun HomeEpgScreen(
     LaunchedEffect(continueWatchingItems.size) {
         if (focusedContinueIndex > continueWatchingItems.lastIndex) {
             focusedContinueIndex = continueWatchingItems.lastIndex.coerceAtLeast(0)
-        }
-    }
-
-    LaunchedEffect(displayChannels.size) {
-        if (displayChannels.isNotEmpty()) {
-            gridFocusRequester.requestFocus()
-        }
-    }
-
-    LaunchedEffect(displayChannels.size, focusZone) {
-        when (focusZone) {
-            EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) gridFocusRequester.requestFocus()
-            EpgFocusZone.GRID_FILTER -> gridFilterFocusRequester.requestFocus()
-            EpgFocusZone.TOP_BAR -> topNavFocusRequester.requestFocus()
-            EpgFocusZone.CONTINUE_WATCHING -> if (continueWatchingItems.isNotEmpty()) {
-                continueWatchingFocusRequester.requestFocus()
-            }
-            EpgFocusZone.DETAIL -> detailFocusRequester.requestFocus()
-            EpgFocusZone.MINI_PLAYER -> miniPlayerFocusRequester.requestFocus()
         }
     }
 
@@ -1028,6 +1010,33 @@ fun HomeEpgScreen(
         if (streamUrl.isNotBlank()) played to streamUrl else null
     }
 
+    LaunchedEffect(
+        focusZone,
+        displayChannels.size,
+        showDetailPanel,
+        continueWatchingItems.isNotEmpty(),
+        miniPlayerChannel != null
+    ) {
+        when (focusZone) {
+            EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
+                gridFocusRequester.requestFocusSafelyAfterLayout()
+            }
+            EpgFocusZone.GRID_FILTER -> if (displayChannels.isNotEmpty()) {
+                gridFilterFocusRequester.requestFocusSafelyAfterLayout()
+            }
+            EpgFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
+            EpgFocusZone.CONTINUE_WATCHING -> if (continueWatchingItems.isNotEmpty()) {
+                continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
+            }
+            EpgFocusZone.DETAIL -> if (showDetailPanel) {
+                detailFocusRequester.requestFocusSafelyAfterLayout(150)
+            }
+            EpgFocusZone.MINI_PLAYER -> if (miniPlayerChannel != null) {
+                miniPlayerFocusRequester.requestFocusSafelyAfterLayout(150)
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1091,61 +1100,26 @@ fun HomeEpgScreen(
             }
 
             if (continueWatchingItems.isNotEmpty() || miniPlayerChannel != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    if (continueWatchingItems.isNotEmpty()) {
-                        ContinueWatchingRow(
-                            items = continueWatchingItems,
-                            focusedIndex = focusedContinueIndex,
-                            rowFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
-                            onSelect = { item ->
-                                if (viewModel.isProfileAccessAllowed()) {
-                                    viewModel.resumeContinueWatching(context, item)
-                                    onWatchChannel(item.channel.id)
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .focusRequester(continueWatchingFocusRequester)
-                                .focusable()
-                                .onPreviewKeyEvent {
-                                    focusZone == EpgFocusZone.CONTINUE_WATCHING && handleContinueWatchingKey(it)
-                                }
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-
-                    AnimatedVisibility(
-                        visible = miniPlayerChannel != null,
-                        enter = fadeIn() + expandHorizontally(),
-                        exit = fadeOut() + shrinkHorizontally()
-                    ) {
-                        miniPlayerChannel?.let { (playedChannel, streamUrl) ->
-                            MiniPlayerOverlay(
-                                channel = playedChannel,
-                                streamUrl = streamUrl,
-                                isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
-                                isIdleShrunk = miniPlayerIdleShrunk,
-                                miniAudioEnabled = miniPlayerAudioEnabled,
-                                onClick = { watchChannel(playedChannel) },
-                                modifier = Modifier
-                                    .padding(
-                                        top = 8.dp,
-                                        end = 16.dp,
-                                        bottom = EpgLayout.GuideHeaderBottomPadding
-                                    )
-                                    .focusRequester(miniPlayerFocusRequester)
-                                    .focusable()
-                                    .onPreviewKeyEvent {
-                                        if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
-                                    }
-                            )
+                HomeEpgContinueWatchingRow(
+                    continueWatchingItems = continueWatchingItems,
+                    focusedContinueIndex = focusedContinueIndex,
+                    continueWatchingFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
+                    onContinueSelect = { item ->
+                        if (viewModel.isProfileAccessAllowed()) {
+                            viewModel.resumeContinueWatching(context, item)
+                            onWatchChannel(item.channel.id)
                         }
-                    }
-                }
+                    },
+                    continueWatchingFocusRequester = continueWatchingFocusRequester,
+                    onContinueWatchingKey = ::handleContinueWatchingKey,
+                    miniPlayerChannel = miniPlayerChannel,
+                    miniPlayerFocused = focusZone == EpgFocusZone.MINI_PLAYER,
+                    miniPlayerIdleShrunk = miniPlayerIdleShrunk,
+                    miniPlayerAudioEnabled = miniPlayerAudioEnabled,
+                    onMiniPlayerClick = ::watchChannel,
+                    miniPlayerFocusRequester = miniPlayerFocusRequester,
+                    onMiniPlayerKey = ::handleMiniPlayerKey
+                )
             }
 
             if (featuredMovies.isNotEmpty()) {
@@ -1162,145 +1136,49 @@ fun HomeEpgScreen(
                 )
             }
 
-            Box(
+            HomeEpgChannelList(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(gridFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent { event ->
-                                focusZone == EpgFocusZone.GRID && handleGridKey(event)
-                            }
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier
-                                .width(EpgLayout.ChannelColumnWidth)
-                                .height(EpgLayout.TimelineHeaderHeight)
-                                .background(EpgColors.ChannelColumnBg)
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                androidx.tv.material3.Text(
-                                    text = com.neuropulse.tv.ui.component.formatEpgDay(now),
-                                    color = EpgColors.TextSecondary,
-                                    fontFamily = com.neuropulse.tv.ui.theme.DmSansFamily,
-                                    fontSize = 12.sp
-                                )
-                                EpgCategoryFilterChip(
-                                    label = categoryFilter.label,
-                                    active = categoryFilter.isActive,
-                                    focused = focusZone == EpgFocusZone.GRID_FILTER,
-                                    headerStyle = true,
-                                    onClick = {
-                                        focusZone = EpgFocusZone.GRID_FILTER
-                                        categoryMenuFocusIndex = currentCategoryMenuIndex(
-                                            categoryFilter,
-                                            channelGroups
-                                        )
-                                        showCategoryFilterMenu = true
-                                    },
-                                    modifier = Modifier
-                                        .focusRequester(gridFilterFocusRequester)
-                                        .focusProperties {
-                                            canFocus = focusZone == EpgFocusZone.GRID_FILTER
-                                        }
-                                        .focusable()
-                                        .onPreviewKeyEvent { event ->
-                                            focusZone == EpgFocusZone.GRID_FILTER &&
-                                                handleGridFilterKey(event)
-                                        }
-                                )
-                            }
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(hScroll, enabled = false)
-                        ) {
-                            EpgTimelineHeader(
-                                windowStart = windowStart,
-                                windowDurationMs = windowDurationMs,
-                                now = now
-                            )
-                        }
-                    }
+                    .fillMaxWidth(),
+                gridFocusRequester = gridFocusRequester,
+                onGridKey = ::handleGridKey,
+                gridFocused = focusZone == EpgFocusZone.GRID,
+                hScroll = hScroll,
+                now = now,
+                windowStart = windowStart,
+                windowDurationMs = windowDurationMs,
+                categoryFilter = categoryFilter,
+                channelGroups = channelGroups,
+                gridFilterFocused = focusZone == EpgFocusZone.GRID_FILTER,
+                gridFilterFocusRequester = gridFilterFocusRequester,
+                onOpenCategoryFilter = {
+                    focusZone = EpgFocusZone.GRID_FILTER
+                    categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter, channelGroups)
+                    showCategoryFilterMenu = true
+                },
+                onGridFilterKey = ::handleGridFilterKey,
+                listState = listState,
+                displayChannels = displayChannels,
+                programsForChannel = ::programsForChannel,
+                channelScanStatuses = channelScanStatuses,
+                focusChannelIndex = focusChannelIndex,
+                focusProgramIndex = focusProgramIndex,
+                focusOnChannelColumn = focusOnChannelColumn,
+                confirmedProgramId = if (focusZone == EpgFocusZone.DETAIL) focusedProgram?.id else null,
+                scheduled = scheduled,
+                timelineWidth = timelineWidth,
+                scrolledAwayFromLive = scrolledAwayFromLive,
+                onJumpToLive = ::scrollToLive
+            )
 
-                    Box(
-                        modifier = Modifier
-                            .height(EpgLayout.GuideChannelListHeight)
-                            .fillMaxWidth()
-                    ) {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(displayChannels.size) { index ->
-                                val channel = displayChannels[index]
-                                val programs = programsForChannel(channel)
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    EpgChannelCell(
-                                        channel = channel,
-                                        isFocused = focusZone == EpgFocusZone.GRID &&
-                                            focusOnChannelColumn && index == focusChannelIndex,
-                                        showBottomSeparator = index < displayChannels.lastIndex,
-                                        scanStatus = channelScanStatuses[channel.id]?.status,
-                                        lastCheckedLabel = com.neuropulse.tv.ui.component.formatLastChecked(
-                                            channelScanStatuses[channel.id]?.lastCheckedAt,
-                                            now
-                                        ),
-                                        modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
-                                    )
-                                    EpgChannelTimelineRow(
-                                        channel = channel,
-                                        programs = programs,
-                                        windowStart = windowStart,
-                                        now = now,
-                                        channelIndex = index,
-                                        focusChannelIndex = focusChannelIndex,
-                                        focusProgramIndex = focusProgramIndex,
-                                        focusOnChannelColumn = focusOnChannelColumn,
-                                        gridFocused = focusZone == EpgFocusZone.GRID,
-                                        isRowFocused = focusZone == EpgFocusZone.GRID && index == focusChannelIndex,
-                                        confirmedProgramId = if (focusZone == EpgFocusZone.DETAIL) focusedProgram?.id else null,
-                                        scheduled = scheduled,
-                                        hScrollModifier = Modifier.horizontalScroll(hScroll, enabled = false),
-                                        timelineWidth = timelineWidth
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                EpgJumpToLiveButton(
-                    visible = scrolledAwayFromLive,
-                    onClick = { scrollToLive() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 4.dp, end = 12.dp)
-                )
-            }
-                }
-            }
-
-            EpgDetailPanel(
+            HomeEpgDetailBar(
+                showDetailPanel = showDetailPanel,
                 channel = focusedChannel,
                 program = focusedProgram,
                 now = now,
-                detailActionFocused = if (focusZone == EpgFocusZone.DETAIL) detailActionIndex else -1,
-                onActionFocusChange = { detailActionIndex = it },
+                detailFocused = focusZone == EpgFocusZone.DETAIL,
+                detailActionIndex = detailActionIndex,
+                onDetailActionIndexChange = { detailActionIndex = it },
                 onWatch = {
                     detailActionIndex = 0
                     executeDetailAction()
@@ -1316,15 +1194,9 @@ fun HomeEpgScreen(
                 isFavorite = focusedChannel?.let { ch ->
                     if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
                 } ?: false,
-                visible = showDetailPanel,
                 streamStatus = previewStreamStatus,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(detailFocusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent {
-                        if (focusZone == EpgFocusZone.DETAIL) handleDetailKey(it) else false
-                    }
+                detailFocusRequester = detailFocusRequester,
+                onDetailKey = ::handleDetailKey
             )
         }
 
@@ -1446,61 +1318,6 @@ fun HomeEpgScreen(
                     }
                 },
                 onResultSelected = { handleSearchResult(it) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun EpgChannelTimelineRow(
-    channel: Channel,
-    programs: List<Program>,
-    windowStart: Long,
-    now: Long,
-    channelIndex: Int,
-    focusChannelIndex: Int,
-    focusProgramIndex: Int,
-    focusOnChannelColumn: Boolean,
-    gridFocused: Boolean,
-    isRowFocused: Boolean,
-    confirmedProgramId: Long?,
-    scheduled: List<ScheduledRecordingEntity>,
-    hScrollModifier: Modifier,
-    timelineWidth: Dp
-) {
-    Box(
-        modifier = hScrollModifier
-            .width(timelineWidth)
-            .height(EpgLayout.RowHeight)
-            .background(if (isRowFocused) EpgColors.ChannelRowFocusBg.copy(alpha = 0.35f) else EpgColors.GridBg)
-    ) {
-        programs.forEachIndexed { programIndex, program ->
-            val width = EpgLayout.widthForDurationMs(program.endTime - program.startTime) - EpgLayout.CellGap
-            val offset = EpgLayout.offsetForTime(program.startTime, windowStart)
-            val isFocused = gridFocused &&
-                channelIndex == focusChannelIndex &&
-                !focusOnChannelColumn &&
-                programIndex == focusProgramIndex
-            val isSelected = confirmedProgramId == program.id
-            val hasRec = scheduled.any {
-                it.channelId == channel.id &&
-                    it.programTitle == program.title &&
-                    it.startTime == program.startTime &&
-                    it.status != RecordingStatus.FAILED.name
-            }
-            val title = buildString {
-                if (hasRec) append("REC ")
-                if (program.catchupUrl != null && program.endTime < now) append("⏪ ")
-                append(program.title)
-            }
-
-            EpgProgramCell(
-                program = program.copy(title = title),
-                width = width.coerceAtLeast(40.dp),
-                now = now,
-                isFocused = isFocused,
-                isSelected = isSelected,
-                modifier = Modifier.offset(x = offset)
             )
         }
     }

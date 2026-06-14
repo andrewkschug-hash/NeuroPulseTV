@@ -52,7 +52,7 @@ fun GridModal(
     content: @Composable ColumnScope.() -> Unit
 ) {
     LaunchedEffect(Unit) {
-        if (showCloseButton) closeFocusRequester.requestFocus()
+        if (showCloseButton) closeFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     Box(

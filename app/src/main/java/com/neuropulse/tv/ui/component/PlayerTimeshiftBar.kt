@@ -46,6 +46,8 @@ fun LiveTimeshiftControls(
 ) {
     val atLiveEdge = timeshiftState.atLiveEdge
     val showPauseIcon = timeshiftState.showPauseControl
+    val canRewind = timeshiftState.canRewind
+    val canFastForward = timeshiftState.canFastForward
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -57,20 +59,21 @@ fun LiveTimeshiftControls(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TimeshiftTransportButton(
-                glyph = "◀◀",
+                glyph = "<<",
                 caption = "Rewind",
-                focused = focusedTarget == TimeshiftControlFocus.REWIND
+                focused = focusedTarget == TimeshiftControlFocus.REWIND,
+                enabled = canRewind
             )
             TimeshiftTransportButton(
-                glyph = if (showPauseIcon) "⏸" else "▶",
+                glyph = if (showPauseIcon) "||" else ">",
                 caption = if (showPauseIcon) "Pause" else "Play",
                 focused = focusedTarget == TimeshiftControlFocus.PLAY_PAUSE
             )
             TimeshiftTransportButton(
-                glyph = "▶▶",
+                glyph = ">>",
                 caption = "Forward",
                 focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
-                enabled = !atLiveEdge
+                enabled = canFastForward
             )
         }
 
@@ -120,9 +123,9 @@ fun TimeshiftStatusBadge(
     modifier: Modifier = Modifier
 ) {
     if (!timeshiftState.isTimeshifting || timeshiftState.atLiveEdge) return
-    val glyph = if (timeshiftState.showPauseControl) "▶" else "⏸"
+    val label = if (timeshiftState.showPauseControl) ">" else "||"
     Text(
-        text = "$glyph ${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
+        text = "$label ${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
         color = EpgColors.TextSecondary,
         fontFamily = DmSansFamily,
         fontSize = 11.sp,
@@ -136,7 +139,7 @@ fun TimeshiftStatusBadge(
 @Composable
 fun PausedCornerIndicator(modifier: Modifier = Modifier) {
     Text(
-        text = "⏸",
+        text = "||",
         color = Color.White.copy(alpha = 0.75f),
         fontSize = 18.sp,
         modifier = modifier

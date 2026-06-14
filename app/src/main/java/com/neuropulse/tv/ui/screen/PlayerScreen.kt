@@ -77,6 +77,7 @@ import com.neuropulse.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.neuropulse.tv.ui.component.playerSideMenuFocusSection
 import com.neuropulse.tv.ui.component.playerSideMenuFocusState
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.LiveTimeshiftControls
 import com.neuropulse.tv.ui.component.PausedCornerIndicator
 import com.neuropulse.tv.ui.component.TimeshiftControlFocus
@@ -315,7 +316,7 @@ fun PlayerScreen(
 
     LaunchedEffect(showSideMenu, sideMenuFocusOrder) {
         if (showSideMenu) {
-            sideMenuFocusRequester.requestFocus()
+            sideMenuFocusRequester.requestFocusSafelyAfterLayout()
             val startIndex = when {
                 channelsCollapsible && !channelsExpanded -> {
                     sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
@@ -330,7 +331,7 @@ fun PlayerScreen(
             }
             applyFocusTargetIndex(startIndex, flash = false)
         } else {
-            playerFocusRequester.requestFocus()
+            playerFocusRequester.requestFocusSafelyAfterLayout()
             channelsExpanded = false
             sportsExpanded = false
         }
@@ -389,10 +390,14 @@ fun PlayerScreen(
 
     fun executeTimeshiftAction() {
         when (timeshiftFocusTarget) {
-            TimeshiftControlFocus.REWIND -> livePlayerManager.rewind(30_000L)
+            TimeshiftControlFocus.REWIND -> {
+                if (timeshiftState.canRewind) {
+                    livePlayerManager.rewind(30_000L)
+                }
+            }
             TimeshiftControlFocus.PLAY_PAUSE -> livePlayerManager.togglePlayPause()
             TimeshiftControlFocus.FAST_FORWARD -> {
-                if (!timeshiftState.atLiveEdge) {
+                if (timeshiftState.canFastForward) {
                     livePlayerManager.fastForward(30_000L)
                 }
             }
@@ -414,7 +419,9 @@ fun PlayerScreen(
                     return true
                 }
                 TimeshiftControlFocus.SEEK_BAR -> {
-                    livePlayerManager.seekRelative(-30_000L)
+                    if (timeshiftState.canRewind) {
+                        livePlayerManager.seekRelative(-30_000L)
+                    }
                     return true
                 }
                 TimeshiftControlFocus.LIVE_BADGE -> {
@@ -433,7 +440,9 @@ fun PlayerScreen(
                 }
                 TimeshiftControlFocus.FAST_FORWARD -> return false
                 TimeshiftControlFocus.SEEK_BAR -> {
-                    livePlayerManager.seekRelative(30_000L)
+                    if (timeshiftState.canFastForward) {
+                        livePlayerManager.seekRelative(30_000L)
+                    }
                     return true
                 }
                 TimeshiftControlFocus.LIVE_BADGE -> return true

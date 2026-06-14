@@ -28,6 +28,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.EpgChipFilterBar
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
@@ -90,8 +91,8 @@ fun VodHubScreen(
 
     LaunchedEffect(focusZone) {
         when (focusZone) {
-            VodFocusZone.TOP_BAR -> topNavFocusRequester.requestFocus()
-            VodFocusZone.CONTENT -> contentFocusRequester.requestFocus()
+            VodFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
+            VodFocusZone.CONTENT -> contentFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 

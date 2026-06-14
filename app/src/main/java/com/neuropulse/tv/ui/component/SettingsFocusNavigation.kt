@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.component
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -71,8 +72,15 @@ class SettingsFocusChain(
     fun moveTo(index: Int) {
         if (itemCount <= 0) return
         val target = index.coerceIn(0, itemCount - 1)
+        if (target >= requesterPool.size) {
+            Log.w(
+                SETTINGS_FOCUS_LOG_TAG,
+                "moveTo($index) out of pool bounds (pool=${requesterPool.size}, itemCount=$itemCount)"
+            )
+            return
+        }
         focusedIndex = target
-        requesterPool[target].requestFocus()
+        requesterPool[target].requestFocusSafely()
     }
 
     fun move(delta: Int) = moveTo(focusedIndex + delta)
@@ -95,14 +103,16 @@ fun rememberSettingsFocusChain(
     val requesterPool = remember {
         mutableListOf<FocusRequester>()
     }
-    while (requesterPool.size < count) {
-        requesterPool.add(FocusRequester())
+    if (requesterPool.size < count) {
+        repeat(count - requesterPool.size) {
+            requesterPool.add(FocusRequester())
+        }
     }
     val chain = remember(requesterPool) {
         SettingsFocusChain(requesterPool, count, startIndex)
     }
     chain.itemCount = count
-    LaunchedEffect(sectionKey) {
+    LaunchedEffect(sectionKey, count) {
         chain.resetIndex(startIndex.coerceIn(0, (count - 1).coerceAtLeast(0)))
     }
     return chain
@@ -131,16 +141,27 @@ fun settingsFocusModifier(
     chainIndex: Int,
     focus: SettingsContentFocus,
     enabled: Boolean = true
-): Modifier = Modifier
-    .focusRequester(focus.chain.requesters[chainIndex])
-    .focusProperties {
-        canFocus = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
-    }
-    .onFocusChanged { state ->
-        if (state.isFocused) {
-            focus.chain.onItemFocused(chainIndex)
+): Modifier {
+    if (chainIndex < 0 || chainIndex >= focus.chain.requesters.size) {
+        Log.w(
+            SETTINGS_FOCUS_LOG_TAG,
+            "Focus index $chainIndex out of bounds (chain size ${focus.chain.requesters.size})"
+        )
+        return Modifier.focusProperties {
+            canFocus = false
         }
     }
+    return Modifier
+        .focusRequester(focus.chain.requesters[chainIndex])
+        .focusProperties {
+            canFocus = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
+        }
+        .onFocusChanged { state ->
+            if (state.isFocused) {
+                focus.chain.onItemFocused(chainIndex)
+            }
+        }
+}
 
 @Composable
 fun SettingsFocusTextField(
@@ -358,13 +379,35 @@ fun connectionsListFocusCount(playlistCount: Int): Int = 1 + playlistCount * 2
 fun connectionsFocusCount(playlistType: PlaylistType, playlistCount: Int): Int =
     connectionsListFocusCount(playlistCount) + connectionsAddFocusCount(playlistType)
 
-fun guideFocusCount(): Int = 20
+/** GuideSettingsContent chain indices 0..19. */
+const val GUIDE_FOCUS_COUNT = 20
 
-fun playbackFocusCount(): Int = 29
+/**
+ * PlaybackSettingsContent chain indices 0..28:
+ * 0-2 retries, 3-6 quality, 7-9 buffer, 10-11 toggles, 12-15 aspect, 16-21 subtitles, 22-28 audio/sleep.
+ */
+const val PLAYBACK_FOCUS_COUNT = 29
+private const val PLAYBACK_CARD0_COUNT = 12
+private const val PLAYBACK_CARD1_COUNT = 4
+private const val PLAYBACK_CARD2_COUNT = 6
+private const val PLAYBACK_CARD3_COUNT =
+    PLAYBACK_FOCUS_COUNT - PLAYBACK_CARD0_COUNT - PLAYBACK_CARD1_COUNT - PLAYBACK_CARD2_COUNT
 
-fun interfaceFocusCount(): Int = 12
+/** InterfaceSettingsContent chain indices 0..11. */
+const val INTERFACE_FOCUS_COUNT = 12
 
-fun aboutFocusCount(): Int = 4
+/** AboutSettingsContent chain indices 0..3. */
+const val ABOUT_FOCUS_COUNT = 4
+
+private const val SETTINGS_FOCUS_LOG_TAG = "SettingsFocus"
+
+fun guideFocusCount(): Int = GUIDE_FOCUS_COUNT
+
+fun playbackFocusCount(): Int = PLAYBACK_FOCUS_COUNT
+
+fun interfaceFocusCount(): Int = INTERFACE_FOCUS_COUNT
+
+fun aboutFocusCount(): Int = ABOUT_FOCUS_COUNT
 
 /** Horizontal pill groups per settings section (inclusive ranges). */
 fun settingsHorizontalPillGroups(
@@ -548,10 +591,19 @@ fun buildSettingsSectionCards(
         SettingsSectionCard(firstFocusIndex = 18, focusCount = 2)
     )
     SettingsSectionKind.Playback -> listOf(
-        SettingsSectionCard(firstFocusIndex = 0, focusCount = 12),
-        SettingsSectionCard(firstFocusIndex = 12, focusCount = 4),
-        SettingsSectionCard(firstFocusIndex = 16, focusCount = 6),
-        SettingsSectionCard(firstFocusIndex = 22, focusCount = 7)
+        SettingsSectionCard(firstFocusIndex = 0, focusCount = PLAYBACK_CARD0_COUNT),
+        SettingsSectionCard(
+            firstFocusIndex = PLAYBACK_CARD0_COUNT,
+            focusCount = PLAYBACK_CARD1_COUNT
+        ),
+        SettingsSectionCard(
+            firstFocusIndex = PLAYBACK_CARD0_COUNT + PLAYBACK_CARD1_COUNT,
+            focusCount = PLAYBACK_CARD2_COUNT
+        ),
+        SettingsSectionCard(
+            firstFocusIndex = PLAYBACK_CARD0_COUNT + PLAYBACK_CARD1_COUNT + PLAYBACK_CARD2_COUNT,
+            focusCount = PLAYBACK_CARD3_COUNT
+        )
     )
     SettingsSectionKind.Interface -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = 5),

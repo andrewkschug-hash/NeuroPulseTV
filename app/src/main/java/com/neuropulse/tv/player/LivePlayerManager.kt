@@ -25,6 +25,8 @@ data class TimeshiftUiState(
     val behindLiveMs: Long = 0L,
     val isTimeshifting: Boolean = false,
     val atLiveEdge: Boolean = true,
+    val canRewind: Boolean = false,
+    val canFastForward: Boolean = false,
     val isPlaying: Boolean = false,
     val playWhenReady: Boolean = true,
     val playbackState: Int = Player.STATE_IDLE
@@ -214,7 +216,7 @@ class LivePlayerManager @Inject constructor(
 
     fun rewind(ms: Long = 30_000L) {
         val exo = player ?: return
-        if (!hasDvrWindow) return
+        if (!hasDvrWindow || !TimeshiftManager.canRewind(exo)) return
         TimeshiftManager.rewind(exo, ms)
         refreshTimeshiftWindow(exo)
     }
@@ -226,7 +228,7 @@ class LivePlayerManager @Inject constructor(
 
     fun fastForward(ms: Long = 30_000L) {
         val exo = player ?: return
-        if (!hasDvrWindow) return
+        if (!hasDvrWindow || !TimeshiftManager.canFastForward(exo)) return
         TimeshiftManager.fastForward(exo, ms)
         refreshTimeshiftWindow(exo)
     }
@@ -360,6 +362,8 @@ class LivePlayerManager @Inject constructor(
             behindLiveMs = TimeshiftManager.behindLiveMs(exo),
             isTimeshifting = TimeshiftManager.isTimeshifting,
             atLiveEdge = atEdge,
+            canRewind = TimeshiftManager.canRewind(exo),
+            canFastForward = TimeshiftManager.canFastForward(exo),
             isPlaying = exo.isPlaying,
             playWhenReady = exo.playWhenReady,
             playbackState = exo.playbackState

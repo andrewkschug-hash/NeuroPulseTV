@@ -64,6 +64,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
 import com.neuropulse.tv.domain.model.UserProfile
+import com.neuropulse.tv.ui.component.requestFocusSafely
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.GridModal
 import com.neuropulse.tv.ui.component.GridOutlinedButton
 import com.neuropulse.tv.ui.component.GridPrimaryButton
@@ -140,7 +142,7 @@ fun ProfilePickerScreen(
     LaunchedEffect(hasProfiles, profiles.map { it.id }, showPinFor, showAddProfile) {
         if (showPinFor != null || showAddProfile) return@LaunchedEffect
         delay(350)
-        runCatching { firstProfileFocusRequester.requestFocus() }
+        firstProfileFocusRequester.requestFocusSafely()
     }
 
     fun tryOpenAddProfile() {
@@ -677,7 +679,7 @@ private fun ProfileNameDialog(
     val initials = profileInitials(name.ifBlank { "?" })
     val avatarScale by animateFloatAsState(if (avatarFocused || fieldFocused) 1.05f else 1f, tween(150), label = "dlgAvatar")
 
-    LaunchedEffect(Unit) { fieldFocusRequester.requestFocus() }
+    LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
 
     GridModal(onDismiss = onDismiss, width = 440.dp) {
         Box(

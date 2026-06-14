@@ -417,7 +417,7 @@ fun RecordingDeleteDialog(
     val deleteFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
     androidx.compose.runtime.LaunchedEffect(focusIndex) {
-        if (focusIndex == 0) cancelFocusRequester.requestFocus() else deleteFocusRequester.requestFocus()
+        if (focusIndex == 0) cancelFocusRequester.requestFocusSafelyAfterLayout() else deleteFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     Box(

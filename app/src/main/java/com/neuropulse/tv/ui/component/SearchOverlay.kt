@@ -111,7 +111,7 @@ fun SearchOverlay(
     }
 
     LaunchedEffect(Unit) {
-        fieldFocusRequester.requestFocus()
+        fieldFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     LaunchedEffect(results) {
@@ -120,9 +120,9 @@ fun SearchOverlay(
 
     LaunchedEffect(focusZone) {
         when (focusZone) {
-            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocus()
-            SearchFocusZone.MIC -> micFocusRequester.requestFocus()
-            SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocus()
+            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 

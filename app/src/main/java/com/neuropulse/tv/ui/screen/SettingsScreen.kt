@@ -1,11 +1,5 @@
 package com.neuropulse.tv.ui.screen
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +52,8 @@ import com.neuropulse.tv.domain.model.ScannerRuntimeState
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.UserProfile
+import com.neuropulse.tv.ui.component.requestFocusSafely
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
@@ -143,7 +139,7 @@ private fun exitCardToSection(
     contentAreaFocusRequester: FocusRequester
 ) {
     focusLevel(SettingsFocusLevel.SECTION)
-    contentAreaFocusRequester.requestFocus()
+    contentAreaFocusRequester.requestFocusSafely()
 }
 
 private enum class ChangePinStep { VERIFY_CURRENT, ENTER_NEW, CONFIRM_NEW }
@@ -315,12 +311,12 @@ fun SettingsScreen(
 
     LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, sidebarFocusIndex, contentFocusCount) {
         when (focusPanel) {
-            SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocus()
+            SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
             SettingsFocusPanel.LEFT -> {
-                sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocus()
+                sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocusSafelyAfterLayout()
             }
             SettingsFocusPanel.RIGHT -> when (focusLevel) {
-                SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocus()
+                SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocusSafelyAfterLayout()
                 SettingsFocusLevel.INSIDE_CARD -> {
                     if (contentChain.itemCount > 0) {
                         contentChain.moveTo(contentChain.focusedIndex)
@@ -721,6 +717,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .width(260.dp)
                         .fillMaxHeight()
+                        .clip(RectangleShape)
                         .background(EpgColors.ChannelColumnBg)
                         .onPreviewKeyEvent {
                             if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
@@ -767,21 +764,8 @@ fun SettingsScreen(
                             .padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                    AnimatedContent(
-                        targetState = selectedSection,
-                        transitionSpec = {
-                            fadeIn(tween(150)) togetherWith fadeOut(tween(150)) using
-                                SizeTransform(clip = true)
-                        },
-                        contentAlignment = Alignment.TopStart,
-                        label = "settingsSectionContent"
-                    ) { sectionIndex ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RectangleShape)
-                    ) {
-                    when (sections[sectionIndex]) {
+                        key(selectedSection) {
+                        when (sections[selectedSection]) {
                         SettingsSection.Profile -> ProfileSettingsContent(
                             activeProfile = activeProfile,
                             profiles = profiles,
@@ -955,12 +939,11 @@ fun SettingsScreen(
                                 onResetApp = { showResetConfirm = true }
                             )
                         }
-                    }
-                    }
-                    }
+                        }
                     }
                 }
             }
+        }
         }
 
         connectionDialog?.let { dialogState ->

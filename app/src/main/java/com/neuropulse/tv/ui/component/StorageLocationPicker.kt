@@ -156,15 +156,15 @@ fun RecordingPrecheckDialog(
     LaunchedEffect(Unit) {
         buttonIndex = 0
         focusZone = PrecheckFocusZone.BUTTONS
-        recordFocusRequester.requestFocus()
+        recordFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     LaunchedEffect(focusZone, buttonIndex, qualityIndex, showQuality) {
         when (focusZone) {
             PrecheckFocusZone.BUTTONS ->
-                if (buttonIndex == 0) recordFocusRequester.requestFocus() else cancelFocusRequester.requestFocus()
+                if (buttonIndex == 0) recordFocusRequester.requestFocusSafelyAfterLayout() else cancelFocusRequester.requestFocusSafelyAfterLayout()
             PrecheckFocusZone.QUALITY ->
-                if (showQuality) qualityFocusRequesters.getOrNull(qualityIndex)?.requestFocus()
+                if (showQuality) qualityFocusRequesters.getOrNull(qualityIndex)?.requestFocusSafelyAfterLayout()
         }
     }
 
