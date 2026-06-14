@@ -62,6 +62,9 @@ object TimeshiftManager {
     }
 
     fun fastForward(player: ExoPlayer, ms: Long = 30_000L) {
+        if (isAtLiveEdge(player)) {
+            return
+        }
         val target = player.currentPosition + ms
         if (target >= liveEdgePositionMs - FAST_FORWARD_LIVE_THRESHOLD_MS) {
             jumpToLive(player)

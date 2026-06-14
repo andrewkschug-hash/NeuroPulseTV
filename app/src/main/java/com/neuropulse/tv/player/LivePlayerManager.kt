@@ -25,8 +25,13 @@ data class TimeshiftUiState(
     val behindLiveMs: Long = 0L,
     val isTimeshifting: Boolean = false,
     val atLiveEdge: Boolean = true,
-    val isPlaying: Boolean = false
-)
+    val isPlaying: Boolean = false,
+    val playWhenReady: Boolean = true,
+    val playbackState: Int = Player.STATE_IDLE
+) {
+    val showPauseControl: Boolean
+        get() = playWhenReady && playbackState != Player.STATE_ENDED
+}
 
 @Singleton
 class LivePlayerManager @Inject constructor(
@@ -355,7 +360,9 @@ class LivePlayerManager @Inject constructor(
             behindLiveMs = TimeshiftManager.behindLiveMs(exo),
             isTimeshifting = TimeshiftManager.isTimeshifting,
             atLiveEdge = atEdge,
-            isPlaying = exo.isPlaying
+            isPlaying = exo.isPlaying,
+            playWhenReady = exo.playWhenReady,
+            playbackState = exo.playbackState
         )
     }
 }

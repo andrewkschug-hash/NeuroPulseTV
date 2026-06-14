@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -58,6 +67,8 @@ fun SeriesBrowserScreen(
     onPlayUrl: (String, String) -> Unit,
     onBack: () -> Unit = {},
     embedded: Boolean = false,
+    contentFocusRequester: FocusRequester? = null,
+    onMoveFocusUp: (() -> Unit)? = null,
     viewModel: SeriesViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -103,28 +114,105 @@ fun SeriesBrowserScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
-            .padding(if (embedded) 20.dp else 20.dp)
+            .padding(if (embedded) 0.dp else 20.dp)
     ) {
         if (!embedded) {
             RowHeader(onBack = onBack)
         }
 
         if (seasons.isEmpty()) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                placeholder = { Text("Search series", fontFamily = DmSansFamily) }
-            )
+            if (embedded) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .padding(vertical = 8.dp)
+                        .then(
+                            if (onMoveFocusUp != null) {
+                                Modifier.onPreviewKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                        onMoveFocusUp()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                ) {
+                    itemsIndexed(categories) { index, cat ->
+                        val selected = cat == selectedCategory
+                        Surface(
+                            onClick = { selectedCategory = cat },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (selected) Color(0xFF1C3A6B) else Color(0xFF13131A),
+                                focusedContainerColor = Color(0xFF1C1C2E)
+                            ),
+                            modifier = if (index == 0 && contentFocusRequester != null) {
+                                Modifier.focusRequester(contentFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        ) {
+                            Text(
+                                text = cat,
+                                color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
+                                fontFamily = DmSansFamily,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .focusProperties { canFocus = false },
+                    placeholder = { Text("Search series", fontFamily = DmSansFamily) }
+                )
+            } else {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    placeholder = { Text("Search series", fontFamily = DmSansFamily) }
+                )
+            }
         }
 
         if (activeShow != null && !isM3uOnly) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 8.dp)
+                    .then(
+                        if (embedded && onMoveFocusUp != null) {
+                            Modifier.onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                    onMoveFocusUp()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .then(
+                        if (embedded && contentFocusRequester != null && seasons.isNotEmpty()) {
+                            Modifier.focusRequester(contentFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -156,27 +244,29 @@ fun SeriesBrowserScreen(
         }
 
         if (seasons.isEmpty()) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(vertical = 8.dp)
-            ) {
-                items(categories) { cat ->
-                    val selected = cat == selectedCategory
-                    Surface(
-                        onClick = { selectedCategory = cat },
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = if (selected) Color(0xFF1C3A6B) else Color(0xFF13131A),
-                            focusedContainerColor = Color(0xFF1C1C2E)
-                        )
-                    ) {
-                        Text(
-                            text = cat,
-                            color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+            if (!embedded) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    items(categories) { cat ->
+                        val selected = cat == selectedCategory
+                        Surface(
+                            onClick = { selectedCategory = cat },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (selected) Color(0xFF1C3A6B) else Color(0xFF13131A),
+                                focusedContainerColor = Color(0xFF1C1C2E)
+                            )
+                        ) {
+                            Text(
+                                text = cat,
+                                color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
+                                fontFamily = DmSansFamily,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            )
+                        }
                     }
                 }
             }

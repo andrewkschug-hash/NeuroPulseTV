@@ -82,6 +82,43 @@ fun AppNavHost(
         }
     }
 
+    @Composable
+    fun RoutedVodHub(
+        initialTab: Int,
+        initialSeriesId: Long? = null,
+        onBack: () -> Unit
+    ) {
+        VodHubScreen(
+            initialTab = initialTab,
+            initialSeriesId = initialSeriesId,
+            profileInitials = profileInitials,
+            onPlayMovie = { title, url ->
+                navController.navigate(Routes.DirectPlayer.build(title, url))
+            },
+            onPlayUrl = { url, title ->
+                navController.navigate(Routes.DirectPlayer.build(title, url))
+            },
+            onNavigateHome = {
+                navController.navigate(Routes.Home.route) {
+                    popUpTo(Routes.Home.route) { inclusive = false }
+                    launchSingleTop = true
+                }
+            },
+            onNavigateRecordings = {
+                navController.navigate(Routes.Recordings.route) { launchSingleTop = true }
+            },
+            onNavigateSettings = {
+                navController.navigate(Routes.Settings.route) { launchSingleTop = true }
+            },
+            onNavigateVod = { tab ->
+                navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
+            },
+            onOpenFavorites = { navigateToFavorites() },
+            onNavigateProfile = onSwitchProfile,
+            onBack = onBack
+        )
+    }
+
     LaunchedEffect(Unit) {
         showWhatsNew = settingsViewModel.shouldShowWhatsNew()
     }
@@ -99,7 +136,10 @@ fun AppNavHost(
 
     val hasEmbeddedTopBar = current?.startsWith("home") == true ||
         current?.startsWith("recordings") == true ||
-        current?.startsWith("settings") == true
+        current?.startsWith("settings") == true ||
+        current?.startsWith("vod/") == true ||
+        current?.startsWith("movies") == true ||
+        current?.startsWith("series/") == true
 
     val hideGlobalTopNav = current?.startsWith("player/") == true ||
         current?.startsWith("direct-player/") == true
@@ -241,16 +281,7 @@ fun AppNavHost(
                 )
             }
             composable(Routes.Movies.route) {
-                VodHubScreen(
-                    initialTab = 0,
-                    onPlayMovie = { title, url ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
-                    onPlayUrl = { url, title ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
-                    onBack = { navController.popBackStack() }
-                )
+                RoutedVodHub(initialTab = 0, onBack = { navController.popBackStack() })
             }
             composable(
                 route = Routes.VodHub.route,
@@ -261,15 +292,9 @@ fun AppNavHost(
             ) { entry ->
                 val initialTab = entry.arguments?.getInt("initialTab") ?: 0
                 val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
-                VodHubScreen(
+                RoutedVodHub(
                     initialTab = initialTab,
                     initialSeriesId = seriesId.takeIf { it > 0 },
-                    onPlayMovie = { title, url ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
-                    onPlayUrl = { url, title ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -307,15 +332,9 @@ fun AppNavHost(
                 arguments = listOf(navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L })
             ) { entry ->
                 val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
-                VodHubScreen(
+                RoutedVodHub(
                     initialTab = 1,
                     initialSeriesId = seriesId.takeIf { it > 0 },
-                    onPlayMovie = { title, url ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
-                    onPlayUrl = { url, title ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
-                    },
                     onBack = { navController.popBackStack() }
                 )
             }

@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.neuropulse.tv.R
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
@@ -52,6 +53,7 @@ class RecordingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Log.i(TAG, "RecordingService created")
         createChannel()
     }
 
@@ -65,6 +67,7 @@ class RecordingService : Service() {
             ACTION_START -> {
                 val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
                 if (streamUrl.isBlank()) {
+                    Log.e(TAG, "ACTION_START missing stream URL — stopping service")
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -73,6 +76,11 @@ class RecordingService : Service() {
                 currentChannelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
                 currentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 val endAt = intent.getLongExtra(EXTRA_END_AT, 0L)
+                Log.i(
+                    TAG,
+                    "ACTION_START scheduledId=$currentScheduledId channelId=$currentChannelId " +
+                        "channel=$currentChannelName title=$currentTitle endAt=$endAt streamUrl=$streamUrl"
+                )
                 scope.launch { startRecording(streamUrl, endAt) }
             }
         }
@@ -82,7 +90,9 @@ class RecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun startRecording(streamUrl: String, endAt: Long) {
-        val outputDir = storageManager.getSavedRecordingsDir() ?: storageManager.internalRecordingsDir()
+        val savedDir = storageManager.getSavedRecordingsDir()
+        val internalDir = storageManager.internalRecordingsDir()
+        val outputDir = savedDir ?: internalDir
         val outputFile = RecordingFilenameUtil.resolveUniqueFile(
             outputDir,
             currentChannelName,
@@ -90,19 +100,33 @@ class RecordingService : Service() {
             System.currentTimeMillis()
         )
 
+        Log.i(
+            TAG,
+            "Recording storage savedDir=${savedDir?.absolutePath ?: "null"} " +
+                "internalDir=${internalDir.absolutePath} usingDir=${outputDir.absolutePath}"
+        )
+        Log.i(
+            TAG,
+            "Recording output file path=${outputFile.absolutePath} exists=${outputFile.exists()} " +
+                "parentExists=${outputFile.parentFile?.exists() == true} freeBytes=${outputDir.usableSpace}"
+        )
+
         if (!storageManager.hasAtLeast2Gb()) {
+            Log.w(TAG, "Low storage (<2GB free) before recording path=${outputFile.absolutePath}")
             startForeground(NOTIFICATION_ID, buildNotification(0, "Low storage (<2GB). Recording may fail."))
         } else {
             startForeground(NOTIFICATION_ID, buildNotification(0, "Starting recording..."))
         }
 
         if (storageManager.isCriticalLowStorage()) {
+            Log.e(TAG, "Critical low storage — aborting recording path=${outputFile.absolutePath}")
             stopSelf()
             return
         }
 
         currentOutputPath = outputFile.absolutePath
         recordingStartedAt = System.currentTimeMillis()
+        Log.i(TAG, "Recording started at $recordingStartedAt path=$currentOutputPath")
 
         if (currentScheduledId > 0) {
             scheduledRecordingDao.getById(currentScheduledId)?.let {
@@ -117,12 +141,23 @@ class RecordingService : Service() {
 
         recordingJob?.cancel()
         recordingJob = scope.launch {
-            val recorder = TsStreamRecorder(appHttpClient.client(), outputFile)
-            streamRecorder = recorder
-            val success = recorder.record(streamUrl)
-            streamRecorder = null
-            finalizeRecording(success, outputDir)
-            stopSelf()
+            try {
+                val recorder = TsStreamRecorder(appHttpClient.client(), outputFile)
+                streamRecorder = recorder
+                val success = recorder.record(streamUrl)
+                streamRecorder = null
+                Log.i(
+                    TAG,
+                    "Recording loop finished success=$success path=${outputFile.absolutePath} " +
+                        "exists=${outputFile.exists()} length=${outputFile.length()}"
+                )
+                finalizeRecording(success, outputDir)
+            } catch (e: Exception) {
+                Log.e(TAG, "Recording job failed path=${outputFile.absolutePath}", e)
+                finalizeRecording(false, outputDir)
+            } finally {
+                stopSelf()
+            }
         }
 
         notificationJob?.cancel()
@@ -146,14 +181,22 @@ class RecordingService : Service() {
     }
 
     private fun stopRecording(manual: Boolean) {
+        Log.i(TAG, "stopRecording manual=$manual path=$currentOutputPath")
         notificationJob?.cancel()
         streamRecorder?.cancel()
         if (manual) stopSelf()
     }
 
     private suspend fun finalizeRecording(success: Boolean, outputDir: File) {
-        val path = currentOutputPath ?: return
+        val path = currentOutputPath ?: run {
+            Log.w(TAG, "finalizeRecording called with no output path success=$success")
+            return
+        }
         val file = File(path)
+        Log.i(
+            TAG,
+            "finalizeRecording success=$success path=$path exists=${file.exists()} length=${file.length()}"
+        )
         if (currentScheduledId > 0) {
             scheduledRecordingDao.getById(currentScheduledId)?.let {
                 scheduledRecordingDao.update(
@@ -164,7 +207,12 @@ class RecordingService : Service() {
         if (success && file.exists()) {
             val duration = System.currentTimeMillis() - recordingStartedAt
             val thumbDir = File(outputDir, ".thumbnails")
-            val thumbnailPath = RecordingThumbnailExtractor.extractThumbnail(path, thumbDir)
+            val thumbnailPath = try {
+                RecordingThumbnailExtractor.extractThumbnail(path, thumbDir)
+            } catch (e: Exception) {
+                Log.e(TAG, "Thumbnail extraction failed path=$path", e)
+                null
+            }
             recordedMediaDao.insert(
                 RecordedMediaEntity(
                     channelId = currentChannelId,
@@ -177,10 +225,21 @@ class RecordingService : Service() {
                     thumbnailPath = thumbnailPath
                 )
             )
+            Log.i(TAG, "Recorded media saved path=$path size=${file.length()} durationMs=$duration")
+        } else if (!success) {
+            Log.e(
+                TAG,
+                "Recording failed — no media saved path=$path exists=${file.exists()} length=${file.length()}"
+            )
         }
     }
 
     override fun onDestroy() {
+        Log.i(
+            TAG,
+            "RecordingService destroyed scheduledId=$currentScheduledId path=$currentOutputPath " +
+                "recordingJobActive=${recordingJob?.isActive == true}"
+        )
         notificationJob?.cancel()
         streamRecorder?.cancel()
         recordingJob?.cancel()
@@ -225,5 +284,6 @@ class RecordingService : Service() {
 
         private const val CHANNEL_ID = "recording_channel"
         private const val NOTIFICATION_ID = 22100
+        private const val TAG = "RecordingService"
     }
 }

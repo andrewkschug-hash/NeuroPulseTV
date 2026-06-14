@@ -348,9 +348,9 @@ fun SettingsFocusToggleRow(
 }
 
 fun connectionsAddFocusCount(playlistType: PlaylistType): Int = when (playlistType) {
-    PlaylistType.M3U -> 14
-    PlaylistType.XTREAM -> 16
-    PlaylistType.STALKER -> 14
+    PlaylistType.M3U -> 15
+    PlaylistType.XTREAM -> 17
+    PlaylistType.STALKER -> 15
 }
 
 fun connectionsListFocusCount(playlistCount: Int): Int = 1 + playlistCount * 2
@@ -512,6 +512,7 @@ fun buildSettingsSectionCards(
     contentFocusCount: Int,
     playlistCount: Int = 0,
     connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
+    connectionsShowForm: Boolean = false,
     profileCount: Int = 0,
     activeProfileId: Long? = null,
     hasActiveProfile: Boolean = false,
@@ -524,12 +525,21 @@ fun buildSettingsSectionCards(
         contentFocusCount = contentFocusCount
     )
     SettingsSectionKind.Connections -> {
-        val listCount = connectionsListFocusCount(playlistCount)
-        val addCount = connectionsAddFocusCount(connectionsPlaylistType)
-        listOf(
-            SettingsSectionCard(firstFocusIndex = 0, focusCount = listCount),
-            SettingsSectionCard(firstFocusIndex = listCount, focusCount = addCount)
-        )
+        if (connectionsShowForm) {
+            listOf(
+                SettingsSectionCard(
+                    firstFocusIndex = 0,
+                    focusCount = connectionsAddFocusCount(connectionsPlaylistType)
+                )
+            )
+        } else {
+            listOf(
+                SettingsSectionCard(
+                    firstFocusIndex = 0,
+                    focusCount = connectionsListFocusCount(playlistCount)
+                )
+            )
+        }
     }
     SettingsSectionKind.Guide -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = 2),

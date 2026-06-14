@@ -213,7 +213,7 @@ fun EpgTopBar(
 enum class EpgNavTab(val glyph: String, val label: String) {
     Guide("☰", "Guide"),
     Search("⌕", "Search"),
-    Vod("⏵", "VOD"),
+    Vod("🎬", "VOD"),
     Movies("🎬", "Movies"),
     Series("📺", "Series"),
     Favorites("★", "Favorites"),

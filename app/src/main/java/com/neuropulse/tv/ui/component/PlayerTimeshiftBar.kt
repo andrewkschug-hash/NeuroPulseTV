@@ -45,8 +45,7 @@ fun LiveTimeshiftControls(
     modifier: Modifier = Modifier
 ) {
     val atLiveEdge = timeshiftState.atLiveEdge
-    val isPlaying = timeshiftState.isPlaying
-    val showPauseIcon = isPlaying && atLiveEdge
+    val showPauseIcon = timeshiftState.showPauseControl
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -70,7 +69,8 @@ fun LiveTimeshiftControls(
             TimeshiftTransportButton(
                 glyph = "▶▶",
                 caption = "Forward",
-                focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD
+                focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
+                enabled = !atLiveEdge
             )
         }
 
@@ -119,8 +119,8 @@ fun TimeshiftStatusBadge(
     timeshiftState: com.neuropulse.tv.player.TimeshiftUiState,
     modifier: Modifier = Modifier
 ) {
-    if (timeshiftState.atLiveEdge && !timeshiftState.isTimeshifting) return
-    val glyph = if (timeshiftState.isPlaying) "▶" else "⏸"
+    if (!timeshiftState.isTimeshifting || timeshiftState.atLiveEdge) return
+    val glyph = if (timeshiftState.showPauseControl) "▶" else "⏸"
     Text(
         text = "$glyph ${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
         color = EpgColors.TextSecondary,
@@ -149,35 +149,51 @@ fun PausedCornerIndicator(modifier: Modifier = Modifier) {
 private fun TimeshiftTransportButton(
     glyph: String,
     caption: String,
-    focused: Boolean
+    focused: Boolean,
+    enabled: Boolean = true
 ) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         val shape = RoundedCornerShape(8.dp)
+        val glyphColor = when {
+            !enabled -> EpgColors.TextDimmed.copy(alpha = 0.45f)
+            focused -> EpgColors.TextPrimary
+            else -> EpgColors.TextSecondary
+        }
+        val captionColor = when {
+            !enabled -> EpgColors.TextDimmed.copy(alpha = 0.45f)
+            focused -> EpgColors.TextPrimary
+            else -> EpgColors.TextDimmed
+        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .background(
-                    if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg.copy(alpha = 0.8f),
+                    if (focused && enabled) EpgColors.ChannelRowFocusBg
+                    else EpgColors.GridBg.copy(alpha = if (enabled) 0.8f else 0.45f),
                     shape
                 )
                 .border(
-                    width = if (focused) 2.dp else 1.dp,
-                    color = if (focused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
+                    width = if (focused && enabled) 2.dp else 1.dp,
+                    color = when {
+                        !enabled -> EpgColors.BorderSubtle.copy(alpha = 0.35f)
+                        focused -> EpgColors.FocusBorder
+                        else -> EpgColors.BorderSubtle
+                    },
                     shape = shape
                 )
                 .padding(horizontal = 18.dp, vertical = 8.dp)
         ) {
             Text(
                 text = glyph,
-                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                color = glyphColor,
                 fontFamily = DmSansFamily,
                 fontSize = 16.sp,
-                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal
+                fontWeight = if (focused && enabled) FontWeight.SemiBold else FontWeight.Normal
             )
         }
         Text(
             text = caption,
-            color = if (focused) EpgColors.TextPrimary else EpgColors.TextDimmed,
+            color = captionColor,
             fontFamily = DmSansFamily,
             fontSize = 10.sp,
             modifier = Modifier.padding(top = 4.dp)

@@ -1,5 +1,6 @@
 package com.neuropulse.tv.feature.recording
 
+import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URI
@@ -29,13 +30,19 @@ class TsStreamRecorder(
 
     suspend fun record(streamUrl: String): Boolean {
         cancelled = false
+        Log.i(TAG, "record() started streamUrl=$streamUrl output=${outputFile.absolutePath}")
         return try {
             if (streamUrl.contains(".m3u8", ignoreCase = true)) {
                 recordHls(streamUrl)
             } else {
                 recordDirect(streamUrl)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "record() failed streamUrl=$streamUrl output=${outputFile.absolutePath}",
+                e
+            )
             false
         }
     }
@@ -45,26 +52,60 @@ class TsStreamRecorder(
         val call = client.newCall(request)
         activeCall = call
         call.execute().use { response ->
-            if (!response.isSuccessful) return false
-            val body = response.body ?: return false
+            Log.i(TAG, "Direct stream HTTP request url=$url responseCode=${response.code}")
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Direct stream HTTP failed url=$url responseCode=${response.code}")
+                return false
+            }
+            val body = response.body ?: run {
+                Log.e(TAG, "Direct stream response body is null url=$url responseCode=${response.code}")
+                return false
+            }
+            outputFile.parentFile?.mkdirs()
+            Log.i(
+                TAG,
+                "Opening output file path=${outputFile.absolutePath} exists=${outputFile.exists()} parentExists=${outputFile.parentFile?.exists() == true}"
+            )
             body.byteStream().use { input ->
                 FileOutputStream(outputFile).use { output ->
+                    Log.i(
+                        TAG,
+                        "Output file opened path=${outputFile.absolutePath} length=${outputFile.length()}"
+                    )
+                    val progress = ByteProgressLogger("Direct stream")
                     val buffer = ByteArray(32 * 1024)
                     while (!cancelled) {
                         val read = input.read(buffer)
                         if (read == -1) break
                         output.write(buffer, 0, read)
+                        progress.onBytes(read)
                     }
+                    progress.logFinal()
                 }
             }
         }
+        Log.i(
+            TAG,
+            "Direct stream finished path=${outputFile.absolutePath} length=${outputFile.length()} cancelled=$cancelled"
+        )
         return outputFile.length() > 0
     }
 
     private suspend fun recordHls(playlistUrl: String): Boolean {
-        val mediaPlaylistUrl = resolveMediaPlaylistUrl(playlistUrl) ?: return false
+        Log.i(TAG, "Starting HLS recording playlistUrl=$playlistUrl output=${outputFile.absolutePath}")
+        val mediaPlaylistUrl = resolveMediaPlaylistUrl(playlistUrl) ?: run {
+            Log.e(TAG, "Failed to resolve HLS media playlist url=$playlistUrl")
+            return false
+        }
+        Log.i(TAG, "Resolved HLS media playlist url=$mediaPlaylistUrl")
         val downloaded = mutableSetOf<String>()
+        outputFile.parentFile?.mkdirs()
+        Log.i(
+            TAG,
+            "Opening HLS output file path=${outputFile.absolutePath} exists=${outputFile.exists()}"
+        )
         FileOutputStream(outputFile).use { output ->
+            val progress = ByteProgressLogger("HLS recording")
             while (!cancelled && currentCoroutineContext().isActive) {
                 val playlist = fetchText(mediaPlaylistUrl) ?: break
                 val segments = parseSegmentUrls(mediaPlaylistUrl, playlist)
@@ -72,7 +113,7 @@ class TsStreamRecorder(
                 for (segmentUrl in segments) {
                     if (cancelled) break
                     if (!downloaded.add(segmentUrl)) continue
-                    if (appendSegment(output, segmentUrl)) {
+                    if (appendSegment(output, segmentUrl, progress)) {
                         gotNewSegment = true
                     }
                 }
@@ -81,21 +122,31 @@ class TsStreamRecorder(
                     delay(targetDurationMs(playlist).coerceAtLeast(1_000))
                 }
             }
+            progress.logFinal()
         }
+        Log.i(
+            TAG,
+            "HLS recording finished path=${outputFile.absolutePath} length=${outputFile.length()} cancelled=$cancelled"
+        )
         return outputFile.length() > 0
     }
 
     private fun resolveMediaPlaylistUrl(playlistUrl: String): String? {
-        val text = fetchText(playlistUrl) ?: return null
-        if (!text.contains("#EXT-X-STREAM-INF")) return playlistUrl
-        val lines = text.lines()
-        for (index in lines.indices) {
-            if (lines[index].startsWith("#EXT-X-STREAM-INF")) {
-                val variant = lines.drop(index + 1).firstOrNull { it.isNotBlank() && !it.startsWith("#") }
-                if (variant != null) return resolveUrl(playlistUrl, variant.trim())
+        return try {
+            val text = fetchText(playlistUrl) ?: return null
+            if (!text.contains("#EXT-X-STREAM-INF")) return playlistUrl
+            val lines = text.lines()
+            for (index in lines.indices) {
+                if (lines[index].startsWith("#EXT-X-STREAM-INF")) {
+                    val variant = lines.drop(index + 1).firstOrNull { it.isNotBlank() && !it.startsWith("#") }
+                    if (variant != null) return resolveUrl(playlistUrl, variant.trim())
+                }
             }
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "resolveMediaPlaylistUrl failed playlistUrl=$playlistUrl", e)
+            null
         }
-        return null
     }
 
     private fun parseSegmentUrls(playlistUrl: String, playlist: String): List<String> =
@@ -109,32 +160,58 @@ class TsStreamRecorder(
         return line.substringAfter(':').trim().toDoubleOrNull()?.times(1_000)?.toLong() ?: 2_000
     }
 
-    private fun appendSegment(output: FileOutputStream, segmentUrl: String): Boolean {
-        val request = Request.Builder().url(segmentUrl).build()
-        val call = client.newCall(request)
-        activeCall = call
-        call.execute().use { response ->
-            if (!response.isSuccessful) return false
-            val body = response.body ?: return false
-            body.byteStream().use { input ->
-                val buffer = ByteArray(32 * 1024)
-                while (!cancelled) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-                    output.write(buffer, 0, read)
+    private fun appendSegment(
+        output: FileOutputStream,
+        segmentUrl: String,
+        progress: ByteProgressLogger
+    ): Boolean {
+        return try {
+            val request = Request.Builder().url(segmentUrl).build()
+            val call = client.newCall(request)
+            activeCall = call
+            call.execute().use { response ->
+                Log.i(TAG, "HLS segment HTTP request url=$segmentUrl responseCode=${response.code}")
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "HLS segment HTTP failed url=$segmentUrl responseCode=${response.code}")
+                    return false
+                }
+                val body = response.body ?: run {
+                    Log.e(TAG, "HLS segment body is null url=$segmentUrl responseCode=${response.code}")
+                    return false
+                }
+                body.byteStream().use { input ->
+                    val buffer = ByteArray(32 * 1024)
+                    while (!cancelled) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        progress.onBytes(read)
+                    }
                 }
             }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "appendSegment failed url=$segmentUrl", e)
+            false
         }
-        return true
     }
 
     private fun fetchText(url: String): String? {
-        val request = Request.Builder().url(url).build()
-        val call = client.newCall(request)
-        activeCall = call
-        call.execute().use { response ->
-            if (!response.isSuccessful) return null
-            return response.body?.string()
+        return try {
+            val request = Request.Builder().url(url).build()
+            val call = client.newCall(request)
+            activeCall = call
+            call.execute().use { response ->
+                Log.i(TAG, "Playlist HTTP request url=$url responseCode=${response.code}")
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "Playlist HTTP failed url=$url responseCode=${response.code}")
+                    return null
+                }
+                response.body?.string()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchText failed url=$url", e)
+            null
         }
     }
 
@@ -145,5 +222,34 @@ class TsStreamRecorder(
             return relative
         }
         return URI(baseUrl).resolve(relative).toString()
+    }
+
+    private inner class ByteProgressLogger(private val label: String) {
+        private var totalBytes = 0L
+        private var lastLogAt = System.currentTimeMillis()
+
+        fun onBytes(count: Int) {
+            totalBytes += count
+            val now = System.currentTimeMillis()
+            if (now - lastLogAt >= PROGRESS_LOG_INTERVAL_MS) {
+                Log.i(
+                    TAG,
+                    "$label: written $totalBytes bytes so far (file=${outputFile.absolutePath})"
+                )
+                lastLogAt = now
+            }
+        }
+
+        fun logFinal() {
+            Log.i(
+                TAG,
+                "$label: finished with $totalBytes bytes written (file=${outputFile.absolutePath}, length=${outputFile.length()})"
+            )
+        }
+    }
+
+    companion object {
+        private const val TAG = "TsStreamRecorder"
+        private const val PROGRESS_LOG_INTERVAL_MS = 10_000L
     }
 }

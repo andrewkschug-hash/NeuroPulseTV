@@ -20,6 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +49,8 @@ fun MoviesBrowserScreen(
     onPlayMovie: (String, String) -> Unit,
     onBack: () -> Unit = {},
     embedded: Boolean = false,
+    contentFocusRequester: FocusRequester? = null,
+    onMoveFocusUp: (() -> Unit)? = null,
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
     val movies by viewModel.movies.collectAsStateWithLifecycle()
@@ -71,31 +81,85 @@ fun MoviesBrowserScreen(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(vertical = 8.dp)
             )
+            OutlinedTextField(
+                value = search,
+                onValueChange = {
+                    search = it
+                    viewModel.setSearchQuery(it)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Search movies") }
+            )
         }
-        OutlinedTextField(
-            value = search,
-            onValueChange = {
-                search = it
-                viewModel.setSearchQuery(it)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search movies") }
-        )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(vertical = 12.dp)
-        ) {
-            itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { _, option ->
-                val (categoryId, label) = option
-                val selected = selectedCategoryId == categoryId
-                Surface(onClick = { viewModel.setCategory(categoryId) }) {
-                    Text(
-                        text = label,
-                        color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+        if (embedded) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .then(
+                        if (onMoveFocusUp != null) {
+                            Modifier.onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                    onMoveFocusUp()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                        } else {
+                            Modifier
+                        }
                     )
+            ) {
+                itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { index, option ->
+                    val (categoryId, label) = option
+                    val selected = selectedCategoryId == categoryId
+                    Surface(
+                        onClick = { viewModel.setCategory(categoryId) },
+                        modifier = if (index == 0 && contentFocusRequester != null) {
+                            Modifier.focusRequester(contentFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = search,
+                onValueChange = {
+                    search = it
+                    viewModel.setSearchQuery(it)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusProperties { canFocus = false },
+                placeholder = { Text("Search movies") }
+            )
+        } else {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(vertical = 12.dp)
+            ) {
+                itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { _, option ->
+                    val (categoryId, label) = option
+                    val selected = selectedCategoryId == categoryId
+                    Surface(onClick = { viewModel.setCategory(categoryId) }) {
+                        Text(
+                            text = label,
+                            color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
                 }
             }
         }
