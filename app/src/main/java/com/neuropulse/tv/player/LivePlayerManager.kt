@@ -219,7 +219,6 @@ class LivePlayerManager @Inject constructor(
         val exo = player ?: return
         if (!hasDvrWindow || !TimeshiftManager.canRewind(exo)) return
         TimeshiftManager.rewind(exo, ms)
-        refreshTimeshiftWindow(exo)
     }
 
     /** @deprecated Use [rewind] with millisecond amount. */
@@ -231,27 +230,41 @@ class LivePlayerManager @Inject constructor(
         val exo = player ?: return
         if (!hasDvrWindow || !TimeshiftManager.canFastForward(exo)) return
         TimeshiftManager.fastForward(exo, ms)
-        refreshTimeshiftWindow(exo)
+    }
+
+    fun skipBack(ms: Long) {
+        val exo = player ?: return
+        if (!hasDvrWindow) return
+        TimeshiftManager.skipBack(exo, ms)
+    }
+
+    fun skipForward(ms: Long) {
+        val exo = player ?: return
+        if (!hasDvrWindow) return
+        TimeshiftManager.skipForward(exo, ms)
+    }
+
+    fun instantReplay() {
+        val exo = player ?: return
+        if (!hasDvrWindow) return
+        TimeshiftManager.instantReplay(exo)
     }
 
     fun seekRelative(deltaMs: Long) {
         val exo = player ?: return
         if (!hasDvrWindow) return
         TimeshiftManager.seekRelative(exo, deltaMs)
-        refreshTimeshiftWindow(exo)
     }
 
     fun togglePlayPause() {
         val exo = player ?: return
         if (!hasDvrWindow) return
         TimeshiftManager.togglePlayPause(exo)
-        refreshTimeshiftWindow(exo)
     }
 
     fun jumpToLive() {
         val exo = player ?: return
         TimeshiftManager.jumpToLive(exo)
-        refreshTimeshiftWindow(exo)
     }
 
     fun isAtLiveEdge(): Boolean {
@@ -362,13 +375,25 @@ class LivePlayerManager @Inject constructor(
         }
 
         val atEdge = TimeshiftManager.isAtLiveEdge(exo)
+        TimeshiftManager.syncFromPlayer(exo)
+        val behindMs = if (atEdge) 0L else TimeshiftManager.behindLiveMs(exo)
+        Log.d(
+            "TIMESHIFT_DEBUG",
+            """
+            atEdge=$atEdge
+            behind=$behindMs
+            offset=${exo.currentLiveOffset}
+            position=${exo.currentPosition}
+            duration=${exo.duration}
+            """.trimIndent()
+        )
         _canTimeshift.value = canTimeshift()
         _atLiveEdge.value = atEdge
         _timeshiftState.value = TimeshiftUiState(
             bufferStartMs = TimeshiftManager.bufferStartMs,
             liveEdgeMs = TimeshiftManager.liveEdgePositionMs,
             currentPositionMs = exo.currentPosition,
-            behindLiveMs = TimeshiftManager.behindLiveMs(exo),
+            behindLiveMs = behindMs,
             isTimeshifting = TimeshiftManager.isTimeshifting,
             atLiveEdge = atEdge,
             canRewind = TimeshiftManager.canRewind(exo),

@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.work.WorkManager
 import com.neuropulse.tv.data.db.AppDatabase
 import com.neuropulse.tv.data.db.DbMigrations
+import com.neuropulse.tv.data.db.dao.ContinueWatchingDao
 import com.neuropulse.tv.data.db.dao.ChannelDao
 import com.neuropulse.tv.data.db.dao.ChannelScanDao
 import com.neuropulse.tv.data.db.dao.EpgResolutionSuggestionDao
@@ -58,6 +59,7 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_13_14)
             .addMigrations(DbMigrations.MIGRATION_14_15)
             .addMigrations(DbMigrations.MIGRATION_15_16)
+            .addMigrations(DbMigrations.MIGRATION_16_17)
             .build()
 
     @Provides
@@ -132,6 +134,9 @@ object AppProvidesModule {
 
     @Provides
     fun provideFavoriteGroupDao(db: AppDatabase): FavoriteGroupDao = db.favoriteGroupDao()
+
+    @Provides
+    fun provideContinueWatchingDao(db: AppDatabase): ContinueWatchingDao = db.continueWatchingDao()
 }
 
 @Module

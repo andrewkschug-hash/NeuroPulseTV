@@ -40,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
+import com.neuropulse.tv.domain.model.AppThemeId
 import com.neuropulse.tv.domain.model.AspectRatioSetting
 import com.neuropulse.tv.domain.model.BufferSize
 import com.neuropulse.tv.domain.model.ClockDisplay
@@ -906,7 +907,11 @@ fun SettingsScreen(
                                 viewModel.updateShowChannelNumbers(!settings.showChannelNumbers)
                             },
                             onDpadSensitivity = { viewModel.updateDpadSidebarSensitivity(it) },
-                            onClockDisplay = { viewModel.updateClockDisplay(it) }
+                            onClockDisplay = { viewModel.updateClockDisplay(it) },
+                            onTheme = { viewModel.updateTheme(it) },
+                            onTogglePictureInPicture = {
+                                viewModel.updatePictureInPictureEnabled(!settings.pictureInPictureEnabled)
+                            }
                         )
                         SettingsSection.Recordings -> RecordingsSettingsContent(
                             currentStorageLabel = currentStorageLabel,
@@ -1911,7 +1916,9 @@ private fun InterfaceSettingsContent(
     onSidebarAutoHide: (Int) -> Unit,
     onToggleShowChannelNumbers: () -> Unit,
     onDpadSensitivity: (DpadSensitivity) -> Unit,
-    onClockDisplay: (ClockDisplay) -> Unit
+    onClockDisplay: (ClockDisplay) -> Unit,
+    onTheme: (AppThemeId) -> Unit,
+    onTogglePictureInPicture: () -> Unit
 ) {
     SettingsPanel(
         title = "Mini player",
@@ -1924,6 +1931,13 @@ private fun InterfaceSettingsContent(
             enabled = settings.miniPlayerEnabled,
             onToggle = onToggleMiniPlayer,
             chainIndex = 0,
+            focus = focus
+        )
+        SettingsFocusToggleRow(
+            label = "Android TV Picture-in-Picture",
+            enabled = settings.pictureInPictureEnabled,
+            onToggle = onTogglePictureInPicture,
+            chainIndex = 12,
             focus = focus
         )
         Text(
@@ -1987,6 +2001,20 @@ private fun InterfaceSettingsContent(
             startChainIndex = 9,
             focus = focus,
             onSelect = { index -> onClockDisplay(ClockDisplay.entries[index]) }
+        )
+    }
+    SettingsPanel(
+        title = "Theme",
+        description = "Accent, focus, and card colors across the app.",
+        cardIndex = 3,
+        focus = focus
+    ) {
+        SettingsFocusPillGroup(
+            labels = AppThemeId.entries.map { it.displayName },
+            selectedIndex = AppThemeId.entries.indexOf(settings.themeId).coerceAtLeast(0),
+            startChainIndex = 13,
+            focus = focus,
+            onSelect = { index -> onTheme(AppThemeId.entries[index]) }
         )
     }
 }

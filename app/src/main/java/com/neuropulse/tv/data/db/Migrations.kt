@@ -303,4 +303,98 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS continue_watching (
+                    profileId INTEGER NOT NULL,
+                    contentKey TEXT NOT NULL,
+                    contentType TEXT NOT NULL,
+                    streamId INTEGER,
+                    seriesId INTEGER,
+                    seasonNumber INTEGER,
+                    episodeNumber INTEGER,
+                    title TEXT NOT NULL,
+                    posterUrl TEXT,
+                    streamUrl TEXT NOT NULL,
+                    positionMs INTEGER NOT NULL,
+                    durationMs INTEGER NOT NULL DEFAULT 0,
+                    lastWatchedAt INTEGER NOT NULL,
+                    PRIMARY KEY (profileId, contentKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN themeId TEXT NOT NULL DEFAULT 'NEURO_BLUE'"
+            )
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN pictureInPictureEnabled INTEGER NOT NULL DEFAULT 1"
+            )
+
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO continue_watching (
+                    profileId, contentKey, contentType, streamId, seriesId, seasonNumber,
+                    episodeNumber, title, posterUrl, streamUrl, positionMs, durationMs, lastWatchedAt
+                )
+                SELECT
+                    profileId,
+                    'movie:' || (-channelId),
+                    'MOVIE',
+                    (-channelId),
+                    NULL,
+                    NULL,
+                    NULL,
+                    COALESCE(lastProgramTitle, 'Movie'),
+                    NULL,
+                    '',
+                    lastPosition,
+                    CAST(COALESCE(genreHint, '0') AS INTEGER),
+                    lastWatched
+                FROM profile_watch_history
+                WHERE channelId < 0 AND lastPosition > 0
+                """.trimIndent()
+            )
+
+            val profileCursor = db.query("SELECT id FROM user_profiles")
+            profileCursor.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val profileId = cursor.getLong(0)
+                    seedDefaultFavoriteGroups(db, profileId)
+                }
+            }
+        }
+
+        private fun seedDefaultFavoriteGroups(db: SupportSQLiteDatabase, profileId: Long) {
+            val existing = db.query(
+                "SELECT COUNT(*) FROM favorite_groups WHERE profileId = ?",
+                arrayOf(profileId.toString())
+            )
+            val count = existing.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+            if (count > 0) return
+
+            val defaults = listOf("Favorites", "Sports", "Movies", "Kids", "News")
+            defaults.forEachIndexed { index, name ->
+                db.execSQL(
+                    "INSERT INTO favorite_groups (profileId, name, sortOrder) VALUES (?, ?, ?)",
+                    arrayOf(profileId, name, index)
+                )
+            }
+
+            val favoritesCursor = db.query(
+                "SELECT id FROM favorite_groups WHERE profileId = ? AND name = 'Favorites' LIMIT 1",
+                arrayOf(profileId.toString())
+            )
+            val favoritesGroupId = favoritesCursor.use {
+                if (it.moveToFirst()) it.getLong(0) else null
+            } ?: return
+
+            db.execSQL(
+                "UPDATE profile_favorites SET groupId = ? WHERE profileId = ? AND groupId IS NULL",
+                arrayOf(favoritesGroupId, profileId)
+            )
+        }
+    }
 }

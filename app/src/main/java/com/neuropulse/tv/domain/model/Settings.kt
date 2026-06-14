@@ -54,5 +54,7 @@ data class AppSettings(
     val dpadSidebarSensitivity: DpadSensitivity = DpadSensitivity.NORMAL,
     val clockDisplay: ClockDisplay = ClockDisplay.OFF,
     val recordQuality: RecordQuality = RecordQuality.ORIGINAL,
-    val recordedPlaybackSpeed: Float = 1f
+    val recordedPlaybackSpeed: Float = 1f,
+    val themeId: AppThemeId = AppThemeId.NEURO_BLUE,
+    val pictureInPictureEnabled: Boolean = true
 )

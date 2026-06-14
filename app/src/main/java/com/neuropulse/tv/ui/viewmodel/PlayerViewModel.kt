@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.player.PictureInPictureController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,7 +17,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    val pipController: PictureInPictureController
 ) : ViewModel() {
 
     private val _channel = MutableStateFlow<Channel?>(null)

@@ -38,6 +38,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.neuropulse.tv.domain.model.VodPlaybackContext
 import com.neuropulse.tv.ui.component.VodCategoryChip
 import com.neuropulse.tv.ui.component.VodEmptyState
 import com.neuropulse.tv.ui.component.VodPosterCard
@@ -168,7 +169,10 @@ fun MoviesBrowserScreen(
                         posterUrl = movie.posterUrl,
                         progressFraction = viewModel.progressFraction(movie, progress),
                         showHdBadge = movie.showsHdBadge(),
-                        onClick = { onPlayMovie(movie.title, movie.streamUrl) }
+                        onClick = {
+                            VodPlaybackContext.stageMovie(movie.posterUrl, movie.streamId)
+                            onPlayMovie(movie.title, movie.streamUrl)
+                        }
                     )
                 }
             }

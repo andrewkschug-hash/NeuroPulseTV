@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +25,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.neuropulse.tv.domain.model.ContinueWatchingContentType
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -48,7 +48,7 @@ fun ContinueWatchingRow(
             modifier = Modifier.padding(bottom = 8.dp)
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            itemsIndexed(items, key = { _, item -> item.channel.id }) { index, item ->
+            itemsIndexed(items, key = { _, item -> item.contentKey }) { index, item ->
                 ContinueWatchingCard(
                     item = item,
                     isFocused = rowFocused && index == focusedIndex,
@@ -65,7 +65,6 @@ private fun ContinueWatchingCard(
     isFocused: Boolean,
     onClick: () -> Unit
 ) {
-    val title = item.programTitle ?: item.channel.name
     val bg = if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF1A1A22)
     val borderMod = if (isFocused) {
         Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
@@ -75,8 +74,8 @@ private fun ContinueWatchingCard(
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .width(220.dp)
-            .height(64.dp)
+            .width(150.dp)
+            .height(210.dp)
             .then(borderMod),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
@@ -84,49 +83,76 @@ private fun ContinueWatchingCard(
             focusedContainerColor = EpgColors.ChannelRowFocusBg
         )
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (item.channel.logoUrl != null) {
-                AsyncImage(
-                    model = item.channel.logoUrl,
-                    contentDescription = item.channel.name,
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(4.dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF2A2A35)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(item.channel.name.take(2).uppercase(), color = EpgColors.TextSecondary, fontSize = 12.sp)
+        Column(modifier = Modifier.padding(8.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF2A2A35)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (item.posterUrl != null) {
+                    AsyncImage(
+                        model = item.posterUrl,
+                        contentDescription = item.title,
+                        modifier = Modifier.size(120.dp).clip(RoundedCornerShape(6.dp))
+                    )
+                } else {
+                    Text(
+                        text = item.title.take(2).uppercase(),
+                        color = EpgColors.TextSecondary,
+                        fontSize = 20.sp
+                    )
                 }
             }
-            Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.title,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            if (item.contentType == ContinueWatchingContentType.SERIES && item.subtitle.isNotBlank()) {
                 Text(
-                    text = title,
-                    color = EpgColors.TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = item.channel.name,
+                    text = item.subtitle,
                     color = EpgColors.TextSecondary,
                     fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontSize = 10.sp
                 )
             }
-            Text("▶", color = EpgColors.Accent, fontSize = 16.sp)
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(item.progressFraction)
+                        .height(4.dp)
+                        .background(EpgColors.Accent)
+                )
+            }
+            Text(
+                text = formatRemainingTime(item.remainingMs),
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
+}
+
+private fun formatRemainingTime(remainingMs: Long): String {
+    if (remainingMs <= 0L) return "Resume"
+    val totalSec = (remainingMs + 500L) / 1000L
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return if (minutes > 0) "${minutes}m ${seconds}s left" else "${seconds}s left"
 }

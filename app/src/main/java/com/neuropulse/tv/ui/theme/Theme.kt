@@ -1,6 +1,7 @@
 package com.neuropulse.tv.ui.theme
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -9,15 +10,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
-
-private val GridColors = darkColorScheme(
-    primary = Color(0xFF3B8FFF),
-    onPrimary = Color.White,
-    secondary = Color(0xFF3B8FFF),
-    background = Color(0xFF0A0A0F),
-    surface = Color(0xFF111118),
-    onSurface = Color(0xFFF2F2F5)
-)
+import com.neuropulse.tv.domain.model.AppThemeId
 
 // System fonts — no Google Play Services dependency (Fire Stick / sideload safe)
 val DmSansFamily = FontFamily.SansSerif
@@ -25,9 +18,24 @@ val BarlowCondensedFamily = FontFamily.SansSerif
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun GridTheme(content: @Composable () -> Unit) {
+fun GridTheme(
+    themeId: AppThemeId = AppThemeId.NEURO_BLUE,
+    content: @Composable () -> Unit
+) {
+    LaunchedEffect(themeId) {
+        EpgColors.applyPalette(themeId)
+    }
+    val palette = AppThemes.palette(themeId)
+    val gridColors = darkColorScheme(
+        primary = palette.accent,
+        onPrimary = Color.White,
+        secondary = palette.accent,
+        background = palette.background,
+        surface = palette.channelColumnBg,
+        onSurface = palette.textPrimary
+    )
     MaterialTheme(
-        colorScheme = GridColors,
+        colorScheme = gridColors,
         typography = androidx.tv.material3.Typography(
             bodyLarge = TextStyle(fontFamily = DmSansFamily, fontSize = 14.sp),
             titleLarge = TextStyle(fontFamily = DmSansFamily, fontSize = 18.sp, fontWeight = FontWeight.SemiBold),
@@ -42,5 +50,5 @@ fun GridTheme(content: @Composable () -> Unit) {
 /** @deprecated Use [GridTheme] */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-fun StreamFlowTheme(content: @Composable () -> Unit) = GridTheme(content)
+fun StreamFlowTheme(content: @Composable () -> Unit) = GridTheme(content = content)
 

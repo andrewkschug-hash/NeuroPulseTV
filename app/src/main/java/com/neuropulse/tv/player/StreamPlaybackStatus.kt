@@ -40,8 +40,8 @@ fun StreamPlaybackStatus.shouldShowBlockingOverlay(): Boolean = when (this) {
 fun StreamPlaybackStatus.badgeColor(): Color = when (this) {
     StreamPlaybackStatus.PLAYING -> Color(0xFF2ECC71)
     StreamPlaybackStatus.AUDIO_ONLY -> Color(0xFF5B9BD5)
-    StreamPlaybackStatus.LOADING -> EpgColors.TextDimmed
+    StreamPlaybackStatus.LOADING -> EpgColors.TextDimmedStatic
     StreamPlaybackStatus.NO_SIGNAL, StreamPlaybackStatus.STALLED -> Color(0xFFFFB020)
     StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> Color(0xFFFF3B3B)
-    StreamPlaybackStatus.IDLE -> EpgColors.TextDimmed
+    StreamPlaybackStatus.IDLE -> EpgColors.TextDimmedStatic
 }

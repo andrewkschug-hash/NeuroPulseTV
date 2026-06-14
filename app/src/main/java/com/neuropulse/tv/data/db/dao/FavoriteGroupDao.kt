@@ -15,6 +15,15 @@ interface FavoriteGroupDao {
     @Query("SELECT * FROM favorite_groups WHERE profileId = :profileId ORDER BY sortOrder, name")
     fun observeForProfile(profileId: Long): Flow<List<FavoriteGroupEntity>>
 
+    @Query("SELECT * FROM favorite_groups WHERE profileId = :profileId ORDER BY sortOrder, name")
+    suspend fun getAllForProfile(profileId: Long): List<FavoriteGroupEntity>
+
+    @Query("SELECT * FROM favorite_groups WHERE profileId = :profileId AND name = :name LIMIT 1")
+    suspend fun getByName(profileId: Long, name: String): FavoriteGroupEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun update(group: FavoriteGroupEntity)
+
     @Query("SELECT * FROM favorite_groups WHERE id = :id")
     suspend fun getById(id: Long): FavoriteGroupEntity?
 

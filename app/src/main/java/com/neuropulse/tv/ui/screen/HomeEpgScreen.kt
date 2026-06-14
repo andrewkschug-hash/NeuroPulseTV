@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.domain.model.Channel
+import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
@@ -120,6 +121,7 @@ fun HomeEpgScreen(
     onNavigateVod: (Int) -> Unit = {},
     onNavigateSeries: (Long) -> Unit = {},
     onPlayVod: (String, String) -> Unit = { _, _ -> },
+    onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
     profileInitials: String = "?",
     openFavoritesInitially: Boolean = false,
     viewModel: HomeEpgViewModel,
@@ -227,7 +229,7 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(channels, continueWatching, usePlaceholder) {
+    LaunchedEffect(channels, usePlaceholder) {
         if (channels.isNotEmpty() && !usePlaceholder) {
             viewModel.tuneLastWatched(context)
         }
@@ -456,9 +458,6 @@ fun HomeEpgScreen(
 
     LaunchedEffect(focusChannelIndex, focusedProgram?.id, displayChannels.size, usePlaceholder) {
         if (usePlaceholder) return@LaunchedEffect
-        val ch = displayChannels.getOrNull(focusChannelIndex) ?: return@LaunchedEffect
-        val cwIdx = continueWatchingItems.indexOfFirst { it.channel.id == ch.id }
-        if (cwIdx >= 0) focusedContinueIndex = cwIdx
         previewFocusedChannel()
     }
 
@@ -785,8 +784,7 @@ fun HomeEpgScreen(
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 continueWatchingItems.getOrNull(focusedContinueIndex)?.let { item ->
                     if (viewModel.isProfileAccessAllowed()) {
-                        viewModel.resumeContinueWatching(context, item)
-                        onWatchChannel(item.channel.id)
+                        onResumeContinueWatching(item)
                     }
                 }
                 true
@@ -1106,8 +1104,7 @@ fun HomeEpgScreen(
                     continueWatchingFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
                     onContinueSelect = { item ->
                         if (viewModel.isProfileAccessAllowed()) {
-                            viewModel.resumeContinueWatching(context, item)
-                            onWatchChannel(item.channel.id)
+                            onResumeContinueWatching(item)
                         }
                     },
                     continueWatchingFocusRequester = continueWatchingFocusRequester,

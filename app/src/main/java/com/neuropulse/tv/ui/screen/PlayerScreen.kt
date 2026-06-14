@@ -411,7 +411,6 @@ fun PlayerScreen(
     val player = remember { livePlayerManager.getOrCreatePlayer(context) }
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
-    val atLiveEdge by livePlayerManager.atLiveEdgeFlow.collectAsStateWithLifecycle()
     val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding) {
@@ -443,9 +442,25 @@ fun PlayerScreen(
                     livePlayerManager.fastForward(30_000L)
                 }
             }
+            TimeshiftControlFocus.SKIP_2M -> livePlayerManager.skipBack(120_000L)
+            TimeshiftControlFocus.SKIP_30 -> livePlayerManager.skipBack(30_000L)
+            TimeshiftControlFocus.SKIP_10 -> livePlayerManager.skipBack(10_000L)
+            TimeshiftControlFocus.INSTANT_REPLAY -> livePlayerManager.instantReplay()
+            TimeshiftControlFocus.SKIP_10_FWD -> livePlayerManager.skipForward(10_000L)
+            TimeshiftControlFocus.SKIP_30_FWD -> livePlayerManager.skipForward(30_000L)
             TimeshiftControlFocus.SEEK_BAR -> Unit
             TimeshiftControlFocus.LIVE_BADGE -> livePlayerManager.jumpToLive()
         }
+    }
+
+    fun isQuickSkipFocus(target: TimeshiftControlFocus): Boolean = when (target) {
+        TimeshiftControlFocus.SKIP_2M,
+        TimeshiftControlFocus.SKIP_30,
+        TimeshiftControlFocus.SKIP_10,
+        TimeshiftControlFocus.INSTANT_REPLAY,
+        TimeshiftControlFocus.SKIP_10_FWD,
+        TimeshiftControlFocus.SKIP_30_FWD -> true
+        else -> false
     }
 
     fun handleTimeshiftNavigation(key: Key): Boolean {
@@ -458,6 +473,27 @@ fun PlayerScreen(
                 }
                 TimeshiftControlFocus.FAST_FORWARD -> {
                     timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_2M -> return false
+                TimeshiftControlFocus.SKIP_30 -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_2M
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_10 -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30
+                    return true
+                }
+                TimeshiftControlFocus.INSTANT_REPLAY -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_10_FWD -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.INSTANT_REPLAY
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_30_FWD -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10_FWD
                     return true
                 }
                 TimeshiftControlFocus.SEEK_BAR -> {
@@ -481,6 +517,27 @@ fun PlayerScreen(
                     return true
                 }
                 TimeshiftControlFocus.FAST_FORWARD -> return false
+                TimeshiftControlFocus.SKIP_2M -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_30 -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_10 -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.INSTANT_REPLAY
+                    return true
+                }
+                TimeshiftControlFocus.INSTANT_REPLAY -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10_FWD
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_10_FWD -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30_FWD
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_30_FWD -> return false
                 TimeshiftControlFocus.SEEK_BAR -> {
                     if (timeshiftState.canFastForward) {
                         livePlayerManager.seekRelative(30_000L)
@@ -496,6 +553,15 @@ fun PlayerScreen(
                     timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
                     return true
                 }
+                TimeshiftControlFocus.SKIP_2M,
+                TimeshiftControlFocus.SKIP_30,
+                TimeshiftControlFocus.SKIP_10,
+                TimeshiftControlFocus.INSTANT_REPLAY,
+                TimeshiftControlFocus.SKIP_10_FWD,
+                TimeshiftControlFocus.SKIP_30_FWD -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
+                    return true
+                }
                 TimeshiftControlFocus.SEEK_BAR -> {
                     timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
                     return true
@@ -509,6 +575,15 @@ fun PlayerScreen(
                 TimeshiftControlFocus.REWIND,
                 TimeshiftControlFocus.PLAY_PAUSE,
                 TimeshiftControlFocus.FAST_FORWARD -> {
+                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
+                    return true
+                }
+                TimeshiftControlFocus.SKIP_2M,
+                TimeshiftControlFocus.SKIP_30,
+                TimeshiftControlFocus.SKIP_10,
+                TimeshiftControlFocus.INSTANT_REPLAY,
+                TimeshiftControlFocus.SKIP_10_FWD,
+                TimeshiftControlFocus.SKIP_30_FWD -> {
                     showOverlay = false
                     return true
                 }
@@ -525,7 +600,7 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showOverlay, canTimeshift, atLiveEdge) {
+    LaunchedEffect(showOverlay, canTimeshift, timeshiftState.atLiveEdge) {
         if (showOverlay && canTimeshift) {
             timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
         }
@@ -546,6 +621,7 @@ fun PlayerScreen(
 
     LaunchedEffect(Unit) {
         livePlayerManager.setMode(LivePlayerManager.Mode.FULLSCREEN)
+        viewModel.pipController.setPlaybackActive(true)
     }
 
     LaunchedEffect(channelId) {
@@ -614,6 +690,7 @@ fun PlayerScreen(
         }
         player.addListener(listener)
         onDispose {
+            viewModel.pipController.setPlaybackActive(false)
             viewModel.savePosition(player.currentPosition)
             player.removeListener(listener)
             livePlayerManager.onFullscreenPlayerClosed(context)

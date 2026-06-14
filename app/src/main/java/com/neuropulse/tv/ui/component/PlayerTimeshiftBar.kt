@@ -34,6 +34,12 @@ enum class TimeshiftControlFocus {
     REWIND,
     PLAY_PAUSE,
     FAST_FORWARD,
+    SKIP_2M,
+    SKIP_30,
+    SKIP_10,
+    INSTANT_REPLAY,
+    SKIP_10_FWD,
+    SKIP_30_FWD,
     SEEK_BAR,
     LIVE_BADGE
 }
@@ -48,6 +54,7 @@ fun LiveTimeshiftControls(
     val showPauseIcon = timeshiftState.showPauseControl
     val canRewind = timeshiftState.canRewind
     val canFastForward = timeshiftState.canFastForward
+    val behindLiveLabel = if (atLiveEdge) "LIVE" else formatBehindLive(timeshiftState.behindLiveMs)
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -79,6 +86,49 @@ fun LiveTimeshiftControls(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TimeshiftTransportButton(
+                glyph = "-2m",
+                caption = "2 min",
+                focused = focusedTarget == TimeshiftControlFocus.SKIP_2M,
+                enabled = canRewind
+            )
+            TimeshiftTransportButton(
+                glyph = "-30",
+                caption = "30 sec",
+                focused = focusedTarget == TimeshiftControlFocus.SKIP_30,
+                enabled = canRewind
+            )
+            TimeshiftTransportButton(
+                glyph = "-10",
+                caption = "10 sec",
+                focused = focusedTarget == TimeshiftControlFocus.SKIP_10,
+                enabled = canRewind
+            )
+            TimeshiftTransportButton(
+                glyph = "R",
+                caption = "Replay",
+                focused = focusedTarget == TimeshiftControlFocus.INSTANT_REPLAY,
+                enabled = canRewind
+            )
+            TimeshiftTransportButton(
+                glyph = "+10",
+                caption = "10 sec",
+                focused = focusedTarget == TimeshiftControlFocus.SKIP_10_FWD,
+                enabled = canFastForward
+            )
+            TimeshiftTransportButton(
+                glyph = "+30",
+                caption = "30 sec",
+                focused = focusedTarget == TimeshiftControlFocus.SKIP_30_FWD,
+                enabled = canFastForward
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -101,10 +151,22 @@ fun LiveTimeshiftControls(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = formatBehindLive(timeshiftState.behindLiveMs),
+                text = formatTimelineTimestamp(timeshiftState.bufferStartMs),
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp
+            )
+            Text(
+                text = behindLiveLabel,
                 color = if (atLiveEdge) EpgColors.TextDimmed else EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 11.sp
+            )
+            Text(
+                text = formatTimelineTimestamp(timeshiftState.currentPositionMs),
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp
             )
             Text(
                 text = "LIVE",
@@ -315,4 +377,12 @@ fun formatBehindLive(behindMs: Long): String {
     val minutes = totalSec / 60
     val seconds = totalSec % 60
     return "-%d:%02d".format(minutes, seconds)
+}
+
+fun formatTimelineTimestamp(positionMs: Long): String {
+    if (positionMs <= 0L) return "0:00"
+    val totalSec = positionMs / 1000L
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return "%d:%02d".format(minutes, seconds)
 }

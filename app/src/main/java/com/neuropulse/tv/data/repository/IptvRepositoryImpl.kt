@@ -36,6 +36,7 @@ import com.neuropulse.tv.data.network.stalker.StalkerPortalClient
 import com.neuropulse.tv.data.security.SecureCredentialStore
 import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
+import com.neuropulse.tv.domain.model.AppThemeId
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.RecordQuality
 import com.neuropulse.tv.domain.model.SearchInputMode
@@ -80,6 +81,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.net.URLEncoder
@@ -117,7 +119,8 @@ class IptvRepositoryImpl @Inject constructor(
     private val epgScheduler: EpgScheduler,
     private val secureCredentialStore: SecureCredentialStore,
     private val stalkerPortalClient: StalkerPortalClient,
-    private val gridBackupManager: GridBackupManager
+    private val gridBackupManager: GridBackupManager,
+    private val favoritesRepository: FavoritesRepository
 ) : IptvRepository {
 
     companion object {
@@ -161,6 +164,7 @@ class IptvRepositoryImpl @Inject constructor(
                 profileDao.setActive(ActiveProfileEntity(profileId = first.id))
             }
         }
+        favoritesRepository.ensureDefaultGroups(activeProfileId)
     }
 
     private fun clearSeriesSeasonsForPlaylist(playlistId: Long) {
@@ -297,33 +301,9 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun continueWatching(limit: Int): Flow<List<Channel>> =
-        continueWatchingItems(limit).map { items -> items.map { it.channel } }
+    override fun continueWatching(limit: Int): Flow<List<Channel>> = flowOf(emptyList())
 
-    override fun continueWatchingItems(limit: Int): Flow<List<ContinueWatchingItem>> =
-        combine(
-            profileWatchHistoryDao.observeRecent(activeProfileId, limit),
-            streamHealthDao.observeAll(),
-            profileFavoriteDao.observeForProfile(activeProfileId),
-            playlistDao.observeAll()
-        ) { rows, healthRows, favs, playlists ->
-            val all = channelDao.all().associateBy { it.id }
-            val names = playlists.associate { it.id to it.name }
-            val health = healthRows.associateBy { it.channelId }
-            val favIds = favs.map { it.channelId }.toSet()
-            rows.mapNotNull { hist ->
-                val entity = all[hist.channelId] ?: return@mapNotNull null
-                ContinueWatchingItem(
-                    channel = channelFromEntity(entity, names[entity.playlistId]).copy(
-                        isFavorite = entity.id in favIds,
-                        reliabilityScore = health[entity.id]?.reliabilityScore ?: 50
-                    ),
-                    lastPosition = hist.lastPosition,
-                    lastWatched = hist.lastWatched,
-                    programTitle = hist.lastProgramTitle
-                )
-            }
-        }
+    override fun continueWatchingItems(limit: Int): Flow<List<ContinueWatchingItem>> = flowOf(emptyList())
 
     override fun topChannels(limit: Int): Flow<List<Channel>> =
         combine(
@@ -971,9 +951,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun createFavoriteGroup(name: String): Long {
         ensureDefaultProfile()
-        return favoriteGroupDao.insert(
-            FavoriteGroupEntity(profileId = activeProfileId, name = name, sortOrder = 0)
-        )
+        return favoritesRepository.createGroup(activeProfileId, name)
     }
 
     override suspend fun addChannelToFavoriteGroup(channelId: Long, groupId: Long) {
@@ -1086,7 +1064,9 @@ class IptvRepositoryImpl @Inject constructor(
             recordQuality = enumValueOrDefault(db.recordQuality, RecordQuality.ORIGINAL),
             recordedPlaybackSpeed = db.recordedPlaybackSpeed.coerceIn(0.5f, 2f).let {
                 if (it <= 0f) 1f else it
-            }
+            },
+            themeId = AppThemeId.fromStored(db.themeId),
+            pictureInPictureEnabled = db.pictureInPictureEnabled
         ).also {
             cachedSettings = it
             appHttpClient.applySettings(it)
@@ -1140,7 +1120,9 @@ class IptvRepositoryImpl @Inject constructor(
                 dpadSidebarSensitivity = settings.dpadSidebarSensitivity.name,
                 clockDisplay = settings.clockDisplay.name,
                 recordQuality = settings.recordQuality.name,
-                recordedPlaybackSpeed = settings.recordedPlaybackSpeed
+                recordedPlaybackSpeed = settings.recordedPlaybackSpeed,
+                themeId = settings.themeId.name,
+                pictureInPictureEnabled = settings.pictureInPictureEnabled
             )
         )
     }

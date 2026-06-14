@@ -58,6 +58,7 @@ import coil.compose.AsyncImage
 import com.neuropulse.tv.ui.component.VodCategoryChip
 import com.neuropulse.tv.ui.component.VodEmptyState
 import com.neuropulse.tv.domain.model.PlaylistType
+import com.neuropulse.tv.domain.model.VodPlaybackContext
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.SeriesViewModel
@@ -353,7 +354,20 @@ fun SeriesBrowserScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(episodes) { episode ->
-                    Button(onClick = { onPlayUrl(episode.streamUrl, episode.title) }) {
+                    Button(onClick = {
+                        val showId = selectedShowId ?: return@Button
+                        val show = shows.firstOrNull { it.id == showId }
+                        val seasonNum = selectedSeason ?: seasons.firstOrNull()?.number ?: return@Button
+                        val episodeNum = episodes.indexOf(episode) + 1
+                        VodPlaybackContext.stageSeriesEpisode(
+                            posterUrl = show?.coverUrl,
+                            streamId = episode.id,
+                            seriesId = showId,
+                            seasonNumber = seasonNum,
+                            episodeNumber = episodeNum
+                        )
+                        onPlayUrl(episode.streamUrl, episode.title)
+                    }) {
                         Text("${episode.title} (${episode.duration ?: "N/A"})")
                     }
                 }

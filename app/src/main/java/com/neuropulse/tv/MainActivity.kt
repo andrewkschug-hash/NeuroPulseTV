@@ -10,19 +10,29 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.search.MicSearchTrigger
 import com.neuropulse.tv.feature.search.VoiceSearchKeys
+import com.neuropulse.tv.player.PictureInPictureController
 import com.neuropulse.tv.ui.navigation.AppRoot
 import com.neuropulse.tv.ui.theme.GridTheme
+import com.neuropulse.tv.ui.theme.ThemeManager
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
+    @Inject lateinit var themeManager: ThemeManager
+    @Inject lateinit var pipController: PictureInPictureController
+    @Inject lateinit var repository: IptvRepository
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -44,8 +54,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setTitle(getString(R.string.app_name))
 
+        lifecycleScope.launch {
+            themeManager.loadFromSettings()
+            pipController.pictureInPictureEnabled = repository.loadSettings().pictureInPictureEnabled
+        }
+
         setContent {
-            GridTheme {
+            val themeId by themeManager.themeId.collectAsStateWithLifecycle()
+            GridTheme(themeId = themeId) {
                 AppRoot(
                     onPickLocalFile = {
                         pickerMode = PickerMode.M3U
@@ -70,7 +86,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode.not()) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            isInPictureInPictureMode.not() &&
+            pipController.canEnterPictureInPicture()
+        ) {
             runCatching {
                 enterPictureInPictureMode(
                     PictureInPictureParams.Builder()
@@ -78,6 +97,13 @@ class MainActivity : ComponentActivity() {
                         .build()
                 )
             }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        if (!isInPictureInPictureMode) {
+            pipController.setPlaybackActive(pipController.playbackActive)
         }
     }
 

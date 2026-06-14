@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.ContentResolver
 import android.net.Uri
+import com.neuropulse.tv.domain.model.AppThemeId
 import com.neuropulse.tv.domain.model.AppSettings
 import com.neuropulse.tv.domain.model.AspectRatioSetting
 import com.neuropulse.tv.domain.model.BufferSize
@@ -17,6 +18,8 @@ import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.XtreamAccountInfo
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.player.PictureInPictureController
+import com.neuropulse.tv.ui.theme.ThemeManager
 import com.neuropulse.tv.feature.dashboard.DashboardController
 import com.neuropulse.tv.feature.recording.RecordingStorageManager
 import com.neuropulse.tv.feature.recording.SeriesRuleScheduler
@@ -51,7 +54,9 @@ class SettingsViewModel @Inject constructor(
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
     private val channelScanner: ChannelScanner,
-    private val seriesRuleScheduler: SeriesRuleScheduler
+    private val seriesRuleScheduler: SeriesRuleScheduler,
+    private val themeManager: ThemeManager,
+    private val pipController: PictureInPictureController
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
@@ -429,6 +434,18 @@ class SettingsViewModel @Inject constructor(
 
     fun updateClockDisplay(display: ClockDisplay) {
         persistSettings(_settings.value.copy(clockDisplay = display))
+    }
+
+    fun updateTheme(themeId: AppThemeId) {
+        viewModelScope.launch {
+            themeManager.setTheme(themeId)
+            persistSettings(_settings.value.copy(themeId = themeId))
+        }
+    }
+
+    fun updatePictureInPictureEnabled(enabled: Boolean) {
+        pipController.pictureInPictureEnabled = enabled
+        persistSettings(_settings.value.copy(pictureInPictureEnabled = enabled))
     }
 
     fun clearCache() {

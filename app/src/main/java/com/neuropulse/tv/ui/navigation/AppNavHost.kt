@@ -38,7 +38,7 @@ import com.neuropulse.tv.ui.component.ProfileMenuDropdown
 import com.neuropulse.tv.ui.screen.DirectPlayerScreen
 import com.neuropulse.tv.ui.screen.EpgResolverScreen
 import com.neuropulse.tv.ui.screen.HomeEpgScreen
-import com.neuropulse.tv.ui.screen.MultiviewPlaceholderScreen
+import com.neuropulse.tv.ui.screen.MultiViewScreen
 import com.neuropulse.tv.ui.screen.PlayerScreen
 import com.neuropulse.tv.ui.screen.SplitViewScreen
 import com.neuropulse.tv.ui.screen.WhatsNewScreen
@@ -277,6 +277,15 @@ fun AppNavHost(
                     onPlayCatchup = { title, url ->
                         navController.navigate(Routes.DirectPlayer.build(title, url))
                     },
+                    onResumeContinueWatching = { item ->
+                        navController.navigate(
+                            Routes.DirectPlayer.build(
+                                title = item.title,
+                                url = item.streamUrl,
+                                resume = true
+                            )
+                        )
+                    },
                     profileInitials = profileInitials
                 )
             }
@@ -365,8 +374,14 @@ fun AppNavHost(
             composable(Routes.EpgResolver.route) {
                 EpgResolverScreen()
             }
-            composable(Routes.Multiview.route) {
-                MultiviewPlaceholderScreen()
+            composable(
+                route = Routes.Multiview.route,
+                arguments = listOf(navArgument("channelId") { type = NavType.LongType; defaultValue = 0L })
+            ) {
+                MultiViewScreen(
+                    seedChannelId = it.arguments?.getLong("channelId") ?: 0L,
+                    onBack = { navController.popBackStack() }
+                )
             }
             composable(
                 route = Routes.Player.route,
@@ -375,7 +390,7 @@ fun AppNavHost(
                 PlayerScreen(
                     channelId = it.arguments?.getLong("channelId") ?: 0,
                     onBack = { navController.popBackStack() },
-                    onOpenSplit = { id -> navController.navigate(Routes.SplitView.build(id)) },
+                    onOpenSplit = { id -> navController.navigate(Routes.Multiview.build(id)) },
                     onNavigateGuide = { navController.popBackStack() },
                     onNavigateRecordings = {
                         navController.navigate(Routes.Recordings.route) { launchSingleTop = true }

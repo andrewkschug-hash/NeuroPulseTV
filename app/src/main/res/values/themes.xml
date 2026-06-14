@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Grid" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowBackground">@color/grid_bg_black</item>
+        <item name="android:colorPrimary">@color/grid_accent_red</item>
+        <item name="android:statusBarColor">@color/grid_bg_black</item>
+        <item name="android:navigationBarColor">@color/grid_bg_black</item>
     </style>
 </resources>

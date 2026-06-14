@@ -45,5 +45,7 @@ data class ProfileSettingsEntity(
     val dpadSidebarSensitivity: String = "NORMAL",
     val clockDisplay: String = "OFF",
     val recordQuality: String = "ORIGINAL",
-    val recordedPlaybackSpeed: Float = 1f
+    val recordedPlaybackSpeed: Float = 1f,
+    val themeId: String = "NEURO_BLUE",
+    val pictureInPictureEnabled: Boolean = true
 )

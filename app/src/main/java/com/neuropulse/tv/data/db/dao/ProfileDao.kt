@@ -45,4 +45,7 @@ interface ProfileDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setActive(entity: ActiveProfileEntity)
+
+    @Query("SELECT profileId FROM active_profile WHERE singletonId = 1 LIMIT 1")
+    fun observeActiveProfileId(): Flow<Long?>
 }

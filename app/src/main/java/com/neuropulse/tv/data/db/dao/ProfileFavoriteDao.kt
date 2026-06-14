@@ -24,6 +24,18 @@ interface ProfileFavoriteDao {
     @Query("SELECT * FROM profile_favorites WHERE profileId = :profileId ORDER BY sortOrder, createdAt")
     fun observeForProfile(profileId: Long): Flow<List<ProfileFavoriteEntity>>
 
+    @Query("SELECT * FROM profile_favorites WHERE profileId = :profileId AND channelId = :channelId LIMIT 1")
+    suspend fun get(profileId: Long, channelId: Long): ProfileFavoriteEntity?
+
+    @Query("UPDATE profile_favorites SET groupId = :groupId WHERE profileId = :profileId AND groupId IS NULL")
+    suspend fun assignNullGroupTo(profileId: Long, groupId: Long)
+
+    @Query("DELETE FROM profile_favorites WHERE profileId = :profileId AND groupId = :groupId")
+    suspend fun removeByGroup(profileId: Long, groupId: Long)
+
+    @Query("SELECT groupId FROM profile_favorites WHERE profileId = :profileId AND channelId = :channelId AND groupId IS NOT NULL")
+    suspend fun getGroupIdsForChannel(profileId: Long, channelId: Long): List<Long>
+
     @Query("SELECT channelId FROM profile_favorites WHERE profileId = :profileId AND (:groupId IS NULL OR groupId = :groupId)")
     suspend fun channelIdsForGroup(profileId: Long, groupId: Long?): List<Long>
 

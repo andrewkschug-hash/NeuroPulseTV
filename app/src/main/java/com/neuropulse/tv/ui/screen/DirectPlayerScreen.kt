@@ -44,6 +44,8 @@ import com.neuropulse.tv.ui.component.RecordedPlayerFocusZone
 import com.neuropulse.tv.ui.component.RecordingDeleteDialog
 import com.neuropulse.tv.ui.component.formatPlayerTime
 import com.neuropulse.tv.ui.component.formatRecordedPlayerOverlayDate
+import com.neuropulse.tv.domain.model.VodPlaybackContext
+import com.neuropulse.tv.player.PictureInPictureController
 import com.neuropulse.tv.ui.viewmodel.DirectPlayerViewModel
 import com.neuropulse.tv.util.MediaAttribution
 import kotlinx.coroutines.delay
@@ -97,6 +99,26 @@ fun DirectPlayerScreen(
         }
     }
 
+    LaunchedEffect(url) {
+        if (!isRecordedPlayback) {
+            viewModel.setVodMetadata(VodPlaybackContext.consume())
+        }
+    }
+
+    LaunchedEffect(url, resume, isRecordedPlayback, streamId) {
+        if (isRecordedPlayback || hasSeekedToResume) return@LaunchedEffect
+        if (player.playbackState == Player.STATE_READY) {
+            val startMs = viewModel.resumePositionMs(streamId, url, resume)
+            if (startMs > 0L) player.seekTo(startMs)
+            hasSeekedToResume = true
+        }
+    }
+
+    LaunchedEffect(isRecordedPlayback) {
+        if (isRecordedPlayback) return@LaunchedEffect
+        viewModel.pipController.setPlaybackActive(true)
+    }
+
     LaunchedEffect(recordedMedia, resume, isRecordedPlayback) {
         if (!isRecordedPlayback || hasSeekedToResume) return@LaunchedEffect
         val media = recordedMedia ?: return@LaunchedEffect
@@ -136,12 +158,13 @@ fun DirectPlayerScreen(
 
     DisposableEffect(player) {
         onDispose {
+            viewModel.pipController.setPlaybackActive(false)
             positionMs = player.currentPosition
             if (durationMs <= 0L) durationMs = player.duration.coerceAtLeast(0L)
             if (isRecordedPlayback && recordingId > 0L) {
                 viewModel.saveRecordingPosition(recordingId, positionMs)
             } else {
-                viewModel.persistProgress(streamId, positionMs, title, durationMs)
+                viewModel.persistProgress(streamId, positionMs, title, durationMs, url)
             }
             player.release()
         }

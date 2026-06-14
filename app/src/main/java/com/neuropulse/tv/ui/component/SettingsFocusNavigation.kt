@@ -404,8 +404,8 @@ private const val PLAYBACK_CARD2_COUNT = 6
 private const val PLAYBACK_CARD3_COUNT =
     PLAYBACK_FOCUS_COUNT - PLAYBACK_CARD0_COUNT - PLAYBACK_CARD1_COUNT - PLAYBACK_CARD2_COUNT
 
-/** InterfaceSettingsContent chain indices 0..11. */
-const val INTERFACE_FOCUS_COUNT = 12
+/** InterfaceSettingsContent chain indices 0..16. */
+const val INTERFACE_FOCUS_COUNT = 17
 
 /** AboutSettingsContent chain indices 0..3. */
 const val ABOUT_FOCUS_COUNT = 4

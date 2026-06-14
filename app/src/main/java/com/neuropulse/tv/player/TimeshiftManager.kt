@@ -11,6 +11,10 @@ object TimeshiftManager {
     var bufferStartMs: Long = 0L
         private set
     var maxBufferMs: Long = 1_800_000L
+    var replayAnchorMs: Long = 0L
+        private set
+    var pausedAtPositionMs: Long? = null
+        private set
 
     private const val LIVE_EDGE_TOLERANCE_MS = 3_000L
     private const val FAST_FORWARD_LIVE_THRESHOLD_MS = 3_000L
@@ -20,6 +24,8 @@ object TimeshiftManager {
         isTimeshifting = false
         liveEdgePositionMs = 0L
         bufferStartMs = 0L
+        replayAnchorMs = 0L
+        pausedAtPositionMs = null
     }
 
     fun updateLiveEdge(player: ExoPlayer) {
@@ -32,7 +38,17 @@ object TimeshiftManager {
 
         if (isAtLiveEdge(player)) {
             isTimeshifting = false
+        } else {
+            isTimeshifting = true
         }
+    }
+
+    internal fun syncFromPlayer(player: ExoPlayer) {
+        if (!player.isCurrentMediaItemDynamic) {
+            isTimeshifting = false
+            return
+        }
+        isTimeshifting = !isAtLiveEdge(player) || pausedAtPositionMs != null
     }
 
     fun canRewind(player: ExoPlayer): Boolean {
@@ -71,16 +87,17 @@ object TimeshiftManager {
         (liveEdgePositionMs - player.currentPosition).coerceAtLeast(0L)
 
     fun jumpToLive(player: ExoPlayer) {
+        captureReplayPoint(player)
         player.seekToDefaultPosition()
         player.playWhenReady = true
-        isTimeshifting = false
+        pausedAtPositionMs = null
     }
 
     fun rewind(player: ExoPlayer, ms: Long = 30_000L) {
         if (!canRewind(player)) return
+        captureReplayPoint(player)
         val target = (player.currentPosition - ms).coerceAtLeast(bufferStartMs)
         player.seekTo(target)
-        isTimeshifting = !isAtLiveEdge(player)
     }
 
     fun fastForward(player: ExoPlayer, ms: Long = 30_000L) {
@@ -91,7 +108,6 @@ object TimeshiftManager {
                 jumpToLive(player)
             } else {
                 player.seekTo(player.currentPosition + ms)
-                isTimeshifting = true
             }
             return
         }
@@ -100,8 +116,31 @@ object TimeshiftManager {
             jumpToLive(player)
         } else {
             player.seekTo(target)
-            isTimeshifting = true
         }
+    }
+
+    fun skipBack(player: ExoPlayer, ms: Long) = rewind(player, ms)
+
+    fun skipForward(player: ExoPlayer, ms: Long) = fastForward(player, ms)
+
+    fun captureReplayPoint(player: ExoPlayer) {
+        if (isAtLiveEdge(player)) {
+            replayAnchorMs = player.currentPosition
+        }
+    }
+
+    fun instantReplay(player: ExoPlayer) {
+        if (replayAnchorMs <= 0L || !canRewind(player)) return
+        player.seekTo(replayAnchorMs.coerceAtLeast(bufferStartMs))
+    }
+
+    fun resumeFromPause(player: ExoPlayer) {
+        val pausedAt = pausedAtPositionMs
+        if (pausedAt != null) {
+            player.seekTo(pausedAt)
+        }
+        player.playWhenReady = true
+        pausedAtPositionMs = null
     }
 
     fun seekTo(player: ExoPlayer, positionMs: Long) {
@@ -132,15 +171,10 @@ object TimeshiftManager {
 
     fun togglePlayPause(player: ExoPlayer) {
         if (player.isPlaying) {
+            pausedAtPositionMs = player.currentPosition
             player.playWhenReady = false
-            if (isAtLiveEdge(player)) {
-                isTimeshifting = true
-            }
         } else {
-            player.playWhenReady = true
-            if (isAtLiveEdge(player)) {
-                isTimeshifting = false
-            }
+            resumeFromPause(player)
         }
     }
 

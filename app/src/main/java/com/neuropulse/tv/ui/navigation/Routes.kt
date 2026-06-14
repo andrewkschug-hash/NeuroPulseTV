@@ -30,7 +30,9 @@ sealed class Routes(val route: String) {
     data object Settings : Routes("settings")
     data object EpgResolver : Routes("epg-resolver")
     data object Recordings : Routes("recordings")
-    data object Multiview : Routes("multiview")
+    data object Multiview : Routes("multiview/{channelId}") {
+        fun build(channelId: Long = 0L): String = "multiview/$channelId"
+    }
     data object SplitView : Routes("split/{channelId}") {
         fun build(channelId: Long): String = "split/$channelId"
     }

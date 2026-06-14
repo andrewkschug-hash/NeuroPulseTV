@@ -1,29 +1,38 @@
 package com.neuropulse.tv.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import com.neuropulse.tv.domain.model.AppThemeId
 
 object EpgColors {
-    val Background = Color(0xFF0A0A0F)
-    val ChannelColumnBg = Color(0xFF111118)
-    val GridBg = Color(0xFF0D0D14)
-    val CellAiringNow = Color(0xFF1A1A2E)
-    val CellFuture = Color(0xFF13131A)
-    val CellPast = Color(0xFF0F0F14)
-    val CellPastText = Color(0xFF44445A)
-    val ChannelRowFocusBg = Color(0xFF1C1C2E)
-    val RowSeparator = Color(0x0AFFFFFF)
-    val Accent = Color(0xFF3B8FFF)
-    val LiveBadge = Color(0xFFFF3B3B)
-    val TextPrimary = Color(0xFFF2F2F5)
-    val TextSecondary = Color(0xFF8888A0)
-    val TextDimmed = Color(0xFF555568)
-    val TextFuture = Color(0xFFAAAABC)
-    val NowLine = Color(0xFFFF3B3B)
-    val BorderSubtle = Color(0x12FFFFFF)
-    val DetailPanelBg = Color(0xFF1A1A28)
-    val HdBadgeBg = Color(0xFF2A2A3A)
-    val NewBadgeBg = Color(0xFFF0A732)
-    val FavoriteStar = Color(0xFFF5C518)
-    val FocusBorder = Color(0xFF3B8FFF)
-    val SelectedFill = Color(0xFF3B8FFF)
+    private var palette: AppThemePalette = AppThemes.palette(AppThemeId.NEURO_BLUE)
+
+    fun applyPalette(themeId: AppThemeId) {
+        palette = AppThemes.palette(themeId)
+    }
+
+    val Background: Color get() = palette.background
+    val ChannelColumnBg: Color get() = palette.channelColumnBg
+    val GridBg: Color get() = palette.gridBg
+    val CellAiringNow: Color get() = palette.cellAiringNow
+    val CellFuture: Color get() = palette.cellFuture
+    val CellPast: Color get() = palette.cellPast
+    val CellPastText: Color get() = palette.cellPastText
+    val ChannelRowFocusBg: Color get() = palette.channelRowFocusBg
+    val RowSeparator: Color get() = palette.rowSeparator
+    val Accent: Color get() = palette.accent
+    val LiveBadge: Color get() = palette.liveBadge
+    val TextPrimary: Color get() = palette.textPrimary
+    val TextSecondary: Color get() = palette.textSecondary
+    val TextDimmed: Color get() = palette.textDimmed
+    val TextFuture: Color get() = palette.textFuture
+    val NowLine: Color get() = palette.nowLine
+    val BorderSubtle: Color get() = palette.borderSubtle
+    val DetailPanelBg: Color get() = palette.detailPanelBg
+    val HdBadgeBg: Color get() = palette.hdBadgeBg
+    val NewBadgeBg: Color get() = palette.newBadgeBg
+    val FavoriteStar: Color get() = palette.favoriteStar
+    val FocusBorder: Color get() = palette.focusBorder
+    val SelectedFill: Color get() = palette.selectedFill
+
+    val TextDimmedStatic: Color get() = palette.textDimmed
 }

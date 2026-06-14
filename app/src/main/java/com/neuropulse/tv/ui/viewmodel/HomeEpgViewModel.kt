@@ -2,6 +2,8 @@ package com.neuropulse.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.neuropulse.tv.data.repository.ContinueWatchingRepository
+import com.neuropulse.tv.data.repository.FavoritesRepository
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
@@ -47,6 +49,8 @@ data class EpgGuidePosition(
 @HiltViewModel
 class HomeEpgViewModel @Inject constructor(
     private val repository: IptvRepository,
+    private val continueWatchingRepository: ContinueWatchingRepository,
+    private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
     private val channelScanner: ChannelScanner
 ) : ViewModel() {
@@ -135,16 +139,14 @@ class HomeEpgViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> = repository.continueWatchingItems(1)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> =
+        continueWatchingRepository.observeItems(limit = 12)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val continueWatching: StateFlow<List<Channel>> = continueWatchingItems
-        .combine(_hideAdultContent) { items, hideAdult ->
-            items.map { it.channel }.filter { ch ->
-                !hideAdult || !ProfileAccessGuard.isAdultGroup(ch.group)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    /** Live channels are not tracked in Continue Watching (VOD + series only). */
+    val continueWatching: StateFlow<List<Channel>> =
+        kotlinx.coroutines.flow.flowOf(emptyList<Channel>())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recommendations: StateFlow<List<Recommendation>> = repository.recommendedChannels(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -284,7 +286,9 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun createFavoriteGroup(name: String) {
-        viewModelScope.launch { repository.createFavoriteGroup(name) }
+        viewModelScope.launch {
+            favoritesRepository.createGroup(repository.activeProfileId(), name)
+        }
     }
 
     fun addChannelToFavorites(channelId: Long, groupId: Long?) {
@@ -396,14 +400,6 @@ class HomeEpgViewModel @Inject constructor(
         viewModelScope.launch {
             if (channel.streamUrl.isBlank()) return@launch
             livePlayerManager.tuneChannel(context, channel)
-            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-        }
-    }
-
-    fun resumeContinueWatching(context: android.content.Context, item: ContinueWatchingItem) {
-        setLastPlayedChannel(item.channel)
-        viewModelScope.launch {
-            livePlayerManager.tuneChannel(context, item.channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }
