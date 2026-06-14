@@ -59,6 +59,9 @@ object EpgLayout {
     val RowHeight = 64.dp
     val TimelineHeaderHeight = 32.dp
     val DetailPanelHeight = 180.dp
+    val MiniPlayerWidth = 280.dp
+    val MiniPlayerHeight = 158.dp
+    val MiniPlayerTopOffset = TimelineHeaderHeight + 8.dp
     val DpPerMinute = 4f
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
