@@ -39,4 +39,17 @@ interface ProgramDao {
 
     @Query("SELECT DISTINCT channelEpgId FROM programs WHERE channelEpgId != ''")
     suspend fun distinctChannelEpgIds(): List<String>
+
+    @Query(
+        """
+        SELECT * FROM programs
+        WHERE endTime >= :fromTime
+          AND (
+            title LIKE :seriesTitle || '%'
+            OR title LIKE '%' || :seriesTitle || '%'
+          )
+        ORDER BY startTime ASC
+        """
+    )
+    suspend fun findUpcomingBySeriesTitle(fromTime: Long, seriesTitle: String): List<ProgramEntity>
 }

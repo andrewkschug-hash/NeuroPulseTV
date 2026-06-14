@@ -1,30 +1,59 @@
 package com.neuropulse.tv.ui.component
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.neuropulse.tv.domain.model.RecordQuality
+import com.neuropulse.tv.feature.recording.RecordingPrecheck
 import com.neuropulse.tv.feature.recording.StorageOption
+import com.neuropulse.tv.feature.recording.label
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
-private val DialogBg = Color(0xFF1A1A2E)
-private val DialogTextSecondary = Color(0xFFB0B0C0)
+private val DialogBg = Color(0xFF1A1F2E)
+private val DialogTextSecondary = Color(0xFF8B93A7)
+private val RecordAccent = Color(0xFFE53935)
+
+private enum class PrecheckFocusZone { QUALITY, BUTTONS }
 
 @Composable
 fun StorageLocationPicker(
@@ -98,72 +127,321 @@ fun StorageLocationPicker(
 
 @Composable
 fun RecordingPrecheckDialog(
-    estimateText: String,
-    lowStorageWarning: String?,
-    insufficientSpaceWarning: String?,
+    precheck: RecordingPrecheck,
+    onQualitySelected: (RecordQuality) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = DialogBg,
-        titleContentColor = Color.White,
-        textContentColor = DialogTextSecondary,
-        shape = RoundedCornerShape(16.dp),
-        title = {
-            Text(
-                "Start recording?",
-                color = Color.White,
-                fontFamily = DmSansFamily,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(estimateText, color = DialogTextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
-                lowStorageWarning?.let {
-                    Text(it, color = Color(0xFFFFB020), fontFamily = DmSansFamily, fontSize = 13.sp)
-                }
-                insufficientSpaceWarning?.let {
-                    Text(it, color = Color(0xFFFF3B3B), fontFamily = DmSansFamily, fontSize = 13.sp)
-                }
+    val showQuality = precheck.availableQualities.size > 1
+    val qualities = precheck.availableQualities
+    var focusZone by remember { mutableStateOf(PrecheckFocusZone.BUTTONS) }
+    var qualityIndex by remember(precheck.selectedQuality, qualities) {
+        mutableIntStateOf(
+            qualities.indexOf(precheck.selectedQuality).coerceAtLeast(0)
+        )
+    }
+    var buttonIndex by remember { mutableIntStateOf(0) }
+
+    val recordFocusRequester = remember { FocusRequester() }
+    val cancelFocusRequester = remember { FocusRequester() }
+    val qualityFocusRequesters = remember(qualities.size) {
+        List(qualities.size) { FocusRequester() }
+    }
+
+    LaunchedEffect(precheck.selectedQuality) {
+        val idx = qualities.indexOf(precheck.selectedQuality)
+        if (idx >= 0) qualityIndex = idx
+    }
+
+    LaunchedEffect(Unit) {
+        buttonIndex = 0
+        focusZone = PrecheckFocusZone.BUTTONS
+        recordFocusRequester.requestFocus()
+    }
+
+    LaunchedEffect(focusZone, buttonIndex, qualityIndex, showQuality) {
+        when (focusZone) {
+            PrecheckFocusZone.BUTTONS ->
+                if (buttonIndex == 0) recordFocusRequester.requestFocus() else cancelFocusRequester.requestFocus()
+            PrecheckFocusZone.QUALITY ->
+                if (showQuality) qualityFocusRequesters.getOrNull(qualityIndex)?.requestFocus()
+        }
+    }
+
+    fun activateSelection() {
+        when (focusZone) {
+            PrecheckFocusZone.QUALITY -> {
+                qualities.getOrNull(qualityIndex)?.let(onQualitySelected)
             }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (insufficientSpaceWarning == null) {
-                    Surface(
-                        onClick = onConfirm,
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = EpgColors.Accent,
-                            focusedContainerColor = EpgColors.Accent.copy(alpha = 0.85f)
-                        )
-                    ) {
-                        Text(
-                            "Record",
-                            color = Color.White,
-                            fontFamily = DmSansFamily,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            PrecheckFocusZone.BUTTONS -> when (buttonIndex) {
+                0 -> if (precheck.insufficientSpaceWarning == null) onConfirm()
+                1 -> onDismiss()
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.72f))
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        onDismiss()
+                        true
+                    }
+                    Key.DirectionUp -> {
+                        if (showQuality && focusZone == PrecheckFocusZone.BUTTONS) {
+                            focusZone = PrecheckFocusZone.QUALITY
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionDown -> {
+                        if (showQuality && focusZone == PrecheckFocusZone.QUALITY) {
+                            focusZone = PrecheckFocusZone.BUTTONS
+                            buttonIndex = 0
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionLeft -> {
+                        when (focusZone) {
+                            PrecheckFocusZone.BUTTONS -> {
+                                buttonIndex = 1
+                                true
+                            }
+                            PrecheckFocusZone.QUALITY -> {
+                                if (qualityIndex > 0) {
+                                    qualityIndex -= 1
+                                    qualities.getOrNull(qualityIndex)?.let(onQualitySelected)
+                                }
+                                true
+                            }
+                        }
+                    }
+                    Key.DirectionRight -> {
+                        when (focusZone) {
+                            PrecheckFocusZone.BUTTONS -> {
+                                buttonIndex = 0
+                                true
+                            }
+                            PrecheckFocusZone.QUALITY -> {
+                                if (qualityIndex < qualities.lastIndex) {
+                                    qualityIndex += 1
+                                    qualities.getOrNull(qualityIndex)?.let(onQualitySelected)
+                                }
+                                true
+                            }
+                        }
+                    }
+                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                        activateSelection()
+                        true
+                    }
+                    else -> false
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .width(440.dp)
+                .background(DialogBg, RoundedCornerShape(8.dp))
+                .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(RecordAccent, CircleShape)
+                )
+                Text(
+                    text = "Start Recording",
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Text(
+                text = precheck.estimateText,
+                color = DialogTextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            Text(
+                text = precheck.freeStorageText,
+                color = DialogTextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp
+            )
+            precheck.lowStorageWarning?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFFB020),
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp
+                )
+            }
+            precheck.insufficientSpaceWarning?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFF3B3B),
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp
+                )
+            }
+
+            if (showQuality) {
+                Text(
+                    text = "Record quality:",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    qualities.forEachIndexed { index, quality ->
+                        val selected = precheck.selectedQuality == quality
+                        val focused = focusZone == PrecheckFocusZone.QUALITY && qualityIndex == index
+                        PrecheckQualityPill(
+                            label = quality.label,
+                            selected = selected,
+                            focused = focused,
+                            modifier = Modifier
+                                .focusRequester(qualityFocusRequesters[index])
+                                .focusable()
                         )
                     }
                 }
-                Surface(
-                    onClick = onDismiss,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent
-                    )
-                ) {
-                    Text(
-                        "Cancel",
-                        color = EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
-                    )
-                }
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(top = 4.dp),
+                color = Color.White.copy(alpha = 0.1f)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                PrecheckActionButton(
+                    label = "Cancel",
+                    focused = focusZone == PrecheckFocusZone.BUTTONS && buttonIndex == 1,
+                    destructive = false,
+                    enabled = true,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(cancelFocusRequester)
+                        .focusable()
+                )
+                PrecheckActionButton(
+                    label = "Record",
+                    focused = focusZone == PrecheckFocusZone.BUTTONS && buttonIndex == 0,
+                    destructive = true,
+                    enabled = precheck.insufficientSpaceWarning == null,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(recordFocusRequester)
+                        .focusable()
+                )
             }
         }
-    )
+    }
+}
+
+@Composable
+private fun PrecheckQualityPill(
+    label: String,
+    selected: Boolean,
+    focused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = when {
+        focused -> EpgColors.Accent
+        selected -> EpgColors.Accent.copy(alpha = 0.55f)
+        else -> EpgColors.BorderSubtle
+    }
+    val background = when {
+        focused -> EpgColors.Accent.copy(alpha = 0.18f)
+        selected -> EpgColors.Accent.copy(alpha = 0.1f)
+        else -> Color.Transparent
+    }
+    Box(
+        modifier = modifier
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(6.dp)
+            )
+            .background(background, RoundedCornerShape(6.dp))
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = label,
+            color = if (focused || selected) EpgColors.TextPrimary else DialogTextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal
+        )
+    }
+}
+
+@Composable
+private fun PrecheckActionButton(
+    label: String,
+    focused: Boolean,
+    destructive: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = when {
+        !enabled -> EpgColors.BorderSubtle.copy(alpha = 0.35f)
+        focused && destructive -> RecordAccent
+        focused -> EpgColors.Accent
+        else -> EpgColors.BorderSubtle
+    }
+    val background = when {
+        !enabled -> Color.Transparent
+        focused && destructive -> RecordAccent.copy(alpha = 0.15f)
+        focused -> EpgColors.Accent.copy(alpha = 0.12f)
+        else -> Color.Transparent
+    }
+    val textColor = when {
+        !enabled -> DialogTextSecondary.copy(alpha = 0.45f)
+        focused && destructive -> Color.White
+        focused -> EpgColors.TextPrimary
+        destructive -> RecordAccent.copy(alpha = 0.85f)
+        else -> DialogTextSecondary
+    }
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .border(
+                width = if (focused) 2.dp else 1.dp,
+                color = borderColor,
+                shape = RoundedCornerShape(6.dp)
+            )
+            .background(background, RoundedCornerShape(6.dp))
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontFamily = DmSansFamily,
+            fontSize = 15.sp,
+            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium
+        )
+    }
 }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -52,19 +53,26 @@ data class SettingsSectionCard(
 
 @Stable
 class SettingsFocusChain(
-    val requesters: List<FocusRequester>,
+    private val requesterPool: MutableList<FocusRequester>,
+    initialCount: Int,
     startIndex: Int = 0
 ) {
-    var focusedIndex: Int = if (requesters.isEmpty()) 0 else startIndex.coerceIn(0, requesters.lastIndex)
+    var itemCount: Int = initialCount
+        internal set
+
+    val requesters: List<FocusRequester>
+        get() = if (itemCount <= 0) emptyList() else requesterPool.take(itemCount)
+
+    var focusedIndex: Int = if (itemCount <= 0) 0 else startIndex.coerceIn(0, itemCount - 1)
         private set
 
-    val lastIndex: Int get() = requesters.lastIndex.coerceAtLeast(0)
+    val lastIndex: Int get() = (itemCount - 1).coerceAtLeast(0)
 
     fun moveTo(index: Int) {
-        if (requesters.isEmpty()) return
-        val target = index.coerceIn(0, requesters.lastIndex)
+        if (itemCount <= 0) return
+        val target = index.coerceIn(0, itemCount - 1)
         focusedIndex = target
-        requesters[target].requestFocus()
+        requesterPool[target].requestFocus()
     }
 
     fun move(delta: Int) = moveTo(focusedIndex + delta)
@@ -72,14 +80,32 @@ class SettingsFocusChain(
     fun onItemFocused(index: Int) {
         focusedIndex = index
     }
+
+    fun resetIndex(index: Int) {
+        focusedIndex = if (itemCount <= 0) 0 else index.coerceIn(0, itemCount - 1)
+    }
 }
 
 @Composable
-fun rememberSettingsFocusChain(count: Int, startIndex: Int = 0): SettingsFocusChain {
-    val requesters = remember(count) { List(count) { FocusRequester() } }
-    return remember(count, startIndex) {
-        SettingsFocusChain(requesters, startIndex)
+fun rememberSettingsFocusChain(
+    count: Int,
+    sectionKey: Int,
+    startIndex: Int = 0
+): SettingsFocusChain {
+    val requesterPool = remember {
+        mutableListOf<FocusRequester>()
     }
+    while (requesterPool.size < count) {
+        requesterPool.add(FocusRequester())
+    }
+    val chain = remember(requesterPool) {
+        SettingsFocusChain(requesterPool, count, startIndex)
+    }
+    chain.itemCount = count
+    LaunchedEffect(sectionKey) {
+        chain.resetIndex(startIndex.coerceIn(0, (count - 1).coerceAtLeast(0)))
+    }
+    return chain
 }
 
 data class SettingsContentFocus(
@@ -327,8 +353,10 @@ fun connectionsAddFocusCount(playlistType: PlaylistType): Int = when (playlistTy
     PlaylistType.STALKER -> 14
 }
 
+fun connectionsListFocusCount(playlistCount: Int): Int = 1 + playlistCount * 2
+
 fun connectionsFocusCount(playlistType: PlaylistType, playlistCount: Int): Int =
-    connectionsAddFocusCount(playlistType) + playlistCount
+    connectionsListFocusCount(playlistCount) + connectionsAddFocusCount(playlistType)
 
 fun guideFocusCount(): Int = 20
 
@@ -339,9 +367,20 @@ fun interfaceFocusCount(): Int = 12
 fun aboutFocusCount(): Int = 4
 
 /** Horizontal pill groups per settings section (inclusive ranges). */
-fun settingsHorizontalPillGroups(kind: SettingsSectionKind): List<IntRange> = when (kind) {
+fun settingsHorizontalPillGroups(
+    kind: SettingsSectionKind,
+    connectionsFormStart: Int = 0,
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U
+): List<IntRange> = when (kind) {
     SettingsSectionKind.Profile -> listOf(3..6)
-    SettingsSectionKind.Connections -> listOf(1..2, 6..8)
+    SettingsSectionKind.Connections -> {
+        val timeoutStart = connectionsFormStart +
+            if (connectionsPlaylistType == PlaylistType.M3U) 6 else 8
+        listOf(
+            (connectionsFormStart + 1)..(connectionsFormStart + 2),
+            timeoutStart..(timeoutStart + 2)
+        )
+    }
     SettingsSectionKind.Guide -> listOf(2..4, 5..6, 7..11, 12..15)
     SettingsSectionKind.Playback -> listOf(3..6, 7..9, 12..15, 18..20)
     SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11)
@@ -352,9 +391,11 @@ fun handleSettingsHorizontalKey(
     kind: SettingsSectionKind,
     currentIndex: Int,
     key: Key,
-    chain: SettingsFocusChain
+    chain: SettingsFocusChain,
+    connectionsFormStart: Int = 0,
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U
 ): Boolean {
-    for (range in settingsHorizontalPillGroups(kind)) {
+    for (range in settingsHorizontalPillGroups(kind, connectionsFormStart, connectionsPlaylistType)) {
         if (currentIndex !in range) continue
         return when (key) {
             Key.DirectionLeft -> {
@@ -483,10 +524,11 @@ fun buildSettingsSectionCards(
         contentFocusCount = contentFocusCount
     )
     SettingsSectionKind.Connections -> {
+        val listCount = connectionsListFocusCount(playlistCount)
         val addCount = connectionsAddFocusCount(connectionsPlaylistType)
         listOf(
-            SettingsSectionCard(firstFocusIndex = 0, focusCount = addCount),
-            SettingsSectionCard(firstFocusIndex = addCount, focusCount = playlistCount)
+            SettingsSectionCard(firstFocusIndex = 0, focusCount = listCount),
+            SettingsSectionCard(firstFocusIndex = listCount, focusCount = addCount)
         )
     }
     SettingsSectionKind.Guide -> listOf(

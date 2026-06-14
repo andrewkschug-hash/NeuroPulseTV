@@ -1,5 +1,7 @@
 package com.neuropulse.tv.feature.recording
 
+import com.neuropulse.tv.domain.model.RecordQuality
+
 enum class RecordingStatus { SCHEDULED, RECORDING, COMPLETED, FAILED }
 
 enum class RecordingSort { DATE, CHANNEL, DURATION, FILE_SIZE }
@@ -17,8 +19,11 @@ data class PendingRecording(
 
 data class RecordingPrecheck(
     val estimateText: String,
+    val freeStorageText: String,
     val lowStorageWarning: String?,
-    val insufficientSpaceWarning: String?
+    val insufficientSpaceWarning: String?,
+    val availableQualities: List<RecordQuality>,
+    val selectedQuality: RecordQuality
 )
 
 data class ConflictDecision(

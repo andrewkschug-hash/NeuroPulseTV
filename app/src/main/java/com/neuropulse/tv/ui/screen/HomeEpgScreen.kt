@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -79,6 +80,8 @@ import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.domain.model.SearchResultType
 import com.neuropulse.tv.ui.component.CategoryFilterMenu
 import com.neuropulse.tv.ui.component.ContinueWatchingRow
+import com.neuropulse.tv.ui.component.MoviesHomeRow
+import com.neuropulse.tv.ui.component.SeriesHomeRow
 import com.neuropulse.tv.ui.component.categoryFilterForMenuIndex
 import com.neuropulse.tv.ui.component.categoryFilterMenuItemCount
 import com.neuropulse.tv.ui.component.currentCategoryMenuIndex
@@ -108,6 +111,8 @@ fun HomeEpgScreen(
     onNavigateRecordings: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
+    onNavigateMovies: () -> Unit = {},
+    onNavigateSeriesBrowse: () -> Unit = {},
     onNavigateSeries: (Long) -> Unit = {},
     onPlayVod: (String, String) -> Unit = { _, _ -> },
     profileInitials: String = "?",
@@ -127,6 +132,11 @@ fun HomeEpgScreen(
     val channels by viewModel.channels.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
     val continueWatchingItems by viewModel.continueWatchingItems.collectAsStateWithLifecycle()
+    val featuredMovies by viewModel.featuredMovies.collectAsStateWithLifecycle()
+    val featuredSeries by viewModel.featuredSeries.collectAsStateWithLifecycle()
+    val vodProgress by viewModel.vodProgress.collectAsStateWithLifecycle()
+    val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val favoriteGroups by viewModel.favoriteGroups.collectAsStateWithLifecycle()
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
     val categoryFilter by viewModel.categoryFilter.collectAsStateWithLifecycle()
@@ -536,6 +546,8 @@ fun HomeEpgScreen(
                 focusOnChannelColumn = true
             }
             EpgNavTab.Search -> showSearchOverlay = true
+            EpgNavTab.Movies -> onNavigateMovies()
+            EpgNavTab.Series -> onNavigateSeriesBrowse()
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
             EpgNavTab.Settings -> onNavigateSettings()
@@ -551,7 +563,7 @@ fun HomeEpgScreen(
                 if (ch != null) {
                     if (!usePlaceholder) {
                         scope.launch {
-                            livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
+                            livePlayerManager.tuneChannel(context, ch)
                             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
                         }
                     }
@@ -1054,6 +1066,9 @@ fun HomeEpgScreen(
                     activateNavTab(tab)
                 },
                 miniPlayer = {},
+                isRecording = isRecording,
+                activeRecordingTitle = activeRecordingTitle,
+                onRecordingIndicatorClick = onNavigateRecordings,
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
                     .focusable()
@@ -1128,47 +1143,28 @@ fun HomeEpgScreen(
                 }
             }
 
+            if (featuredMovies.isNotEmpty()) {
+                MoviesHomeRow(
+                    movies = featuredMovies,
+                    progressByStreamId = vodProgress,
+                    onPlayMovie = { movie -> onPlayVod(movie.streamUrl, movie.title) },
+                    onSeeAll = onNavigateMovies
+                )
+                SeriesHomeRow(
+                    shows = featuredSeries,
+                    onOpenSeries = { show -> onNavigateSeries(show.id) },
+                    onSeeAll = onNavigateSeriesBrowse
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 8.dp, end = 12.dp, top = 4.dp, bottom = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.width(EpgLayout.ChannelColumnWidth)) {
-                            EpgCategoryFilterChip(
-                                label = categoryFilter.label,
-                                active = categoryFilter.isActive,
-                                focused = focusZone == EpgFocusZone.GRID_FILTER,
-                                onClick = {
-                                    focusZone = EpgFocusZone.GRID_FILTER
-                                    categoryMenuFocusIndex = currentCategoryMenuIndex(
-                                        categoryFilter,
-                                        channelGroups
-                                    )
-                                    showCategoryFilterMenu = true
-                                },
-                                modifier = Modifier
-                                    .focusRequester(gridFilterFocusRequester)
-                                    .focusProperties {
-                                        canFocus = focusZone == EpgFocusZone.GRID_FILTER
-                                    }
-                                    .focusable()
-                                    .onPreviewKeyEvent { event ->
-                                        focusZone == EpgFocusZone.GRID_FILTER && handleGridFilterKey(event)
-                                    }
-                            )
-                        }
-                    }
-
                     Box(
                         modifier = Modifier
-                            .weight(1f)
                             .fillMaxWidth()
                             .focusRequester(gridFocusRequester)
                             .focusable()
@@ -1176,22 +1172,52 @@ fun HomeEpgScreen(
                                 focusZone == EpgFocusZone.GRID && handleGridKey(event)
                             }
                     ) {
-                        Column(modifier = Modifier.fillMaxSize()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             modifier = Modifier
                                 .width(EpgLayout.ChannelColumnWidth)
                                 .height(EpgLayout.TimelineHeaderHeight)
                                 .background(EpgColors.ChannelColumnBg)
-                                .padding(start = 12.dp),
+                                .padding(horizontal = 12.dp),
                             contentAlignment = Alignment.CenterStart
                         ) {
-                            androidx.tv.material3.Text(
-                                text = com.neuropulse.tv.ui.component.formatEpgDay(now),
-                                color = EpgColors.TextSecondary,
-                                fontFamily = com.neuropulse.tv.ui.theme.DmSansFamily,
-                                fontSize = 12.sp
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.tv.material3.Text(
+                                    text = com.neuropulse.tv.ui.component.formatEpgDay(now),
+                                    color = EpgColors.TextSecondary,
+                                    fontFamily = com.neuropulse.tv.ui.theme.DmSansFamily,
+                                    fontSize = 12.sp
+                                )
+                                EpgCategoryFilterChip(
+                                    label = categoryFilter.label,
+                                    active = categoryFilter.isActive,
+                                    focused = focusZone == EpgFocusZone.GRID_FILTER,
+                                    headerStyle = true,
+                                    onClick = {
+                                        focusZone = EpgFocusZone.GRID_FILTER
+                                        categoryMenuFocusIndex = currentCategoryMenuIndex(
+                                            categoryFilter,
+                                            channelGroups
+                                        )
+                                        showCategoryFilterMenu = true
+                                    },
+                                    modifier = Modifier
+                                        .focusRequester(gridFilterFocusRequester)
+                                        .focusProperties {
+                                            canFocus = focusZone == EpgFocusZone.GRID_FILTER
+                                        }
+                                        .focusable()
+                                        .onPreviewKeyEvent { event ->
+                                            focusZone == EpgFocusZone.GRID_FILTER &&
+                                                handleGridFilterKey(event)
+                                        }
+                                )
+                            }
                         }
                         Box(
                             modifier = Modifier
@@ -1206,7 +1232,11 @@ fun HomeEpgScreen(
                         }
                     }
 
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .height(EpgLayout.GuideChannelListHeight)
+                            .fillMaxWidth()
+                    ) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
@@ -1384,9 +1414,8 @@ fun HomeEpgScreen(
 
         precheck?.let { check ->
             RecordingPrecheckDialog(
-                estimateText = check.estimateText,
-                lowStorageWarning = check.lowStorageWarning,
-                insufficientSpaceWarning = check.insufficientSpaceWarning,
+                precheck = check,
+                onQualitySelected = recordingViewModel::updatePrecheckQuality,
                 onConfirm = { recordingViewModel.confirmImmediateRecording(context) },
                 onDismiss = { recordingViewModel.dismissPrecheck() }
             )

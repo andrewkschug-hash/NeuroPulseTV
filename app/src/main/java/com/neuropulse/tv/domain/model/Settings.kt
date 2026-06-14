@@ -16,6 +16,8 @@ enum class DpadSensitivity { INSTANT, NORMAL, SLOW }
 
 enum class ClockDisplay { OFF, HOUR_12, HOUR_24 }
 
+enum class RecordQuality { ORIGINAL, P720, P480 }
+
 data class AppSettings(
     val streamRetries: Int = 3,
     val preferredAudioLanguage: String = "en",
@@ -50,5 +52,7 @@ data class AppSettings(
     val sidebarAutoHideSeconds: Int = 5,
     val showChannelNumbers: Boolean = true,
     val dpadSidebarSensitivity: DpadSensitivity = DpadSensitivity.NORMAL,
-    val clockDisplay: ClockDisplay = ClockDisplay.OFF
+    val clockDisplay: ClockDisplay = ClockDisplay.OFF,
+    val recordQuality: RecordQuality = RecordQuality.ORIGINAL,
+    val recordedPlaybackSpeed: Float = 1f
 )

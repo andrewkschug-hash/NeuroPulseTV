@@ -8,6 +8,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.neuropulse.tv.domain.model.BufferSize
+import com.neuropulse.tv.domain.model.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +28,10 @@ class LivePlayerManager @Inject constructor(
     private var player: ExoPlayer? = null
     private var currentChannelId: Long? = null
     private var currentStreamUrl: String? = null
+    private var currentChannel: Channel? = null
+
+    private val _lastChannel = MutableStateFlow<Channel?>(null)
+    val lastChannelFlow: StateFlow<Channel?> = _lastChannel.asStateFlow()
     private var catchupDays: Int = 0
     private var miniAudioEnabled: Boolean = false
     private var bufferSize: BufferSize = BufferSize.MEDIUM
@@ -126,11 +131,16 @@ class LivePlayerManager @Inject constructor(
         if (mode == Mode.MINI) applyVolume()
     }
 
+    fun tuneChannel(context: Context, channel: Channel) {
+        tuneChannel(context, channel.id, channel.streamUrl, channel.catchupDays, channel)
+    }
+
     fun tuneChannel(
         context: Context,
         channelId: Long,
         streamUrl: String,
-        catchupDays: Int = 0
+        catchupDays: Int = 0,
+        channelSnapshot: Channel? = null
     ) {
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
@@ -138,10 +148,15 @@ class LivePlayerManager @Inject constructor(
         this.catchupDays = catchupDays
 
         if (currentChannelId == channelId && currentStreamUrl == streamUrl) {
+            channelSnapshot?.let { currentChannel = it }
             exo.playWhenReady = true
             applyVolume()
             refreshTimeshiftWindow(exo)
             return
+        }
+
+        currentChannel?.takeIf { it.id != channelId }?.let { previous ->
+            _lastChannel.value = previous
         }
 
         resetTimeshiftState()
@@ -150,6 +165,7 @@ class LivePlayerManager @Inject constructor(
         if (streamUrl.isBlank()) {
             currentChannelId = channelId
             currentStreamUrl = streamUrl
+            channelSnapshot?.let { currentChannel = it }
             _activeChannelId.value = channelId
             _canTimeshift.value = catchupDays > 0
             return
@@ -157,11 +173,20 @@ class LivePlayerManager @Inject constructor(
 
         currentChannelId = channelId
         currentStreamUrl = streamUrl
+        channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
         exo.setMediaItem(MediaItem.fromUri(streamUrl))
         exo.prepare()
         exo.playWhenReady = true
         applyVolume()
+    }
+
+    fun lastChannel(): Channel? = _lastChannel.value
+
+    fun switchChannel(context: Context): Boolean {
+        val target = _lastChannel.value ?: return false
+        tuneChannel(context, target)
+        return true
     }
 
     fun canTimeshift(): Boolean = hasDvrWindow || catchupDays > 0
@@ -226,6 +251,8 @@ class LivePlayerManager @Inject constructor(
         player = null
         currentChannelId = null
         currentStreamUrl = null
+        currentChannel = null
+        _lastChannel.value = null
         catchupDays = 0
         _activeChannelId.value = null
         resetTimeshiftState()

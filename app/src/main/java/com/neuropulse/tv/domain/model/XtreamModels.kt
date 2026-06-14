@@ -22,13 +22,23 @@ data class VodItem(
     val director: String?,
     val genre: String?,
     val rating: String?,
-    val duration: String?
+    val duration: String?,
+    val categoryId: String? = null,
+    val addedEpochSec: Long? = null,
+    val playlistId: Long = 0L
+)
+
+data class VodCategory(
+    val id: String,
+    val name: String,
+    val playlistId: Long = 0L
 )
 
 data class SeriesShow(
     val id: Long,
     val name: String,
-    val coverUrl: String?
+    val coverUrl: String?,
+    val playlistId: Long = 0L
 )
 
 data class SeriesSeason(

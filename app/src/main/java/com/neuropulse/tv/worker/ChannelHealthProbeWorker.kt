@@ -12,7 +12,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
+import com.neuropulse.tv.data.network.AppHttpClient
 import okhttp3.Request
 
 @HiltWorker
@@ -21,7 +21,7 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val channelDao: ChannelDao,
     private val streamHealthDao: StreamHealthDao,
-    private val okHttpClient: OkHttpClient
+    private val appHttpClient: AppHttpClient
 ) : CoroutineWorker(appContext, params) {
 
     private val healthEngine = StreamHealthEngine()
@@ -61,11 +61,11 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
         if (url.isBlank()) return false
         return runCatching {
             val request = Request.Builder().url(url).head().build()
-            okHttpClient.newCall(request).execute().use { it.isSuccessful }
+            appHttpClient.client().newCall(request).execute().use { it.isSuccessful }
         }.getOrElse {
             runCatching {
                 val request = Request.Builder().url(url).get().header("Range", "bytes=0-1").build()
-                okHttpClient.newCall(request).execute().use { it.isSuccessful || it.code == 206 }
+                appHttpClient.client().newCall(request).execute().use { it.isSuccessful || it.code == 206 }
             }.getOrDefault(false)
         }
     }

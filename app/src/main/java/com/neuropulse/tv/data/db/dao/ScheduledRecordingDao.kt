@@ -33,4 +33,24 @@ interface ScheduledRecordingDao {
 
     @Query("DELETE FROM scheduled_recordings")
     suspend fun deleteAll()
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM scheduled_recordings
+        WHERE channelId = :channelId
+          AND startTime = :startTime
+          AND programTitle = :programTitle
+          AND status IN ('SCHEDULED', 'RECORDING')
+        """
+    )
+    suspend fun countExisting(channelId: Long, startTime: Long, programTitle: String): Int
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM scheduled_recordings
+        WHERE status IN ('SCHEDULED', 'RECORDING')
+          AND (programTitle LIKE :seriesTitle || '%' OR programTitle LIKE '%' || :seriesTitle || '%')
+        """
+    )
+    suspend fun countUpcomingMatchingSeries(seriesTitle: String): Int
 }

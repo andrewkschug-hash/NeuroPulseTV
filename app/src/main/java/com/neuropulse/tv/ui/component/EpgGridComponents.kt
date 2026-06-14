@@ -58,6 +58,9 @@ object EpgLayout {
     val TopBarHeight = 72.dp
     val ChannelColumnWidth = 180.dp
     val RowHeight = 64.dp
+    const val VisibleGuideRows = 3
+    /** Height for exactly [VisibleGuideRows] channel rows without vertical scroll. */
+    val GuideChannelListHeight = 210.dp
     val TimelineHeaderHeight = 32.dp
     val DetailPanelHeight = 84.dp
     val MiniPlayerWidth = 300.dp
@@ -136,6 +139,10 @@ fun EpgTopBar(
     onProfileMenuDismiss: () -> Unit = {},
     onSwitchAccounts: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    isRecording: Boolean = false,
+    activeRecordingTitle: String? = null,
+    recordingIndicatorFocused: Boolean = false,
+    onRecordingIndicatorClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -160,6 +167,13 @@ fun EpgTopBar(
                 onProfileClick = onProfileClick,
                 modifier = Modifier.fillMaxWidth(),
                 trailing = {
+                    if (isRecording) {
+                        RecordingIndicatorChip(
+                            title = activeRecordingTitle,
+                            focused = recordingIndicatorFocused,
+                            onClick = onRecordingIndicatorClick
+                        )
+                    }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = formatEpgDay(now),
@@ -199,6 +213,8 @@ fun EpgTopBar(
 enum class EpgNavTab(val glyph: String, val label: String) {
     Guide("☰", "Guide"),
     Search("⌕", "Search"),
+    Movies("🎬", "Movies"),
+    Series("📺", "Series"),
     Favorites("★", "Favorites"),
     Home("⌂", "Home"),
     Recordings("⏺", "Recordings"),
@@ -289,23 +305,19 @@ fun EpgChannelCell(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (isFocused && lastCheckedLabel != null) {
-                        Text(
-                            text = lastCheckedLabel,
-                            color = EpgColors.TextDimmed,
-                            fontFamily = DmSansFamily,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        Text(
-                            text = channel.number.toString(),
-                            color = EpgColors.TextDimmed,
-                            fontFamily = DmSansFamily,
-                            fontSize = 11.sp
-                        )
+                    val subtitleText = when {
+                        isFocused && lastCheckedLabel != null -> lastCheckedLabel
+                        !channel.playlistName.isNullOrBlank() -> channel.playlistName
+                        else -> channel.number.toString()
                     }
+                    Text(
+                        text = subtitleText,
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = if (!channel.playlistName.isNullOrBlank() && lastCheckedLabel == null) 10.sp else 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -670,7 +682,7 @@ private fun EpgTagPill(text: String, bg: Color, fg: Color) {
 }
 
 @Composable
-private fun EpgActionButton(
+internal fun EpgActionButton(
     label: String,
     isFocused: Boolean,
     onClick: () -> Unit,
@@ -759,23 +771,27 @@ fun EpgCategoryFilterChip(
     active: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    headerStyle: Boolean = false
 ) {
     val display = if (active) "⊞ $label" else "⊞ Filter"
+    val chipHeight = if (headerStyle) EpgLayout.TimelineHeaderHeight else 36.dp
     val bg = when {
+        headerStyle && focused -> EpgColors.Accent.copy(alpha = 0.12f)
+        headerStyle -> Color.Transparent
         focused -> EpgColors.Accent.copy(alpha = 0.25f)
         active -> EpgColors.ChannelRowFocusBg
         else -> EpgColors.ChannelColumnBg
     }
     val borderColor = when {
         focused -> EpgColors.Accent
-        active -> EpgColors.Accent.copy(alpha = 0.5f)
-        else -> EpgColors.BorderSubtle
+        active -> EpgColors.Accent.copy(alpha = 0.45f)
+        else -> EpgColors.BorderSubtle.copy(alpha = if (headerStyle) 0.7f else 1f)
     }
     Surface(
         onClick = onClick,
-        modifier = modifier.height(36.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        modifier = modifier.height(chipHeight),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (headerStyle) 4.dp else 6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg
@@ -784,8 +800,8 @@ fun EpgCategoryFilterChip(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
-                .padding(horizontal = 12.dp),
+                .border(1.dp, borderColor, RoundedCornerShape(if (headerStyle) 4.dp else 6.dp))
+                .padding(horizontal = if (headerStyle) 8.dp else 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -793,7 +809,7 @@ fun EpgCategoryFilterChip(
                 color = if (focused || active) EpgColors.TextPrimary else EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 12.sp,
-                fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (focused || active) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 1
             )
         }

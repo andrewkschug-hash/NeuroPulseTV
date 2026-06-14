@@ -17,6 +17,7 @@ import com.neuropulse.tv.data.db.dao.ProgramDao
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
+import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
@@ -26,6 +27,7 @@ import com.neuropulse.tv.data.db.entity.ProfileSettingsEntity
 import com.neuropulse.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
+import com.neuropulse.tv.data.network.AppHttpClient
 import com.neuropulse.tv.data.network.RemoteTextFetcher
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
@@ -35,6 +37,7 @@ import com.neuropulse.tv.data.security.SecureCredentialStore
 import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
 import com.neuropulse.tv.domain.model.AppSettings
+import com.neuropulse.tv.domain.model.RecordQuality
 import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.neuropulse.tv.domain.model.Channel
@@ -58,6 +61,7 @@ import com.neuropulse.tv.domain.model.SeriesSeason
 import com.neuropulse.tv.domain.model.SeriesShow
 import com.neuropulse.tv.domain.model.StreamHealth
 import com.neuropulse.tv.domain.model.UserProfile
+import com.neuropulse.tv.domain.model.VodCategory
 import com.neuropulse.tv.domain.model.VodItem
 import com.neuropulse.tv.domain.model.WatchHistory
 import com.neuropulse.tv.domain.model.XtreamAccountInfo
@@ -77,6 +81,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import java.net.URLEncoder
 import java.io.File
 import java.util.Calendar
@@ -95,6 +100,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val programDao: ProgramDao,
     private val recordingDao: RecordingDao,
     private val scheduledRecordingDao: ScheduledRecordingDao,
+    private val seriesRecordingRuleDao: SeriesRecordingRuleDao,
     private val recordedMediaDao: RecordedMediaDao,
     private val streamHealthDao: StreamHealthDao,
     private val channelScanDao: ChannelScanDao,
@@ -103,6 +109,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val epgSourceChannelDao: EpgSourceChannelDao,
     private val epgResolutionSuggestionDao: EpgResolutionSuggestionDao,
     private val remoteTextFetcher: RemoteTextFetcher,
+    private val appHttpClient: AppHttpClient,
     private val m3uParser: M3uParser,
     private val xtreamParser: XtreamParser,
     private val xmlTvParser: XmlTvParser,
@@ -123,9 +130,10 @@ class IptvRepositoryImpl @Inject constructor(
 
     private var cachedSettings = AppSettings()
     private var activeProfileId = 1L
-    private val vodCache = MutableStateFlow<List<VodItem>>(emptyList())
-    private val seriesCache = MutableStateFlow<List<SeriesShow>>(emptyList())
-    private val seriesSeasonsCache = linkedMapOf<Long, List<SeriesSeason>>()
+    private val vodCacheByPlaylist = MutableStateFlow<Map<Long, List<VodItem>>>(emptyMap())
+    private val vodCategoriesByPlaylist = MutableStateFlow<Map<Long, List<VodCategory>>>(emptyMap())
+    private val seriesCacheByPlaylist = MutableStateFlow<Map<Long, List<SeriesShow>>>(emptyMap())
+    private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
 
     private fun encode(v: String): String = URLEncoder.encode(v, Charsets.UTF_8.name())
 
@@ -154,6 +162,25 @@ class IptvRepositoryImpl @Inject constructor(
             }
         }
     }
+
+    private fun clearSeriesSeasonsForPlaylist(playlistId: Long) {
+        seriesSeasonsCache.keys.removeAll { it.first == playlistId }
+    }
+
+    private fun mapChannelsWithPlaylists(
+        rows: List<com.neuropulse.tv.data.db.entity.ChannelEntity>,
+        playlistNames: Map<Long, String>,
+        health: Map<Long, StreamHealthEntity>,
+        favIds: Set<Long>
+    ): List<Channel> = rows.map { entity ->
+        channelFromEntity(entity, playlistNames[entity.playlistId]).copy(
+            isFavorite = entity.id in favIds,
+            reliabilityScore = health[entity.id]?.reliabilityScore ?: 50
+        )
+    }
+
+    private suspend fun playlistNameMap(): Map<Long, String> =
+        playlistDao.all().associate { it.id to it.name }
 
     private fun channelFromEntity(entity: com.neuropulse.tv.data.db.entity.ChannelEntity, playlistName: String? = null): Channel {
         return Channel(
@@ -214,17 +241,14 @@ class IptvRepositoryImpl @Inject constructor(
         val groupFilter = favoriteGroupId ?: -1L
         return combine(
             channelDao.observeChannels(group, search, favoritesOnly, activeProfileId, groupFilter),
+            playlistDao.observeAll(),
             streamHealthDao.observeAll(),
             profileFavoriteDao.observeForProfile(activeProfileId)
-        ) { rows, healthRows, favs ->
+        ) { rows, playlists, healthRows, favs ->
+            val playlistNames = playlists.associate { it.id to it.name }
             val health = healthRows.associateBy { it.channelId }
             val favIds = favs.map { it.channelId }.toSet()
-            rows.map { entity ->
-                channelFromEntity(entity).copy(
-                    isFavorite = entity.id in favIds,
-                    reliabilityScore = health[entity.id]?.reliabilityScore ?: 50
-                )
-            }
+            mapChannelsWithPlaylists(rows, playlistNames, health, favIds)
         }
     }
 
@@ -280,15 +304,17 @@ class IptvRepositoryImpl @Inject constructor(
         combine(
             profileWatchHistoryDao.observeRecent(activeProfileId, limit),
             streamHealthDao.observeAll(),
-            profileFavoriteDao.observeForProfile(activeProfileId)
-        ) { rows, healthRows, favs ->
+            profileFavoriteDao.observeForProfile(activeProfileId),
+            playlistDao.observeAll()
+        ) { rows, healthRows, favs, playlists ->
             val all = channelDao.all().associateBy { it.id }
+            val names = playlists.associate { it.id to it.name }
             val health = healthRows.associateBy { it.channelId }
             val favIds = favs.map { it.channelId }.toSet()
             rows.mapNotNull { hist ->
                 val entity = all[hist.channelId] ?: return@mapNotNull null
                 ContinueWatchingItem(
-                    channel = channelFromEntity(entity).copy(
+                    channel = channelFromEntity(entity, names[entity.playlistId]).copy(
                         isFavorite = entity.id in favIds,
                         reliabilityScore = health[entity.id]?.reliabilityScore ?: 50
                     ),
@@ -300,13 +326,20 @@ class IptvRepositoryImpl @Inject constructor(
         }
 
     override fun topChannels(limit: Int): Flow<List<Channel>> =
-        profileWatchHistoryDao.observeTop(activeProfileId, limit).map { rows ->
+        combine(
+            profileWatchHistoryDao.observeTop(activeProfileId, limit),
+            playlistDao.observeAll()
+        ) { rows, playlists ->
             val all = channelDao.all().associateBy { it.id }
-            rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it) }
+            val names = playlists.associate { it.id to it.name }
+            rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
         }
 
     override fun recentlyAdded(limit: Int): Flow<List<Channel>> =
-        channelDao.observeRecentlyAdded(limit).map { rows -> rows.map { channelFromEntity(it) } }
+        combine(channelDao.observeRecentlyAdded(limit), playlistDao.observeAll()) { rows, playlists ->
+            val names = playlists.associate { it.id to it.name }
+            rows.map { channelFromEntity(it, names[it.playlistId]) }
+        }
 
     override fun liveSportsNow(): Flow<List<Program>> =
         programDao.observeSports(System.currentTimeMillis()).map { rows ->
@@ -552,14 +585,21 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
-        val startedAt = System.currentTimeMillis()
+    private suspend fun importM3uChannels(playlistId: Long, url: String) {
         val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
         val raw = remoteTextFetcher.fetch(normalizedUrl)
-        val parsed = m3uParser.parseAsFlow(playlistId = 0L, raw).first { it.done }
+        val parsed = m3uParser.parseAsFlow(playlistId, raw).first { it.done }
         if (parsed.channels.isEmpty()) {
             throw IllegalStateException("No channels in playlist")
         }
+        channelDao.clearByPlaylist(playlistId)
+        channelDao.insertAll(parsed.channels.map { it.copy(playlistId = playlistId) })
+        secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
+    }
+
+    private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
+        val startedAt = System.currentTimeMillis()
+        val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
         val playlistId = playlistDao.insert(
             PlaylistEntity(
                 name = name,
@@ -569,10 +609,90 @@ class IptvRepositoryImpl @Inject constructor(
                 type = PlaylistType.M3U.name
             )
         )
-        channelDao.insertAll(parsed.channels.map { it.copy(playlistId = playlistId) })
-        secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
+        importM3uChannels(playlistId, url)
         epgScheduler.runResolverForNewChannels(startedAt)
         return playlistId
+    }
+
+    override suspend fun updateM3uPlaylist(
+        playlistId: Long,
+        name: String,
+        url: String,
+        epgUrl: String?,
+        refreshHours: Int
+    ) = withContext(Dispatchers.IO) {
+        val existing = playlistDao.getById(playlistId)
+            ?: throw IllegalArgumentException("Playlist not found")
+        val startedAt = System.currentTimeMillis()
+        val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
+        playlistDao.update(
+            existing.copy(
+                name = name,
+                url = normalizedUrl,
+                epgUrl = epgUrl,
+                refreshIntervalHours = refreshHours
+            )
+        )
+        importM3uChannels(playlistId, url)
+        epgScheduler.runResolverForNewChannels(startedAt)
+    }
+
+    private suspend fun importXtreamCatalog(
+        playlistId: Long,
+        serverUrl: String,
+        username: String,
+        password: String
+    ): PlaylistEntity {
+        val authUrl = buildXtreamApiUrl(serverUrl, username, password)
+        val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
+        val normalizedServer = if (auth.serverUrl.isNotBlank()) auth.serverUrl else normalizeServerUrl(serverUrl)
+
+        val categoriesRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories")
+        )
+        val liveRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams")
+        )
+        val vodRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_streams")
+        )
+        val vodCategoriesRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_categories")
+        )
+        val seriesRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(normalizedServer, username, password, action = "get_series")
+        )
+
+        val categories = xtreamParser.parseLiveCategories(categoriesRaw)
+        val liveChannels = xtreamParser.parseLiveChannels(
+            playlistId, liveRaw, username, password, normalizedServer, categories
+        )
+        if (liveChannels.isEmpty()) {
+            throw IllegalStateException(CONNECT_ERROR)
+        }
+
+        channelDao.clearByPlaylist(playlistId)
+        channelDao.insertAll(liveChannels)
+        vodCacheByPlaylist.update { current ->
+            current + (playlistId to xtreamParser.parseVod(vodRaw, username, password, normalizedServer, playlistId))
+        }
+        vodCategoriesByPlaylist.update { current ->
+            current + (playlistId to xtreamParser.parseVodCategories(vodCategoriesRaw, playlistId))
+        }
+        seriesCacheByPlaylist.update { current ->
+            current + (playlistId to xtreamParser.parseSeries(seriesRaw, playlistId))
+        }
+        clearSeriesSeasonsForPlaylist(playlistId)
+
+        val existing = playlistDao.getById(playlistId) ?: throw IllegalStateException("Playlist not found")
+        return existing.copy(
+            url = normalizedServer,
+            xtreamServerUrl = normalizedServer,
+            xtreamUsername = username,
+            xtreamAccountStatus = auth.status,
+            xtreamExpiryDateEpochSec = auth.expiryDateEpochSec,
+            xtreamMaxConnections = auth.maxConnections
+        )
     }
 
     private suspend fun insertXtreamPlaylist(
@@ -604,28 +724,43 @@ class IptvRepositoryImpl @Inject constructor(
             )
         )
         secureCredentialStore.saveXtreamPassword(playlistId, password)
-
-        val categoriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories"))
-        val liveRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams"))
-        val vodRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_streams"))
-        val seriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(normalizedServer, username, password, action = "get_series"))
-
-        val categories = xtreamParser.parseLiveCategories(categoriesRaw)
-        val liveChannels = xtreamParser.parseLiveChannels(playlistId, liveRaw, username, password, normalizedServer, categories)
-
-        if (liveChannels.isEmpty()) {
+        try {
+            importXtreamCatalog(playlistId, serverUrl, username, password)
+        } catch (e: Exception) {
             playlistDao.delete(playlistId)
             secureCredentialStore.removePlaylistCredentials(playlistId)
-            throw IllegalStateException(CONNECT_ERROR)
+            vodCacheByPlaylist.update { it - playlistId }
+            vodCategoriesByPlaylist.update { it - playlistId }
+            seriesCacheByPlaylist.update { it - playlistId }
+            throw e
         }
-
-        channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(liveChannels)
-        vodCache.value = xtreamParser.parseVod(vodRaw, username, password, normalizedServer)
-        seriesCache.value = xtreamParser.parseSeries(seriesRaw)
-        seriesSeasonsCache.clear()
         epgScheduler.runResolverForNewChannels(startedAt)
         return playlistId
+    }
+
+    override suspend fun updateXtreamPlaylist(
+        playlistId: Long,
+        name: String,
+        serverUrl: String,
+        username: String,
+        password: String,
+        epgUrl: String?,
+        refreshHours: Int
+    ) = withContext(Dispatchers.IO) {
+        val existing = playlistDao.getById(playlistId)
+            ?: throw IllegalArgumentException("Playlist not found")
+        val startedAt = System.currentTimeMillis()
+        val updatedMeta = importXtreamCatalog(playlistId, serverUrl, username, password)
+        secureCredentialStore.saveXtreamPassword(playlistId, password)
+        playlistDao.update(
+            updatedMeta.copy(
+                name = name,
+                epgUrl = epgUrl,
+                refreshIntervalHours = refreshHours,
+                type = PlaylistType.XTREAM.name
+            )
+        )
+        epgScheduler.runResolverForNewChannels(startedAt)
     }
 
     private suspend fun insertStalkerPlaylist(
@@ -705,6 +840,10 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun deletePlaylist(playlistId: Long) {
         secureCredentialStore.removePlaylistCredentials(playlistId)
         playlistDao.delete(playlistId)
+        vodCacheByPlaylist.update { it - playlistId }
+        vodCategoriesByPlaylist.update { it - playlistId }
+        seriesCacheByPlaylist.update { it - playlistId }
+        clearSeriesSeasonsForPlaylist(playlistId)
     }
 
     override suspend fun refreshEpgNow() = withContext(Dispatchers.IO) {
@@ -722,15 +861,28 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> {
-        val playlist = playlistDao.all().firstOrNull { it.type == PlaylistType.XTREAM.name } ?: return emptyList()
-        val server = playlist.xtreamServerUrl ?: return emptyList()
-        val user = playlist.xtreamUsername ?: return emptyList()
-        val pass = resolveXtreamPassword(playlist) ?: return emptyList()
-        val raw = remoteTextFetcher.fetch(
-            buildXtreamApiUrl(server, user, pass, action = "get_simple_data_table", extra = "stream_id=$streamId")
-        )
-        return xtreamParser.parseSimpleDataTable(raw)
+    override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {
+        val merged = mutableListOf<Pair<Long, Long>>()
+        playlistDao.all()
+            .filter { it.type == PlaylistType.XTREAM.name }
+            .forEach { playlist ->
+                val server = playlist.xtreamServerUrl ?: return@forEach
+                val user = playlist.xtreamUsername ?: return@forEach
+                val pass = resolveXtreamPassword(playlist) ?: return@forEach
+                runCatching {
+                    val raw = remoteTextFetcher.fetch(
+                        buildXtreamApiUrl(
+                            server,
+                            user,
+                            pass,
+                            action = "get_simple_data_table",
+                            extra = "stream_id=$streamId"
+                        )
+                    )
+                    merged += xtreamParser.parseSimpleDataTable(raw)
+                }
+            }
+        merged
     }
 
     override fun xtreamAccounts(): Flow<List<XtreamAccountInfo>> = playlists().map { rows ->
@@ -747,26 +899,52 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshVodSeriesCatalog() = withContext(Dispatchers.IO) {
-        val xtreamPlaylists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
-        if (xtreamPlaylists.isEmpty()) return@withContext
-        val playlist = xtreamPlaylists.first()
-        val server = playlist.xtreamServerUrl ?: return@withContext
-        val user = playlist.xtreamUsername ?: return@withContext
-        val pass = resolveXtreamPassword(playlist) ?: return@withContext
-        val vodRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(server, user, pass, action = "get_vod_streams"))
-        val seriesRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(server, user, pass, action = "get_series"))
-        vodCache.value = xtreamParser.parseVod(vodRaw, user, pass, server)
-        seriesCache.value = xtreamParser.parseSeries(seriesRaw)
-        seriesSeasonsCache.clear()
+        playlistDao.all()
+            .filter { it.type == PlaylistType.XTREAM.name }
+            .forEach { playlist ->
+                val server = playlist.xtreamServerUrl ?: return@forEach
+                val user = playlist.xtreamUsername ?: return@forEach
+                val pass = resolveXtreamPassword(playlist) ?: return@forEach
+                runCatching {
+                    val vodRaw = remoteTextFetcher.fetch(
+                        buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
+                    )
+                    val vodCategoriesRaw = remoteTextFetcher.fetch(
+                        buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
+                    )
+                    val seriesRaw = remoteTextFetcher.fetch(
+                        buildXtreamApiUrl(server, user, pass, action = "get_series")
+                    )
+                    vodCacheByPlaylist.update { current ->
+                        current + (playlist.id to xtreamParser.parseVod(vodRaw, user, pass, server, playlist.id))
+                    }
+                    vodCategoriesByPlaylist.update { current ->
+                        current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
+                    }
+                    seriesCacheByPlaylist.update { current ->
+                        current + (playlist.id to xtreamParser.parseSeries(seriesRaw, playlist.id))
+                    }
+                    clearSeriesSeasonsForPlaylist(playlist.id)
+                }
+            }
     }
 
-    override fun vodStreams(): Flow<List<VodItem>> = vodCache
+    override fun vodStreams(): Flow<List<VodItem>> =
+        vodCacheByPlaylist.map { cache -> cache.values.flatten() }
 
-    override fun seriesShows(): Flow<List<SeriesShow>> = seriesCache
+    override fun vodCategories(): Flow<List<VodCategory>> =
+        vodCategoriesByPlaylist.map { cache -> cache.values.flatten() }
+
+    override fun seriesShows(): Flow<List<SeriesShow>> =
+        seriesCacheByPlaylist.map { cache -> cache.values.flatten() }
 
     override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> {
-        seriesSeasonsCache[seriesId]?.let { return it }
-        val playlist = playlistDao.all().firstOrNull { it.type == PlaylistType.XTREAM.name } ?: return emptyList()
+        val playlistId = seriesCacheByPlaylist.value.entries.firstOrNull { (_, shows) ->
+            shows.any { it.id == seriesId }
+        }?.key ?: return emptyList()
+        val cacheKey = playlistId to seriesId
+        seriesSeasonsCache[cacheKey]?.let { return it }
+        val playlist = playlistDao.getById(playlistId) ?: return emptyList()
         val server = playlist.xtreamServerUrl ?: return emptyList()
         val user = playlist.xtreamUsername ?: return emptyList()
         val pass = resolveXtreamPassword(playlist) ?: return emptyList()
@@ -774,7 +952,7 @@ class IptvRepositoryImpl @Inject constructor(
             buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
         )
         val seasons = xtreamParser.parseSeriesInfo(raw, user, pass, server)
-        seriesSeasonsCache[seriesId] = seasons
+        seriesSeasonsCache[cacheKey] = seasons
         return seasons
     }
 
@@ -830,13 +1008,46 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun watchHistory(channelId: Long): WatchHistory? =
         profileWatchHistoryDao.get(activeProfileId, channelId)?.let { WatchHistory(it.channelId, it.lastPosition, it.lastWatched) }
 
-    override suspend fun channelById(channelId: Long): Channel? = channelDao.getById(channelId)?.let { channelFromEntity(it) }
+    override suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long) {
+        ensureDefaultProfile()
+        val syntheticId = -streamId
+        val existing = profileWatchHistoryDao.get(activeProfileId, syntheticId)
+        profileWatchHistoryDao.upsert(
+            ProfileWatchHistoryEntity(
+                profileId = activeProfileId,
+                channelId = syntheticId,
+                lastPosition = positionMs.coerceAtLeast(0L),
+                lastWatched = System.currentTimeMillis(),
+                totalWatchMs = (existing?.totalWatchMs ?: 0L) + 5_000L,
+                hourBucket = Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+                genreHint = durationMs.takeIf { it > 0L }?.toString(),
+                lastProgramTitle = title
+            )
+        )
+    }
 
-    override suspend fun channelByNumber(number: Int): Channel? = channelDao.getByNumber(number)?.let { channelFromEntity(it) }
+    override fun vodWatchProgress(): Flow<Map<Long, Long>> =
+        profileWatchHistoryDao.observeVodPositions(activeProfileId).map { rows ->
+            rows.associate { (-it.channelId) to it.lastPosition }
+        }
+
+    override suspend fun channelById(channelId: Long): Channel? = withContext(Dispatchers.IO) {
+        val entity = channelDao.getById(channelId) ?: return@withContext null
+        val playlistName = playlistDao.getById(entity.playlistId)?.name
+        channelFromEntity(entity, playlistName)
+    }
+
+    override suspend fun channelByNumber(number: Int): Channel? = withContext(Dispatchers.IO) {
+        val entity = channelDao.getByNumber(number) ?: return@withContext null
+        val playlistName = playlistDao.getById(entity.playlistId)?.name
+        channelFromEntity(entity, playlistName)
+    }
 
     override suspend fun loadSettings(): AppSettings {
         ensureDefaultProfile()
-        val db = profileSettingsDao.get(activeProfileId) ?: return cachedSettings
+        val db = profileSettingsDao.get(activeProfileId) ?: return cachedSettings.also {
+            appHttpClient.applySettings(cachedSettings)
+        }
         return AppSettings(
             streamRetries = db.streamRetries,
             preferredAudioLanguage = db.preferredAudioLanguage,
@@ -871,13 +1082,21 @@ class IptvRepositoryImpl @Inject constructor(
             sidebarAutoHideSeconds = db.sidebarAutoHideSeconds,
             showChannelNumbers = db.showChannelNumbers,
             dpadSidebarSensitivity = enumValueOrDefault(db.dpadSidebarSensitivity, DpadSensitivity.NORMAL),
-            clockDisplay = enumValueOrDefault(db.clockDisplay, ClockDisplay.OFF)
-        )
+            clockDisplay = enumValueOrDefault(db.clockDisplay, ClockDisplay.OFF),
+            recordQuality = enumValueOrDefault(db.recordQuality, RecordQuality.ORIGINAL),
+            recordedPlaybackSpeed = db.recordedPlaybackSpeed.coerceIn(0.5f, 2f).let {
+                if (it <= 0f) 1f else it
+            }
+        ).also {
+            cachedSettings = it
+            appHttpClient.applySettings(it)
+        }
     }
 
     override suspend fun saveSettings(settings: AppSettings) {
         ensureDefaultProfile()
         cachedSettings = settings
+        appHttpClient.applySettings(settings)
         val old = profileSettingsDao.get(activeProfileId)
         profileSettingsDao.upsert(
             ProfileSettingsEntity(
@@ -919,7 +1138,9 @@ class IptvRepositoryImpl @Inject constructor(
                 sidebarAutoHideSeconds = settings.sidebarAutoHideSeconds,
                 showChannelNumbers = settings.showChannelNumbers,
                 dpadSidebarSensitivity = settings.dpadSidebarSensitivity.name,
-                clockDisplay = settings.clockDisplay.name
+                clockDisplay = settings.clockDisplay.name,
+                recordQuality = settings.recordQuality.name,
+                recordedPlaybackSpeed = settings.recordedPlaybackSpeed
             )
         )
     }
@@ -1029,10 +1250,12 @@ class IptvRepositoryImpl @Inject constructor(
         recordingDao.deleteAll()
         scheduledRecordingDao.deleteAll()
         recordedMediaDao.deleteAll()
+        seriesRecordingRuleDao.deleteAll()
 
         epgCache.clear()
-        vodCache.value = emptyList()
-        seriesCache.value = emptyList()
+        vodCacheByPlaylist.value = emptyMap()
+        vodCategoriesByPlaylist.value = emptyMap()
+        seriesCacheByPlaylist.value = emptyMap()
         seriesSeasonsCache.clear()
         activeProfileId = 0L
         cachedSettings = AppSettings()

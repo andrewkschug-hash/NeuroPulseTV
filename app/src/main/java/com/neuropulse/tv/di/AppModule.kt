@@ -21,6 +21,7 @@ import com.neuropulse.tv.data.db.dao.ProgramDao
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
+import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.network.parser.M3uParser
@@ -34,9 +35,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
@@ -57,18 +55,10 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_10_11)
             .addMigrations(DbMigrations.MIGRATION_11_12)
             .addMigrations(DbMigrations.MIGRATION_12_13)
+            .addMigrations(DbMigrations.MIGRATION_13_14)
+            .addMigrations(DbMigrations.MIGRATION_14_15)
+            .addMigrations(DbMigrations.MIGRATION_15_16)
             .build()
-
-    @Provides
-    @Singleton
-    fun provideOkHttp(): OkHttpClient = OkHttpClient.Builder()
-        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
 
     @Provides
     fun provideM3uParser(): M3uParser = M3uParser()
@@ -97,6 +87,9 @@ object AppProvidesModule {
 
     @Provides
     fun provideChannelScanDao(db: AppDatabase): ChannelScanDao = db.channelScanDao()
+
+    @Provides
+    fun provideSeriesRecordingRuleDao(db: AppDatabase): SeriesRecordingRuleDao = db.seriesRecordingRuleDao()
 
     @Provides
     fun provideProgramDao(db: AppDatabase): ProgramDao = db.programDao()

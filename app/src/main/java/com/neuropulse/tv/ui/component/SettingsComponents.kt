@@ -1,5 +1,7 @@
 package com.neuropulse.tv.ui.component
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -30,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -61,6 +64,8 @@ fun SettingsSidebar(
     selectedIndex: Int,
     focusedIndex: Int,
     sidebarFocused: Boolean,
+    itemFocusRequesters: List<FocusRequester>,
+    onItemFocused: (Int) -> Unit,
     onSectionSelected: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -98,6 +103,12 @@ fun SettingsSidebar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 2.dp)
+                    .then(
+                        itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
+                            ?: Modifier
+                    )
+                    .focusable()
+                    .onFocusChanged { if (it.isFocused) onItemFocused(index) }
             ) {
                 Row(
                     modifier = Modifier
@@ -151,7 +162,12 @@ fun SettingsPanel(
 ) {
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
     val insideDimmed = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
-    val borderWidth = 2.dp
+    val cardScale by animateFloatAsState(
+        targetValue = if (sectionHighlighted) 1.02f else 1f,
+        animationSpec = tween(durationMillis = 150),
+        label = "settingsCardScale"
+    )
+    val borderWidth = if (sectionHighlighted) 2.dp else 1.dp
     val borderColor = when {
         sectionHighlighted -> EpgColors.Accent
         insideDimmed -> EpgColors.Accent.copy(alpha = 0.35f)
@@ -165,6 +181,7 @@ fun SettingsPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .scale(cardScale)
             .tvScrollIntoViewWhen(
                 active = sectionHighlighted || insideDimmed,
                 preferTopAlign = true

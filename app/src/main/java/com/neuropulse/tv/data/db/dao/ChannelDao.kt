@@ -96,6 +96,12 @@ interface ChannelDao {
     @Query("UPDATE channels SET epgId = :epgId, epgResolutionStatus = :status, epgResolutionConfidence = :confidence, epgResolutionSource = :source, epgLastAttemptAt = :attemptAt WHERE id = :channelId")
     suspend fun applyResolution(channelId: Long, epgId: String?, status: String, confidence: Int, source: String?, attemptAt: Long)
 
+    @Query("SELECT * FROM channels WHERE epgId = :epgId AND playlistId = :playlistId LIMIT 1")
+    suspend fun getByEpgIdAndPlaylist(epgId: String, playlistId: Long): ChannelEntity?
+
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId")
+    suspend fun getByPlaylist(playlistId: Long): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE epgResolutionStatus IN ('UNRESOLVED', 'UNRESOLVABLE') ORDER BY name")
     suspend fun unresolvedForManual(): List<ChannelEntity>
 }

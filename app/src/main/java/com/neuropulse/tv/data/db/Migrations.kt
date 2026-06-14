@@ -267,4 +267,40 @@ object DbMigrations {
             db.execSQL("ALTER TABLE profile_settings ADD COLUMN clockDisplay TEXT NOT NULL DEFAULT 'OFF'")
         }
     }
+
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_recording_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    seriesTitle TEXT NOT NULL,
+                    seriesId INTEGER,
+                    recordNewOnly INTEGER NOT NULL DEFAULT 1,
+                    playlistId INTEGER NOT NULL,
+                    paddingStartMins INTEGER NOT NULL DEFAULT 2,
+                    paddingEndMins INTEGER NOT NULL DEFAULT 5,
+                    maxEpisodesToKeep INTEGER NOT NULL DEFAULT 0,
+                    createdAt INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN recordQuality TEXT NOT NULL DEFAULT 'ORIGINAL'"
+            )
+        }
+    }
+
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN recordedPlaybackSpeed REAL NOT NULL DEFAULT 1.0"
+            )
+        }
+    }
 }

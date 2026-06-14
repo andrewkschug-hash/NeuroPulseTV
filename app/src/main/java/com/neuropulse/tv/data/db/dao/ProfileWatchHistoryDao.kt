@@ -26,4 +26,7 @@ interface ProfileWatchHistoryDao {
 
     @Query("DELETE FROM profile_watch_history")
     suspend fun deleteAll()
+
+    @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId AND channelId < 0")
+    fun observeVodPositions(profileId: Long): Flow<List<ProfileWatchHistoryEntity>>
 }

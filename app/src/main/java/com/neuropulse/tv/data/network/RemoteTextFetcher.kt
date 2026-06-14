@@ -4,17 +4,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 @Singleton
 class RemoteTextFetcher @Inject constructor(
-    private val client: OkHttpClient
+    private val appHttpClient: AppHttpClient
 ) {
     suspend fun fetch(rawUrl: String): String = withContext(Dispatchers.IO) {
         val url = normalizeRemoteUrl(rawUrl)
         val request = Request.Builder().url(url).get().build()
-        client.newCall(request).execute().use { response ->
+        appHttpClient.client().newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP request failed (${response.code}) for $url")
             }

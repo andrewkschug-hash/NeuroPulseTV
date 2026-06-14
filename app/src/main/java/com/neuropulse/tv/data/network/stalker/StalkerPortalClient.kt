@@ -2,7 +2,7 @@ package com.neuropulse.tv.data.network.stalker
 
 import com.neuropulse.tv.data.db.entity.ChannelEntity
 import com.neuropulse.tv.domain.model.EpgResolutionStatus
-import okhttp3.OkHttpClient
+import com.neuropulse.tv.data.network.AppHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,7 +11,7 @@ import javax.inject.Singleton
 
 @Singleton
 class StalkerPortalClient @Inject constructor(
-    private val client: OkHttpClient
+    private val appHttpClient: AppHttpClient
 ) {
     data class Session(
         val portalBase: String,
@@ -55,7 +55,7 @@ class StalkerPortalClient @Inject constructor(
             .header("Cookie", buildCookie(mac, token))
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
+        appHttpClient.client().newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("Portal request failed (${response.code})")
             }

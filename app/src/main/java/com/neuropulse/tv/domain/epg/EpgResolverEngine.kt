@@ -16,7 +16,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import okhttp3.OkHttpClient
+import com.neuropulse.tv.data.network.AppHttpClient
 import okhttp3.Request
 import java.io.ByteArrayInputStream
 import java.util.zip.GZIPInputStream
@@ -42,7 +42,7 @@ class EpgResolverEngine @Inject constructor(
     private val programDao: ProgramDao,
     private val sourceDao: EpgSourceChannelDao,
     private val suggestionDao: EpgResolutionSuggestionDao,
-    private val okHttpClient: OkHttpClient
+    private val appHttpClient: AppHttpClient
 ) {
     private val lastExternalRequestAt = AtomicLong(0)
 
@@ -239,7 +239,7 @@ class EpgResolverEngine @Inject constructor(
 
     private fun fetchBytes(url: String): ByteArray {
         val req = Request.Builder().url(url).build()
-        okHttpClient.newCall(req).execute().use { response ->
+        appHttpClient.client().newCall(req).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("EPG source fetch failed: ${response.code}")
             return response.body?.bytes() ?: byteArrayOf()
         }

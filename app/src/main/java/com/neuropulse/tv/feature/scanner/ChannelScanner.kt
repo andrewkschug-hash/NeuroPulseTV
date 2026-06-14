@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okhttp3.OkHttpClient
+import com.neuropulse.tv.data.network.AppHttpClient
 
 @Singleton
 class ChannelScanner @Inject constructor(
@@ -36,10 +36,10 @@ class ChannelScanner @Inject constructor(
     private val channelDao: ChannelDao,
     private val channelScanDao: ChannelScanDao,
     private val repository: IptvRepository,
-    okHttpClient: OkHttpClient
+    private val appHttpClient: AppHttpClient
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val probe = ChannelProbe(okHttpClient)
+    private fun probeFor(url: String): ProbeResult = ChannelProbe(appHttpClient.client()).probe(url)
     private val limiter = ScanConcurrencyLimiter()
     private val stateMutex = Mutex()
 
@@ -173,7 +173,7 @@ class ChannelScanner @Inject constructor(
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
         markChecking(channelId)
-        val result = limiter.withPermit { probe.probe(streamUrl) }
+        val result = limiter.withPermit { probeFor(streamUrl) }
         val snapshot = ChannelScanSnapshot(
             status = when (result) {
                 ProbeResult.LIVE -> ChannelScanStatus.LIVE

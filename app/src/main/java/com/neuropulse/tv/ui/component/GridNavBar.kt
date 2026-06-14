@@ -40,6 +40,8 @@ private val NavIconSlotWidth = 56.dp
 val GridNavTabs = listOf(
     EpgNavTab.Search,
     EpgNavTab.Guide,
+    EpgNavTab.Movies,
+    EpgNavTab.Series,
     EpgNavTab.Favorites,
     EpgNavTab.Recordings
 )

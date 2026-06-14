@@ -148,6 +148,11 @@ class RecordingStorageManager @Inject constructor(
 
     suspend fun isCriticalLowStorage(): Boolean = freeBytes() < CRITICAL_MB
 
+    suspend fun freeStorageSummaryLine(): String {
+        val label = currentStorageLabel() ?: "Internal Storage"
+        return "${StorageFormat.formatFreeSpace(freeBytes())} on $label"
+    }
+
     suspend fun lowStorageWarning(): String? =
         if (!hasAtLeast2Gb()) "Storage is below 2 GB free. Recording may fail." else null
 

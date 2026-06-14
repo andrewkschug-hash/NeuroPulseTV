@@ -16,7 +16,7 @@ import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import javax.inject.Inject
-import okhttp3.OkHttpClient
+import com.neuropulse.tv.data.network.AppHttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +37,7 @@ class RecordingService : Service() {
     lateinit var storageManager: RecordingStorageManager
 
     @Inject
-    lateinit var okHttpClient: OkHttpClient
+    lateinit var appHttpClient: AppHttpClient
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private var notificationJob: Job? = null
@@ -117,7 +117,7 @@ class RecordingService : Service() {
 
         recordingJob?.cancel()
         recordingJob = scope.launch {
-            val recorder = TsStreamRecorder(okHttpClient, outputFile)
+            val recorder = TsStreamRecorder(appHttpClient.client(), outputFile)
             streamRecorder = recorder
             val success = recorder.record(streamUrl)
             streamRecorder = null

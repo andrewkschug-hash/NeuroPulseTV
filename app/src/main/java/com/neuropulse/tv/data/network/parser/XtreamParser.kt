@@ -81,7 +81,19 @@ class XtreamParser {
         return out
     }
 
-    fun parseVod(raw: String, username: String, password: String, serverUrl: String): List<VodItem> {
+    fun parseVodCategories(raw: String, playlistId: Long = 0L): List<com.neuropulse.tv.domain.model.VodCategory> {
+        val arr = JSONArray(raw)
+        val out = ArrayList<com.neuropulse.tv.domain.model.VodCategory>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val id = item.optString("category_id")
+            val name = item.optString("category_name").ifBlank { "Movies" }
+            if (id.isNotBlank()) out += com.neuropulse.tv.domain.model.VodCategory(id, name, playlistId)
+        }
+        return out
+    }
+
+    fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
         val arr = JSONArray(raw)
         val out = ArrayList<VodItem>(arr.length())
         for (i in 0 until arr.length()) {
@@ -89,9 +101,10 @@ class XtreamParser {
             val id = item.optString("stream_id").toLongOrNull() ?: continue
             val ext = item.optString("container_extension").ifBlank { "mp4" }
             val url = "$serverUrl/$username/$password/$id.$ext"
+            val title = item.optString("name").ifBlank { "VOD $id" }
             out += VodItem(
                 id = id,
-                title = item.optString("name").ifBlank { "VOD $id" },
+                title = title,
                 streamId = id,
                 streamUrl = url,
                 posterUrl = item.optString("stream_icon").ifBlank { null },
@@ -100,13 +113,16 @@ class XtreamParser {
                 director = item.optString("director").ifBlank { null },
                 genre = item.optString("genre").ifBlank { null },
                 rating = item.optString("rating").ifBlank { null },
-                duration = item.optString("duration").ifBlank { null }
+                duration = item.optString("duration").ifBlank { null },
+                categoryId = item.optString("category_id").ifBlank { null },
+                addedEpochSec = item.optString("added").toLongOrNull(),
+                playlistId = playlistId
             )
         }
         return out
     }
 
-    fun parseSeries(raw: String): List<SeriesShow> {
+    fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
         val arr = JSONArray(raw)
         val out = ArrayList<SeriesShow>(arr.length())
         for (i in 0 until arr.length()) {
@@ -115,7 +131,8 @@ class XtreamParser {
             out += SeriesShow(
                 id = id,
                 name = item.optString("name").ifBlank { "Series $id" },
-                coverUrl = item.optString("cover").ifBlank { null }
+                coverUrl = item.optString("cover").ifBlank { null },
+                playlistId = playlistId
             )
         }
         return out

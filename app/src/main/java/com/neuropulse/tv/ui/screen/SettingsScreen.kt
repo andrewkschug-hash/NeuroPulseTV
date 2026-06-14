@@ -1,5 +1,11 @@
 package com.neuropulse.tv.ui.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +24,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +81,7 @@ import com.neuropulse.tv.ui.component.SettingsFocusTextField
 import com.neuropulse.tv.ui.component.SettingsFocusPillGroup
 import com.neuropulse.tv.ui.component.connectionsAddFocusCount
 import com.neuropulse.tv.ui.component.connectionsFocusCount
+import com.neuropulse.tv.ui.component.connectionsListFocusCount
 import com.neuropulse.tv.ui.component.aboutFocusCount
 import com.neuropulse.tv.ui.component.guideFocusCount
 import com.neuropulse.tv.ui.component.interfaceFocusCount
@@ -143,6 +151,8 @@ fun SettingsScreen(
     profileInitials: String = "?",
     onNavigateHome: () -> Unit = {},
     onNavigateRecordings: () -> Unit = {},
+    onNavigateMovies: () -> Unit = {},
+    onNavigateSeries: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
@@ -187,11 +197,11 @@ fun SettingsScreen(
     val sections = SettingsSection.entries
     val navItems = sections.map { SettingsNavItem(it.title, it.subtitle) }
 
-    var selectedSection by remember { mutableIntStateOf(0) }
-    var focusPanel by remember { mutableStateOf(SettingsFocusPanel.LEFT) }
+    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
+    var focusPanel by rememberSaveable { mutableStateOf(SettingsFocusPanel.LEFT) }
     var focusLevel by remember { mutableStateOf(SettingsFocusLevel.SIDEBAR) }
     var focusedSectionIndex by remember { mutableIntStateOf(0) }
-    var sidebarFocusIndex by remember { mutableIntStateOf(0) }
+    var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(0) }
     var topBarFocusIndex by remember { mutableIntStateOf(3) }
 
     var name by remember { mutableStateOf("") }
@@ -202,26 +212,13 @@ fun SettingsScreen(
     var xtreamServer by remember { mutableStateOf("") }
     var xtreamUser by remember { mutableStateOf("") }
     var xtreamPass by remember { mutableStateOf("") }
-    var seededPlaylistId by remember { mutableLongStateOf(-1L) }
+    var editingPlaylistId by remember { mutableStateOf<Long?>(null) }
+    val connectionsFormStart = connectionsListFocusCount(playlists.size)
 
-    LaunchedEffect(playlists) {
-        val primary = playlists.firstOrNull()
-        if (primary == null) {
-            if (seededPlaylistId != -1L) {
-                name = ""
-                url = ""
-                epgUrl = ""
-                refreshHours = "24"
-                playlistType = PlaylistType.M3U
-                xtreamServer = ""
-                xtreamUser = ""
-                xtreamPass = ""
-                seededPlaylistId = -1L
-            }
-            return@LaunchedEffect
-        }
-        if (primary.id == seededPlaylistId) return@LaunchedEffect
-        val form = viewModel.connectionFormFor(primary)
+    LaunchedEffect(editingPlaylistId) {
+        val id = editingPlaylistId ?: return@LaunchedEffect
+        val playlist = playlists.find { it.id == id } ?: return@LaunchedEffect
+        val form = viewModel.connectionFormFor(playlist)
         name = form.name
         playlistType = form.playlistType
         url = form.m3uUrl
@@ -230,7 +227,6 @@ fun SettingsScreen(
         xtreamServer = form.xtreamServer
         xtreamUser = form.xtreamUser
         xtreamPass = form.xtreamPassword
-        seededPlaylistId = primary.id
     }
 
     val contentFocusCount = when (sections[selectedSection]) {
@@ -267,7 +263,7 @@ fun SettingsScreen(
             storageOptionCount = storageOptions.size
         )
     }
-    val contentChain = rememberSettingsFocusChain(contentFocusCount, 0)
+    val contentChain = rememberSettingsFocusChain(contentFocusCount, selectedSection, 0)
     val contentFocus = SettingsContentFocus(
         chain = contentChain,
         level = focusLevel,
@@ -275,34 +271,37 @@ fun SettingsScreen(
         sectionCards = sectionCards
     )
 
-    val sidebarFocusRequester = remember { FocusRequester() }
+    val sidebarItemFocusRequesters = remember(sections.size) {
+        List(sections.size) { FocusRequester() }
+    }
     val topNavFocusRequester = remember { FocusRequester() }
     val contentAreaFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(Unit) {
-        sidebarFocusIndex = selectedSection
-        focusPanel = SettingsFocusPanel.LEFT
-        focusLevel = SettingsFocusLevel.SIDEBAR
-    }
-
-    LaunchedEffect(selectedSection) {
+    LaunchedEffect(selectedSection, sectionCards, focusPanel) {
         sidebarFocusIndex = selectedSection
         focusedSectionIndex = 0
         if (focusPanel == SettingsFocusPanel.RIGHT) {
-            focusLevel = SettingsFocusLevel.SECTION
+            val card = sectionCards.firstOrNull { it.hasFocusableItems }
+            if (card != null) {
+                focusedSectionIndex = sectionCards.indexOf(card).coerceAtLeast(0)
+                focusLevel = SettingsFocusLevel.INSIDE_CARD
+                contentChain.resetIndex(card.firstFocusIndex)
+            }
         }
     }
 
-    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, contentFocusCount, sectionCards) {
+    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, sidebarFocusIndex, contentFocusCount) {
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocus()
-            SettingsFocusPanel.LEFT -> sidebarFocusRequester.requestFocus()
+            SettingsFocusPanel.LEFT -> {
+                sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocus()
+            }
             SettingsFocusPanel.RIGHT -> when (focusLevel) {
                 SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocus()
                 SettingsFocusLevel.INSIDE_CARD -> {
-                    sectionCards.getOrNull(focusedSectionIndex)
-                        ?.takeIf { it.hasFocusableItems }
-                        ?.let { contentChain.moveTo(it.firstFocusIndex) }
+                    if (contentChain.itemCount > 0) {
+                        contentChain.moveTo(contentChain.focusedIndex)
+                    }
                 }
                 SettingsFocusLevel.SIDEBAR -> Unit
             }
@@ -320,8 +319,11 @@ fun SettingsScreen(
     fun enterContentFromSidebar() {
         selectSidebarSection(sidebarFocusIndex)
         focusPanel = SettingsFocusPanel.RIGHT
-        focusLevel = SettingsFocusLevel.SECTION
-        focusedSectionIndex = 0
+        val card = sectionCards.firstOrNull { it.hasFocusableItems }
+        focusedSectionIndex = card?.let { sectionCards.indexOf(it) }?.coerceAtLeast(0) ?: 0
+        focusLevel = SettingsFocusLevel.INSIDE_CARD
+        val firstIndex = card?.firstFocusIndex ?: 0
+        contentChain.moveTo(firstIndex)
     }
 
     fun handleBackKey(): Boolean {
@@ -354,6 +356,8 @@ fun SettingsScreen(
     fun activateNavTab(tab: EpgNavTab) {
         when (tab) {
             EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
+            EpgNavTab.Movies -> onNavigateMovies()
+            EpgNavTab.Series -> onNavigateSeries()
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()
@@ -486,7 +490,9 @@ fun SettingsScreen(
                                 sectionKind,
                                 contentChain.focusedIndex,
                                 event.key,
-                                contentChain
+                                contentChain,
+                                connectionsFormStart = connectionsFormStart,
+                                connectionsPlaylistType = playlistType
                             )
                         ) {
                             return true
@@ -499,22 +505,29 @@ fun SettingsScreen(
                                 event.key
                             )?.let {
                                 contentChain.moveTo(it)
-                                true
-                            } ?: run {
-                                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                                true
+                                return true
                             }
-                        } else {
-                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                            true
                         }
+                        if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                            exitToSidebar(
+                                focusPanel = { focusPanel = it },
+                                focusLevel = { focusLevel = it },
+                                sidebarFocusIndex = { sidebarFocusIndex = it },
+                                selectedSection = selectedSection
+                            )
+                        } else {
+                            contentChain.moveTo(contentChain.focusedIndex - 1)
+                        }
+                        true
                     }
                     Key.DirectionRight -> {
                         if (handleSettingsHorizontalKey(
                                 sectionKind,
                                 contentChain.focusedIndex,
                                 event.key,
-                                contentChain
+                                contentChain,
+                                connectionsFormStart = connectionsFormStart,
+                                connectionsPlaylistType = playlistType
                             )
                         ) {
                             return true
@@ -665,18 +678,21 @@ fun SettingsScreen(
 
             Row(modifier = Modifier.fillMaxSize()) {
                 Box(
-                    modifier = Modifier
-                        .focusRequester(sidebarFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent {
-                            if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
-                        }
+                    modifier = Modifier.onPreviewKeyEvent {
+                        if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
+                    }
                 ) {
                     SettingsSidebar(
                         items = navItems,
                         selectedIndex = selectedSection,
                         focusedIndex = sidebarFocusIndex,
                         sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
+                        itemFocusRequesters = sidebarItemFocusRequesters,
+                        onItemFocused = { index ->
+                            sidebarFocusIndex = index
+                            focusPanel = SettingsFocusPanel.LEFT
+                            focusLevel = SettingsFocusLevel.SIDEBAR
+                        },
                         onSectionSelected = { index ->
                             selectSidebarSection(index)
                             focusPanel = SettingsFocusPanel.LEFT
@@ -704,7 +720,15 @@ fun SettingsScreen(
                             .padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                    when (sections[selectedSection]) {
+                    AnimatedContent(
+                        targetState = selectedSection,
+                        transitionSpec = {
+                            fadeIn(tween(150)) togetherWith fadeOut(tween(150)) using
+                                SizeTransform(clip = false)
+                        },
+                        label = "settingsSectionContent"
+                    ) { sectionIndex ->
+                    when (sections[sectionIndex]) {
                         SettingsSection.Profile -> ProfileSettingsContent(
                             activeProfile = activeProfile,
                             profiles = profiles,
@@ -741,6 +765,8 @@ fun SettingsScreen(
                         SettingsSection.Connections -> ConnectionsSettingsContent(
                             focus = contentFocus,
                             settings = settings,
+                            formStartIndex = connectionsFormStart,
+                            editingPlaylistId = editingPlaylistId,
                             name = name,
                             onNameChange = { name = it },
                             url = url,
@@ -764,21 +790,47 @@ fun SettingsScreen(
                             isConnecting = isConnecting,
                             playlists = playlists,
                             xtreamAccounts = xtreamAccounts,
-                            onAddPlaylist = {
-                                if (playlistType == PlaylistType.XTREAM) {
-                                    viewModel.addXtreamPlaylist(
-                                        name, xtreamServer, xtreamUser, xtreamPass,
-                                        epgUrl.ifBlank { null }, refreshHours.toIntOrNull() ?: 24
-                                    )
-                                } else {
-                                    viewModel.addPlaylistFromUrl(
-                                        name, url, epgUrl.ifBlank { null }, refreshHours.toIntOrNull() ?: 24
-                                    )
-                                }
+                            onSelectPlaylist = { editingPlaylistId = it },
+                            onStartNewConnection = {
+                                editingPlaylistId = null
+                                name = ""
+                                url = ""
+                                epgUrl = ""
+                                refreshHours = "24"
+                                playlistType = PlaylistType.M3U
+                                xtreamServer = ""
+                                xtreamUser = ""
+                                xtreamPass = ""
+                            },
+                            onSaveConnection = {
+                                viewModel.saveConnection(
+                                    editingPlaylistId = editingPlaylistId,
+                                    name = name,
+                                    url = url,
+                                    playlistType = playlistType,
+                                    xtreamServer = xtreamServer,
+                                    xtreamUser = xtreamUser,
+                                    xtreamPass = xtreamPass,
+                                    epgUrl = epgUrl.ifBlank { null },
+                                    refreshHours = refreshHours.toIntOrNull() ?: 24
+                                )
                             },
                             onPickLocalFile = onPickLocalFile,
                             onPickTiviMateZip = onPickTiviMateZip,
-                            onDeletePlaylist = { viewModel.deletePlaylist(it) }
+                            onDeletePlaylist = { id ->
+                                viewModel.deletePlaylist(id)
+                                if (editingPlaylistId == id) {
+                                    editingPlaylistId = null
+                                    name = ""
+                                    url = ""
+                                    epgUrl = ""
+                                    refreshHours = "24"
+                                    playlistType = PlaylistType.M3U
+                                    xtreamServer = ""
+                                    xtreamUser = ""
+                                    xtreamPass = ""
+                                }
+                            }
                         )
                         SettingsSection.Guide -> GuideSettingsContent(
                             settings = settings,
@@ -852,6 +904,7 @@ fun SettingsScreen(
                                 onResetApp = { showResetConfirm = true }
                             )
                         }
+                    }
                     }
                     }
                 }
@@ -1143,6 +1196,8 @@ private fun ProfileSettingsContent(
 private fun ConnectionsSettingsContent(
     focus: SettingsContentFocus,
     settings: com.neuropulse.tv.domain.model.AppSettings,
+    formStartIndex: Int,
+    editingPlaylistId: Long?,
     name: String,
     onNameChange: (String) -> Unit,
     url: String,
@@ -1166,29 +1221,98 @@ private fun ConnectionsSettingsContent(
     isConnecting: Boolean,
     playlists: List<com.neuropulse.tv.domain.model.Playlist>,
     xtreamAccounts: List<com.neuropulse.tv.domain.model.XtreamAccountInfo>,
-    onAddPlaylist: () -> Unit,
+    onSelectPlaylist: (Long) -> Unit,
+    onStartNewConnection: () -> Unit,
+    onSaveConnection: () -> Unit,
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
     onDeletePlaylist: (Long) -> Unit
 ) {
     SettingsPanel(
-        title = "Connect",
-        description = "Link your IPTV provider using M3U or Xtream Codes.",
+        title = "Your connections",
+        description = "Select a provider to edit, or add a new one.",
         cardIndex = 0,
         focus = focus
     ) {
+        SettingsFocusButton(
+            text = "+ Add connection",
+            onClick = onStartNewConnection,
+            chainIndex = 0,
+            focus = focus,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        if (playlists.isEmpty()) {
+            Text(
+                "No connections yet. Tap + to add your first provider.",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp
+            )
+        }
+        playlists.forEachIndexed { index, playlist ->
+            val editIndex = 1 + index * 2
+            val removeIndex = editIndex + 1
+            val isEditing = editingPlaylistId == playlist.id
+            SettingsListRow(
+                title = playlist.name,
+                subtitle = buildString {
+                    append(playlistConnectionSubtitle(playlist))
+                    if (isEditing) append(" · Editing")
+                },
+                isFocused = focus.isFocused(editIndex) || focus.isFocused(removeIndex),
+                modifier = Modifier.padding(vertical = 4.dp),
+                trailing = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsFocusButton(
+                            text = "Edit",
+                            onClick = { onSelectPlaylist(playlist.id) },
+                            chainIndex = editIndex,
+                            focus = focus
+                        )
+                        SettingsFocusButton(
+                            text = "Remove",
+                            onClick = { onDeletePlaylist(playlist.id) },
+                            chainIndex = removeIndex,
+                            focus = focus
+                        )
+                    }
+                }
+            )
+        }
+        xtreamAccounts.forEach { account ->
+            val exp = account.expiryDateEpochSec?.let {
+                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it * 1000L))
+            } ?: "N/A"
+            Text(
+                "${account.playlistName}: ${account.status} · expires $exp",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp
+            )
+        }
+    }
+
+    val formTitle = if (editingPlaylistId != null) "Edit connection" else "Add connection"
+    val saveLabel = if (editingPlaylistId != null) "Save" else "Connect"
+    SettingsPanel(
+        title = formTitle,
+        description = "Link your IPTV provider using M3U or Xtream Codes.",
+        cardIndex = 1,
+        focus = focus
+    ) {
+        val base = formStartIndex
         SettingsFocusTextField(
             label = "Connection name",
             value = name,
             onValueChange = onNameChange,
             placeholder = "e.g. Home IPTV",
-            chainIndex = 0,
+            chainIndex = base,
             focus = focus
         )
         SettingsFocusPillGroup(
             labels = listOf("M3U", "Xtream"),
             selectedIndex = if (playlistType == PlaylistType.XTREAM) 1 else 0,
-            startChainIndex = 1,
+            startChainIndex = base + 1,
             focus = focus,
             onSelect = { index ->
                 onPlaylistTypeChange(if (index == 0) PlaylistType.M3U else PlaylistType.XTREAM)
@@ -1200,7 +1324,7 @@ private fun ConnectionsSettingsContent(
                 value = url,
                 onValueChange = onUrlChange,
                 placeholder = "https://provider.com/playlist.m3u",
-                chainIndex = 3,
+                chainIndex = base + 3,
                 focus = focus
             )
         } else {
@@ -1209,7 +1333,7 @@ private fun ConnectionsSettingsContent(
                 value = xtreamServer,
                 onValueChange = onXtreamServerChange,
                 placeholder = "http://server:port",
-                chainIndex = 3,
+                chainIndex = base + 3,
                 focus = focus
             )
             SettingsFocusTextField(
@@ -1217,7 +1341,7 @@ private fun ConnectionsSettingsContent(
                 value = xtreamUser,
                 onValueChange = onXtreamUserChange,
                 placeholder = "Username",
-                chainIndex = 4,
+                chainIndex = base + 4,
                 focus = focus
             )
             SettingsFocusTextField(
@@ -1225,16 +1349,16 @@ private fun ConnectionsSettingsContent(
                 value = xtreamPass,
                 onValueChange = onXtreamPassChange,
                 placeholder = "Password",
-                chainIndex = 5,
+                chainIndex = base + 5,
                 focus = focus
             )
         }
-        val epgIndex = if (playlistType == PlaylistType.M3U) 4 else 6
-        val refreshIndex = if (playlistType == PlaylistType.M3U) 5 else 7
-        val timeoutStart = if (playlistType == PlaylistType.M3U) 6 else 8
+        val epgIndex = if (playlistType == PlaylistType.M3U) base + 4 else base + 6
+        val refreshIndex = if (playlistType == PlaylistType.M3U) base + 5 else base + 7
+        val timeoutStart = if (playlistType == PlaylistType.M3U) base + 6 else base + 8
         val proxyToggleIndex = timeoutStart + 3
         val proxyUrlIndex = proxyToggleIndex + 1
-        val addIndex = proxyUrlIndex + 1
+        val saveIndex = proxyUrlIndex + 1
         SettingsFocusTextField(
             label = "EPG URL (optional)",
             value = epgUrl,
@@ -1287,23 +1411,23 @@ private fun ConnectionsSettingsContent(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsFocusButton(
-                text = "Connect",
-                onClick = onAddPlaylist,
-                chainIndex = addIndex,
+                text = saveLabel,
+                onClick = onSaveConnection,
+                chainIndex = saveIndex,
                 focus = focus,
                 isLoading = isConnecting,
-                loadingLabel = "Connecting..."
+                loadingLabel = if (editingPlaylistId != null) "Saving..." else "Connecting..."
             )
             SettingsFocusButton(
                 text = "Local M3U file",
                 onClick = onPickLocalFile,
-                chainIndex = addIndex + 1,
+                chainIndex = saveIndex + 1,
                 focus = focus
             )
             SettingsFocusButton(
                 text = "Import TiviMate",
                 onClick = onPickTiviMateZip,
-                chainIndex = addIndex + 2,
+                chainIndex = saveIndex + 2,
                 focus = focus
             )
         }
@@ -1313,51 +1437,6 @@ private fun ConnectionsSettingsContent(
             fontFamily = DmSansFamily,
             fontSize = 13.sp
         )
-    }
-
-    val installedStart = connectionsAddFocusCount(playlistType)
-    SettingsPanel(
-        title = "Installed connections",
-        description = "${playlists.size} playlist(s) on this device.",
-        cardIndex = 1,
-        focus = focus
-    ) {
-        if (playlists.isEmpty()) {
-            Text(
-                "No connections yet. Add your M3U or Xtream details above.",
-                color = EpgColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 13.sp
-            )
-        }
-        playlists.forEachIndexed { index, playlist ->
-            val chainIndex = installedStart + index
-            SettingsListRow(
-                title = playlist.name,
-                subtitle = playlistConnectionSubtitle(playlist),
-                isFocused = focus.isFocused(chainIndex),
-                modifier = Modifier.padding(vertical = 4.dp),
-                trailing = {
-                    SettingsFocusButton(
-                        text = "Remove",
-                        onClick = { onDeletePlaylist(playlist.id) },
-                        chainIndex = chainIndex,
-                        focus = focus
-                    )
-                }
-            )
-        }
-        xtreamAccounts.forEach { account ->
-            val exp = account.expiryDateEpochSec?.let {
-                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it * 1000L))
-            } ?: "N/A"
-            Text(
-                "${account.playlistName}: ${account.status} · expires $exp",
-                color = EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
-                fontSize = 12.sp
-            )
-        }
     }
 }
 

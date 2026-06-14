@@ -7,9 +7,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
+import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.Program
+import com.neuropulse.tv.domain.model.RecordQuality
+import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.recording.PendingRecording
 import com.neuropulse.tv.feature.recording.RecordingBitrateEstimator
 import com.neuropulse.tv.feature.recording.RecordingPrecheck
@@ -18,6 +21,8 @@ import com.neuropulse.tv.feature.recording.RecordingService
 import com.neuropulse.tv.feature.recording.RecordingSort
 import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.feature.recording.RecordingStorageManager
+import com.neuropulse.tv.feature.recording.RecordingStreamUrlResolver
+import com.neuropulse.tv.feature.recording.SeriesRuleScheduler
 import com.neuropulse.tv.feature.recording.StorageOption
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -34,8 +39,11 @@ import kotlinx.coroutines.launch
 class RecordingViewModel @Inject constructor(
     private val scheduledDao: ScheduledRecordingDao,
     private val recordedDao: RecordedMediaDao,
+    private val seriesRuleDao: SeriesRecordingRuleDao,
     private val scheduler: RecordingScheduler,
-    private val storageManager: RecordingStorageManager
+    private val seriesRuleScheduler: SeriesRuleScheduler,
+    private val storageManager: RecordingStorageManager,
+    private val repository: IptvRepository
 ) : ViewModel() {
 
     private val _message = MutableStateFlow<String?>(null)
@@ -63,9 +71,15 @@ class RecordingViewModel @Inject constructor(
         list.any { it.status == RecordingStatus.RECORDING.name }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    /** Global recording indicator — true while any stream is being recorded. */
+    val isRecording: StateFlow<Boolean> = isRecordingActive
+
     val activeRecording = scheduled.map { list ->
         list.firstOrNull { it.status == RecordingStatus.RECORDING.name }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val activeRecordingTitle: StateFlow<String?> = activeRecording.map { it?.programTitle }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val recorded = sort.flatMapLatest { s ->
         when (s) {
@@ -75,6 +89,9 @@ class RecordingViewModel @Inject constructor(
             RecordingSort.FILE_SIZE -> recordedDao.observeAllBySize()
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val seriesRules = seriesRuleDao.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setSort(sort: RecordingSort) {
         _sort.value = sort
@@ -146,15 +163,28 @@ class RecordingViewModel @Inject constructor(
                 return@launch
             }
 
-            _precheck.value = buildPrecheck(pending.durationMs)
+            _precheck.value = buildPrecheck(pending.durationMs, pending.streamUrl)
             _pendingRecording.value = pending
+        }
+    }
+
+    fun updatePrecheckQuality(quality: RecordQuality) {
+        val pending = _pendingRecording.value ?: return
+        viewModelScope.launch {
+            _precheck.value = buildPrecheck(pending.durationMs, pending.streamUrl, quality)
         }
     }
 
     fun confirmImmediateRecording(context: Context) {
         val pending = _pendingRecording.value ?: return
+        val precheck = _precheck.value ?: return
         viewModelScope.launch {
-            proceedImmediate(context, pending)
+            val settings = repository.loadSettings()
+            if (settings.recordQuality != precheck.selectedQuality) {
+                repository.saveSettings(settings.copy(recordQuality = precheck.selectedQuality))
+            }
+            val resolvedUrl = RecordingStreamUrlResolver.resolveUrl(pending.streamUrl, precheck.selectedQuality)
+            proceedImmediate(context, pending.copy(streamUrl = resolvedUrl))
             _precheck.value = null
             _pendingRecording.value = null
         }
@@ -169,19 +199,32 @@ class RecordingViewModel @Inject constructor(
                 proceedSchedule(pending)
                 _pendingRecording.value = null
             } else {
-                _precheck.value = buildPrecheck(pending.durationMs)
+                _precheck.value = buildPrecheck(pending.durationMs, pending.streamUrl)
             }
         }
     }
 
-    private suspend fun buildPrecheck(durationMs: Long): RecordingPrecheck {
-        val estimate = RecordingBitrateEstimator.formatEstimate(durationMs)
+    private suspend fun buildPrecheck(
+        durationMs: Long,
+        streamUrl: String,
+        selectedQuality: RecordQuality? = null
+    ): RecordingPrecheck {
+        val qualities = RecordingStreamUrlResolver.availableQualities(streamUrl)
+        val saved = repository.loadSettings().recordQuality
+        val quality = when {
+            selectedQuality != null && (qualities.isEmpty() || selectedQuality in qualities) -> selectedQuality
+            qualities.isNotEmpty() && saved in qualities -> saved
+            else -> RecordQuality.ORIGINAL
+        }
+        val estimate = RecordingBitrateEstimator.formatEstimate(durationMs, quality)
+        val estimatedBytes = RecordingBitrateEstimator.estimateBytes(durationMs, quality)
         return RecordingPrecheck(
             estimateText = estimate,
+            freeStorageText = storageManager.freeStorageSummaryLine(),
             lowStorageWarning = storageManager.lowStorageWarning(),
-            insufficientSpaceWarning = storageManager.insufficientSpaceWarning(
-                RecordingBitrateEstimator.estimateBytes(durationMs)
-            )
+            insufficientSpaceWarning = storageManager.insufficientSpaceWarning(estimatedBytes),
+            availableQualities = qualities,
+            selectedQuality = quality
         )
     }
 
@@ -254,6 +297,12 @@ class RecordingViewModel @Inject constructor(
             recordedDao.deleteById(id)
             kotlin.runCatching { java.io.File(path).delete() }
             thumbnailPath?.let { kotlin.runCatching { java.io.File(it).delete() } }
+        }
+    }
+
+    fun deleteSeriesRule(ruleId: Long) {
+        viewModelScope.launch {
+            seriesRuleScheduler.deleteRule(ruleId)
         }
     }
 

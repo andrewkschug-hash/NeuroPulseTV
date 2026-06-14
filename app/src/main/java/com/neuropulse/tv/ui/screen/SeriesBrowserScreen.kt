@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
 import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
@@ -59,10 +62,13 @@ fun SeriesBrowserScreen(
 ) {
     val shows by viewModel.shows.collectAsStateWithLifecycle()
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
+    val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
     val playlists by settingsViewModel.playlists.collectAsStateWithLifecycle()
     val isM3uOnly = playlists.isNotEmpty() && playlists.all { it.type == PlaylistType.M3U }
 
     var selectedCategory by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
     var focusedShowId by remember { mutableStateOf<Long?>(null) }
     var selectedSeason by remember { mutableStateOf<Int?>(null) }
 
@@ -77,6 +83,21 @@ fun SeriesBrowserScreen(
         }
     }
 
+    val activeShow = shows.find { it.id == selectedShowId }
+
+    if (message != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearMessage() },
+            title = { Text("Series recording") },
+            text = { Text(message.orEmpty()) },
+            confirmButton = {
+                Button(onClick = { viewModel.clearMessage() }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -84,6 +105,39 @@ fun SeriesBrowserScreen(
             .padding(20.dp)
     ) {
         RowHeader(onBack = onBack)
+
+        if (seasons.isEmpty()) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                placeholder = { Text("Search series", fontFamily = DmSansFamily) }
+            )
+        }
+
+        if (activeShow != null && !isM3uOnly) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = activeShow.name,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Button(onClick = { viewModel.recordSeries(activeShow) }) {
+                    Text("Record Series", fontFamily = DmSansFamily)
+                }
+            }
+        }
 
         if (isM3uOnly) {
             Text(
@@ -124,8 +178,15 @@ fun SeriesBrowserScreen(
                 }
             }
 
-            val filtered = if (selectedCategory == "All") shows else shows.filter {
-                it.name.contains(selectedCategory, ignoreCase = true)
+            val filtered = remember(shows, selectedCategory, searchQuery) {
+                val byCategory = if (selectedCategory == "All") shows else shows.filter {
+                    it.name.contains(selectedCategory, ignoreCase = true)
+                }
+                if (searchQuery.isBlank()) {
+                    byCategory
+                } else {
+                    byCategory.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                }
             }
 
             LazyVerticalGrid(

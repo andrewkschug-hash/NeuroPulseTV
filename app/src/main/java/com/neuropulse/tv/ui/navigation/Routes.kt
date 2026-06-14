@@ -2,14 +2,22 @@ package com.neuropulse.tv.ui.navigation
 
 sealed class Routes(val route: String) {
     data object Home : Routes("home")
+    data object Movies : Routes("movies")
     data object Player : Routes("player/{channelId}") {
         fun build(channelId: Long): String = "player/$channelId"
     }
-    data object DirectPlayer : Routes("direct-player/{title}/{url}") {
-        fun build(title: String, url: String): String {
+    data object DirectPlayer : Routes("direct-player/{recordingId}/{recordedAt}/{resume}/{title}/{url}") {
+        fun build(
+            title: String,
+            url: String,
+            recordingId: Long = 0L,
+            recordedAt: Long = 0L,
+            resume: Boolean = false
+        ): String {
             val t = android.net.Uri.encode(title)
             val u = android.net.Uri.encode(url)
-            return "direct-player/$t/$u"
+            val resumeFlag = if (resume) 1 else 0
+            return "direct-player/$recordingId/$recordedAt/$resumeFlag/$t/$u"
         }
     }
     data object Series : Routes("series/{seriesId}") {

@@ -19,6 +19,7 @@ import com.neuropulse.tv.domain.model.XtreamAccountInfo
 import com.neuropulse.tv.domain.repository.IptvRepository
 import com.neuropulse.tv.feature.dashboard.DashboardController
 import com.neuropulse.tv.feature.recording.RecordingStorageManager
+import com.neuropulse.tv.feature.recording.SeriesRuleScheduler
 import com.neuropulse.tv.feature.recording.StorageOption
 import com.neuropulse.tv.domain.model.ScannerSettings
 import com.neuropulse.tv.feature.scanner.ChannelScanner
@@ -49,7 +50,8 @@ class SettingsViewModel @Inject constructor(
     private val scheduler: EpgScheduler,
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
-    private val channelScanner: ChannelScanner
+    private val channelScanner: ChannelScanner,
+    private val seriesRuleScheduler: SeriesRuleScheduler
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
@@ -185,6 +187,61 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveConnection(
+        editingPlaylistId: Long?,
+        name: String,
+        url: String,
+        playlistType: com.neuropulse.tv.domain.model.PlaylistType,
+        xtreamServer: String,
+        xtreamUser: String,
+        xtreamPass: String,
+        epgUrl: String?,
+        refreshHours: Int
+    ) {
+        viewModelScope.launch {
+            val isUpdate = editingPlaylistId != null
+            val label = if (isUpdate) "Updating..." else "Connecting..."
+            runConnectionJob(progressLabel = label) {
+                if (isUpdate) {
+                    when (playlistType) {
+                        com.neuropulse.tv.domain.model.PlaylistType.XTREAM ->
+                            repository.updateXtreamPlaylist(
+                                editingPlaylistId!!,
+                                name,
+                                xtreamServer,
+                                xtreamUser,
+                                xtreamPass,
+                                epgUrl,
+                                refreshHours
+                            )
+                        else ->
+                            repository.updateM3uPlaylist(
+                                editingPlaylistId!!,
+                                name,
+                                url,
+                                epgUrl,
+                                refreshHours
+                            )
+                    }
+                } else {
+                    when (playlistType) {
+                        com.neuropulse.tv.domain.model.PlaylistType.XTREAM ->
+                            repository.addXtreamPlaylist(
+                                name,
+                                xtreamServer,
+                                xtreamUser,
+                                xtreamPass,
+                                epgUrl,
+                                refreshHours
+                            )
+                        else ->
+                            repository.addPlaylistFromUrl(name, url, epgUrl, refreshHours)
+                    }
+                }
+            }
+        }
+    }
+
     fun dismissConnectionDialog() {
         _connectionDialog.value = null
     }
@@ -211,7 +268,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshEpg() {
-        viewModelScope.launch { repository.refreshEpgNow() }
+        viewModelScope.launch {
+            repository.refreshEpgNow()
+            seriesRuleScheduler.applyRulesAfterEpgRefresh()
+        }
     }
 
     private fun syncScannerSettings() {

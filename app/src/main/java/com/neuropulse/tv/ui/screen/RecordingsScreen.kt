@@ -3,6 +3,7 @@ package com.neuropulse.tv.ui.screen
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,9 +44,11 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
+import com.neuropulse.tv.data.db.entity.SeriesRecordingRuleEntity
 import com.neuropulse.tv.feature.recording.RecordingCountdown
 import com.neuropulse.tv.feature.recording.RecordingSort
 import com.neuropulse.tv.feature.recording.RecordingStatus
+import com.neuropulse.tv.feature.recording.SeriesTitleMatcher
 import com.neuropulse.tv.feature.recording.StorageFormat
 import com.neuropulse.tv.player.LivePlayerManager
 import com.neuropulse.tv.ui.component.EpgChipFilterBar
@@ -46,7 +56,11 @@ import com.neuropulse.tv.ui.component.EpgListEmptyState
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
-import com.neuropulse.tv.ui.component.RecordingsDetailPanel
+import com.neuropulse.tv.ui.component.RecordingsBottomSheetPanel
+import com.neuropulse.tv.ui.component.RecordingDeleteDialog
+import com.neuropulse.tv.ui.component.RecordingGridCard
+import com.neuropulse.tv.ui.component.canResumeRecording
+import com.neuropulse.tv.ui.component.RecordingsSimpleDetailPanel
 import com.neuropulse.tv.ui.component.RecordingsListRow
 import com.neuropulse.tv.ui.component.formatEpgTime
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -96,23 +110,87 @@ private sealed class RecordingRow {
         override val badge = null
         override val thumbnailPath = item.thumbnailPath
     }
+
+    data class SeriesGroupHeader(
+        val seriesTitle: String,
+        val episodeCount: Int
+    ) : RecordingRow() {
+        override val id = seriesTitle.hashCode().toLong()
+        override val title = seriesTitle
+        override val subtitle = "$episodeCount episode(s)"
+        override val badge = "SERIES"
+        override val thumbnailPath: String? = null
+    }
+
+    data class SeriesEpisode(
+        val item: RecordedMediaEntity,
+        val episodeLabel: String,
+        val seriesTitle: String
+    ) : RecordingRow() {
+        override val id = item.id
+        override val title = episodeLabel
+        override val subtitle = buildString {
+            append(seriesTitle)
+            append(" · ")
+            append(item.channelName)
+            append(" · ")
+            append(formatRecordedDate(item.recordedAt))
+        }
+        override val badge = null
+        override val thumbnailPath = item.thumbnailPath
+    }
+
+    data class SeriesRule(val rule: SeriesRecordingRuleEntity) : RecordingRow() {
+        override val id = rule.id
+        override val title = rule.seriesTitle
+        override val subtitle = buildString {
+            append(if (rule.recordNewOnly) "New episodes only" else "All airings")
+            append(" · pad ${rule.paddingStartMins}/${rule.paddingEndMins} min")
+            if (rule.maxEpisodesToKeep > 0) {
+                append(" · keep ${rule.maxEpisodesToKeep}")
+            } else {
+                append(" · unlimited")
+            }
+        }
+        override val badge = "RULE"
+        override val thumbnailPath: String? = null
+    }
 }
+
+private fun RecordingRow.recordedMedia(): RecordedMediaEntity? = when (this) {
+    is RecordingRow.Saved -> item
+    is RecordingRow.SeriesEpisode -> item
+    else -> null
+}
+
+private fun RecordingRow.isGridCard(): Boolean = this is RecordingRow.Saved || this is RecordingRow.SeriesEpisode
 
 @Composable
 fun RecordingsScreen(
     profileInitials: String = "?",
     onNavigateHome: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
+    onNavigateMovies: () -> Unit = {},
+    onNavigateSeries: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
     onWatchChannel: (Long) -> Unit = {},
-    onPlayRecording: (String, String) -> Unit = { _, _ -> },
+    onPlayRecording: (
+        title: String,
+        url: String,
+        recordingId: Long,
+        recordedAt: Long,
+        resume: Boolean
+    ) -> Unit = { _, _, _, _, _ -> },
     viewModel: RecordingViewModel = hiltViewModel(),
     homeViewModel: HomeEpgViewModel = hiltViewModel()
 ) {
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val recorded by viewModel.recorded.collectAsStateWithLifecycle()
+    val seriesRules by viewModel.seriesRules.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
+    val activeRecordingTitle by viewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val livePlayerManager = homeViewModel.livePlayerManager
 
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -139,7 +217,9 @@ fun RecordingsScreen(
 
     var deleteScheduledId by remember { mutableStateOf<Long?>(null) }
     var deleteMedia by remember { mutableStateOf<RecordedMediaEntity?>(null) }
+    var deleteSeriesRuleId by remember { mutableStateOf<Long?>(null) }
 
+    val gridState = rememberLazyGridState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val topNavFocusRequester = remember { FocusRequester() }
@@ -151,10 +231,11 @@ fun RecordingsScreen(
             it.status == RecordingStatus.SCHEDULED.name || it.status == RecordingStatus.RECORDING.name
         }
     }
-    val rows: List<RecordingRow> = remember(tab, upcoming, recorded, now) {
+    val rows: List<RecordingRow> = remember(tab, upcoming, recorded, seriesRules, now) {
         when (tab) {
-            0 -> recorded.map { RecordingRow.Saved(it) }
-            else -> upcoming.map { RecordingRow.Scheduled(it, now) }
+            0 -> buildGroupedRecordingRows(recorded, seriesRules)
+            1 -> upcoming.map { RecordingRow.Scheduled(it, now) }
+            else -> seriesRules.map { RecordingRow.SeriesRule(it) }
         }
     }
     val sortLabels = listOf("Date", "Channel", "Duration", "Size")
@@ -177,6 +258,8 @@ fun RecordingsScreen(
     fun activateNavTab(tabItem: EpgNavTab) {
         when (tabItem) {
             EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
+            EpgNavTab.Movies -> onNavigateMovies()
+            EpgNavTab.Series -> onNavigateSeries()
             EpgNavTab.Recordings -> Unit
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()
@@ -195,27 +278,68 @@ fun RecordingsScreen(
         viewModel.setSort(sortValues[index])
     }
 
-    fun detailActions(): List<String> = when (selectedRow) {
+    fun detailActions(): List<String> = when (val row = selectedRow) {
         is RecordingRow.Scheduled -> listOf("✕ Cancel", "ℹ Info")
-        is RecordingRow.Saved -> listOf("▶ Play", "✕ Delete", "ℹ Info")
+        is RecordingRow.Saved, is RecordingRow.SeriesEpisode -> buildList {
+            add("▶ Play")
+            row.recordedMedia()?.let { if (canResumeRecording(it)) add("↩ Resume") }
+            add("✕ Delete")
+            add("ℹ Info")
+        }
+        is RecordingRow.SeriesGroupHeader -> emptyList()
+        is RecordingRow.SeriesRule -> listOf("✕ Delete rule")
         null -> emptyList()
     }
 
-    fun playSavedRecording(row: RecordingRow.Saved) {
-        onPlayRecording(row.item.programTitle, Uri.fromFile(File(row.item.filePath)).toString())
+    fun playRecording(entity: RecordedMediaEntity, resume: Boolean) {
+        onPlayRecording(
+            entity.programTitle,
+            Uri.fromFile(File(entity.filePath)).toString(),
+            entity.id,
+            entity.recordedAt,
+            resume
+        )
     }
+
+    fun playSavedRecording(row: RecordingRow.Saved) = playRecording(row.item, resume = false)
+
+    fun playSeriesEpisode(row: RecordingRow.SeriesEpisode) = playRecording(row.item, resume = false)
 
     fun executeDetailAction() {
         when (val row = selectedRow) {
-            is RecordingRow.Scheduled -> when (detailActionIndex) {
-                0 -> deleteScheduledId = row.item.id
+            is RecordingRow.Scheduled -> when (detailActions().getOrNull(detailActionIndex)) {
+                "✕ Cancel" -> deleteScheduledId = row.item.id
+                else -> Unit
             }
-            is RecordingRow.Saved -> when (detailActionIndex) {
-                0 -> playSavedRecording(row)
-                1 -> deleteMedia = row.item
+            is RecordingRow.Saved, is RecordingRow.SeriesEpisode -> {
+                val media = row.recordedMedia() ?: return
+                when (detailActions().getOrNull(detailActionIndex)) {
+                    "▶ Play" -> playRecording(media, resume = false)
+                    "↩ Resume" -> playRecording(media, resume = true)
+                    "✕ Delete" -> deleteMedia = media
+                    else -> Unit
+                }
             }
+            is RecordingRow.SeriesRule -> when (detailActionIndex) {
+                0 -> deleteSeriesRuleId = row.rule.id
+            }
+            is RecordingRow.SeriesGroupHeader -> Unit
             null -> Unit
         }
+    }
+
+    fun mediaRowIndices(): List<Int> = rows.indices.filter { rows[it].isGridCard() }
+
+    fun moveGridFocusHorizontal(delta: Int) {
+        val mediaIndices = mediaRowIndices()
+        if (mediaIndices.isEmpty()) return
+        val current = mediaIndices.indexOf(listFocusIndex)
+        if (current < 0) {
+            listFocusIndex = mediaIndices.first()
+            return
+        }
+        val next = (current + delta).coerceIn(0, mediaIndices.lastIndex)
+        listFocusIndex = mediaIndices[next]
     }
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
@@ -244,7 +368,7 @@ fun RecordingsScreen(
             }
             Key.DirectionRight -> {
                 when (topBarRow) {
-                    1 -> tabFocusIndex = (tabFocusIndex + 1).coerceAtMost(1)
+                    1 -> tabFocusIndex = (tabFocusIndex + 1).coerceAtMost(2)
                     2 -> sortFocusIndex = (sortFocusIndex + 1).coerceAtMost(sortLabels.lastIndex)
                     else -> topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarProfileIndex)
                 }
@@ -307,29 +431,56 @@ fun RecordingsScreen(
         }
         return when (event.key) {
             Key.DirectionDown -> {
-                if (listFocusIndex < rows.lastIndex) {
+                if (tab == 0 && rows.getOrNull(listFocusIndex)?.isGridCard() == true) {
+                    focusZone = RecFocusZone.DETAIL
+                    detailActionIndex = 0
+                } else if (listFocusIndex < rows.lastIndex) {
                     listFocusIndex += 1
-                    scope.launch { listState.animateScrollToItem(listFocusIndex) }
+                    if (tab == 0) {
+                        scope.launch { gridState.animateScrollToItem(listFocusIndex) }
+                    } else {
+                        scope.launch { listState.animateScrollToItem(listFocusIndex) }
+                    }
                 }
                 true
             }
             Key.DirectionUp -> {
                 if (listFocusIndex > 0) {
                     listFocusIndex -= 1
-                    scope.launch { listState.animateScrollToItem(listFocusIndex) }
+                    if (tab == 0) {
+                        scope.launch { gridState.animateScrollToItem(listFocusIndex) }
+                    } else {
+                        scope.launch { listState.animateScrollToItem(listFocusIndex) }
+                    }
                 } else {
                     focusZone = RecFocusZone.TOP_BAR
                     topBarRow = if (tab == 0) 2 else 1
                 }
                 true
             }
+            Key.DirectionLeft -> {
+                if (tab == 0 && rows.getOrNull(listFocusIndex)?.isGridCard() == true) {
+                    moveGridFocusHorizontal(-1)
+                    scope.launch { gridState.animateScrollToItem(listFocusIndex) }
+                }
+                true
+            }
+            Key.DirectionRight -> {
+                if (tab == 0 && rows.getOrNull(listFocusIndex)?.isGridCard() == true) {
+                    moveGridFocusHorizontal(1)
+                    scope.launch { gridState.animateScrollToItem(listFocusIndex) }
+                }
+                true
+            }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 when (val row = rows.getOrNull(listFocusIndex)) {
                     is RecordingRow.Saved -> playSavedRecording(row)
-                    is RecordingRow.Scheduled -> {
+                    is RecordingRow.SeriesEpisode -> playSeriesEpisode(row)
+                    is RecordingRow.Scheduled, is RecordingRow.SeriesRule -> {
                         focusZone = RecFocusZone.DETAIL
                         detailActionIndex = 0
                     }
+                    is RecordingRow.SeriesGroupHeader -> Unit
                     null -> Unit
                 }
                 true
@@ -386,6 +537,10 @@ fun RecordingsScreen(
                             deleteMedia = null
                             true
                         }
+                        deleteSeriesRuleId != null -> {
+                            deleteSeriesRuleId = null
+                            true
+                        }
                         profileMenuOpen -> {
                             profileMenuOpen = false
                             true
@@ -440,6 +595,8 @@ fun RecordingsScreen(
                     activateNavTab(tabItem)
                 },
                 miniPlayer = {},
+                isRecording = isRecording,
+                activeRecordingTitle = activeRecordingTitle,
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
                     .focusable()
@@ -449,7 +606,7 @@ fun RecordingsScreen(
             )
 
             EpgChipFilterBar(
-                labels = listOf("My Recordings", "Schedule"),
+                labels = listOf("My Recordings", "Schedule", "Series Rules"),
                 activeIndex = tab,
                 focusedIndex = tabFocusIndex,
                 barFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 1,
@@ -482,15 +639,80 @@ fun RecordingsScreen(
             ) {
                 if (rows.isEmpty()) {
                     EpgListEmptyState(
-                        message = if (tab == 0) "No recordings yet" else "No upcoming recordings scheduled",
-                        hint = if (tab == 0) {
-                            "Go to TV Guide to schedule a recording"
-                        } else {
-                            "Browse the guide and tap Record on a program"
+                        message = when (tab) {
+                            0 -> "No recordings yet"
+                            1 -> "No upcoming recordings scheduled"
+                            else -> "No series recording rules"
                         },
-                        icon = if (tab == 0) "⏺" else "📅",
+                        hint = when (tab) {
+                            0 -> "Go to TV Guide to schedule a recording"
+                            1 -> "Browse the guide and tap Record on a program"
+                            else -> "Open Series & Shows and tap Record Series"
+                        },
+                        icon = when (tab) {
+                            0 -> "⏺"
+                            1 -> "📅"
+                            else -> "📺"
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
+                } else if (tab == 0) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        state = gridState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        itemsIndexed(
+                            items = rows,
+                            key = { _, row -> "rec_${row.id}" },
+                            span = { _, row ->
+                                if (row is RecordingRow.SeriesGroupHeader) GridItemSpan(3) else GridItemSpan(1)
+                            }
+                        ) { index, row ->
+                            when (row) {
+                                is RecordingRow.SeriesGroupHeader -> {
+                                    RecordingsListRow(
+                                        title = row.title,
+                                        subtitle = row.subtitle,
+                                        badge = row.badge,
+                                        thumbnailPath = null,
+                                        isFocused = focusZone == RecFocusZone.LIST && index == listFocusIndex
+                                    )
+                                }
+                                is RecordingRow.Saved -> {
+                                    RecordingGridCard(
+                                        title = row.item.programTitle,
+                                        channelName = row.item.channelName,
+                                        recordedAt = row.item.recordedAt,
+                                        durationMs = row.item.durationMs,
+                                        fileSizeBytes = row.item.fileSizeBytes,
+                                        thumbnailPath = row.item.thumbnailPath,
+                                        playbackPositionMs = row.item.playbackPositionMs,
+                                        isFocused = focusZone == RecFocusZone.LIST && index == listFocusIndex,
+                                        nowMs = now
+                                    )
+                                }
+                                is RecordingRow.SeriesEpisode -> {
+                                    RecordingGridCard(
+                                        title = row.title,
+                                        channelName = row.item.channelName,
+                                        recordedAt = row.item.recordedAt,
+                                        durationMs = row.item.durationMs,
+                                        fileSizeBytes = row.item.fileSizeBytes,
+                                        thumbnailPath = row.item.thumbnailPath,
+                                        playbackPositionMs = row.item.playbackPositionMs,
+                                        isFocused = focusZone == RecFocusZone.LIST && index == listFocusIndex,
+                                        nowMs = now
+                                    )
+                                }
+                                else -> Unit
+                            }
+                        }
+                    }
                 } else {
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         itemsIndexed(rows, key = { _, row -> "${tab}_${row.id}" }) { index, row ->
@@ -507,35 +729,61 @@ fun RecordingsScreen(
             }
 
             selectedRow?.let { row ->
-                val meta = when (row) {
-                    is RecordingRow.Scheduled -> {
-                        "${formatEpgTime(row.item.startTime)} – ${formatEpgTime(row.item.endTime)}"
-                    }
-                    is RecordingRow.Saved -> row.subtitle
-                }
-                RecordingsDetailPanel(
-                    title = row.title,
-                    subtitle = when (row) {
-                        is RecordingRow.Scheduled -> row.item.channelName
-                        is RecordingRow.Saved -> row.item.channelName
-                    },
-                    meta = meta,
-                    thumbnailPath = row.thumbnailPath,
-                    detailActionFocused = if (focusZone == RecFocusZone.DETAIL) detailActionIndex else -1,
-                    actions = detailActions(),
-                    onActionFocusChange = { detailActionIndex = it },
-                    onAction = {
-                        detailActionIndex = it
-                        executeDetailAction()
-                    },
-                    visible = focusZone == RecFocusZone.DETAIL || focusZone == RecFocusZone.LIST,
-                    modifier = Modifier
-                        .focusRequester(detailFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent {
-                            if (focusZone == RecFocusZone.DETAIL) handleDetailKey(it) else false
+                val media = row.recordedMedia()
+                val actions = detailActions()
+                when {
+                    media != null -> RecordingsBottomSheetPanel(
+                        title = if (row is RecordingRow.SeriesEpisode) row.title else media.programTitle,
+                        channelName = media.channelName,
+                        recordedAt = media.recordedAt,
+                        durationMs = media.durationMs,
+                        fileSizeBytes = media.fileSizeBytes,
+                        thumbnailPath = media.thumbnailPath,
+                        actions = actions,
+                        detailActionFocused = if (focusZone == RecFocusZone.DETAIL) detailActionIndex else -1,
+                        visible = focusZone == RecFocusZone.DETAIL || focusZone == RecFocusZone.LIST,
+                        onAction = {
+                            detailActionIndex = it
+                            executeDetailAction()
+                        },
+                        modifier = Modifier
+                            .focusRequester(detailFocusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent {
+                                if (focusZone == RecFocusZone.DETAIL) handleDetailKey(it) else false
+                            }
+                    )
+                    row is RecordingRow.Scheduled || row is RecordingRow.SeriesRule -> {
+                        val meta = when (row) {
+                            is RecordingRow.Scheduled ->
+                                "${formatEpgTime(row.item.startTime)} – ${formatEpgTime(row.item.endTime)}"
+                            is RecordingRow.SeriesRule -> row.subtitle
+                            else -> ""
                         }
-                )
+                        RecordingsSimpleDetailPanel(
+                            title = row.title,
+                            subtitle = when (row) {
+                                is RecordingRow.Scheduled -> row.item.channelName
+                                is RecordingRow.SeriesRule -> "Auto-record from EPG"
+                                else -> ""
+                            },
+                            meta = meta,
+                            actions = actions,
+                            detailActionFocused = if (focusZone == RecFocusZone.DETAIL) detailActionIndex else -1,
+                            visible = focusZone == RecFocusZone.DETAIL || focusZone == RecFocusZone.LIST,
+                            onAction = {
+                                detailActionIndex = it
+                                executeDetailAction()
+                            },
+                            modifier = Modifier
+                                .focusRequester(detailFocusRequester)
+                                .focusable()
+                                .onPreviewKeyEvent {
+                                    if (focusZone == RecFocusZone.DETAIL) handleDetailKey(it) else false
+                                }
+                        )
+                    }
+                }
             }
         }
 
@@ -558,22 +806,69 @@ fun RecordingsScreen(
         }
 
         deleteMedia?.let { media ->
+            RecordingDeleteDialog(
+                title = media.programTitle,
+                fileSizeBytes = media.fileSizeBytes,
+                onDismiss = { deleteMedia = null },
+                onConfirm = {
+                    viewModel.deleteRecording(media.id, media.filePath, media.thumbnailPath)
+                    deleteMedia = null
+                }
+            )
+        }
+
+        if (deleteSeriesRuleId != null) {
+            val ruleId = deleteSeriesRuleId!!
             AlertDialog(
-                onDismissRequest = { deleteMedia = null },
-                title = { Text("Delete recording?") },
-                text = { Text("The media file will be removed from storage.") },
+                onDismissRequest = { deleteSeriesRuleId = null },
+                title = { Text("Delete series rule?") },
+                text = { Text("Future episodes will no longer be scheduled automatically.") },
                 confirmButton = {
                     Button(onClick = {
-                        viewModel.deleteRecording(media.id, media.filePath, media.thumbnailPath)
-                        deleteMedia = null
+                        viewModel.deleteSeriesRule(ruleId)
+                        deleteSeriesRuleId = null
                     }) { Text("Delete") }
                 },
                 dismissButton = {
-                    Button(onClick = { deleteMedia = null }) { Text("Close") }
+                    Button(onClick = { deleteSeriesRuleId = null }) { Text("Close") }
                 }
             )
         }
     }
+}
+
+private fun buildGroupedRecordingRows(
+    recorded: List<RecordedMediaEntity>,
+    rules: List<SeriesRecordingRuleEntity>
+): List<RecordingRow> {
+    if (rules.isEmpty()) return recorded.map { RecordingRow.Saved(it) }
+
+    val grouped = mutableListOf<RecordingRow>()
+    val matchedIds = mutableSetOf<Long>()
+
+    rules.forEach { rule ->
+        val episodes = recorded.filter { item ->
+            SeriesTitleMatcher.matchesProgramTitle(rule.seriesTitle, item.programTitle)
+        }.sortedWith(
+            compareBy(
+                { SeriesTitleMatcher.seasonSortKey(it.programTitle) },
+                { it.recordedAt }
+            )
+        )
+        if (episodes.isEmpty()) return@forEach
+        grouped += RecordingRow.SeriesGroupHeader(rule.seriesTitle, episodes.size)
+        episodes.forEach { item ->
+            matchedIds += item.id
+            grouped += RecordingRow.SeriesEpisode(
+                item = item,
+                episodeLabel = SeriesTitleMatcher.episodeLabel(item.programTitle, rule.seriesTitle),
+                seriesTitle = rule.seriesTitle
+            )
+        }
+    }
+
+    recorded.filter { it.id !in matchedIds }.forEach { grouped += RecordingRow.Saved(it) }
+    return grouped
 }
 
 private fun formatRecordedDate(epochMs: Long): String =

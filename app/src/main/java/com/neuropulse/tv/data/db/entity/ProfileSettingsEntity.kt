@@ -43,5 +43,7 @@ data class ProfileSettingsEntity(
     val sidebarAutoHideSeconds: Int = 5,
     val showChannelNumbers: Boolean = true,
     val dpadSidebarSensitivity: String = "NORMAL",
-    val clockDisplay: String = "OFF"
+    val clockDisplay: String = "OFF",
+    val recordQuality: String = "ORIGINAL",
+    val recordedPlaybackSpeed: Float = 1f
 )

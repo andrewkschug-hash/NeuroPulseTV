@@ -17,6 +17,7 @@ import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.dao.EpgSourceChannelDao
 import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
+import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
@@ -34,6 +35,7 @@ import com.neuropulse.tv.data.db.entity.EpgSourceChannelEntity
 import com.neuropulse.tv.data.db.entity.EpgResolutionSuggestionEntity
 import com.neuropulse.tv.data.db.entity.RecordingEntity
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
+import com.neuropulse.tv.data.db.entity.SeriesRecordingRuleEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
 import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
@@ -54,12 +56,13 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         StreamHealthEntity::class,
         ScheduledRecordingEntity::class,
         RecordedMediaEntity::class,
+        SeriesRecordingRuleEntity::class,
         EpgSourceChannelEntity::class,
         EpgResolutionSuggestionEntity::class,
         FavoriteGroupEntity::class,
         ChannelScanEntity::class
     ],
-    version = 13,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -80,4 +83,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun epgResolutionSuggestionDao(): EpgResolutionSuggestionDao
     abstract fun favoriteGroupDao(): FavoriteGroupDao
     abstract fun channelScanDao(): ChannelScanDao
+    abstract fun seriesRecordingRuleDao(): SeriesRecordingRuleDao
 }

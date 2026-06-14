@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -164,6 +165,19 @@ class HomeEpgViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val series: StateFlow<List<SeriesShow>> = repository.seriesShows()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val featuredMovies: StateFlow<List<VodItem>> = vod
+        .map { items ->
+            items.sortedByDescending { it.addedEpochSec ?: 0L }.take(20)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val featuredSeries: StateFlow<List<SeriesShow>> = series
+        .map { items -> items.take(20) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val now = MutableStateFlow(System.currentTimeMillis())
@@ -340,7 +354,7 @@ class HomeEpgViewModel @Inject constructor(
             val ch = continueWatching.value.firstOrNull()
                 ?: channels.value.firstOrNull()
                 ?: return@launch
-            livePlayerManager.tuneChannel(context, ch.id, ch.streamUrl)
+            livePlayerManager.tuneChannel(context, ch)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }
@@ -381,7 +395,7 @@ class HomeEpgViewModel @Inject constructor(
         lastHealthReport = null
         viewModelScope.launch {
             if (channel.streamUrl.isBlank()) return@launch
-            livePlayerManager.tuneChannel(context, channel.id, channel.streamUrl)
+            livePlayerManager.tuneChannel(context, channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }
@@ -389,7 +403,7 @@ class HomeEpgViewModel @Inject constructor(
     fun resumeContinueWatching(context: android.content.Context, item: ContinueWatchingItem) {
         setLastPlayedChannel(item.channel)
         viewModelScope.launch {
-            livePlayerManager.tuneChannel(context, item.channel.id, item.channel.streamUrl)
+            livePlayerManager.tuneChannel(context, item.channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }

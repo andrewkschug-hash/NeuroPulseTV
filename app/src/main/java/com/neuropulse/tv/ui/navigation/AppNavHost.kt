@@ -38,6 +38,7 @@ import com.neuropulse.tv.ui.component.ProfileMenuDropdown
 import com.neuropulse.tv.ui.screen.DirectPlayerScreen
 import com.neuropulse.tv.ui.screen.EpgResolverScreen
 import com.neuropulse.tv.ui.screen.HomeEpgScreen
+import com.neuropulse.tv.ui.screen.MoviesBrowserScreen
 import com.neuropulse.tv.ui.screen.MultiviewPlaceholderScreen
 import com.neuropulse.tv.ui.screen.PlayerScreen
 import com.neuropulse.tv.ui.screen.SplitViewScreen
@@ -107,6 +108,8 @@ fun AppNavHost(
     Column(modifier = Modifier.fillMaxSize()) {
         if (!hasEmbeddedTopBar && !hideGlobalTopNav) {
             val selectedTab = when {
+                current?.startsWith("movies") == true -> EpgNavTab.Movies
+                current?.startsWith("series/") == true -> EpgNavTab.Series
                 current?.startsWith("recordings") == true -> EpgNavTab.Recordings
                 else -> EpgNavTab.Guide
             }
@@ -145,6 +148,12 @@ fun AppNavHost(
                                 launchSingleTop = true
                             }
                             EpgNavTab.Search -> navController.navigate(Routes.Home.route) {
+                                launchSingleTop = true
+                            }
+                            EpgNavTab.Movies -> navController.navigate(Routes.Movies.route) {
+                                launchSingleTop = true
+                            }
+                            EpgNavTab.Series -> navController.navigate(Routes.Series.build()) {
                                 launchSingleTop = true
                             }
                             EpgNavTab.Recordings -> navController.navigate(Routes.Recordings.route) {
@@ -213,6 +222,12 @@ fun AppNavHost(
                     onNavigateSeries = { seriesId ->
                         navController.navigate(Routes.Series.build(seriesId))
                     },
+                    onNavigateMovies = {
+                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
+                    },
+                    onNavigateSeriesBrowse = {
+                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
+                    },
                     onPlayVod = { url, title ->
                         navController.navigate(Routes.DirectPlayer.build(title, url))
                     },
@@ -220,6 +235,14 @@ fun AppNavHost(
                         navController.navigate(Routes.DirectPlayer.build(title, url))
                     },
                     profileInitials = profileInitials
+                )
+            }
+            composable(Routes.Movies.route) {
+                MoviesBrowserScreen(
+                    onPlayMovie = { title, url ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
+                    onBack = { navController.popBackStack() }
                 )
             }
             composable(Routes.Recordings.route) {
@@ -232,11 +255,25 @@ fun AppNavHost(
                         }
                     },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) { launchSingleTop = true } },
+                    onNavigateMovies = {
+                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
+                    },
+                    onNavigateSeries = {
+                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
+                    },
                     onOpenFavorites = { navigateToFavorites() },
                     onNavigateProfile = onSwitchProfile,
                     onWatchChannel = { navController.navigate(Routes.Player.build(it)) },
-                    onPlayRecording = { title, url ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    onPlayRecording = { title, url, recordingId, recordedAt, resume ->
+                        navController.navigate(
+                            Routes.DirectPlayer.build(
+                                title = title,
+                                url = url,
+                                recordingId = recordingId,
+                                recordedAt = recordedAt,
+                                resume = resume
+                            )
+                        )
                     }
                 )
             }
@@ -262,6 +299,12 @@ fun AppNavHost(
                     },
                     onNavigateRecordings = {
                         navController.navigate(Routes.Recordings.route) { launchSingleTop = true }
+                    },
+                    onNavigateMovies = {
+                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
+                    },
+                    onNavigateSeries = {
+                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
                     },
                     onOpenFavorites = { navigateToFavorites() },
                     onSwitchProfile = onSwitchProfile,
@@ -307,11 +350,17 @@ fun AppNavHost(
             composable(
                 route = Routes.DirectPlayer.route,
                 arguments = listOf(
+                    navArgument("recordingId") { type = NavType.LongType; defaultValue = 0L },
+                    navArgument("recordedAt") { type = NavType.LongType; defaultValue = 0L },
+                    navArgument("resume") { type = NavType.IntType; defaultValue = 0 },
                     navArgument("title") { type = NavType.StringType },
                     navArgument("url") { type = NavType.StringType }
                 )
             ) {
                 DirectPlayerScreen(
+                    recordingId = it.arguments?.getLong("recordingId") ?: 0L,
+                    recordedAt = it.arguments?.getLong("recordedAt") ?: 0L,
+                    resume = (it.arguments?.getInt("resume") ?: 0) == 1,
                     title = android.net.Uri.decode(it.arguments?.getString("title") ?: "Video"),
                     url = android.net.Uri.decode(it.arguments?.getString("url") ?: ""),
                     onBack = { navController.popBackStack() }

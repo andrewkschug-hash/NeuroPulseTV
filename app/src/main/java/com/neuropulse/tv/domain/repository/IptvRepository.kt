@@ -57,6 +57,16 @@ interface IptvRepository {
 
     suspend fun addPlaylistFromUrl(name: String, url: String, epgUrl: String?, refreshHours: Int)
     suspend fun addXtreamPlaylist(name: String, serverUrl: String, username: String, password: String, epgUrl: String?, refreshHours: Int)
+    suspend fun updateM3uPlaylist(playlistId: Long, name: String, url: String, epgUrl: String?, refreshHours: Int)
+    suspend fun updateXtreamPlaylist(
+        playlistId: Long,
+        name: String,
+        serverUrl: String,
+        username: String,
+        password: String,
+        epgUrl: String?,
+        refreshHours: Int
+    )
     suspend fun connectM3uPlaylist(name: String, url: String): PlaylistConnectResult
     suspend fun connectXtreamPlaylist(name: String, serverUrl: String, username: String, password: String): PlaylistConnectResult
     suspend fun connectStalkerPlaylist(name: String, portalUrl: String, macAddress: String): PlaylistConnectResult
@@ -68,7 +78,10 @@ interface IptvRepository {
 
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
     fun vodStreams(): Flow<List<VodItem>>
+    fun vodCategories(): Flow<List<com.neuropulse.tv.domain.model.VodCategory>>
     fun seriesShows(): Flow<List<SeriesShow>>
+    suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
+    fun vodWatchProgress(): Flow<Map<Long, Long>>
     suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason>
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)

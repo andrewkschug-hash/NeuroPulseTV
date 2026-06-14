@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.feature.recording.SeriesRuleScheduler
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 
@@ -12,10 +13,12 @@ import dagger.assisted.AssistedInject
 class EpgRefreshWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val seriesRuleScheduler: SeriesRuleScheduler
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = runCatching {
         repository.refreshEpgNow()
+        seriesRuleScheduler.applyRulesAfterEpgRefresh()
     }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
 }

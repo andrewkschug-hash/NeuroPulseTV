@@ -3,6 +3,10 @@ package com.neuropulse.tv.ui.component
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -26,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +45,7 @@ import com.neuropulse.tv.ui.theme.EpgColors
 enum class PlayerSideMenuSection { CHANNELS, SPORTS, ACTIONS }
 
 sealed interface PlayerSideMenuFocusTarget {
+    data object ChannelsHeader : PlayerSideMenuFocusTarget
     data class NearbyChannel(val index: Int) : PlayerSideMenuFocusTarget
     data object BrowseAll : PlayerSideMenuFocusTarget
     data object SportsHeader : PlayerSideMenuFocusTarget
@@ -48,6 +54,7 @@ sealed interface PlayerSideMenuFocusTarget {
 }
 
 data class PlayerSideMenuFocusState(
+    val channelsHeader: Boolean = false,
     val nearbyChannelIndex: Int? = null,
     val browseAll: Boolean = false,
     val sportsHeader: Boolean = false,
@@ -55,22 +62,38 @@ data class PlayerSideMenuFocusState(
     val actionIndex: Int? = null
 )
 
+const val PlayerSideMenuCollapsibleChannelThreshold = 3
+
 fun buildPlayerSideMenuFocusOrder(
     nearbyChannelCount: Int,
     sportsChannelCount: Int,
-    actionCount: Int
+    actionCount: Int,
+    channelsCollapsible: Boolean,
+    channelsExpanded: Boolean,
+    sportsExpanded: Boolean
 ): List<PlayerSideMenuFocusTarget> = buildList {
-    for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
+    if (channelsCollapsible) {
+        add(PlayerSideMenuFocusTarget.ChannelsHeader)
+        if (channelsExpanded) {
+            for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
+        }
+    } else {
+        for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
+    }
     add(PlayerSideMenuFocusTarget.BrowseAll)
     if (sportsChannelCount > 0) {
         add(PlayerSideMenuFocusTarget.SportsHeader)
-        for (i in 0 until sportsChannelCount) add(PlayerSideMenuFocusTarget.SportsChannel(i))
+        if (sportsExpanded) {
+            for (i in 0 until sportsChannelCount) add(PlayerSideMenuFocusTarget.SportsChannel(i))
+        }
     }
     for (i in 0 until actionCount) add(PlayerSideMenuFocusTarget.Action(i))
 }
 
 fun playerSideMenuFocusState(target: PlayerSideMenuFocusTarget?): PlayerSideMenuFocusState =
     when (target) {
+        PlayerSideMenuFocusTarget.ChannelsHeader ->
+            PlayerSideMenuFocusState(channelsHeader = true)
         is PlayerSideMenuFocusTarget.NearbyChannel ->
             PlayerSideMenuFocusState(nearbyChannelIndex = target.index)
         PlayerSideMenuFocusTarget.BrowseAll ->
@@ -85,7 +108,9 @@ fun playerSideMenuFocusState(target: PlayerSideMenuFocusTarget?): PlayerSideMenu
     }
 
 fun playerSideMenuFocusSection(target: PlayerSideMenuFocusTarget): PlayerSideMenuSection = when (target) {
-    is PlayerSideMenuFocusTarget.NearbyChannel, PlayerSideMenuFocusTarget.BrowseAll -> PlayerSideMenuSection.CHANNELS
+    PlayerSideMenuFocusTarget.ChannelsHeader,
+    is PlayerSideMenuFocusTarget.NearbyChannel,
+    PlayerSideMenuFocusTarget.BrowseAll -> PlayerSideMenuSection.CHANNELS
     PlayerSideMenuFocusTarget.SportsHeader, is PlayerSideMenuFocusTarget.SportsChannel -> PlayerSideMenuSection.SPORTS
     is PlayerSideMenuFocusTarget.Action -> PlayerSideMenuSection.ACTIONS
 }
@@ -93,7 +118,8 @@ fun playerSideMenuFocusSection(target: PlayerSideMenuFocusTarget): PlayerSideMen
 data class PlayerSideMenuAction(
     val id: String,
     val label: String,
-    val glyph: String? = null
+    val glyph: String? = null,
+    val highlightStop: Boolean = false
 )
 
 private val PanelBg = Color(0xEB0D0D0D)
@@ -108,18 +134,21 @@ fun PlayerSideMenu(
     actions: List<PlayerSideMenuAction>,
     currentChannelId: Long?,
     focusState: PlayerSideMenuFocusState,
+    channelsExpanded: Boolean,
+    sportsExpanded: Boolean,
     flashingSection: PlayerSideMenuSection? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     val sportsShown = sportsChannels.take(PlayerSideMenuMaxSports)
+    val channelsCollapsible = channels.size > PlayerSideMenuCollapsibleChannelThreshold
 
     LaunchedEffect(focusState, visible) {
         if (!visible) return@LaunchedEffect
         val target = when {
             focusState.actionIndex != null -> scrollState.maxValue
             focusState.sportsHeader || focusState.sportsChannelIndex != null -> 280
-            focusState.browseAll -> 180
+            focusState.channelsHeader || focusState.browseAll -> 180
             else -> 0
         }
         scrollState.scrollTo(target)
@@ -164,24 +193,59 @@ fun PlayerSideMenu(
                             .weight(1f)
                             .verticalScroll(scrollState)
                     ) {
-                        SectionHeader(
-                            title = "Channels",
-                            section = PlayerSideMenuSection.CHANNELS,
-                            flashingSection = flashingSection,
-                            activeSection = when {
-                                focusState.nearbyChannelIndex != null || focusState.browseAll ->
-                                    PlayerSideMenuSection.CHANNELS
-                                else -> null
-                            }
-                        )
-                        channels.forEachIndexed { index, channel ->
-                            ChannelRow(
-                                channel = channel,
-                                focused = focusState.nearbyChannelIndex == index,
-                                selected = channel.id == currentChannelId,
-                                showLiveDot = false,
-                                pinnedCurrent = channel.id == currentChannelId
+                        if (channelsCollapsible) {
+                            CollapsibleSectionHeader(
+                                title = "Channels",
+                                icon = null,
+                                expanded = channelsExpanded,
+                                focused = focusState.channelsHeader,
+                                section = PlayerSideMenuSection.CHANNELS,
+                                flashingSection = flashingSection,
+                                activeSection = when {
+                                    focusState.channelsHeader ||
+                                        focusState.nearbyChannelIndex != null ||
+                                        focusState.browseAll ->
+                                        PlayerSideMenuSection.CHANNELS
+                                    else -> null
+                                }
                             )
+                            AnimatedVisibility(
+                                visible = channelsExpanded,
+                                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                            ) {
+                                Column {
+                                    channels.forEachIndexed { index, channel ->
+                                        ChannelRow(
+                                            channel = channel,
+                                            focused = focusState.nearbyChannelIndex == index,
+                                            selected = channel.id == currentChannelId,
+                                            showLiveDot = false,
+                                            pinnedCurrent = channel.id == currentChannelId
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            SectionHeader(
+                                title = "Channels",
+                                section = PlayerSideMenuSection.CHANNELS,
+                                flashingSection = flashingSection,
+                                activeSection = when {
+                                    focusState.nearbyChannelIndex != null || focusState.browseAll ->
+                                        PlayerSideMenuSection.CHANNELS
+                                    else -> null
+                                }
+                            )
+                            channels.forEachIndexed { index, channel ->
+                                ChannelRow(
+                                    channel = channel,
+                                    focused = focusState.nearbyChannelIndex == index,
+                                    selected = channel.id == currentChannelId,
+                                    showLiveDot = false,
+                                    pinnedCurrent = channel.id == currentChannelId
+                                )
+                            }
                         }
                         BrowseAllChannelsRow(focused = focusState.browseAll)
                         if (sportsShown.isNotEmpty()) {
@@ -190,11 +254,12 @@ fun PlayerSideMenu(
                                     focusState.sportsChannelIndex != null ||
                                     focusState.actionIndex != null
                             )
-                            SectionHeader(
+                            CollapsibleSectionHeader(
                                 title = "Sports Now",
-                                section = PlayerSideMenuSection.SPORTS,
                                 icon = "⚽",
+                                expanded = sportsExpanded,
                                 focused = focusState.sportsHeader,
+                                section = PlayerSideMenuSection.SPORTS,
                                 flashingSection = flashingSection,
                                 activeSection = when {
                                     focusState.sportsHeader || focusState.sportsChannelIndex != null ->
@@ -202,14 +267,22 @@ fun PlayerSideMenu(
                                     else -> null
                                 }
                             )
-                            sportsShown.forEachIndexed { index, channel ->
-                                ChannelRow(
-                                    channel = channel,
-                                    focused = focusState.sportsChannelIndex == index,
-                                    selected = channel.id == currentChannelId,
-                                    showLiveDot = true,
-                                    pinnedCurrent = false
-                                )
+                            AnimatedVisibility(
+                                visible = sportsExpanded,
+                                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                            ) {
+                                Column {
+                                    sportsShown.forEachIndexed { index, channel ->
+                                        ChannelRow(
+                                            channel = channel,
+                                            focused = focusState.sportsChannelIndex == index,
+                                            selected = channel.id == currentChannelId,
+                                            showLiveDot = true,
+                                            pinnedCurrent = false
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -250,6 +323,80 @@ private fun MenuDivider(highlighted: Boolean = false) {
                 else Color.White.copy(alpha = 0.08f)
             )
     )
+}
+
+@Composable
+private fun CollapsibleSectionHeader(
+    title: String,
+    expanded: Boolean,
+    focused: Boolean,
+    section: PlayerSideMenuSection,
+    flashingSection: PlayerSideMenuSection?,
+    activeSection: PlayerSideMenuSection?,
+    icon: String? = null
+) {
+    val isFlashing = flashingSection == section
+    val isActive = activeSection == section
+    val labelAlpha by animateFloatAsState(
+        targetValue = when {
+            focused || isFlashing -> 1f
+            isActive -> 0.88f
+            else -> 0.5f
+        },
+        animationSpec = tween(durationMillis = 300),
+        label = "collapsibleHeaderAlpha"
+    )
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "sectionChevronRotation"
+    )
+    val bg = if (focused) Color(0xFF1A1A28) else Color.Transparent
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(bg)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(18.dp)
+                        .background(EpgColors.FocusBorder)
+                )
+            }
+            if (icon != null) {
+                Text(text = icon, fontSize = 11.sp, color = Color.White.copy(alpha = labelAlpha))
+            }
+            Text(
+                text = title,
+                color = if (focused || isFlashing) EpgColors.TextPrimary else EpgColors.TextDimmed.copy(alpha = labelAlpha),
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (focused || isFlashing) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = "›",
+            color = if (focused || isFlashing) EpgColors.Accent else EpgColors.TextDimmed.copy(alpha = labelAlpha),
+            fontFamily = DmSansFamily,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.rotate(chevronRotation)
+        )
+    }
 }
 
 @Composable
@@ -402,7 +549,13 @@ private fun BrowseAllChannelsRow(focused: Boolean) {
 
 @Composable
 private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
-    val bg = if (focused) Color(0xFF1A1A28) else Color.Transparent
+    val stopActive = action.highlightStop
+    val bg = when {
+        focused && stopActive -> Color.Red.copy(alpha = 0.35f)
+        focused -> Color(0xFF1A1A28)
+        stopActive -> Color.Red.copy(alpha = 0.18f)
+        else -> Color.Transparent
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -414,7 +567,13 @@ private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
             modifier = Modifier
                 .width(if (focused) 3.dp else 0.dp)
                 .height(44.dp)
-                .background(if (focused) EpgColors.FocusBorder else Color.Transparent)
+                .background(
+                    when {
+                        focused && stopActive -> Color.Red
+                        focused -> EpgColors.FocusBorder
+                        else -> Color.Transparent
+                    }
+                )
         )
         Row(
             modifier = Modifier
@@ -426,13 +585,21 @@ private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
             if (action.glyph != null) {
                 Text(
                     text = action.glyph,
-                    color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                    color = when {
+                        stopActive -> Color.Red
+                        focused -> EpgColors.TextPrimary
+                        else -> EpgColors.TextSecondary
+                    },
                     fontSize = 16.sp
                 )
             }
             Text(
                 text = action.label,
-                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                color = when {
+                    stopActive -> Color.Red
+                    focused -> EpgColors.TextPrimary
+                    else -> EpgColors.TextSecondary
+                },
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
                 maxLines = 1,
