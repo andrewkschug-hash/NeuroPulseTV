@@ -23,6 +23,7 @@ object EpgColors {
     val DetailPanelBg = Color(0xFF1A1A28)
     val HdBadgeBg = Color(0xFF2A2A3A)
     val NewBadgeBg = Color(0xFFF0A732)
+    val FavoriteStar = Color(0xFFF5C518)
     val FocusBorder = Color(0xFF3B8FFF)
     val SelectedFill = Color(0xFF3B8FFF)
 }

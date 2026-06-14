@@ -2,6 +2,10 @@ package com.neuropulse.tv.ui.navigation
 
 sealed class Routes(val route: String) {
     data object Home : Routes("home")
+    data object VodHub : Routes("vod/{initialTab}/{seriesId}") {
+        fun build(initialTab: Int = 0, seriesId: Long = -1L): String = "vod/$initialTab/$seriesId"
+    }
+    /** @deprecated Use [VodHub] — kept for deep links redirecting to tab 0 */
     data object Movies : Routes("movies")
     data object Player : Routes("player/{channelId}") {
         fun build(channelId: Long): String = "player/$channelId"

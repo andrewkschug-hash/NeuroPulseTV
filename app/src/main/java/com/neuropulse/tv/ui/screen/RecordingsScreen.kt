@@ -170,8 +170,7 @@ fun RecordingsScreen(
     profileInitials: String = "?",
     onNavigateHome: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
-    onNavigateMovies: () -> Unit = {},
-    onNavigateSeries: () -> Unit = {},
+    onNavigateVod: (Int) -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
     onWatchChannel: (Long) -> Unit = {},
@@ -258,8 +257,9 @@ fun RecordingsScreen(
     fun activateNavTab(tabItem: EpgNavTab) {
         when (tabItem) {
             EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
-            EpgNavTab.Movies -> onNavigateMovies()
-            EpgNavTab.Series -> onNavigateSeries()
+            EpgNavTab.Vod -> onNavigateVod(0)
+            EpgNavTab.Movies -> onNavigateVod(0)
+            EpgNavTab.Series -> onNavigateVod(1)
             EpgNavTab.Recordings -> Unit
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()

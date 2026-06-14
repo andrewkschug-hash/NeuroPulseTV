@@ -40,6 +40,7 @@ import com.neuropulse.tv.ui.viewmodel.MoviesViewModel
 fun MoviesBrowserScreen(
     onPlayMovie: (String, String) -> Unit,
     onBack: () -> Unit = {},
+    embedded: Boolean = false,
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
     val movies by viewModel.movies.collectAsStateWithLifecycle()
@@ -56,19 +57,21 @@ fun MoviesBrowserScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
-            .padding(20.dp)
+            .padding(if (embedded) 0.dp else 20.dp)
     ) {
-        Button(onClick = onBack) {
-            Text("← Back", fontFamily = DmSansFamily)
+        if (!embedded) {
+            Button(onClick = onBack) {
+                Text("← Back", fontFamily = DmSansFamily)
+            }
+            Text(
+                text = "Movies",
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
         }
-        Text(
-            text = "Movies",
-            color = EpgColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(vertical = 8.dp)
-        )
         OutlinedTextField(
             value = search,
             onValueChange = {

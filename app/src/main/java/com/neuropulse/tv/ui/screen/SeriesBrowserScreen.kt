@@ -57,6 +57,7 @@ fun SeriesBrowserScreen(
     initialSeriesId: Long? = null,
     onPlayUrl: (String, String) -> Unit,
     onBack: () -> Unit = {},
+    embedded: Boolean = false,
     viewModel: SeriesViewModel = hiltViewModel(),
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -102,9 +103,11 @@ fun SeriesBrowserScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
-            .padding(20.dp)
+            .padding(if (embedded) 20.dp else 20.dp)
     ) {
-        RowHeader(onBack = onBack)
+        if (!embedded) {
+            RowHeader(onBack = onBack)
+        }
 
         if (seasons.isEmpty()) {
             OutlinedTextField(

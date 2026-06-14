@@ -77,7 +77,10 @@ import com.neuropulse.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.neuropulse.tv.ui.component.playerSideMenuFocusSection
 import com.neuropulse.tv.ui.component.playerSideMenuFocusState
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
-import com.neuropulse.tv.ui.component.PlayerTimeshiftBar
+import com.neuropulse.tv.ui.component.LiveTimeshiftControls
+import com.neuropulse.tv.ui.component.PausedCornerIndicator
+import com.neuropulse.tv.ui.component.TimeshiftControlFocus
+import com.neuropulse.tv.ui.component.TimeshiftStatusBadge
 import androidx.compose.runtime.mutableIntStateOf
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
@@ -135,7 +138,8 @@ fun PlayerScreen(
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
-    var timeshiftFocusIndex by remember { mutableIntStateOf(2) }
+    var timeshiftFocusTarget by remember { mutableStateOf(TimeshiftControlFocus.PLAY_PAUSE) }
+    var holdSeekDirection by remember { mutableIntStateOf(0) }
 
     val sleepTimer = remember { entryPoint.sleepTimerController() }
     val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
@@ -348,6 +352,7 @@ fun PlayerScreen(
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
     val atLiveEdge by livePlayerManager.atLiveEdgeFlow.collectAsStateWithLifecycle()
+    val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding) {
         livePlayerManager.applyPlaybackSettings(
@@ -365,28 +370,83 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showOverlay, canTimeshift) {
+    LaunchedEffect(holdSeekDirection) {
+        if (holdSeekDirection == 0) return@LaunchedEffect
+        while (holdSeekDirection != 0) {
+            delay(1000)
+            when (holdSeekDirection) {
+                -1 -> livePlayerManager.rewind(120_000L)
+                1 -> livePlayerManager.fastForward(120_000L)
+            }
+        }
+    }
+
+    LaunchedEffect(showOverlay, canTimeshift, atLiveEdge) {
         if (showOverlay && canTimeshift) {
-            timeshiftFocusIndex = 2
+            timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
         }
     }
 
-    LaunchedEffect(atLiveEdge) {
-        if (atLiveEdge && timeshiftFocusIndex > 2) {
-            timeshiftFocusIndex = 2
+    fun executeTimeshiftAction(repeated: Boolean = false) {
+        val stepMs = if (repeated) 120_000L else 30_000L
+        when (timeshiftFocusTarget) {
+            TimeshiftControlFocus.REWIND -> livePlayerManager.rewind(stepMs)
+            TimeshiftControlFocus.PLAY_PAUSE -> livePlayerManager.togglePlayPause()
+            TimeshiftControlFocus.FAST_FORWARD -> livePlayerManager.fastForward(stepMs)
+            TimeshiftControlFocus.SEEK_BAR -> livePlayerManager.seekRelative(-stepMs)
+            TimeshiftControlFocus.LIVE_BADGE -> livePlayerManager.jumpToLive()
         }
     }
 
-    fun executeTimeshiftAction(index: Int) {
-        when (index) {
-            0 -> livePlayerManager.rewindMinutes(10)
-            1 -> livePlayerManager.rewindMinutes(30)
-            2 -> if (!atLiveEdge) livePlayerManager.jumpToLive()
-            3 -> livePlayerManager.jumpToLive()
+    fun handleTimeshiftNavigation(key: Key, repeated: Boolean): Boolean {
+        when (key) {
+            Key.DirectionLeft -> {
+                when (timeshiftFocusTarget) {
+                    TimeshiftControlFocus.REWIND -> {
+                        if (repeated) holdSeekDirection = -1
+                        else livePlayerManager.rewind(30_000L)
+                    }
+                    TimeshiftControlFocus.PLAY_PAUSE -> timeshiftFocusTarget = TimeshiftControlFocus.REWIND
+                    TimeshiftControlFocus.FAST_FORWARD -> timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
+                    TimeshiftControlFocus.SEEK_BAR -> livePlayerManager.seekRelative(-30_000L)
+                    TimeshiftControlFocus.LIVE_BADGE -> timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
+                }
+                return true
+            }
+            Key.DirectionRight -> {
+                when (timeshiftFocusTarget) {
+                    TimeshiftControlFocus.REWIND -> timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
+                    TimeshiftControlFocus.PLAY_PAUSE -> timeshiftFocusTarget = TimeshiftControlFocus.FAST_FORWARD
+                    TimeshiftControlFocus.FAST_FORWARD -> {
+                        if (repeated) holdSeekDirection = 1
+                        else livePlayerManager.fastForward(30_000L)
+                    }
+                    TimeshiftControlFocus.SEEK_BAR -> livePlayerManager.seekRelative(30_000L)
+                    TimeshiftControlFocus.LIVE_BADGE -> Unit
+                }
+                return true
+            }
+            Key.DirectionDown -> {
+                timeshiftFocusTarget = when (timeshiftFocusTarget) {
+                    TimeshiftControlFocus.REWIND,
+                    TimeshiftControlFocus.PLAY_PAUSE,
+                    TimeshiftControlFocus.FAST_FORWARD -> TimeshiftControlFocus.SEEK_BAR
+                    TimeshiftControlFocus.SEEK_BAR -> TimeshiftControlFocus.LIVE_BADGE
+                    TimeshiftControlFocus.LIVE_BADGE -> TimeshiftControlFocus.LIVE_BADGE
+                }
+                return true
+            }
+            Key.DirectionUp -> {
+                timeshiftFocusTarget = when (timeshiftFocusTarget) {
+                    TimeshiftControlFocus.LIVE_BADGE -> TimeshiftControlFocus.SEEK_BAR
+                    TimeshiftControlFocus.SEEK_BAR -> TimeshiftControlFocus.PLAY_PAUSE
+                    else -> timeshiftFocusTarget
+                }
+                return true
+            }
+            else -> return false
         }
     }
-
-    fun timeshiftMaxFocusIndex(): Int = if (atLiveEdge) 2 else 3
 
     LaunchedEffect(player) {
         sleepTimer.onVolumeFade = { level -> player.volume = level }
@@ -473,13 +533,15 @@ fun PlayerScreen(
         onDispose {
             viewModel.savePosition(player.currentPosition)
             player.removeListener(listener)
+            livePlayerManager.onFullscreenPlayerClosed(context)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
     }
 
-    LaunchedEffect(showOverlay, overlayInteractionToken) {
+    LaunchedEffect(showOverlay, overlayInteractionToken, timeshiftState.isPlaying) {
         if (showOverlay) {
-            delay(3000)
+            if (!timeshiftState.isPlaying) return@LaunchedEffect
+            delay(4000)
             showOverlay = false
         }
     }
@@ -490,36 +552,53 @@ fun PlayerScreen(
             .focusRequester(playerFocusRequester)
             .focusable()
             .onPreviewKeyEvent {
-                if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (it.type != KeyEventType.KeyDown) {
+                    if (it.type == KeyEventType.KeyUp) {
+                        holdSeekDirection = 0
+                    }
+                    return@onPreviewKeyEvent false
+                }
                 if (showSideMenu && handleSideMenuKey(it.key)) return@onPreviewKeyEvent true
+                val repeated = it.nativeKeyEvent.repeatCount > 0
                 when (it.key) {
                     Key.DirectionUp -> {
-                        viewModel.switchPrev()
                         revealOverlay()
+                        if (showOverlay && canTimeshift &&
+                            (timeshiftFocusTarget == TimeshiftControlFocus.SEEK_BAR ||
+                                timeshiftFocusTarget == TimeshiftControlFocus.LIVE_BADGE)
+                        ) {
+                            handleTimeshiftNavigation(it.key, repeated)
+                        } else {
+                            viewModel.switchPrev()
+                        }
                         true
                     }
                     Key.DirectionDown -> {
-                        viewModel.switchNext()
                         revealOverlay()
+                        if (showOverlay && canTimeshift) {
+                            handleTimeshiftNavigation(it.key, repeated)
+                        } else {
+                            viewModel.switchNext()
+                        }
                         true
                     }
                     Key.DirectionLeft -> {
                         revealOverlay()
-                        if (canTimeshift) {
-                            timeshiftFocusIndex = (timeshiftFocusIndex - 1).coerceAtLeast(0)
-                        } else {
+                        if (showOverlay && canTimeshift) {
+                            handleTimeshiftNavigation(it.key, repeated)
+                        } else if (!canTimeshift) {
                             Toast.makeText(
                                 context,
-                                "This channel does not support rewind",
+                                "Buffering live stream for timeshift…",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
                         true
                     }
                     Key.DirectionRight -> {
-                        if (showOverlay && canTimeshift && timeshiftFocusIndex < timeshiftMaxFocusIndex()) {
-                            timeshiftFocusIndex += 1
-                            revealOverlay()
+                        revealOverlay()
+                        if (showOverlay && canTimeshift) {
+                            handleTimeshiftNavigation(it.key, repeated)
                         } else if (!showSideMenu) {
                             showSideMenu = true
                             showOverlay = false
@@ -531,7 +610,7 @@ fun PlayerScreen(
                                     val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
                                     sideMenuFocusOrder.indexOfFirst {
                                         it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
-                                    }.takeIf { it >= 0 }
+                                    }.takeIf { idx -> idx >= 0 }
                                         ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
                                 }
                             }
@@ -541,7 +620,7 @@ fun PlayerScreen(
                     }
                     Key.Enter, Key.DirectionCenter -> {
                         if (showOverlay && canTimeshift) {
-                            executeTimeshiftAction(timeshiftFocusIndex)
+                            executeTimeshiftAction(repeated)
                         }
                         revealOverlay()
                         true
@@ -599,6 +678,33 @@ fun PlayerScreen(
 
         if (dimAlpha > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
+        }
+
+        if (canTimeshift && !timeshiftState.atLiveEdge) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 14.dp, end = 16.dp)
+                    .focusable()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        if (event.key == Key.Enter || event.key == Key.DirectionCenter) {
+                            revealOverlay()
+                            timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
+                            true
+                        } else false
+                    }
+            ) {
+                TimeshiftStatusBadge(timeshiftState = timeshiftState)
+            }
+        }
+
+        if (!showOverlay && canTimeshift && !timeshiftState.isPlaying && timeshiftState.atLiveEdge) {
+            PausedCornerIndicator(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(20.dp)
+            )
         }
 
         if (showSeekThumb && seekThumb != null) {
@@ -789,10 +895,9 @@ fun PlayerScreen(
                             }
                         }
                         if (canTimeshift) {
-                            PlayerTimeshiftBar(
-                                focusedIndex = timeshiftFocusIndex,
-                                atLiveEdge = atLiveEdge,
-                                showGoLive = !atLiveEdge,
+                            LiveTimeshiftControls(
+                                focusedTarget = timeshiftFocusTarget,
+                                timeshiftState = timeshiftState,
                                 modifier = Modifier.padding(top = 12.dp)
                             )
                         }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +38,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -151,8 +154,7 @@ fun SettingsScreen(
     profileInitials: String = "?",
     onNavigateHome: () -> Unit = {},
     onNavigateRecordings: () -> Unit = {},
-    onNavigateMovies: () -> Unit = {},
-    onNavigateSeries: () -> Unit = {},
+    onNavigateVod: (Int) -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onSwitchProfile: () -> Unit = {},
     onBack: () -> Unit = {},
@@ -356,8 +358,9 @@ fun SettingsScreen(
     fun activateNavTab(tab: EpgNavTab) {
         when (tab) {
             EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
-            EpgNavTab.Movies -> onNavigateMovies()
-            EpgNavTab.Series -> onNavigateSeries()
+            EpgNavTab.Vod -> onNavigateVod(0)
+            EpgNavTab.Movies -> onNavigateVod(0)
+            EpgNavTab.Series -> onNavigateVod(1)
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Search -> onNavigateHome()
@@ -678,9 +681,12 @@ fun SettingsScreen(
 
             Row(modifier = Modifier.fillMaxSize()) {
                 Box(
-                    modifier = Modifier.onPreviewKeyEvent {
-                        if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
-                    }
+                    modifier = Modifier
+                        .width(260.dp)
+                        .fillMaxHeight()
+                        .onPreviewKeyEvent {
+                            if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
+                        }
                 ) {
                     SettingsSidebar(
                         items = navItems,
@@ -705,6 +711,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
+                        .clip(RectangleShape)
                         .focusRequester(contentAreaFocusRequester)
                         .focusProperties {
                             canFocus = focusPanel == SettingsFocusPanel.RIGHT
@@ -724,7 +731,7 @@ fun SettingsScreen(
                         targetState = selectedSection,
                         transitionSpec = {
                             fadeIn(tween(150)) togetherWith fadeOut(tween(150)) using
-                                SizeTransform(clip = false)
+                                SizeTransform(clip = true)
                         },
                         label = "settingsSectionContent"
                     ) { sectionIndex ->
@@ -1652,11 +1659,18 @@ private fun PlaybackSettingsContent(
             modifier = Modifier.padding(top = 8.dp)
         )
         SettingsFocusPillGroup(
-            labels = listOf("Low 2s", "Medium 5s", "High 10s"),
+            labels = listOf("Low", "Medium", "High"),
             selectedIndex = BufferSize.entries.indexOf(settings.bufferSize).coerceAtLeast(0),
             startChainIndex = 7,
             focus = focus,
             onSelect = { index -> onBufferSize(BufferSize.entries[index]) }
+        )
+        Text(
+            text = "Low: ~0.5 GB/hr  Medium: ~1.5 GB/hr  High: ~3 GB/hr. Buffer is stored temporarily and cleared on channel change.",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 6.dp)
         )
         SettingsFocusToggleRow(
             label = "Auto-reconnect on drop",

@@ -5,6 +5,11 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
@@ -111,8 +116,7 @@ fun HomeEpgScreen(
     onNavigateRecordings: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
-    onNavigateMovies: () -> Unit = {},
-    onNavigateSeriesBrowse: () -> Unit = {},
+    onNavigateVod: (Int) -> Unit = {},
     onNavigateSeries: (Long) -> Unit = {},
     onPlayVod: (String, String) -> Unit = { _, _ -> },
     profileInitials: String = "?",
@@ -546,8 +550,9 @@ fun HomeEpgScreen(
                 focusOnChannelColumn = true
             }
             EpgNavTab.Search -> showSearchOverlay = true
-            EpgNavTab.Movies -> onNavigateMovies()
-            EpgNavTab.Series -> onNavigateSeriesBrowse()
+            EpgNavTab.Vod -> onNavigateVod(0)
+            EpgNavTab.Movies -> onNavigateVod(0)
+            EpgNavTab.Series -> onNavigateVod(1)
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
             EpgNavTab.Settings -> onNavigateSettings()
@@ -1085,61 +1090,61 @@ fun HomeEpgScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (miniPlayerChannel != null) {
-                            Modifier.heightIn(min = EpgLayout.MiniPlayerHeight + 16.dp)
-                        } else {
-                            Modifier
-                        }
-                    ),
-                verticalAlignment = Alignment.Top
-            ) {
-                if (continueWatchingItems.isNotEmpty()) {
-                    ContinueWatchingRow(
-                        items = continueWatchingItems,
-                        focusedIndex = focusedContinueIndex,
-                        rowFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
-                        onSelect = { item ->
-                            if (viewModel.isProfileAccessAllowed()) {
-                                viewModel.resumeContinueWatching(context, item)
-                                onWatchChannel(item.channel.id)
-                            }
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(continueWatchingFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent {
-                                focusZone == EpgFocusZone.CONTINUE_WATCHING && handleContinueWatchingKey(it)
-                            }
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+            if (continueWatchingItems.isNotEmpty() || miniPlayerChannel != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    if (continueWatchingItems.isNotEmpty()) {
+                        ContinueWatchingRow(
+                            items = continueWatchingItems,
+                            focusedIndex = focusedContinueIndex,
+                            rowFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
+                            onSelect = { item ->
+                                if (viewModel.isProfileAccessAllowed()) {
+                                    viewModel.resumeContinueWatching(context, item)
+                                    onWatchChannel(item.channel.id)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(continueWatchingFocusRequester)
+                                .focusable()
+                                .onPreviewKeyEvent {
+                                    focusZone == EpgFocusZone.CONTINUE_WATCHING && handleContinueWatchingKey(it)
+                                }
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
 
-                miniPlayerChannel?.let { (playedChannel, streamUrl) ->
-                    MiniPlayerOverlay(
-                        channel = playedChannel,
-                        streamUrl = streamUrl,
-                        isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
-                        isIdleShrunk = miniPlayerIdleShrunk,
-                        miniAudioEnabled = miniPlayerAudioEnabled,
-                        onClick = { watchChannel(playedChannel) },
-                        modifier = Modifier
-                            .padding(
-                                top = 8.dp,
-                                end = 16.dp,
-                                bottom = EpgLayout.GuideHeaderBottomPadding
+                    AnimatedVisibility(
+                        visible = miniPlayerChannel != null,
+                        enter = fadeIn() + expandHorizontally(),
+                        exit = fadeOut() + shrinkHorizontally()
+                    ) {
+                        miniPlayerChannel?.let { (playedChannel, streamUrl) ->
+                            MiniPlayerOverlay(
+                                channel = playedChannel,
+                                streamUrl = streamUrl,
+                                isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
+                                isIdleShrunk = miniPlayerIdleShrunk,
+                                miniAudioEnabled = miniPlayerAudioEnabled,
+                                onClick = { watchChannel(playedChannel) },
+                                modifier = Modifier
+                                    .padding(
+                                        top = 8.dp,
+                                        end = 16.dp,
+                                        bottom = EpgLayout.GuideHeaderBottomPadding
+                                    )
+                                    .focusRequester(miniPlayerFocusRequester)
+                                    .focusable()
+                                    .onPreviewKeyEvent {
+                                        if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
+                                    }
                             )
-                            .focusRequester(miniPlayerFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent {
-                                if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
-                            }
-                    )
+                        }
+                    }
                 }
             }
 
@@ -1148,12 +1153,12 @@ fun HomeEpgScreen(
                     movies = featuredMovies,
                     progressByStreamId = vodProgress,
                     onPlayMovie = { movie -> onPlayVod(movie.streamUrl, movie.title) },
-                    onSeeAll = onNavigateMovies
+                    onSeeAll = { onNavigateVod(0) }
                 )
                 SeriesHomeRow(
                     shows = featuredSeries,
                     onOpenSeries = { show -> onNavigateSeries(show.id) },
-                    onSeeAll = onNavigateSeriesBrowse
+                    onSeeAll = { onNavigateVod(1) }
                 )
             }
 

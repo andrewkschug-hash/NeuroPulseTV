@@ -38,14 +38,13 @@ import com.neuropulse.tv.ui.component.ProfileMenuDropdown
 import com.neuropulse.tv.ui.screen.DirectPlayerScreen
 import com.neuropulse.tv.ui.screen.EpgResolverScreen
 import com.neuropulse.tv.ui.screen.HomeEpgScreen
-import com.neuropulse.tv.ui.screen.MoviesBrowserScreen
 import com.neuropulse.tv.ui.screen.MultiviewPlaceholderScreen
 import com.neuropulse.tv.ui.screen.PlayerScreen
 import com.neuropulse.tv.ui.screen.SplitViewScreen
 import com.neuropulse.tv.ui.screen.WhatsNewScreen
 import com.neuropulse.tv.ui.screen.RecordingsScreen
-import com.neuropulse.tv.ui.screen.SeriesBrowserScreen
 import com.neuropulse.tv.ui.screen.SettingsScreen
+import com.neuropulse.tv.ui.screen.VodHubScreen
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
@@ -108,8 +107,9 @@ fun AppNavHost(
     Column(modifier = Modifier.fillMaxSize()) {
         if (!hasEmbeddedTopBar && !hideGlobalTopNav) {
             val selectedTab = when {
-                current?.startsWith("movies") == true -> EpgNavTab.Movies
-                current?.startsWith("series/") == true -> EpgNavTab.Series
+                current?.startsWith("vod/") == true ||
+                    current?.startsWith("movies") == true ||
+                    current?.startsWith("series/") == true -> EpgNavTab.Vod
                 current?.startsWith("recordings") == true -> EpgNavTab.Recordings
                 else -> EpgNavTab.Guide
             }
@@ -150,10 +150,14 @@ fun AppNavHost(
                             EpgNavTab.Search -> navController.navigate(Routes.Home.route) {
                                 launchSingleTop = true
                             }
-                            EpgNavTab.Movies -> navController.navigate(Routes.Movies.route) {
+                            EpgNavTab.Vod, EpgNavTab.Movies -> navController.navigate(
+                                Routes.VodHub.build(initialTab = 0)
+                            ) {
                                 launchSingleTop = true
                             }
-                            EpgNavTab.Series -> navController.navigate(Routes.Series.build()) {
+                            EpgNavTab.Series -> navController.navigate(
+                                Routes.VodHub.build(initialTab = 1)
+                            ) {
                                 launchSingleTop = true
                             }
                             EpgNavTab.Recordings -> navController.navigate(Routes.Recordings.route) {
@@ -219,14 +223,13 @@ fun AppNavHost(
                     onNavigateRecordings = { navController.navigate(Routes.Recordings.route) },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) },
                     onNavigateProfile = onSwitchProfile,
+                    onNavigateVod = { tab ->
+                        navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
+                    },
                     onNavigateSeries = { seriesId ->
-                        navController.navigate(Routes.Series.build(seriesId))
-                    },
-                    onNavigateMovies = {
-                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
-                    },
-                    onNavigateSeriesBrowse = {
-                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
+                        navController.navigate(Routes.VodHub.build(initialTab = 1, seriesId = seriesId)) {
+                            launchSingleTop = true
+                        }
                     },
                     onPlayVod = { url, title ->
                         navController.navigate(Routes.DirectPlayer.build(title, url))
@@ -238,8 +241,33 @@ fun AppNavHost(
                 )
             }
             composable(Routes.Movies.route) {
-                MoviesBrowserScreen(
+                VodHubScreen(
+                    initialTab = 0,
                     onPlayMovie = { title, url ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
+                    onPlayUrl = { url, title ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable(
+                route = Routes.VodHub.route,
+                arguments = listOf(
+                    navArgument("initialTab") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L }
+                )
+            ) { entry ->
+                val initialTab = entry.arguments?.getInt("initialTab") ?: 0
+                val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
+                VodHubScreen(
+                    initialTab = initialTab,
+                    initialSeriesId = seriesId.takeIf { it > 0 },
+                    onPlayMovie = { title, url ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
+                    onPlayUrl = { url, title ->
                         navController.navigate(Routes.DirectPlayer.build(title, url))
                     },
                     onBack = { navController.popBackStack() }
@@ -255,11 +283,8 @@ fun AppNavHost(
                         }
                     },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) { launchSingleTop = true } },
-                    onNavigateMovies = {
-                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
-                    },
-                    onNavigateSeries = {
-                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
+                    onNavigateVod = { tab ->
+                        navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
                     },
                     onOpenFavorites = { navigateToFavorites() },
                     onNavigateProfile = onSwitchProfile,
@@ -280,11 +305,17 @@ fun AppNavHost(
             composable(
                 route = Routes.Series.route,
                 arguments = listOf(navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L })
-            ) {
-                val seriesId = it.arguments?.getLong("seriesId") ?: -1L
-                SeriesBrowserScreen(
+            ) { entry ->
+                val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
+                VodHubScreen(
+                    initialTab = 1,
                     initialSeriesId = seriesId.takeIf { it > 0 },
-                    onPlayUrl = { url, title -> navController.navigate(Routes.DirectPlayer.build(title, url)) },
+                    onPlayMovie = { title, url ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
+                    onPlayUrl = { url, title ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -300,11 +331,8 @@ fun AppNavHost(
                     onNavigateRecordings = {
                         navController.navigate(Routes.Recordings.route) { launchSingleTop = true }
                     },
-                    onNavigateMovies = {
-                        navController.navigate(Routes.Movies.route) { launchSingleTop = true }
-                    },
-                    onNavigateSeries = {
-                        navController.navigate(Routes.Series.build()) { launchSingleTop = true }
+                    onNavigateVod = { tab ->
+                        navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
                     },
                     onOpenFavorites = { navigateToFavorites() },
                     onSwitchProfile = onSwitchProfile,

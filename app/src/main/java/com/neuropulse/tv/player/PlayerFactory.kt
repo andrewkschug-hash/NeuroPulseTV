@@ -17,17 +17,13 @@ class PlayerFactory @Inject constructor() {
         bufferSize: BufferSize = BufferSize.MEDIUM,
         preferHardwareDecoding: Boolean = true
     ): ExoPlayer {
-        val minBufferMs = when (bufferSize) {
-            BufferSize.LOW -> 15_000
-            BufferSize.MEDIUM -> 30_000
-            BufferSize.HIGH -> 60_000
-        }
+        val maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize).toInt()
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                minBufferMs,
-                minBufferMs * 2,
-                2_500,
-                5_000
+                /* minBufferMs = */ 30_000,
+                maxBufferMs,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000
             )
             .build()
 

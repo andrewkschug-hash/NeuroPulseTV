@@ -32,7 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -162,11 +162,6 @@ fun SettingsPanel(
 ) {
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
     val insideDimmed = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
-    val cardScale by animateFloatAsState(
-        targetValue = if (sectionHighlighted) 1.02f else 1f,
-        animationSpec = tween(durationMillis = 150),
-        label = "settingsCardScale"
-    )
     val borderWidth = if (sectionHighlighted) 2.dp else 1.dp
     val borderColor = when {
         sectionHighlighted -> EpgColors.Accent
@@ -181,7 +176,6 @@ fun SettingsPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .scale(cardScale)
             .tvScrollIntoViewWhen(
                 active = sectionHighlighted || insideDimmed,
                 preferTopAlign = true

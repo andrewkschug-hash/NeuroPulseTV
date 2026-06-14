@@ -213,6 +213,7 @@ fun EpgTopBar(
 enum class EpgNavTab(val glyph: String, val label: String) {
     Guide("☰", "Guide"),
     Search("⌕", "Search"),
+    Vod("⏵", "VOD"),
     Movies("🎬", "Movies"),
     Series("📺", "Series"),
     Favorites("★", "Favorites"),
@@ -656,7 +657,8 @@ fun EpgDetailPanel(
                 label = if (isFavorite) "★ Favourite" else "☆ Favourite",
                 isFocused = detailActionFocused == 1,
                 onClick = onFavorite,
-                compact = true
+                compact = true,
+                labelColor = if (isFavorite) EpgColors.FavoriteStar else null
             )
             EpgActionButton(
                 label = "⏺ Record",
@@ -686,7 +688,8 @@ internal fun EpgActionButton(
     label: String,
     isFocused: Boolean,
     onClick: () -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
+    labelColor: Color? = null
 ) {
     val shape = RoundedCornerShape(6.dp)
     val scale by animateFloatAsState(
@@ -719,7 +722,7 @@ internal fun EpgActionButton(
                 fontFamily = DmSansFamily,
                 fontSize = if (compact) 11.sp else 13.sp,
                 fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
-                color = EpgColors.TextPrimary,
+                color = labelColor ?: EpgColors.TextPrimary,
                 maxLines = 1
             )
         }
@@ -774,11 +777,55 @@ fun EpgCategoryFilterChip(
     modifier: Modifier = Modifier,
     headerStyle: Boolean = false
 ) {
+    if (headerStyle) {
+        val display = if (active) label else "Filter"
+        val borderColor = when {
+            focused -> EpgColors.BorderSubtle.copy(alpha = 0.55f)
+            else -> EpgColors.BorderSubtle.copy(alpha = 0.35f)
+        }
+        val textColor = when {
+            focused -> EpgColors.TextSecondary
+            active -> EpgColors.TextSecondary
+            else -> EpgColors.TextDimmed
+        }
+        Surface(
+            onClick = onClick,
+            modifier = modifier,
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .border(0.5.dp, borderColor, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "⊞",
+                    color = textColor,
+                    fontSize = 14.sp,
+                    lineHeight = 14.sp
+                )
+                Text(
+                    text = display,
+                    color = textColor,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
+        }
+        return
+    }
+
     val display = if (active) "⊞ $label" else "⊞ Filter"
-    val chipHeight = if (headerStyle) EpgLayout.TimelineHeaderHeight else 36.dp
+    val chipHeight = 36.dp
     val bg = when {
-        headerStyle && focused -> EpgColors.Accent.copy(alpha = 0.12f)
-        headerStyle -> Color.Transparent
         focused -> EpgColors.Accent.copy(alpha = 0.25f)
         active -> EpgColors.ChannelRowFocusBg
         else -> EpgColors.ChannelColumnBg
@@ -786,12 +833,12 @@ fun EpgCategoryFilterChip(
     val borderColor = when {
         focused -> EpgColors.Accent
         active -> EpgColors.Accent.copy(alpha = 0.45f)
-        else -> EpgColors.BorderSubtle.copy(alpha = if (headerStyle) 0.7f else 1f)
+        else -> EpgColors.BorderSubtle
     }
     Surface(
         onClick = onClick,
         modifier = modifier.height(chipHeight),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(if (headerStyle) 4.dp else 6.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg
@@ -800,8 +847,8 @@ fun EpgCategoryFilterChip(
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .border(1.dp, borderColor, RoundedCornerShape(if (headerStyle) 4.dp else 6.dp))
-                .padding(horizontal = if (headerStyle) 8.dp else 12.dp),
+                .border(1.dp, borderColor, RoundedCornerShape(6.dp))
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(
