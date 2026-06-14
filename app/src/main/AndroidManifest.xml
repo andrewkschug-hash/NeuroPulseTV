@@ -19,6 +19,16 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
+    <attribution
+        android:tag="mediaPlayback"
+        android:label="@string/attribution_media_playback" />
+    <attribution
+        android:tag="recording"
+        android:label="@string/attribution_recording" />
+    <attribution
+        android:tag="voiceSearch"
+        android:label="@string/attribution_voice_search" />
+
     <application
         android:name=".StreamFlowApplication"
         android:allowBackup="true"

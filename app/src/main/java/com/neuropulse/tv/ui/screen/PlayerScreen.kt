@@ -70,8 +70,7 @@ import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.component.PlayerSideMenu
 import com.neuropulse.tv.ui.component.PlayerSideMenuAction
 import com.neuropulse.tv.ui.component.PlayerSideMenuFocusTarget
-import com.neuropulse.tv.ui.component.PlayerSideMenuCollapsibleChannelThreshold
-import com.neuropulse.tv.ui.component.PlayerSideMenuMaxSports
+import com.neuropulse.tv.ui.component.PlayerSideMenuMaxFavorites
 import com.neuropulse.tv.ui.component.PlayerSideMenuSection
 import com.neuropulse.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.neuropulse.tv.ui.component.playerSideMenuFocusSection
@@ -112,7 +111,7 @@ fun PlayerScreen(
     val lastChannel by livePlayerManager.lastChannelFlow.collectAsStateWithLifecycle()
     val channel by viewModel.channel.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
-    val sportsNowChannels by viewModel.sportsNowChannels.collectAsStateWithLifecycle()
+    val favoriteChannels by viewModel.favoriteChannels.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
     val isRecordingActive by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecording by recordingViewModel.activeRecording.collectAsStateWithLifecycle()
@@ -125,7 +124,7 @@ fun PlayerScreen(
     var showOverlay by remember { mutableStateOf(true) }
     var showSideMenu by remember { mutableStateOf(false) }
     var channelsExpanded by remember { mutableStateOf(false) }
-    var sportsExpanded by remember { mutableStateOf(false) }
+    var favoritesExpanded by remember { mutableStateOf(false) }
     var focusTargetIndex by remember { mutableIntStateOf(0) }
     var flashingZone by remember { mutableStateOf<PlayerSideMenuSection?>(null) }
     val playerFocusRequester = remember { FocusRequester() }
@@ -158,11 +157,9 @@ fun PlayerScreen(
     val nearbyChannels = remember(channels, channel?.id) {
         nearbyChannelsFor(channels, channel)
     }
-    val sportsPanelChannels = remember(sportsNowChannels) {
-        sportsNowChannels.take(PlayerSideMenuMaxSports)
+    val favoritePanelChannels = remember(favoriteChannels) {
+        favoriteChannels.take(PlayerSideMenuMaxFavorites)
     }
-
-    val channelsCollapsible = nearbyChannels.size > PlayerSideMenuCollapsibleChannelThreshold
 
     val sideMenuActions = remember(lastChannel, isRecordingActive) {
         buildList {
@@ -185,19 +182,17 @@ fun PlayerScreen(
 
     val sideMenuFocusOrder = remember(
         nearbyChannels.size,
-        sportsPanelChannels.size,
+        favoritePanelChannels.size,
         sideMenuActions.size,
-        channelsCollapsible,
         channelsExpanded,
-        sportsExpanded
+        favoritesExpanded
     ) {
         buildPlayerSideMenuFocusOrder(
             nearbyChannelCount = nearbyChannels.size,
-            sportsChannelCount = sportsPanelChannels.size,
+            favoriteChannelCount = favoritePanelChannels.size,
             actionCount = sideMenuActions.size,
-            channelsCollapsible = channelsCollapsible,
             channelsExpanded = channelsExpanded,
-            sportsExpanded = sportsExpanded
+            favoritesExpanded = favoritesExpanded
         )
     }
     val currentFocusTarget = sideMenuFocusOrder.getOrNull(focusTargetIndex)
@@ -253,11 +248,11 @@ fun PlayerScreen(
                 showSideMenu = false
                 onNavigateGuide()
             }
-            PlayerSideMenuFocusTarget.SportsHeader -> {
-                sportsExpanded = !sportsExpanded
+            PlayerSideMenuFocusTarget.FavoritesHeader -> {
+                favoritesExpanded = !favoritesExpanded
             }
-            is PlayerSideMenuFocusTarget.SportsChannel -> {
-                sportsPanelChannels.getOrNull(target.index)?.id?.let { id ->
+            is PlayerSideMenuFocusTarget.FavoriteChannel -> {
+                favoritePanelChannels.getOrNull(target.index)?.id?.let { id ->
                     viewModel.tuneChannel(id)
                     showSideMenu = false
                 }
@@ -280,17 +275,14 @@ fun PlayerScreen(
     fun openSideMenu() {
         showSideMenu = true
         showOverlay = false
-        val startIndex = when {
-            channelsCollapsible && !channelsExpanded -> {
-                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
-            }
-            else -> {
-                val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
-                sideMenuFocusOrder.indexOfFirst {
-                    it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
-                }.takeIf { idx -> idx >= 0 }
-                    ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
-            }
+        val startIndex = if (!channelsExpanded) {
+            sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
+        } else {
+            val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
+            sideMenuFocusOrder.indexOfFirst {
+                it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
+            }.takeIf { idx -> idx >= 0 }
+                ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
         }
         applyFocusTargetIndex(startIndex, flash = false)
     }
@@ -317,38 +309,37 @@ fun PlayerScreen(
     LaunchedEffect(showSideMenu, sideMenuFocusOrder) {
         if (showSideMenu) {
             sideMenuFocusRequester.requestFocusSafelyAfterLayout()
-            val startIndex = when {
-                channelsCollapsible && !channelsExpanded -> {
-                    sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
-                }
-                else -> {
-                    val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
-                    sideMenuFocusOrder.indexOfFirst {
-                        it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
-                    }.takeIf { it >= 0 }
-                        ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
-                }
+            val startIndex = if (!channelsExpanded) {
+                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
+            } else {
+                val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
+                sideMenuFocusOrder.indexOfFirst {
+                    it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
+                }.takeIf { idx -> idx >= 0 }
+                    ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
             }
             applyFocusTargetIndex(startIndex, flash = false)
         } else {
             playerFocusRequester.requestFocusSafelyAfterLayout()
             channelsExpanded = false
-            sportsExpanded = false
+            favoritesExpanded = false
         }
     }
 
-    LaunchedEffect(channelsExpanded, sportsExpanded, sideMenuFocusOrder) {
+    LaunchedEffect(channelsExpanded, favoritesExpanded, sideMenuFocusOrder) {
         if (!showSideMenu) return@LaunchedEffect
         val target = sideMenuFocusOrder.getOrNull(focusTargetIndex) ?: return@LaunchedEffect
         when (target) {
-            is PlayerSideMenuFocusTarget.NearbyChannel -> if (!channelsExpanded && channelsCollapsible) {
-                val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
-                if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
-            }
-            is PlayerSideMenuFocusTarget.SportsChannel -> if (!sportsExpanded) {
-                val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.SportsHeader)
-                if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
-            }
+            is PlayerSideMenuFocusTarget.NearbyChannel, PlayerSideMenuFocusTarget.BrowseAll ->
+                if (!channelsExpanded) {
+                    val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
+                    if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+                }
+            is PlayerSideMenuFocusTarget.FavoriteChannel ->
+                if (!favoritesExpanded) {
+                    val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.FavoritesHeader)
+                    if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+                }
             else -> Unit
         }
     }
@@ -927,12 +918,12 @@ fun PlayerScreen(
         PlayerSideMenu(
             visible = showSideMenu,
             channels = nearbyChannels,
-            sportsChannels = sportsPanelChannels,
+            favoriteChannels = favoritePanelChannels,
             actions = sideMenuActions,
             currentChannelId = channel?.id,
             focusState = sideMenuFocusState,
             channelsExpanded = channelsExpanded,
-            sportsExpanded = sportsExpanded,
+            favoritesExpanded = favoritesExpanded,
             flashingSection = flashingZone
         )
 

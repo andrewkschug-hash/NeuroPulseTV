@@ -87,7 +87,6 @@ import com.neuropulse.tv.ui.component.playbackFocusCount
 import com.neuropulse.tv.ui.component.handleSettingsHorizontalKey
 import com.neuropulse.tv.ui.component.buildSettingsSectionCards
 import com.neuropulse.tv.ui.component.moveProfileSwatchFocus
-import com.neuropulse.tv.ui.component.moveSettingsVerticalFocus
 import com.neuropulse.tv.ui.component.profileContentFocusCount
 import com.neuropulse.tv.ui.component.rememberSettingsFocusChain
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -296,16 +295,14 @@ fun SettingsScreen(
     val topNavFocusRequester = remember { FocusRequester() }
     val contentAreaFocusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(selectedSection, sectionCards, focusPanel) {
+    LaunchedEffect(selectedSection, focusPanel) {
         sidebarFocusIndex = selectedSection
-        focusedSectionIndex = 0
         if (focusPanel == SettingsFocusPanel.RIGHT) {
-            val card = sectionCards.firstOrNull { it.hasFocusableItems }
-            if (card != null) {
-                focusedSectionIndex = sectionCards.indexOf(card).coerceAtLeast(0)
-                focusLevel = SettingsFocusLevel.INSIDE_CARD
-                contentChain.resetIndex(card.firstFocusIndex)
-            }
+            val firstCard = sectionCards.indexOfFirst { it.hasFocusableItems }
+            focusedSectionIndex = if (firstCard >= 0) firstCard else 0
+            focusLevel = SettingsFocusLevel.SECTION
+        } else {
+            focusedSectionIndex = 0
         }
     }
 
@@ -341,13 +338,18 @@ fun SettingsScreen(
     }
 
     fun enterContentFromSidebar() {
-        selectSidebarSection(sidebarFocusIndex)
+        val clamped = sidebarFocusIndex.coerceIn(0, sections.lastIndex)
+        if (sections[selectedSection] == SettingsSection.Connections &&
+            sections[clamped] != SettingsSection.Connections
+        ) {
+            dismissConnectionForm()
+        }
+        selectedSection = clamped
+        sidebarFocusIndex = clamped
         focusPanel = SettingsFocusPanel.RIGHT
-        val card = sectionCards.firstOrNull { it.hasFocusableItems }
-        focusedSectionIndex = card?.let { sectionCards.indexOf(it) }?.coerceAtLeast(0) ?: 0
-        focusLevel = SettingsFocusLevel.INSIDE_CARD
-        val firstIndex = card?.firstFocusIndex ?: 0
-        contentChain.moveTo(firstIndex)
+        val firstCard = sectionCards.indexOfFirst { it.hasFocusableItems }
+        focusedSectionIndex = if (firstCard >= 0) firstCard else 0
+        focusLevel = SettingsFocusLevel.SECTION
     }
 
     fun handleBackKey(): Boolean {
@@ -487,11 +489,15 @@ fun SettingsScreen(
                     true
                 }
                 Key.DirectionUp -> {
-                    focusedSectionIndex = (focusedSectionIndex - 1).coerceAtLeast(0)
+                    focusedSectionIndex = (focusedSectionIndex - 1 downTo 0)
+                        .firstOrNull { sectionCards[it].hasFocusableItems }
+                        ?: focusedSectionIndex
                     true
                 }
                 Key.DirectionDown -> {
-                    focusedSectionIndex = (focusedSectionIndex + 1).coerceAtMost(sectionCards.lastIndex)
+                    focusedSectionIndex = ((focusedSectionIndex + 1)..sectionCards.lastIndex)
+                        .firstOrNull { sectionCards[it].hasFocusableItems }
+                        ?: focusedSectionIndex
                     true
                 }
                 Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -541,12 +547,7 @@ fun SettingsScreen(
                             }
                         }
                         if (contentChain.focusedIndex <= card.firstFocusIndex) {
-                            exitToSidebar(
-                                focusPanel = { focusPanel = it },
-                                focusLevel = { focusLevel = it },
-                                sidebarFocusIndex = { sidebarFocusIndex = it },
-                                selectedSection = selectedSection
-                            )
+                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
                         } else {
                             contentChain.moveTo(contentChain.focusedIndex - 1)
                         }
@@ -586,35 +587,19 @@ fun SettingsScreen(
                                 PROFILE_SWATCH_COUNT,
                                 event.key
                             )
-                            if (swatchTarget != null) {
-                                contentChain.moveTo(swatchTarget)
-                            } else if (!moveSettingsVerticalFocus(
-                                    contentChain.focusedIndex,
-                                    -1,
-                                    focusedSectionIndex,
-                                    sectionCards,
-                                    contentChain
-                                ) { focusedSectionIndex = it }
-                            ) {
-                                if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                            when {
+                                swatchTarget != null -> contentChain.moveTo(swatchTarget)
+                                contentChain.focusedIndex in PROFILE_SWATCH_START until
+                                    PROFILE_SWATCH_START + PROFILE_SWATCH_COUNT ->
                                     exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                                } else {
-                                    contentChain.moveTo(contentChain.focusedIndex - 1)
-                                }
+                                contentChain.focusedIndex <= card.firstFocusIndex ->
+                                    exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                                else -> contentChain.moveTo(contentChain.focusedIndex - 1)
                             }
-                        } else if (!moveSettingsVerticalFocus(
-                                contentChain.focusedIndex,
-                                -1,
-                                focusedSectionIndex,
-                                sectionCards,
-                                contentChain
-                            ) { focusedSectionIndex = it }
-                        ) {
-                            if (contentChain.focusedIndex <= card.firstFocusIndex) {
-                                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                            } else {
-                                contentChain.moveTo(contentChain.focusedIndex - 1)
-                            }
+                        } else if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
+                        } else {
+                            contentChain.moveTo(contentChain.focusedIndex - 1)
                         }
                         true
                     }
@@ -628,29 +613,11 @@ fun SettingsScreen(
                             )
                             if (swatchTarget != null) {
                                 contentChain.moveTo(swatchTarget)
-                            } else if (!moveSettingsVerticalFocus(
-                                    contentChain.focusedIndex,
-                                    1,
-                                    focusedSectionIndex,
-                                    sectionCards,
-                                    contentChain
-                                ) { focusedSectionIndex = it }
-                            ) {
-                                contentChain.moveTo(
-                                    (contentChain.focusedIndex + 1).coerceAtMost(card.lastFocusIndex)
-                                )
+                            } else if (contentChain.focusedIndex < card.lastFocusIndex) {
+                                contentChain.moveTo(contentChain.focusedIndex + 1)
                             }
-                        } else if (!moveSettingsVerticalFocus(
-                                contentChain.focusedIndex,
-                                1,
-                                focusedSectionIndex,
-                                sectionCards,
-                                contentChain
-                            ) { focusedSectionIndex = it }
-                        ) {
-                            contentChain.moveTo(
-                                (contentChain.focusedIndex + 1).coerceAtMost(card.lastFocusIndex)
-                            )
+                        } else if (contentChain.focusedIndex < card.lastFocusIndex) {
+                            contentChain.moveTo(contentChain.focusedIndex + 1)
                         }
                         true
                     }

@@ -38,6 +38,8 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import com.neuropulse.tv.ui.component.VodCategoryChip
+import com.neuropulse.tv.ui.component.VodEmptyState
 import com.neuropulse.tv.ui.component.VodPosterCard
 import com.neuropulse.tv.ui.component.showsHdBadge
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -93,9 +95,9 @@ fun MoviesBrowserScreen(
         }
         if (embedded) {
             LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
-                    .padding(vertical = 12.dp)
+                    .padding(bottom = 12.dp)
                     .then(
                         if (onMoveFocusUp != null) {
                             Modifier.onPreviewKeyEvent { event ->
@@ -114,35 +116,19 @@ fun MoviesBrowserScreen(
                 itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { index, option ->
                     val (categoryId, label) = option
                     val selected = selectedCategoryId == categoryId
-                    Surface(
+                    VodCategoryChip(
+                        label = label,
+                        selected = selected,
+                        focused = false,
                         onClick = { viewModel.setCategory(categoryId) },
                         modifier = if (index == 0 && contentFocusRequester != null) {
                             Modifier.focusRequester(contentFocusRequester)
                         } else {
                             Modifier
                         }
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
-                    }
+                    )
                 }
             }
-            OutlinedTextField(
-                value = search,
-                onValueChange = {
-                    search = it
-                    viewModel.setSearchQuery(it)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusProperties { canFocus = false },
-                placeholder = { Text("Search movies") }
-            )
         } else {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -164,9 +150,10 @@ fun MoviesBrowserScreen(
             }
         }
         if (movies.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No movies available", color = EpgColors.TextSecondary, fontFamily = DmSansFamily)
-            }
+            VodEmptyState(
+                title = "No movies available",
+                message = "Add an Xtream or M3U playlist with VOD in Settings, or use ⌕ Search once titles are loaded."
+            )
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 112.dp),

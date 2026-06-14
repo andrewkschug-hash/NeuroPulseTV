@@ -161,23 +161,27 @@ fun SettingsPanel(
     content: @Composable () -> Unit
 ) {
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
-    val insideDimmed = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
-    val borderWidth = if (sectionHighlighted) 2.dp else 1.dp
+    val insideActive = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
+    val borderWidth = when {
+        sectionHighlighted -> 2.dp
+        insideActive -> 2.dp
+        else -> 1.dp
+    }
     val borderColor = when {
         sectionHighlighted -> EpgColors.Accent
-        insideDimmed -> EpgColors.Accent.copy(alpha = 0.35f)
+        insideActive -> EpgColors.Accent.copy(alpha = 0.55f)
         else -> EpgColors.BorderSubtle
     }
     val backgroundColor = when {
-        sectionHighlighted -> EpgColors.DetailPanelBg.copy(alpha = 0.65f)
-        insideDimmed -> EpgColors.DetailPanelBg.copy(alpha = 0.52f)
+        sectionHighlighted -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.55f)
+        insideActive -> EpgColors.DetailPanelBg.copy(alpha = 0.58f)
         else -> EpgColors.DetailPanelBg.copy(alpha = 0.45f)
     }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .tvScrollIntoViewWhen(
-                active = sectionHighlighted || insideDimmed,
+                active = sectionHighlighted || insideActive,
                 preferTopAlign = true
             )
             .background(backgroundColor, RoundedCornerShape(10.dp))

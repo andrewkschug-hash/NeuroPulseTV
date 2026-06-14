@@ -53,12 +53,6 @@ fun GridNavIcon(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val iconColor = when {
-        focused -> EpgColors.Accent
-        selected -> EpgColors.TextPrimary
-        else -> EpgColors.TextSecondary
-    }
-
     Box(
         modifier = modifier
             .size(NavIconHitSize)
@@ -78,8 +72,20 @@ fun GridNavIcon(
         // Icon text — drawn directly, no Surface wrapper causing clip issues
         Text(
             text = tab.glyph,
-            fontSize = 20.sp,
-            color = iconColor,
+            fontSize = when (tab) {
+                EpgNavTab.Recordings -> 14.sp
+                else -> 20.sp
+            },
+            fontWeight = when (tab) {
+                EpgNavTab.Vod, EpgNavTab.Recordings -> FontWeight.Medium
+                else -> FontWeight.Normal
+            },
+            color = when {
+                tab == EpgNavTab.Recordings && selected -> Color(0xFFFF5252)
+                focused -> EpgColors.Accent
+                selected -> EpgColors.TextPrimary
+                else -> EpgColors.TextSecondary
+            },
             modifier = Modifier
                 .clickable { onClick() }
                 .padding(8.dp)

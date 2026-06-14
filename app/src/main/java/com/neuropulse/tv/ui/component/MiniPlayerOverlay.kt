@@ -39,6 +39,7 @@ import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
+import com.neuropulse.tv.util.MediaAttribution
 
 private val OverlayWidth = EpgLayout.MiniPlayerWidth
 private val OverlayHeight = EpgLayout.MiniPlayerHeight
@@ -59,12 +60,14 @@ fun MiniPlayerOverlay(
     if (channel == null || streamUrl.isBlank()) return
 
     val context = LocalContext.current
-    val appContext = context.applicationContext
+    val playbackContext = remember(context) {
+        MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+    }
 
-    val player = remember {
-        val renderersFactory = DefaultRenderersFactory(appContext)
+    val player = remember(playbackContext) {
+        val renderersFactory = DefaultRenderersFactory(playbackContext)
             .setEnableDecoderFallback(true)
-        ExoPlayer.Builder(appContext, renderersFactory).build()
+        ExoPlayer.Builder(playbackContext, renderersFactory).build()
     }
 
     var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }

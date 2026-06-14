@@ -37,8 +37,8 @@ class TimeshiftManagerClampTest {
     @Test
     fun fastForwardNearLiveEdgeJumpsToLive() {
         val liveEdge = 62_000L
-        val threshold = 5_000L
-        val current = 58_000L
+        val threshold = 3_000L
+        val current = 59_500L
         val target = (current + 30_000L).coerceAtMost(liveEdge)
         assertTrue(target >= liveEdge - threshold)
     }

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GRID</string>
+    <string name="attribution_media_playback">Live and on-demand playback</string>
+    <string name="attribution_recording">Recording TV streams</string>
+    <string name="attribution_voice_search">Voice search</string>
 </resources>

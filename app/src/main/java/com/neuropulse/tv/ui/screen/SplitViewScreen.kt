@@ -33,6 +33,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.viewmodel.SplitViewViewModel
+import com.neuropulse.tv.util.MediaAttribution
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -47,8 +48,11 @@ fun SplitViewScreen(
     val secondary by viewModel.secondaryChannel.collectAsStateWithLifecycle()
     var showPicker by remember { mutableStateOf(secondary == null) }
 
-    val leftPlayer = remember { ExoPlayer.Builder(context).build() }
-    val rightPlayer = remember { ExoPlayer.Builder(context).build() }
+    val playbackContext = remember {
+        MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+    }
+    val leftPlayer = remember(playbackContext) { ExoPlayer.Builder(playbackContext).build() }
+    val rightPlayer = remember(playbackContext) { ExoPlayer.Builder(playbackContext).build() }
 
     DisposableEffect(Unit) {
         onDispose {

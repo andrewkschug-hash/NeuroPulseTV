@@ -45,6 +45,7 @@ import com.neuropulse.tv.ui.component.RecordingDeleteDialog
 import com.neuropulse.tv.ui.component.formatPlayerTime
 import com.neuropulse.tv.ui.component.formatRecordedPlayerOverlayDate
 import com.neuropulse.tv.ui.viewmodel.DirectPlayerViewModel
+import com.neuropulse.tv.util.MediaAttribution
 import kotlinx.coroutines.delay
 
 @Composable
@@ -76,7 +77,9 @@ fun DirectPlayerScreen(
     var hasSeekedToResume by remember(recordingId, resume) { mutableStateOf(false) }
 
     val player = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
+        ExoPlayer.Builder(
+            MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+        ).build().apply {
             setMediaItem(MediaItem.fromUri(url))
             prepare()
             playWhenReady = true

@@ -55,6 +55,8 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.neuropulse.tv.ui.component.VodCategoryChip
+import com.neuropulse.tv.ui.component.VodEmptyState
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -123,9 +125,9 @@ fun SeriesBrowserScreen(
         if (seasons.isEmpty()) {
             if (embedded) {
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
-                        .padding(vertical = 8.dp)
+                        .padding(bottom = 12.dp)
                         .then(
                             if (onMoveFocusUp != null) {
                                 Modifier.onPreviewKeyEvent { event ->
@@ -143,38 +145,19 @@ fun SeriesBrowserScreen(
                 ) {
                     itemsIndexed(categories) { index, cat ->
                         val selected = cat == selectedCategory
-                        Surface(
+                        VodCategoryChip(
+                            label = cat,
+                            selected = selected,
+                            focused = false,
                             onClick = { selectedCategory = cat },
-                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-                            colors = ClickableSurfaceDefaults.colors(
-                                containerColor = if (selected) Color(0xFF1C3A6B) else Color(0xFF13131A),
-                                focusedContainerColor = Color(0xFF1C1C2E)
-                            ),
                             modifier = if (index == 0 && contentFocusRequester != null) {
                                 Modifier.focusRequester(contentFocusRequester)
                             } else {
                                 Modifier
                             }
-                        ) {
-                            Text(
-                                text = cat,
-                                color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
-                                fontFamily = DmSansFamily,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                            )
-                        }
+                        )
                     }
                 }
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                        .focusProperties { canFocus = false },
-                    placeholder = { Text("Search series", fontFamily = DmSansFamily) }
-                )
             } else {
                 OutlinedTextField(
                     value = searchQuery,
@@ -271,17 +254,23 @@ fun SeriesBrowserScreen(
                 }
             }
 
-            val filtered = remember(shows, selectedCategory, searchQuery) {
+            val filtered = remember(shows, selectedCategory, searchQuery, embedded) {
                 val byCategory = if (selectedCategory == "All") shows else shows.filter {
                     it.name.contains(selectedCategory, ignoreCase = true)
                 }
-                if (searchQuery.isBlank()) {
-                    byCategory
-                } else {
+                if (!embedded && searchQuery.isNotBlank()) {
                     byCategory.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                } else {
+                    byCategory
                 }
             }
 
+            if (filtered.isEmpty()) {
+                VodEmptyState(
+                    title = "No series available",
+                    message = "Add an Xtream playlist with series in Settings, or use ⌕ Search once titles are loaded."
+                )
+            } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(5),
                 contentPadding = PaddingValues(vertical = 8.dp),
@@ -336,6 +325,7 @@ fun SeriesBrowserScreen(
                         }
                     }
                 }
+            }
             }
         } else {
             Text(

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -255,5 +256,116 @@ fun SeriesHomeRow(
                 SeeAllVodCard(onClick = onSeeAll)
             }
         }
+    }
+}
+
+@Composable
+fun VodHubHeader(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = title,
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 26.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            text = subtitle,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp
+        )
+        Text(
+            text = "Press ⌕ Search in the top bar to find titles",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+@Composable
+fun VodEmptyState(
+    title: String,
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "▦",
+            color = EpgColors.TextDimmed.copy(alpha = 0.45f),
+            fontSize = 36.sp,
+            fontWeight = FontWeight.Light
+        )
+        Text(
+            text = title,
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(top = 16.dp)
+        )
+        Text(
+            text = message,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
+
+@Composable
+fun VodCategoryChip(
+    label: String,
+    selected: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bg = when {
+        focused -> EpgColors.Accent.copy(alpha = 0.22f)
+        selected -> EpgColors.ChannelRowFocusBg
+        else -> Color.Transparent
+    }
+    val borderColor = when {
+        focused -> EpgColors.Accent
+        selected -> EpgColors.Accent.copy(alpha = 0.45f)
+        else -> EpgColors.BorderSubtle.copy(alpha = 0.65f)
+    }
+    Surface(
+        onClick = onClick,
+        modifier = modifier.border(1.dp, borderColor, RoundedCornerShape(20.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = bg,
+            focusedContainerColor = EpgColors.Accent.copy(alpha = 0.22f)
+        )
+    ) {
+        Text(
+            text = label,
+            color = when {
+                focused || selected -> EpgColors.TextPrimary
+                else -> EpgColors.TextSecondary
+            },
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
     }
 }

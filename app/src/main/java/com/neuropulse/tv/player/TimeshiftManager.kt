@@ -12,8 +12,8 @@ object TimeshiftManager {
         private set
     var maxBufferMs: Long = 1_800_000L
 
-    private const val LIVE_EDGE_TOLERANCE_MS = 10_000L
-    private const val FAST_FORWARD_LIVE_THRESHOLD_MS = 5_000L
+    private const val LIVE_EDGE_TOLERANCE_MS = 3_000L
+    private const val FAST_FORWARD_LIVE_THRESHOLD_MS = 3_000L
     private const val MIN_REWIND_HEADROOM_MS = 2_000L
 
     fun reset() {
@@ -27,12 +27,9 @@ object TimeshiftManager {
         val duration = player.duration
         if (duration == C.TIME_UNSET || duration <= 0L) return
 
-        val bufferedEnd = player.contentBufferedPosition
-        liveEdgePositionMs = when {
-            bufferedEnd != C.TIME_UNSET && bufferedEnd > 0L ->
-                maxOf(bufferedEnd, player.currentPosition)
-            else -> duration
-        }
+        // End of the seekable live window — not contentBufferedPosition, which extends
+        // ahead of playback and inflates "behind live" while watching at live speed.
+        liveEdgePositionMs = duration
 
         // Live window starts at 0; only content within [0, liveEdge] is actually available.
         bufferStartMs = 0L
@@ -52,11 +49,21 @@ object TimeshiftManager {
 
     fun isAtLiveEdge(player: ExoPlayer): Boolean {
         if (!player.isCurrentMediaItemDynamic) return true
+        val liveOffset = player.currentLiveOffset
+        if (liveOffset != C.TIME_UNSET && liveOffset >= 0L) {
+            return liveOffset <= LIVE_EDGE_TOLERANCE_MS
+        }
         if (liveEdgePositionMs <= 0L) return true
         return player.currentPosition >= liveEdgePositionMs - LIVE_EDGE_TOLERANCE_MS
     }
 
     fun behindLiveMs(player: ExoPlayer): Long {
+        if (!player.isCurrentMediaItemDynamic) return 0L
+        if (isAtLiveEdge(player)) return 0L
+        val liveOffset = player.currentLiveOffset
+        if (liveOffset != C.TIME_UNSET && liveOffset >= 0L) {
+            return liveOffset
+        }
         if (liveEdgePositionMs <= 0L) return 0L
         return (liveEdgePositionMs - player.currentPosition).coerceAtLeast(0L)
     }

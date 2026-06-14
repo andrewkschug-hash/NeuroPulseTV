@@ -2,6 +2,7 @@ package com.neuropulse.tv.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -33,6 +36,7 @@ import com.neuropulse.tv.ui.component.EpgChipFilterBar
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
+import com.neuropulse.tv.ui.component.VodHubHeader
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
@@ -262,21 +266,38 @@ fun VodHubScreen(
                     }
             )
 
-            EpgChipFilterBar(
-                labels = listOf("Movies", "Series"),
-                activeIndex = tab,
-                focusedIndex = tabFocusIndex,
-                barFocused = focusZone == VodFocusZone.TOP_BAR && topBarRow == 1,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            )
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF141420), EpgColors.Background)
+                        )
+                    )
+                    .padding(horizontal = 24.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                VodHubHeader(
+                    title = if (tab == 0) "Movies" else "Series",
+                    subtitle = if (tab == 0) {
+                        "Films and specials from your provider"
+                    } else {
+                        "Shows, seasons, and episodes on demand"
+                    }
+                )
+                EpgChipFilterBar(
+                    labels = listOf("Movies", "Series"),
+                    activeIndex = tab,
+                    focusedIndex = tabFocusIndex,
+                    barFocused = focusZone == VodFocusZone.TOP_BAR && topBarRow == 1
+                )
+            }
 
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 24.dp)
             ) {
                 when (tab) {
                     0 -> MoviesBrowserScreen(

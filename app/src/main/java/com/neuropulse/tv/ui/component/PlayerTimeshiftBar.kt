@@ -311,7 +311,7 @@ private fun TimeshiftLiveBadge(
 
 fun formatBehindLive(behindMs: Long): String {
     if (behindMs < 1_000L) return "LIVE"
-    val totalSec = behindMs / 1000
+    val totalSec = (behindMs + 500L) / 1000L
     val minutes = totalSec / 60
     val seconds = totalSec % 60
     return "-%d:%02d".format(minutes, seconds)

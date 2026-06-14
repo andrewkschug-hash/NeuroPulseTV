@@ -42,14 +42,14 @@ import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 
-enum class PlayerSideMenuSection { CHANNELS, SPORTS, ACTIONS }
+enum class PlayerSideMenuSection { CHANNELS, FAVORITES, ACTIONS }
 
 sealed interface PlayerSideMenuFocusTarget {
     data object ChannelsHeader : PlayerSideMenuFocusTarget
     data class NearbyChannel(val index: Int) : PlayerSideMenuFocusTarget
     data object BrowseAll : PlayerSideMenuFocusTarget
-    data object SportsHeader : PlayerSideMenuFocusTarget
-    data class SportsChannel(val index: Int) : PlayerSideMenuFocusTarget
+    data object FavoritesHeader : PlayerSideMenuFocusTarget
+    data class FavoriteChannel(val index: Int) : PlayerSideMenuFocusTarget
     data class Action(val index: Int) : PlayerSideMenuFocusTarget
 }
 
@@ -57,35 +57,28 @@ data class PlayerSideMenuFocusState(
     val channelsHeader: Boolean = false,
     val nearbyChannelIndex: Int? = null,
     val browseAll: Boolean = false,
-    val sportsHeader: Boolean = false,
-    val sportsChannelIndex: Int? = null,
+    val favoritesHeader: Boolean = false,
+    val favoriteChannelIndex: Int? = null,
     val actionIndex: Int? = null
 )
 
-const val PlayerSideMenuCollapsibleChannelThreshold = 3
+const val PlayerSideMenuMaxFavorites = 8
 
 fun buildPlayerSideMenuFocusOrder(
     nearbyChannelCount: Int,
-    sportsChannelCount: Int,
+    favoriteChannelCount: Int,
     actionCount: Int,
-    channelsCollapsible: Boolean,
     channelsExpanded: Boolean,
-    sportsExpanded: Boolean
+    favoritesExpanded: Boolean
 ): List<PlayerSideMenuFocusTarget> = buildList {
-    if (channelsCollapsible) {
-        add(PlayerSideMenuFocusTarget.ChannelsHeader)
-        if (channelsExpanded) {
-            for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
-        }
-    } else {
+    add(PlayerSideMenuFocusTarget.ChannelsHeader)
+    if (channelsExpanded) {
         for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
+        add(PlayerSideMenuFocusTarget.BrowseAll)
     }
-    add(PlayerSideMenuFocusTarget.BrowseAll)
-    if (sportsChannelCount > 0) {
-        add(PlayerSideMenuFocusTarget.SportsHeader)
-        if (sportsExpanded) {
-            for (i in 0 until sportsChannelCount) add(PlayerSideMenuFocusTarget.SportsChannel(i))
-        }
+    add(PlayerSideMenuFocusTarget.FavoritesHeader)
+    if (favoritesExpanded) {
+        for (i in 0 until favoriteChannelCount) add(PlayerSideMenuFocusTarget.FavoriteChannel(i))
     }
     for (i in 0 until actionCount) add(PlayerSideMenuFocusTarget.Action(i))
 }
@@ -98,10 +91,10 @@ fun playerSideMenuFocusState(target: PlayerSideMenuFocusTarget?): PlayerSideMenu
             PlayerSideMenuFocusState(nearbyChannelIndex = target.index)
         PlayerSideMenuFocusTarget.BrowseAll ->
             PlayerSideMenuFocusState(browseAll = true)
-        PlayerSideMenuFocusTarget.SportsHeader ->
-            PlayerSideMenuFocusState(sportsHeader = true)
-        is PlayerSideMenuFocusTarget.SportsChannel ->
-            PlayerSideMenuFocusState(sportsChannelIndex = target.index)
+        PlayerSideMenuFocusTarget.FavoritesHeader ->
+            PlayerSideMenuFocusState(favoritesHeader = true)
+        is PlayerSideMenuFocusTarget.FavoriteChannel ->
+            PlayerSideMenuFocusState(favoriteChannelIndex = target.index)
         is PlayerSideMenuFocusTarget.Action ->
             PlayerSideMenuFocusState(actionIndex = target.index)
         null -> PlayerSideMenuFocusState()
@@ -111,7 +104,8 @@ fun playerSideMenuFocusSection(target: PlayerSideMenuFocusTarget): PlayerSideMen
     PlayerSideMenuFocusTarget.ChannelsHeader,
     is PlayerSideMenuFocusTarget.NearbyChannel,
     PlayerSideMenuFocusTarget.BrowseAll -> PlayerSideMenuSection.CHANNELS
-    PlayerSideMenuFocusTarget.SportsHeader, is PlayerSideMenuFocusTarget.SportsChannel -> PlayerSideMenuSection.SPORTS
+    PlayerSideMenuFocusTarget.FavoritesHeader, is PlayerSideMenuFocusTarget.FavoriteChannel ->
+        PlayerSideMenuSection.FAVORITES
     is PlayerSideMenuFocusTarget.Action -> PlayerSideMenuSection.ACTIONS
 }
 
@@ -124,30 +118,28 @@ data class PlayerSideMenuAction(
 
 private val PanelBg = Color(0xEB0D0D0D)
 private val PanelWidth = 320.dp
-const val PlayerSideMenuMaxSports = 8
 
 @Composable
 fun PlayerSideMenu(
     visible: Boolean,
     channels: List<Channel>,
-    sportsChannels: List<Channel>,
+    favoriteChannels: List<Channel>,
     actions: List<PlayerSideMenuAction>,
     currentChannelId: Long?,
     focusState: PlayerSideMenuFocusState,
     channelsExpanded: Boolean,
-    sportsExpanded: Boolean,
+    favoritesExpanded: Boolean,
     flashingSection: PlayerSideMenuSection? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
-    val sportsShown = sportsChannels.take(PlayerSideMenuMaxSports)
-    val channelsCollapsible = channels.size > PlayerSideMenuCollapsibleChannelThreshold
+    val favoritesShown = favoriteChannels.take(PlayerSideMenuMaxFavorites)
 
     LaunchedEffect(focusState, visible) {
         if (!visible) return@LaunchedEffect
         val target = when {
             focusState.actionIndex != null -> scrollState.maxValue
-            focusState.sportsHeader || focusState.sportsChannelIndex != null -> 280
+            focusState.favoritesHeader || focusState.favoriteChannelIndex != null -> 280
             focusState.channelsHeader || focusState.browseAll -> 180
             else -> 0
         }
@@ -193,95 +185,71 @@ fun PlayerSideMenu(
                             .weight(1f)
                             .verticalScroll(scrollState)
                     ) {
-                        if (channelsCollapsible) {
-                            CollapsibleSectionHeader(
-                                title = "Channels",
-                                icon = null,
-                                expanded = channelsExpanded,
-                                focused = focusState.channelsHeader,
-                                section = PlayerSideMenuSection.CHANNELS,
-                                flashingSection = flashingSection,
-                                activeSection = when {
-                                    focusState.channelsHeader ||
-                                        focusState.nearbyChannelIndex != null ||
-                                        focusState.browseAll ->
-                                        PlayerSideMenuSection.CHANNELS
-                                    else -> null
-                                }
-                            )
-                            AnimatedVisibility(
-                                visible = channelsExpanded,
-                                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-                                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-                            ) {
-                                Column {
-                                    channels.forEachIndexed { index, channel ->
-                                        ChannelRow(
-                                            channel = channel,
-                                            focused = focusState.nearbyChannelIndex == index,
-                                            selected = channel.id == currentChannelId,
-                                            showLiveDot = false,
-                                            pinnedCurrent = channel.id == currentChannelId
-                                        )
-                                    }
-                                }
+                        CollapsibleSectionHeader(
+                            title = "Channels",
+                            icon = null,
+                            expanded = channelsExpanded,
+                            focused = focusState.channelsHeader,
+                            section = PlayerSideMenuSection.CHANNELS,
+                            flashingSection = flashingSection,
+                            activeSection = when {
+                                focusState.channelsHeader ||
+                                    focusState.nearbyChannelIndex != null ||
+                                    focusState.browseAll ->
+                                    PlayerSideMenuSection.CHANNELS
+                                else -> null
                             }
-                        } else {
-                            SectionHeader(
-                                title = "Channels",
-                                section = PlayerSideMenuSection.CHANNELS,
-                                flashingSection = flashingSection,
-                                activeSection = when {
-                                    focusState.nearbyChannelIndex != null || focusState.browseAll ->
-                                        PlayerSideMenuSection.CHANNELS
-                                    else -> null
+                        )
+                        AnimatedVisibility(
+                            visible = channelsExpanded,
+                            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                        ) {
+                            Column {
+                                channels.forEachIndexed { index, channel ->
+                                    ChannelRow(
+                                        channel = channel,
+                                        focused = focusState.nearbyChannelIndex == index,
+                                        selected = channel.id == currentChannelId,
+                                        showLiveDot = false,
+                                        pinnedCurrent = channel.id == currentChannelId
+                                    )
                                 }
-                            )
-                            channels.forEachIndexed { index, channel ->
-                                ChannelRow(
-                                    channel = channel,
-                                    focused = focusState.nearbyChannelIndex == index,
-                                    selected = channel.id == currentChannelId,
-                                    showLiveDot = false,
-                                    pinnedCurrent = channel.id == currentChannelId
-                                )
+                                BrowseAllChannelsRow(focused = focusState.browseAll)
                             }
                         }
-                        BrowseAllChannelsRow(focused = focusState.browseAll)
-                        if (sportsShown.isNotEmpty()) {
-                            MenuDivider(
-                                highlighted = focusState.sportsHeader ||
-                                    focusState.sportsChannelIndex != null ||
-                                    focusState.actionIndex != null
-                            )
-                            CollapsibleSectionHeader(
-                                title = "Sports Now",
-                                icon = "⚽",
-                                expanded = sportsExpanded,
-                                focused = focusState.sportsHeader,
-                                section = PlayerSideMenuSection.SPORTS,
-                                flashingSection = flashingSection,
-                                activeSection = when {
-                                    focusState.sportsHeader || focusState.sportsChannelIndex != null ->
-                                        PlayerSideMenuSection.SPORTS
-                                    else -> null
-                                }
-                            )
-                            AnimatedVisibility(
-                                visible = sportsExpanded,
-                                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-                                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-                            ) {
-                                Column {
-                                    sportsShown.forEachIndexed { index, channel ->
-                                        ChannelRow(
-                                            channel = channel,
-                                            focused = focusState.sportsChannelIndex == index,
-                                            selected = channel.id == currentChannelId,
-                                            showLiveDot = true,
-                                            pinnedCurrent = false
-                                        )
-                                    }
+                        MenuDivider(
+                            highlighted = focusState.favoritesHeader ||
+                                focusState.favoriteChannelIndex != null ||
+                                focusState.actionIndex != null
+                        )
+                        CollapsibleSectionHeader(
+                            title = "My Favorites",
+                            icon = "★",
+                            expanded = favoritesExpanded,
+                            focused = focusState.favoritesHeader,
+                            section = PlayerSideMenuSection.FAVORITES,
+                            flashingSection = flashingSection,
+                            activeSection = when {
+                                focusState.favoritesHeader || focusState.favoriteChannelIndex != null ->
+                                    PlayerSideMenuSection.FAVORITES
+                                else -> null
+                            }
+                        )
+                        AnimatedVisibility(
+                            visible = favoritesExpanded,
+                            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                        ) {
+                            Column {
+                                favoritesShown.forEachIndexed { index, channel ->
+                                    ChannelRow(
+                                        channel = channel,
+                                        focused = focusState.favoriteChannelIndex == index,
+                                        selected = channel.id == currentChannelId,
+                                        showLiveDot = false,
+                                        pinnedCurrent = channel.id == currentChannelId
+                                    )
                                 }
                             }
                         }
@@ -609,19 +577,19 @@ private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
     }
 }
 
-fun visiblePlayerSideMenuSections(sportsCount: Int): List<PlayerSideMenuSection> = buildList {
-    add(PlayerSideMenuSection.CHANNELS)
-    if (sportsCount > 0) add(PlayerSideMenuSection.SPORTS)
-    add(PlayerSideMenuSection.ACTIONS)
-}
+fun visiblePlayerSideMenuSections(): List<PlayerSideMenuSection> = listOf(
+    PlayerSideMenuSection.CHANNELS,
+    PlayerSideMenuSection.FAVORITES,
+    PlayerSideMenuSection.ACTIONS
+)
 
 fun sectionSize(
     section: PlayerSideMenuSection,
     channelCount: Int,
-    sportsCount: Int,
+    favoriteCount: Int,
     actionCount: Int,
 ): Int = when (section) {
     PlayerSideMenuSection.CHANNELS -> channelCount + 1
-    PlayerSideMenuSection.SPORTS -> if (sportsCount > 0) sportsCount + 1 else 0
+    PlayerSideMenuSection.FAVORITES -> favoriteCount + 1
     PlayerSideMenuSection.ACTIONS -> actionCount
 }

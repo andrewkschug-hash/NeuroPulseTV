@@ -6,6 +6,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import com.neuropulse.tv.domain.model.BufferSize
+import com.neuropulse.tv.util.MediaAttribution
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,11 +33,12 @@ class PlayerFactory @Inject constructor() {
         } else {
             DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
         }
-        val renderersFactory = DefaultRenderersFactory(context)
+        val appContext = MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+        val renderersFactory = DefaultRenderersFactory(appContext)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(extensionMode)
 
-        return ExoPlayer.Builder(context, renderersFactory)
+        return ExoPlayer.Builder(appContext, renderersFactory)
             .setLoadControl(loadControl)
             .build()
     }

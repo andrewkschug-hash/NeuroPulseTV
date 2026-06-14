@@ -3,6 +3,7 @@ package com.neuropulse.tv.feature.preview
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import com.neuropulse.tv.util.MediaAttribution
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,7 +16,9 @@ class PreviewPlayerManager @Inject constructor() {
         if (currentChannelId == channelId && player != null) return player!!
         stopPreview()
         currentChannelId = channelId
-        player = ExoPlayer.Builder(context).build().apply {
+        player = ExoPlayer.Builder(
+            MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+        ).build().apply {
             volume = 0f
             setMediaItem(MediaItem.fromUri(url))
             prepare()

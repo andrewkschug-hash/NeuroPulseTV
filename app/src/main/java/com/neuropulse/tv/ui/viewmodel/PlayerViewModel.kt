@@ -33,8 +33,8 @@ class PlayerViewModel @Inject constructor(
         .map { list -> list.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val sportsNowChannels: StateFlow<List<Channel>> = channels
-        .map { list -> list.filter { matchesSportsNow(it) }.distinctBy { it.id } }
+    val favoriteChannels: StateFlow<List<Channel>> = channels
+        .map { list -> list.filter { it.isFavorite }.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun load(channelId: Long) {
@@ -118,17 +118,5 @@ class PlayerViewModel @Inject constructor(
     suspend fun lastPosition(): Long {
         val id = _channel.value?.id ?: return 0L
         return repository.watchHistory(id)?.lastPosition ?: 0L
-    }
-
-    companion object {
-        private val SPORTS_NOW_KEYWORDS = listOf(
-            "sport", "espn", "tsn", "sky sports", "dazn", "bt sport",
-            "nfl", "nba", "mlb", "nhl"
-        )
-
-        private fun matchesSportsNow(channel: Channel): Boolean {
-            val name = channel.name.lowercase()
-            return SPORTS_NOW_KEYWORDS.any { keyword -> name.contains(keyword) }
-        }
     }
 }

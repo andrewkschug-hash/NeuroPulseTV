@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.neuropulse.tv.util.MediaAttribution
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,7 +17,9 @@ class VoiceSearchController @Inject constructor(
 ) {
     private var speechRecognizer: SpeechRecognizer? = null
 
-    fun isAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(appContext)
+    private val voiceContext = MediaAttribution.appContext(appContext, MediaAttribution.VOICE_SEARCH)
+
+    fun isAvailable(): Boolean = SpeechRecognizer.isRecognitionAvailable(voiceContext)
 
     fun start(
         onPartial: (String) -> Unit,
@@ -24,7 +27,7 @@ class VoiceSearchController @Inject constructor(
         onError: () -> Unit
     ) {
         stop()
-        val recognizer = SpeechRecognizer.createSpeechRecognizer(appContext)
+        val recognizer = SpeechRecognizer.createSpeechRecognizer(voiceContext)
         speechRecognizer = recognizer
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) = Unit
