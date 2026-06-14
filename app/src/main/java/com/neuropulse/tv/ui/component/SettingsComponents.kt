@@ -151,11 +151,7 @@ fun SettingsPanel(
 ) {
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
     val insideDimmed = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
-    val borderWidth = when {
-        sectionHighlighted -> 2.dp
-        insideDimmed -> 1.dp
-        else -> 1.dp
-    }
+    val borderWidth = 2.dp
     val borderColor = when {
         sectionHighlighted -> EpgColors.Accent
         insideDimmed -> EpgColors.Accent.copy(alpha = 0.35f)
@@ -169,7 +165,10 @@ fun SettingsPanel(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .tvScrollIntoViewWhen(active = sectionHighlighted, preferTopAlign = true)
+            .tvScrollIntoViewWhen(
+                active = sectionHighlighted || insideDimmed,
+                preferTopAlign = true
+            )
             .background(backgroundColor, RoundedCornerShape(10.dp))
             .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
             .padding(20.dp),
@@ -476,7 +475,6 @@ private fun ProfileColorSwatch(
             .size(44.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties { canFocus = focusable }
-            .tvFocusScrollIntoView(enabled = focusable)
             .onFocusChanged { if (it.isFocused) onFocused() },
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
@@ -590,7 +588,10 @@ fun ConnectionResultDialog(
 @Composable
 fun FactoryResetConfirmDialog(
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String = "Reset everything?",
+    message: String = "This will delete all profiles, connections, watch history, favorites, and settings. The app will restart as if freshly installed. This cannot be undone.",
+    confirmLabel: String = "Reset everything"
 ) {
     val confirmFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -603,7 +604,7 @@ fun FactoryResetConfirmDialog(
         shape = RoundedCornerShape(16.dp),
         title = {
             Text(
-                text = "Reset everything?",
+                text = title,
                 color = Color(0xFFFF5252),
                 fontFamily = DmSansFamily,
                 fontSize = 18.sp,
@@ -612,7 +613,7 @@ fun FactoryResetConfirmDialog(
         },
         text = {
             Text(
-                text = "This will delete all profiles, connections, watch history, favorites, and settings. The app will restart as if freshly installed. This cannot be undone.",
+                text = message,
                 color = ConnectionDialogBody,
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp
@@ -626,7 +627,7 @@ fun FactoryResetConfirmDialog(
                     .focusRequester(confirmFocusRequester)
                     .focusable()
             ) {
-                Text("Reset everything", color = Color.White)
+                Text(confirmLabel, color = Color.White)
             }
         },
         dismissButton = {

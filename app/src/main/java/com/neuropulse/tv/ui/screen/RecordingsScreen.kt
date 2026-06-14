@@ -36,7 +36,6 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
-import com.neuropulse.tv.di.PlayerEntryPoint
 import com.neuropulse.tv.feature.recording.RecordingCountdown
 import com.neuropulse.tv.feature.recording.RecordingSort
 import com.neuropulse.tv.feature.recording.RecordingStatus
@@ -47,14 +46,12 @@ import com.neuropulse.tv.ui.component.EpgListEmptyState
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
-import com.neuropulse.tv.ui.component.MiniNowPlayingPlayer
 import com.neuropulse.tv.ui.component.RecordingsDetailPanel
 import com.neuropulse.tv.ui.component.RecordingsListRow
 import com.neuropulse.tv.ui.component.formatEpgTime
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.HomeEpgViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
-import dagger.hilt.android.EntryPointAccessors
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -65,7 +62,6 @@ import kotlinx.coroutines.launch
 private enum class RecFocusZone { TOP_BAR, LIST, DETAIL }
 
 private val TopBarProfileIndex get() = GridNavTabs.size
-private val TopBarMiniIndex get() = GridNavTabs.size + 1
 
 private sealed class RecordingRow {
     abstract val id: Long
@@ -114,12 +110,6 @@ fun RecordingsScreen(
     viewModel: RecordingViewModel = hiltViewModel(),
     homeViewModel: HomeEpgViewModel = hiltViewModel()
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val sleepTimer = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
-            .sleepTimerController()
-    }
-    val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
     val scheduled by viewModel.scheduled.collectAsStateWithLifecycle()
     val recorded by viewModel.recorded.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
@@ -171,11 +161,6 @@ fun RecordingsScreen(
     val sortValues = listOf(RecordingSort.DATE, RecordingSort.CHANNEL, RecordingSort.DURATION, RecordingSort.FILE_SIZE)
     val activeSortIndex = sortValues.indexOf(sort).coerceAtLeast(0)
     val selectedRow = rows.getOrNull(listFocusIndex)
-
-    val channels by homeViewModel.channels.collectAsStateWithLifecycle()
-    val continueWatching by homeViewModel.continueWatching.collectAsStateWithLifecycle()
-    val liveChannelId = livePlayerManager.activeChannelId()
-    val watchingChannel = channels.find { it.id == liveChannelId } ?: continueWatching.firstOrNull()
 
     LaunchedEffect(focusZone, topBarRow) {
         when (focusZone) {
@@ -261,7 +246,7 @@ fun RecordingsScreen(
                 when (topBarRow) {
                     1 -> tabFocusIndex = (tabFocusIndex + 1).coerceAtMost(1)
                     2 -> sortFocusIndex = (sortFocusIndex + 1).coerceAtMost(sortLabels.lastIndex)
-                    else -> topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarMiniIndex)
+                    else -> topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarProfileIndex)
                 }
                 true
             }
@@ -302,7 +287,6 @@ fun RecordingsScreen(
                             profileMenuOpen = true
                             profileMenuFocusIndex = 0
                         }
-                        TopBarMiniIndex -> watchingChannel?.let { onWatchChannel(it.id) }
                     }
                 }
                 true
@@ -455,21 +439,7 @@ fun RecordingsScreen(
                     topBarFocusIndex = GridNavTabs.indexOf(tabItem).coerceAtLeast(0)
                     activateNavTab(tabItem)
                 },
-                miniPlayer = {
-                    MiniNowPlayingPlayer(
-                        channel = watchingChannel,
-                        program = null,
-                        player = livePlayerManager.activePlayer(),
-                        isFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex == TopBarMiniIndex,
-                        sleepCountdown = sleepTimer.formatCountdown().takeIf { sleepRemaining > 0 },
-                        onFocus = {
-                            focusZone = RecFocusZone.TOP_BAR
-                            topBarRow = 0
-                            topBarFocusIndex = TopBarMiniIndex
-                        },
-                        modifier = Modifier.focusable()
-                    )
-                },
+                miniPlayer = {},
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
                     .focusable()

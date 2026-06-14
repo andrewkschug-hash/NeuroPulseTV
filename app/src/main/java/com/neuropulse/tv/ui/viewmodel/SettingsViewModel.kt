@@ -5,7 +5,14 @@ import androidx.lifecycle.viewModelScope
 import android.content.ContentResolver
 import android.net.Uri
 import com.neuropulse.tv.domain.model.AppSettings
+import com.neuropulse.tv.domain.model.AspectRatioSetting
+import com.neuropulse.tv.domain.model.BufferSize
+import com.neuropulse.tv.domain.model.ClockDisplay
+import com.neuropulse.tv.domain.model.DpadSensitivity
 import com.neuropulse.tv.domain.model.EpgRowHeight
+import com.neuropulse.tv.domain.model.MaxContentRating
+import com.neuropulse.tv.domain.model.StreamQuality
+import com.neuropulse.tv.domain.model.SubtitleFontSize
 import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.XtreamAccountInfo
@@ -83,6 +90,9 @@ class SettingsViewModel @Inject constructor(
 
     private val _currentStorageLabel = MutableStateFlow<String?>(null)
     val currentStorageLabel = _currentStorageLabel.asStateFlow()
+
+    private val _cacheMessage = MutableStateFlow<String?>(null)
+    val cacheMessage = _cacheMessage.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -269,10 +279,114 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun updateMiniPlayerAudio(enabled: Boolean) {
+        persistSettings(_settings.value.copy(miniPlayerAudioEnabled = enabled))
+    }
+
+    private fun persistSettings(updated: AppSettings) {
+        _settings.value = updated
+        viewModelScope.launch { repository.saveSettings(updated) }
+    }
+
+    fun updateParentalPinLock(enabled: Boolean) {
+        persistSettings(_settings.value.copy(parentalPinLockEnabled = enabled))
+    }
+
+    fun updateMaxContentRating(rating: MaxContentRating) {
+        persistSettings(_settings.value.copy(maxContentRating = rating))
+    }
+
+    fun updateConnectionTimeout(seconds: Int) {
+        persistSettings(_settings.value.copy(connectionTimeoutSeconds = seconds))
+    }
+
+    fun updateUseProxy(enabled: Boolean) {
+        persistSettings(_settings.value.copy(useProxy = enabled))
+    }
+
+    fun updateProxyUrl(url: String) {
+        persistSettings(_settings.value.copy(proxyUrl = url))
+    }
+
+    fun updateShowEpgProgramInfoOnSidebar(enabled: Boolean) {
+        persistSettings(_settings.value.copy(showEpgProgramInfoOnSidebar = enabled))
+    }
+
+    fun updateStartChannelFromBeginningOnCatchup(enabled: Boolean) {
+        persistSettings(_settings.value.copy(startChannelFromBeginningOnCatchup = enabled))
+    }
+
+    fun updateDefaultStreamQuality(quality: StreamQuality) {
+        persistSettings(_settings.value.copy(defaultStreamQuality = quality))
+    }
+
+    fun updateBufferSize(size: BufferSize) {
+        persistSettings(_settings.value.copy(bufferSize = size))
+    }
+
+    fun updateAutoReconnectOnDrop(enabled: Boolean) {
+        persistSettings(_settings.value.copy(autoReconnectOnDrop = enabled))
+    }
+
+    fun updatePreferHardwareDecoding(enabled: Boolean) {
+        persistSettings(_settings.value.copy(preferHardwareDecoding = enabled))
+    }
+
+    fun updateAspectRatio(ratio: AspectRatioSetting) {
+        persistSettings(_settings.value.copy(aspectRatio = ratio))
+    }
+
+    fun updateSubtitlesEnabled(enabled: Boolean) {
+        persistSettings(_settings.value.copy(subtitlesEnabled = enabled))
+    }
+
+    fun updateSubtitleLanguage(language: String) {
+        persistSettings(_settings.value.copy(subtitleLanguage = language))
+    }
+
+    fun updateSubtitleFontSize(size: SubtitleFontSize) {
+        persistSettings(_settings.value.copy(subtitleFontSize = size))
+    }
+
+    fun updateDeinterlacingEnabled(enabled: Boolean) {
+        persistSettings(_settings.value.copy(deinterlacingEnabled = enabled))
+    }
+
+    fun updateMiniPlayerEnabled(enabled: Boolean) {
+        persistSettings(_settings.value.copy(miniPlayerEnabled = enabled))
+    }
+
+    fun updateSidebarAutoHideSeconds(seconds: Int) {
+        persistSettings(_settings.value.copy(sidebarAutoHideSeconds = seconds))
+    }
+
+    fun updateShowChannelNumbers(enabled: Boolean) {
+        persistSettings(_settings.value.copy(showChannelNumbers = enabled))
+    }
+
+    fun updateDpadSidebarSensitivity(sensitivity: DpadSensitivity) {
+        persistSettings(_settings.value.copy(dpadSidebarSensitivity = sensitivity))
+    }
+
+    fun updateClockDisplay(display: ClockDisplay) {
+        persistSettings(_settings.value.copy(clockDisplay = display))
+    }
+
+    fun clearCache() {
         viewModelScope.launch {
-            val updated = _settings.value.copy(miniPlayerAudioEnabled = enabled)
-            _settings.value = updated
-            repository.saveSettings(updated)
+            repository.clearAppCache()
+            _cacheMessage.value = "Cache cleared"
+        }
+    }
+
+    fun dismissCacheMessage() {
+        _cacheMessage.value = null
+    }
+
+    fun resetSettingsToDefaults() {
+        viewModelScope.launch {
+            repository.resetSettingsToDefaults()
+            _settings.value = repository.loadSettings()
+            syncScannerSettings()
         }
     }
 

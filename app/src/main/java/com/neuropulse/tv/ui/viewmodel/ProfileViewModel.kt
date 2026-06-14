@@ -68,4 +68,11 @@ class ProfileViewModel @Inject constructor(
 
     suspend fun verifyPin(profileId: Long, pin: String): Boolean =
         repository.verifyProfilePin(profileId, pin)
+
+    fun updateProfilePin(profileId: Long, pin: String?) {
+        viewModelScope.launch {
+            repository.updateProfilePin(profileId, pin)
+            refreshActiveProfile()
+        }
+    }
 }

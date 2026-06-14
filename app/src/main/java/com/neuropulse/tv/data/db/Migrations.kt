@@ -241,4 +241,30 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN parentalPinLockEnabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN maxContentRating TEXT NOT NULL DEFAULT 'ALL_AGES'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN connectionTimeoutSeconds INTEGER NOT NULL DEFAULT 10")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN useProxy INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN proxyUrl TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN showEpgProgramInfoOnSidebar INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN startChannelFromBeginningOnCatchup INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN defaultStreamQuality TEXT NOT NULL DEFAULT 'AUTO'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN bufferSize TEXT NOT NULL DEFAULT 'MEDIUM'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN autoReconnectOnDrop INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN preferHardwareDecoding INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN aspectRatio TEXT NOT NULL DEFAULT 'AUTO'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN subtitlesEnabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN subtitleLanguage TEXT NOT NULL DEFAULT 'en'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN subtitleFontSize TEXT NOT NULL DEFAULT 'MEDIUM'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN deinterlacingEnabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN miniPlayerEnabled INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN sidebarAutoHideSeconds INTEGER NOT NULL DEFAULT 5")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN showChannelNumbers INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN dpadSidebarSensitivity TEXT NOT NULL DEFAULT 'NORMAL'")
+            db.execSQL("ALTER TABLE profile_settings ADD COLUMN clockDisplay TEXT NOT NULL DEFAULT 'OFF'")
+        }
+    }
 }

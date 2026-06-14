@@ -59,7 +59,7 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         FavoriteGroupEntity::class,
         ChannelScanEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

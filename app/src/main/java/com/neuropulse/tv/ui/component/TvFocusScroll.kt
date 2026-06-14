@@ -1,6 +1,8 @@
 ﻿package com.neuropulse.tv.ui.component
 
 import android.content.pm.PackageManager
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +35,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.roundToInt
 
 /** Tunable TV focus-scroll behavior (safe zone, centering, animation). */
@@ -41,7 +45,13 @@ object TvFocusScrollConfig {
     var safeZoneDp: Dp = 80.dp
     var preferCenter: Boolean = true
     var animateScroll: Boolean = true
+    var scrollAnimationDurationMs: Int = 180
 }
+
+private fun focusScrollAnimationSpec(durationMs: Int) = tween<Float>(
+    durationMillis = durationMs,
+    easing = FastOutLinearInEasing
+)
 
 val LocalTvFocusScrollState = compositionLocalOf<TvFocusScrollState?> { null }
 
@@ -97,6 +107,8 @@ class TvFocusScrollState(
     var containerCoords: LayoutCoordinates? by mutableStateOf(null)
         private set
 
+    private val scrollMutex = Mutex()
+
     fun updateContainer(coords: LayoutCoordinates) {
         containerCoords = coords
     }
@@ -107,10 +119,10 @@ class TvFocusScrollState(
         preferTopAlign: Boolean = false
     ) {
         if (!TvFocusScrollConfig.enabled) return
-        val container = containerCoords ?: return
-        if (!container.isAttached || !itemCoords.isAttached) return
+        scrollMutex.withLock {
+            val container = containerCoords ?: return
+            if (!container.isAttached || !itemCoords.isAttached) return
 
-        repeat(3) { attempt ->
             val itemTop = container.localPositionOf(itemCoords, Offset.Zero).y
             val itemBottom = itemTop + itemCoords.size.height
             val viewportHeight = container.size.height
@@ -127,12 +139,16 @@ class TvFocusScrollState(
 
             val delta = target - scrollState.value
             if (delta == 0) return
-            if (TvFocusScrollConfig.animateScroll) {
-                scrollState.animateScrollBy(delta.toFloat())
-            } else {
+
+            // Top-aligned scrolling (Settings sections) snaps instantly to avoid bounce.
+            if (preferTopAlign || !TvFocusScrollConfig.animateScroll) {
                 scrollState.scrollTo(target)
+            } else {
+                scrollState.animateScrollBy(
+                    value = delta.toFloat(),
+                    animationSpec = focusScrollAnimationSpec(TvFocusScrollConfig.scrollAnimationDurationMs)
+                )
             }
-            if (attempt < 2) delay(32)
         }
     }
 }
@@ -192,7 +208,8 @@ fun TvScrollContainer(
 @Composable
 fun Modifier.tvFocusScrollIntoView(
     scrollState: TvFocusScrollState? = LocalTvFocusScrollState.current,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    preferTopAlign: Boolean = false
 ): Modifier {
     if (scrollState == null || !enabled) return this
 
@@ -210,7 +227,11 @@ fun Modifier.tvFocusScrollIntoView(
                     scope.launch {
                         // Allow layout to settle after programmatic focus moves (D-pad chains).
                         delay(16)
-                        scrollState.scrollIntoViewIfNeeded(coords, safeZonePx)
+                        scrollState.scrollIntoViewIfNeeded(
+                            coords,
+                            safeZonePx,
+                            preferTopAlign = preferTopAlign
+                        )
                     }
                 }
             }
@@ -235,10 +256,10 @@ fun Modifier.tvScrollIntoViewWhen(
     val safeZonePx = with(density) { TvFocusScrollConfig.safeZoneDp.toPx() }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
-    LaunchedEffect(active, coordinates) {
+    LaunchedEffect(active) {
         if (!active) return@LaunchedEffect
-        val coords = coordinates ?: return@LaunchedEffect
         delay(16)
+        val coords = coordinates ?: return@LaunchedEffect
         scrollState.scrollIntoViewIfNeeded(coords, safeZonePx, preferTopAlign = preferTopAlign)
     }
 

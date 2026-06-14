@@ -110,7 +110,6 @@ fun settingsFocusModifier(
     .focusProperties {
         canFocus = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
     }
-    .tvFocusScrollIntoView()
     .onFocusChanged { state ->
         if (state.isFocused) {
             focus.chain.onItemFocused(chainIndex)
@@ -245,7 +244,8 @@ fun SettingsFocusButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isLoading: Boolean = false,
-    loadingLabel: String = "Connecting..."
+    loadingLabel: String = "Connecting...",
+    destructive: Boolean = false
 ) {
     val highlighted = focus.isFocused(chainIndex)
     Button(
@@ -255,7 +255,11 @@ fun SettingsFocusButton(
             .then(settingsFocusModifier(chainIndex, focus, enabled && !isLoading))
             .border(
                 width = if (highlighted) 2.dp else 0.dp,
-                color = if (highlighted) EpgColors.Accent else Color.Transparent,
+                color = when {
+                    highlighted && destructive -> Color(0xFFE53935)
+                    highlighted -> EpgColors.Accent
+                    else -> Color.Transparent
+                },
                 shape = RoundedCornerShape(8.dp)
             )
     ) {
@@ -270,7 +274,10 @@ fun SettingsFocusButton(
                 Text(loadingLabel)
             }
         } else {
-            Text(text)
+            Text(
+                text = text,
+                color = if (destructive) Color(0xFFE53935) else Color.Unspecified
+            )
         }
     }
 }
@@ -315,20 +322,29 @@ fun SettingsFocusToggleRow(
 }
 
 fun connectionsAddFocusCount(playlistType: PlaylistType): Int = when (playlistType) {
-    PlaylistType.M3U -> 9
-    PlaylistType.XTREAM -> 11
-    PlaylistType.STALKER -> 9
+    PlaylistType.M3U -> 14
+    PlaylistType.XTREAM -> 16
+    PlaylistType.STALKER -> 14
 }
 
 fun connectionsFocusCount(playlistType: PlaylistType, playlistCount: Int): Int =
     connectionsAddFocusCount(playlistType) + playlistCount
 
-fun guideFocusCount(): Int = 18
+fun guideFocusCount(): Int = 20
+
+fun playbackFocusCount(): Int = 29
+
+fun interfaceFocusCount(): Int = 12
+
+fun aboutFocusCount(): Int = 4
 
 /** Horizontal pill groups per settings section (inclusive ranges). */
 fun settingsHorizontalPillGroups(kind: SettingsSectionKind): List<IntRange> = when (kind) {
-    SettingsSectionKind.Connections -> listOf(1..2)
+    SettingsSectionKind.Profile -> listOf(3..6)
+    SettingsSectionKind.Connections -> listOf(1..2, 6..8)
     SettingsSectionKind.Guide -> listOf(2..4, 5..6, 7..11, 12..15)
+    SettingsSectionKind.Playback -> listOf(3..6, 7..9, 12..15, 18..20)
+    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11)
     else -> emptyList()
 }
 
@@ -416,7 +432,7 @@ fun profileContentFocusCount(
 ): Int {
     val swatchCount = if (hasActiveProfile) 8 else 0
     val useButtons = profileCount - if (activeProfileId != null) 1 else 0
-    return 1 + swatchCount + useButtons.coerceAtLeast(0) + 2
+    return 1 + swatchCount + useButtons.coerceAtLeast(0) + 7
 }
 
 fun buildProfileSectionCards(
@@ -429,8 +445,7 @@ fun buildProfileSectionCards(
 ): List<SettingsSectionCard> {
     val swatches = if (hasActiveProfile) swatchCount else 0
     val useButtons = (profileCount - if (activeProfileId != null) 1 else 0).coerceAtLeast(0)
-    val hideAdultIndex = (contentFocusCount - 2).coerceAtLeast(0)
-    val miniAudioIndex = (contentFocusCount - 1).coerceAtLeast(0)
+    val parentalStart = (contentFocusCount - 7).coerceAtLeast(0)
     return buildList {
         add(SettingsSectionCard(firstFocusIndex = 0, focusCount = 1))
         if (hasActiveProfile) {
@@ -443,13 +458,12 @@ fun buildProfileSectionCards(
                 SettingsSectionCard(firstFocusIndex = -1, focusCount = 0)
             }
         )
-        add(SettingsSectionCard(firstFocusIndex = hideAdultIndex, focusCount = 1))
-        add(SettingsSectionCard(firstFocusIndex = miniAudioIndex, focusCount = 1))
+        add(SettingsSectionCard(firstFocusIndex = parentalStart, focusCount = 7))
     }
 }
 
 enum class SettingsSectionKind {
-    Profile, Connections, Guide, Playback, Recordings, About
+    Profile, Connections, Guide, Playback, Interface, Recordings, About
 }
 
 fun buildSettingsSectionCards(
@@ -478,18 +492,26 @@ fun buildSettingsSectionCards(
     SettingsSectionKind.Guide -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = 2),
         SettingsSectionCard(firstFocusIndex = 2, focusCount = 3),
-        SettingsSectionCard(firstFocusIndex = 5, focusCount = 13)
+        SettingsSectionCard(firstFocusIndex = 5, focusCount = 13),
+        SettingsSectionCard(firstFocusIndex = 18, focusCount = 2)
     )
     SettingsSectionKind.Playback -> listOf(
-        SettingsSectionCard(firstFocusIndex = 0, focusCount = 4),
-        SettingsSectionCard(firstFocusIndex = 4, focusCount = 1),
-        SettingsSectionCard(firstFocusIndex = 5, focusCount = 5)
+        SettingsSectionCard(firstFocusIndex = 0, focusCount = 12),
+        SettingsSectionCard(firstFocusIndex = 12, focusCount = 4),
+        SettingsSectionCard(firstFocusIndex = 16, focusCount = 6),
+        SettingsSectionCard(firstFocusIndex = 22, focusCount = 7)
+    )
+    SettingsSectionKind.Interface -> listOf(
+        SettingsSectionCard(firstFocusIndex = 0, focusCount = 5),
+        SettingsSectionCard(firstFocusIndex = 5, focusCount = 1),
+        SettingsSectionCard(firstFocusIndex = 6, focusCount = 6)
     )
     SettingsSectionKind.Recordings -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = storageOptionCount)
     )
     SettingsSectionKind.About -> listOf(
-        SettingsSectionCard(firstFocusIndex = 0, focusCount = 1),
-        SettingsSectionCard(firstFocusIndex = 1, focusCount = 1)
+        SettingsSectionCard(firstFocusIndex = 0, focusCount = 2),
+        SettingsSectionCard(firstFocusIndex = 2, focusCount = 1),
+        SettingsSectionCard(firstFocusIndex = 3, focusCount = 1)
     )
 }

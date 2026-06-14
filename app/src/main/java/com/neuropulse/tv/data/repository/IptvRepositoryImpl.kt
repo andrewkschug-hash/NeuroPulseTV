@@ -42,6 +42,13 @@ import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.FavoriteGroup
 import com.neuropulse.tv.domain.model.EpgResolutionStatus
 import com.neuropulse.tv.domain.model.EpgRowHeight
+import com.neuropulse.tv.domain.model.AspectRatioSetting
+import com.neuropulse.tv.domain.model.BufferSize
+import com.neuropulse.tv.domain.model.ClockDisplay
+import com.neuropulse.tv.domain.model.DpadSensitivity
+import com.neuropulse.tv.domain.model.MaxContentRating
+import com.neuropulse.tv.domain.model.StreamQuality
+import com.neuropulse.tv.domain.model.SubtitleFontSize
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.Program
@@ -412,6 +419,11 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean {
         val profile = profileDao.getProfile(profileId) ?: return false
         return profile.pin == pin
+    }
+
+    override suspend fun updateProfilePin(profileId: Long, pin: String?) {
+        val profile = profileDao.getProfile(profileId) ?: return
+        profileDao.upsertProfile(profile.copy(pin = pin?.takeIf { it.length == 4 }))
     }
 
     override suspend fun purgeDefaultProfiles() {
@@ -828,7 +840,7 @@ class IptvRepositoryImpl @Inject constructor(
         return AppSettings(
             streamRetries = db.streamRetries,
             preferredAudioLanguage = db.preferredAudioLanguage,
-            epgRowHeight = runCatching { EpgRowHeight.valueOf(db.epgRowHeight) }.getOrDefault(EpgRowHeight.NORMAL),
+            epgRowHeight = enumValueOrDefault(db.epgRowHeight, EpgRowHeight.NORMAL),
             miniPlayerAudioEnabled = db.previewEnabled,
             pinProtectedGroups = emptySet(),
             sleepTimerMinutes = db.sleepTimerMinutes,
@@ -838,7 +850,28 @@ class IptvRepositoryImpl @Inject constructor(
             scanIntervalMinutes = db.scanIntervalMinutes,
             concurrentChecks = db.concurrentChecks,
             scanOnMetered = db.scanOnMetered,
-            preferredSearchInput = SearchInputMode.fromStored(db.preferredSearchInput)
+            preferredSearchInput = SearchInputMode.fromStored(db.preferredSearchInput),
+            parentalPinLockEnabled = db.parentalPinLockEnabled,
+            maxContentRating = enumValueOrDefault(db.maxContentRating, MaxContentRating.ALL_AGES),
+            connectionTimeoutSeconds = db.connectionTimeoutSeconds,
+            useProxy = db.useProxy,
+            proxyUrl = db.proxyUrl,
+            showEpgProgramInfoOnSidebar = db.showEpgProgramInfoOnSidebar,
+            startChannelFromBeginningOnCatchup = db.startChannelFromBeginningOnCatchup,
+            defaultStreamQuality = enumValueOrDefault(db.defaultStreamQuality, StreamQuality.AUTO),
+            bufferSize = enumValueOrDefault(db.bufferSize, BufferSize.MEDIUM),
+            autoReconnectOnDrop = db.autoReconnectOnDrop,
+            preferHardwareDecoding = db.preferHardwareDecoding,
+            aspectRatio = enumValueOrDefault(db.aspectRatio, AspectRatioSetting.AUTO),
+            subtitlesEnabled = db.subtitlesEnabled,
+            subtitleLanguage = db.subtitleLanguage,
+            subtitleFontSize = enumValueOrDefault(db.subtitleFontSize, SubtitleFontSize.MEDIUM),
+            deinterlacingEnabled = db.deinterlacingEnabled,
+            miniPlayerEnabled = db.miniPlayerEnabled,
+            sidebarAutoHideSeconds = db.sidebarAutoHideSeconds,
+            showChannelNumbers = db.showChannelNumbers,
+            dpadSidebarSensitivity = enumValueOrDefault(db.dpadSidebarSensitivity, DpadSensitivity.NORMAL),
+            clockDisplay = enumValueOrDefault(db.clockDisplay, ClockDisplay.OFF)
         )
     }
 
@@ -865,10 +898,34 @@ class IptvRepositoryImpl @Inject constructor(
                 concurrentChecks = settings.concurrentChecks,
                 scanOnMetered = settings.scanOnMetered,
                 lastFullScanAt = old?.lastFullScanAt,
-                preferredSearchInput = settings.preferredSearchInput.name
+                preferredSearchInput = settings.preferredSearchInput.name,
+                parentalPinLockEnabled = settings.parentalPinLockEnabled,
+                maxContentRating = settings.maxContentRating.name,
+                connectionTimeoutSeconds = settings.connectionTimeoutSeconds,
+                useProxy = settings.useProxy,
+                proxyUrl = settings.proxyUrl,
+                showEpgProgramInfoOnSidebar = settings.showEpgProgramInfoOnSidebar,
+                startChannelFromBeginningOnCatchup = settings.startChannelFromBeginningOnCatchup,
+                defaultStreamQuality = settings.defaultStreamQuality.name,
+                bufferSize = settings.bufferSize.name,
+                autoReconnectOnDrop = settings.autoReconnectOnDrop,
+                preferHardwareDecoding = settings.preferHardwareDecoding,
+                aspectRatio = settings.aspectRatio.name,
+                subtitlesEnabled = settings.subtitlesEnabled,
+                subtitleLanguage = settings.subtitleLanguage,
+                subtitleFontSize = settings.subtitleFontSize.name,
+                deinterlacingEnabled = settings.deinterlacingEnabled,
+                miniPlayerEnabled = settings.miniPlayerEnabled,
+                sidebarAutoHideSeconds = settings.sidebarAutoHideSeconds,
+                showChannelNumbers = settings.showChannelNumbers,
+                dpadSidebarSensitivity = settings.dpadSidebarSensitivity.name,
+                clockDisplay = settings.clockDisplay.name
             )
         )
     }
+
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(raw: String, default: T): T =
+        runCatching { enumValueOf<T>(raw) }.getOrDefault(default)
 
     override suspend fun preferredSearchInput(): SearchInputMode {
         ensureDefaultProfile()
@@ -923,6 +980,25 @@ class IptvRepositoryImpl @Inject constructor(
         ensureDefaultProfile()
         val summary = tiviMateImporter.importZip(contentResolver, uri, cacheDir, activeProfileId)
         return "Imported ${summary.channels} channels, ${summary.favorites} favorites, ${summary.playlists} playlists"
+    }
+
+    override suspend fun clearAppCache() = withContext(Dispatchers.IO) {
+        epgCache.clear()
+    }
+
+    override suspend fun resetSettingsToDefaults() {
+        ensureDefaultProfile()
+        val old = profileSettingsDao.get(activeProfileId)
+        val defaults = AppSettings()
+        cachedSettings = defaults
+        profileSettingsDao.upsert(
+            ProfileSettingsEntity(
+                profileId = activeProfileId,
+                recordingStoragePath = old?.recordingStoragePath,
+                lastSeenVersion = old?.lastSeenVersion,
+                lastFullScanAt = old?.lastFullScanAt
+            )
+        )
     }
 
     override suspend fun resetApp() = withContext(Dispatchers.IO) {

@@ -3,7 +3,6 @@ package com.neuropulse.tv.ui.component
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -40,7 +39,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -62,9 +60,9 @@ object EpgLayout {
     val RowHeight = 64.dp
     val TimelineHeaderHeight = 32.dp
     val DetailPanelHeight = 84.dp
-    val MiniPlayerWidth = 280.dp
-    val MiniPlayerHeight = 158.dp
-    val MiniPlayerTopOffset = TimelineHeaderHeight + 8.dp
+    val MiniPlayerWidth = 300.dp
+    val MiniPlayerHeight = 169.dp
+    val GuideHeaderBottomPadding = 8.dp
     val DpPerMinute = 4f
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
@@ -570,7 +568,9 @@ fun EpgDetailPanel(
     detailActionFocused: Int,
     onActionFocusChange: (Int) -> Unit,
     onWatch: () -> Unit,
+    onFavorite: () -> Unit,
     onRecord: () -> Unit,
+    isFavorite: Boolean = false,
     visible: Boolean,
     streamStatus: StreamPlaybackStatus? = null,
     modifier: Modifier = Modifier
@@ -638,15 +638,18 @@ fun EpgDetailPanel(
                 label = "▶ Watch",
                 isFocused = detailActionFocused == 0,
                 onClick = onWatch,
-                onFocus = { onActionFocusChange(0) },
-                primary = true,
+                compact = true
+            )
+            EpgActionButton(
+                label = if (isFavorite) "★ Favourite" else "☆ Favourite",
+                isFocused = detailActionFocused == 1,
+                onClick = onFavorite,
                 compact = true
             )
             EpgActionButton(
                 label = "⏺ Record",
-                isFocused = detailActionFocused == 1,
+                isFocused = detailActionFocused == 2,
                 onClick = onRecord,
-                onFocus = { onActionFocusChange(1) },
                 compact = true
             )
         }
@@ -671,36 +674,43 @@ private fun EpgActionButton(
     label: String,
     isFocused: Boolean,
     onClick: () -> Unit,
-    onFocus: () -> Unit,
-    primary: Boolean = false,
     compact: Boolean = false
 ) {
-    Button(
+    val shape = RoundedCornerShape(6.dp)
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.04f else 1f,
+        label = "epgActionScale"
+    )
+    Surface(
         onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = EpgColors.GridBg,
+            focusedContainerColor = EpgColors.ChannelRowFocusBg
+        ),
         modifier = Modifier
-            .then(
-                if (primary) {
-                    Modifier.background(EpgColors.Accent.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
-                } else {
-                    Modifier
-                }
+            .scale(scale)
+            .height(if (compact) 32.dp else 36.dp)
+            .border(
+                width = if (isFocused) 2.dp else 1.dp,
+                color = if (isFocused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
+                shape = shape
             )
-            .then(if (isFocused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp)) else Modifier)
-            .focusable()
-            .onFocusChanged { if (it.isFocused) onFocus() }
+            .focusProperties { canFocus = false }
     ) {
-        Text(
-            text = label,
-            fontFamily = DmSansFamily,
-            fontSize = when {
-                compact && primary -> 12.sp
-                compact -> 11.sp
-                primary -> 14.sp
-                else -> 13.sp
-            },
-            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (primary) EpgColors.Accent else EpgColors.TextPrimary
-        )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = if (compact) 6.dp else 8.dp)
+        ) {
+            Text(
+                text = label,
+                fontFamily = DmSansFamily,
+                fontSize = if (compact) 11.sp else 13.sp,
+                fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
+                color = EpgColors.TextPrimary,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -732,6 +742,8 @@ fun EpgChipFilterBar(
                 fontFamily = DmSansFamily,
                 fontSize = 13.sp,
                 fontWeight = if (chipFocused || selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
                     .border(1.dp, borderColor, RoundedCornerShape(6.dp))
                     .background(bg, RoundedCornerShape(6.dp))
@@ -986,8 +998,7 @@ fun RecordingsDetailPanel(
                     EpgActionButton(
                         label = label,
                         isFocused = detailActionFocused == index,
-                        onClick = { onAction(index) },
-                        onFocus = { onActionFocusChange(index) }
+                        onClick = { onAction(index) }
                     )
                 }
             }

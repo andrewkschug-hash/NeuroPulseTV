@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -97,6 +99,7 @@ import kotlinx.coroutines.launch
 private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, GRID_FILTER, GRID, DETAIL, MINI_PLAYER }
 
 private val TopBarProfileIndex get() = GridNavTabs.size
+private const val TopBarSearchIndex = 0
 
 @Composable
 fun HomeEpgScreen(
@@ -600,6 +603,11 @@ fun HomeEpgScreen(
             }
             1 -> {
                 val ch = focusedChannel ?: return
+                val isFav = if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
+                viewModel.toggleFavorite(ch.id, isFav)
+            }
+            2 -> {
+                val ch = focusedChannel ?: return
                 val prog = focusedProgram
                 if (prog == null) {
                     recordingViewModel.startImmediateRecording(context, ch, ch.name)
@@ -610,6 +618,52 @@ fun HomeEpgScreen(
                     recordingViewModel.scheduleProgram(ch, prog)
                 }
             }
+        }
+    }
+
+    fun focusSearchTopBar() {
+        topBarFocusIndex = TopBarSearchIndex
+        focusZone = EpgFocusZone.TOP_BAR
+    }
+
+    fun focusGuideFilter() {
+        focusZone = EpgFocusZone.GRID_FILTER
+    }
+
+    fun focusGuideChannels() {
+        focusZone = EpgFocusZone.GRID
+        focusChannelIndex = 0
+        focusOnChannelColumn = true
+    }
+
+    fun moveGuideFocusUp(from: EpgFocusZone) {
+        when (from) {
+            EpgFocusZone.GRID_FILTER -> {
+                if (continueWatchingItems.isNotEmpty()) {
+                    focusZone = EpgFocusZone.CONTINUE_WATCHING
+                } else {
+                    focusSearchTopBar()
+                }
+            }
+            EpgFocusZone.CONTINUE_WATCHING -> focusSearchTopBar()
+            EpgFocusZone.MINI_PLAYER -> focusSearchTopBar()
+            else -> Unit
+        }
+    }
+
+    fun moveGuideFocusDown(from: EpgFocusZone) {
+        when (from) {
+            EpgFocusZone.TOP_BAR -> {
+                focusZone = if (continueWatchingItems.isNotEmpty()) {
+                    EpgFocusZone.CONTINUE_WATCHING
+                } else {
+                    EpgFocusZone.GRID_FILTER
+                }
+            }
+            EpgFocusZone.CONTINUE_WATCHING -> focusGuideFilter()
+            EpgFocusZone.GRID_FILTER -> focusGuideChannels()
+            EpgFocusZone.MINI_PLAYER -> focusGuideFilter()
+            else -> Unit
         }
     }
 
@@ -645,14 +699,11 @@ fun HomeEpgScreen(
         if (showCategoryFilterMenu) return handleCategoryFilterMenuKey(event)
         return when (event.key) {
             Key.DirectionDown -> {
-                focusZone = EpgFocusZone.GRID
-                focusChannelIndex = 0
-                focusOnChannelColumn = true
+                focusGuideChannels()
                 true
             }
             Key.DirectionUp -> {
-                focusZone = EpgFocusZone.TOP_BAR
-                topBarFocusIndex = 0
+                moveGuideFocusUp(EpgFocusZone.GRID_FILTER)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -694,12 +745,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionDown -> {
-                focusZone = if (continueWatchingItems.isNotEmpty()) {
-                    EpgFocusZone.CONTINUE_WATCHING
-                } else {
-                    EpgFocusZone.GRID
-                }
-                focusOnChannelColumn = true
+                moveGuideFocusDown(EpgFocusZone.TOP_BAR)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -730,13 +776,11 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionUp -> {
-                focusZone = EpgFocusZone.TOP_BAR
-                topBarFocusIndex = 0
+                focusSearchTopBar()
                 true
             }
             Key.DirectionDown -> {
-                focusZone = EpgFocusZone.GRID
-                focusOnChannelColumn = true
+                focusGuideFilter()
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -749,8 +793,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.Back, Key.Escape -> {
-                focusZone = EpgFocusZone.TOP_BAR
-                topBarFocusIndex = 0
+                focusSearchTopBar()
                 true
             }
             else -> false
@@ -767,7 +810,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionRight -> {
-                if (detailActionIndex < 1) {
+                if (detailActionIndex < 2) {
                     detailActionIndex += 1
                 } else if (lastPlayedChannel != null) {
                     focusZone = EpgFocusZone.MINI_PLAYER
@@ -806,8 +849,11 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionUp -> {
-                focusZone = EpgFocusZone.TOP_BAR
-                topBarFocusIndex = 0
+                focusSearchTopBar()
+                true
+            }
+            Key.DirectionDown -> {
+                focusGuideFilter()
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -845,7 +891,7 @@ fun HomeEpgScreen(
                     }
                     scope.launch { listState.animateScrollToItem(focusChannelIndex) }
                 } else {
-                    focusZone = EpgFocusZone.GRID_FILTER
+                    focusGuideFilter()
                 }
                 true
             }
@@ -926,12 +972,7 @@ fun HomeEpgScreen(
                     scope.launch { listState.animateScrollToItem(0) }
                     true
                 } else {
-                    focusZone = if (continueWatchingItems.isNotEmpty()) {
-                        EpgFocusZone.CONTINUE_WATCHING
-                    } else {
-                        EpgFocusZone.TOP_BAR
-                    }
-                    topBarFocusIndex = 0
+                    focusGuideFilter()
                     true
                 }
             }
@@ -965,6 +1006,10 @@ fun HomeEpgScreen(
     }
 
     val miniPlayerAudioEnabled by viewModel.miniPlayerAudioEnabled.collectAsStateWithLifecycle()
+    val miniPlayerChannel = lastPlayedChannel?.let { played ->
+        val streamUrl = channels.find { it.id == played.id }?.streamUrl ?: played.streamUrl
+        if (streamUrl.isNotBlank()) played to streamUrl else null
+    }
 
     Box(
         modifier = Modifier
@@ -1025,23 +1070,63 @@ fun HomeEpgScreen(
                 )
             }
 
-            ContinueWatchingRow(
-                items = continueWatchingItems,
-                focusedIndex = focusedContinueIndex,
-                rowFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
-                onSelect = { item ->
-                    if (viewModel.isProfileAccessAllowed()) {
-                        viewModel.resumeContinueWatching(context, item)
-                        onWatchChannel(item.channel.id)
-                    }
-                },
+            Row(
                 modifier = Modifier
-                    .focusRequester(continueWatchingFocusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent {
-                        focusZone == EpgFocusZone.CONTINUE_WATCHING && handleContinueWatchingKey(it)
-                    }
-            )
+                    .fillMaxWidth()
+                    .then(
+                        if (miniPlayerChannel != null) {
+                            Modifier.heightIn(min = EpgLayout.MiniPlayerHeight + 16.dp)
+                        } else {
+                            Modifier
+                        }
+                    ),
+                verticalAlignment = Alignment.Top
+            ) {
+                if (continueWatchingItems.isNotEmpty()) {
+                    ContinueWatchingRow(
+                        items = continueWatchingItems,
+                        focusedIndex = focusedContinueIndex,
+                        rowFocused = focusZone == EpgFocusZone.CONTINUE_WATCHING,
+                        onSelect = { item ->
+                            if (viewModel.isProfileAccessAllowed()) {
+                                viewModel.resumeContinueWatching(context, item)
+                                onWatchChannel(item.channel.id)
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .focusRequester(continueWatchingFocusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent {
+                                focusZone == EpgFocusZone.CONTINUE_WATCHING && handleContinueWatchingKey(it)
+                            }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+
+                miniPlayerChannel?.let { (playedChannel, streamUrl) ->
+                    MiniPlayerOverlay(
+                        channel = playedChannel,
+                        streamUrl = streamUrl,
+                        isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
+                        isIdleShrunk = miniPlayerIdleShrunk,
+                        miniAudioEnabled = miniPlayerAudioEnabled,
+                        onClick = { watchChannel(playedChannel) },
+                        modifier = Modifier
+                            .padding(
+                                top = 8.dp,
+                                end = 16.dp,
+                                bottom = EpgLayout.GuideHeaderBottomPadding
+                            )
+                            .focusRequester(miniPlayerFocusRequester)
+                            .focusable()
+                            .onPreviewKeyEvent {
+                                if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
+                            }
+                    )
+                }
+            }
 
             Box(
                 modifier = Modifier
@@ -1171,33 +1256,6 @@ fun HomeEpgScreen(
                         .align(Alignment.TopEnd)
                         .padding(top = 4.dp, end = 12.dp)
                 )
-
-                lastPlayedChannel?.let { playedChannel ->
-                    val streamUrl = channels.find { it.id == playedChannel.id }?.streamUrl
-                        ?: playedChannel.streamUrl
-                    if (streamUrl.isNotBlank()) {
-                        MiniPlayerOverlay(
-                            channel = playedChannel,
-                            streamUrl = streamUrl,
-                            isFocused = focusZone == EpgFocusZone.MINI_PLAYER,
-                            isIdleShrunk = miniPlayerIdleShrunk,
-                            miniAudioEnabled = miniPlayerAudioEnabled,
-                            onClick = { watchChannel(playedChannel) },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(
-                                    top = EpgLayout.MiniPlayerTopOffset,
-                                    end = 16.dp
-                                )
-                                .widthIn(max = EpgLayout.MiniPlayerWidth)
-                                .focusRequester(miniPlayerFocusRequester)
-                                .focusable()
-                                .onPreviewKeyEvent {
-                                    if (focusZone == EpgFocusZone.MINI_PLAYER) handleMiniPlayerKey(it) else false
-                                }
-                        )
-                    }
-                }
             }
                 }
             }
@@ -1212,10 +1270,17 @@ fun HomeEpgScreen(
                     detailActionIndex = 0
                     executeDetailAction()
                 },
-                onRecord = {
+                onFavorite = {
                     detailActionIndex = 1
                     executeDetailAction()
                 },
+                onRecord = {
+                    detailActionIndex = 2
+                    executeDetailAction()
+                },
+                isFavorite = focusedChannel?.let { ch ->
+                    if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
+                } ?: false,
                 visible = showDetailPanel,
                 streamStatus = previewStreamStatus,
                 modifier = Modifier

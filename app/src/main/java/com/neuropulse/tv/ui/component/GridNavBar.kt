@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
@@ -110,7 +112,11 @@ private fun GridNavFocusTooltip(
         fontFamily = DmSansFamily,
         fontSize = 11.sp,
         fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip,
         modifier = modifier
+            .wrapContentWidth(unbounded = true)
             .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
             .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp)
@@ -144,7 +150,10 @@ fun GridNavTooltipRow(
                         contentAlignment = Alignment.TopCenter
                     ) {
                         if (index == focusedIndex) {
-                            GridNavFocusTooltip(label = tab.label)
+                            GridNavFocusTooltip(
+                                label = tab.label,
+                                modifier = Modifier.wrapContentWidth(unbounded = true)
+                            )
                         }
                     }
                 }

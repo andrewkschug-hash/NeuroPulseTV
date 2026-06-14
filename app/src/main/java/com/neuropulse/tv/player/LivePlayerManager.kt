@@ -1,8 +1,13 @@
 package com.neuropulse.tv.player
 
 import android.content.Context
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.neuropulse.tv.domain.model.BufferSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -11,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 @Singleton
 class LivePlayerManager @Inject constructor(
@@ -21,9 +27,23 @@ class LivePlayerManager @Inject constructor(
     private var player: ExoPlayer? = null
     private var currentChannelId: Long? = null
     private var currentStreamUrl: String? = null
+    private var catchupDays: Int = 0
     private var miniAudioEnabled: Boolean = false
+    private var bufferSize: BufferSize = BufferSize.MEDIUM
+    private var preferHardwareDecoding: Boolean = true
+
+    private var hasDvrWindow: Boolean = false
+    private var liveEdgePositionMs: Long = 0L
+    private var seekableStartMs: Long = 0L
+
     private val _activeChannelId = MutableStateFlow<Long?>(null)
     val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
+
+    private val _canTimeshift = MutableStateFlow(false)
+    val canTimeshiftFlow: StateFlow<Boolean> = _canTimeshift.asStateFlow()
+
+    private val _atLiveEdge = MutableStateFlow(true)
+    val atLiveEdgeFlow: StateFlow<Boolean> = _atLiveEdge.asStateFlow()
 
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
@@ -32,11 +52,73 @@ class LivePlayerManager @Inject constructor(
     var mode: Mode = Mode.IDLE
         private set
 
+    private val timeshiftListener = object : Player.Listener {
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            player?.let { refreshTimeshiftWindow(it) }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_READY) {
+                player?.let { refreshTimeshiftWindow(it) }
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) {
+                player?.let { refreshTimeshiftWindow(it) }
+            }
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            player?.let { _atLiveEdge.value = isAtLiveEdgeInternal(it) }
+        }
+    }
+
+    @UnstableApi
     fun getOrCreatePlayer(context: Context): ExoPlayer {
         if (player == null) {
-            player = playerFactory.create(context.applicationContext)
+            player = playerFactory.create(
+                context.applicationContext,
+                bufferSize,
+                preferHardwareDecoding
+            ).also { exo ->
+                exo.addListener(timeshiftListener)
+            }
         }
         return player!!
+    }
+
+    @UnstableApi
+    fun applyPlaybackSettings(
+        context: Context,
+        bufferSize: BufferSize,
+        preferHardwareDecoding: Boolean
+    ) {
+        if (this.bufferSize == bufferSize && this.preferHardwareDecoding == preferHardwareDecoding) {
+            return
+        }
+        this.bufferSize = bufferSize
+        this.preferHardwareDecoding = preferHardwareDecoding
+        val channelId = currentChannelId
+        val streamUrl = currentStreamUrl
+        val days = catchupDays
+        val currentMode = mode
+        val audio = miniAudioEnabled
+        playbackMonitor.detach()
+        player?.removeListener(timeshiftListener)
+        player?.release()
+        player = null
+        resetTimeshiftState()
+        if (channelId != null && !streamUrl.isNullOrBlank()) {
+            tuneChannel(context, channelId, streamUrl, days)
+            mode = currentMode
+            miniAudioEnabled = audio
+            applyVolume()
+        }
     }
 
     fun setMiniAudioEnabled(enabled: Boolean) {
@@ -44,21 +126,35 @@ class LivePlayerManager @Inject constructor(
         if (mode == Mode.MINI) applyVolume()
     }
 
-    fun tuneChannel(context: Context, channelId: Long, streamUrl: String) {
+    fun tuneChannel(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int = 0
+    ) {
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
         playbackMonitor.onTuneStarted(streamUrl)
+        this.catchupDays = catchupDays
+
         if (currentChannelId == channelId && currentStreamUrl == streamUrl) {
             exo.playWhenReady = true
             applyVolume()
+            refreshTimeshiftWindow(exo)
             return
         }
+
+        resetTimeshiftState()
+        this.catchupDays = catchupDays
+
         if (streamUrl.isBlank()) {
             currentChannelId = channelId
             currentStreamUrl = streamUrl
             _activeChannelId.value = channelId
+            _canTimeshift.value = catchupDays > 0
             return
         }
+
         currentChannelId = channelId
         currentStreamUrl = streamUrl
         _activeChannelId.value = channelId
@@ -66,6 +162,38 @@ class LivePlayerManager @Inject constructor(
         exo.prepare()
         exo.playWhenReady = true
         applyVolume()
+    }
+
+    fun canTimeshift(): Boolean = hasDvrWindow || catchupDays > 0
+
+    fun rewindMinutes(mins: Int) {
+        val exo = player ?: return
+        if (!hasDvrWindow) return
+        refreshTimeshiftWindow(exo)
+        val target = (liveEdgePositionMs - mins * 60_000L).coerceAtLeast(seekableStartMs)
+        exo.seekTo(target)
+        exo.playWhenReady = true
+        _atLiveEdge.value = isAtLiveEdgeInternal(exo)
+    }
+
+    fun jumpToLive() {
+        val exo = player ?: return
+        exo.seekToDefaultPosition()
+        exo.playWhenReady = true
+        refreshTimeshiftWindow(exo)
+        _atLiveEdge.value = true
+    }
+
+    fun isAtLiveEdge(): Boolean {
+        val exo = player ?: return true
+        return isAtLiveEdgeInternal(exo)
+    }
+
+    fun refreshAtLiveEdge() {
+        player?.let {
+            refreshTimeshiftWindow(it)
+            _atLiveEdge.value = isAtLiveEdgeInternal(it)
+        }
     }
 
     fun setMode(newMode: Mode) {
@@ -93,11 +221,56 @@ class LivePlayerManager @Inject constructor(
 
     fun release() {
         playbackMonitor.detach()
+        player?.removeListener(timeshiftListener)
         player?.release()
         player = null
         currentChannelId = null
         currentStreamUrl = null
+        catchupDays = 0
         _activeChannelId.value = null
+        resetTimeshiftState()
         mode = Mode.IDLE
+    }
+
+    private fun resetTimeshiftState() {
+        hasDvrWindow = false
+        liveEdgePositionMs = 0L
+        seekableStartMs = 0L
+        _canTimeshift.value = false
+        _atLiveEdge.value = true
+    }
+
+    private fun refreshTimeshiftWindow(exo: ExoPlayer) {
+        val timeline = exo.currentTimeline
+        if (timeline.isEmpty) {
+            hasDvrWindow = false
+            _canTimeshift.value = catchupDays > 0
+            _atLiveEdge.value = true
+            return
+        }
+
+        val window = Timeline.Window()
+        timeline.getWindow(exo.currentMediaItemIndex, window)
+        val durationMs = window.durationMs
+        hasDvrWindow = exo.isCurrentMediaItemDynamic &&
+            durationMs > 0 &&
+            durationMs != C.TIME_UNSET
+
+        if (hasDvrWindow) {
+            seekableStartMs = window.positionInFirstPeriodMs
+            liveEdgePositionMs = when {
+                window.defaultPositionMs != C.TIME_UNSET -> window.defaultPositionMs
+                durationMs != C.TIME_UNSET -> seekableStartMs + durationMs
+                else -> exo.currentPosition
+            }
+        }
+
+        _canTimeshift.value = canTimeshift()
+        _atLiveEdge.value = isAtLiveEdgeInternal(exo)
+    }
+
+    private fun isAtLiveEdgeInternal(exo: ExoPlayer): Boolean {
+        if (!hasDvrWindow) return true
+        return abs(exo.currentPosition - liveEdgePositionMs) <= 10_000
     }
 }

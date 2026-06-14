@@ -1,11 +1,5 @@
 package com.neuropulse.tv.ui.component
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -109,19 +103,7 @@ fun MiniPlayerOverlay(
         playbackState == Player.STATE_BUFFERING ||
         playbackState == Player.STATE_READY
 
-    val pulseTransition = rememberInfiniteTransition(label = "miniPlayerPulse")
-    val pulseScale by pulseTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
-    val baseScale = if (isIdleShrunk && !isFocused) 0.9f else 1f
-    val animatedScale = if (isIdleShrunk && !isFocused) baseScale * pulseScale else baseScale
+    val scale = if (isIdleShrunk && !isFocused) 0.95f else 1f
 
     val shape = RoundedCornerShape(OverlayCorner)
     val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.3f)
@@ -130,8 +112,13 @@ fun MiniPlayerOverlay(
 
     Box(
         modifier = modifier
-            .scale(animatedScale)
             .size(OverlayWidth, OverlayHeight)
+            .clip(shape)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(scale)
             .then(
                 if (isFocused) {
                     Modifier.drawBehind {
@@ -148,7 +135,7 @@ fun MiniPlayerOverlay(
             .clip(shape)
             .border(borderWidth, borderColor, shape)
             .clickable(onClick = onClick)
-    ) {
+        ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -236,5 +223,6 @@ fun MiniPlayerOverlay(
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             )
         }
+    }
     }
 }

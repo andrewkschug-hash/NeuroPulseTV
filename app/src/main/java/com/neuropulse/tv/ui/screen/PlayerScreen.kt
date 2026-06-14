@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -68,11 +69,14 @@ import com.neuropulse.tv.ui.theme.EpgColors
 import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.component.PlayerSideMenu
 import com.neuropulse.tv.ui.component.PlayerSideMenuAction
+import com.neuropulse.tv.ui.component.PlayerSideMenuFocusTarget
 import com.neuropulse.tv.ui.component.PlayerSideMenuMaxSports
 import com.neuropulse.tv.ui.component.PlayerSideMenuSection
-import com.neuropulse.tv.ui.component.sectionSize
-import com.neuropulse.tv.ui.component.visiblePlayerSideMenuSections
+import com.neuropulse.tv.ui.component.buildPlayerSideMenuFocusOrder
+import com.neuropulse.tv.ui.component.playerSideMenuFocusSection
+import com.neuropulse.tv.ui.component.playerSideMenuFocusState
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import com.neuropulse.tv.ui.component.PlayerTimeshiftBar
 import androidx.compose.runtime.mutableIntStateOf
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
@@ -112,8 +116,7 @@ fun PlayerScreen(
 
     var showOverlay by remember { mutableStateOf(true) }
     var showSideMenu by remember { mutableStateOf(false) }
-    var focusZone by remember { mutableStateOf(PlayerSideMenuSection.CHANNELS) }
-    var focusZoneIndex by remember { mutableIntStateOf(0) }
+    var focusTargetIndex by remember { mutableIntStateOf(0) }
     var flashingZone by remember { mutableStateOf<PlayerSideMenuSection?>(null) }
     val playerFocusRequester = remember { FocusRequester() }
     val sideMenuFocusRequester = remember { FocusRequester() }
@@ -126,6 +129,7 @@ fun PlayerScreen(
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
+    var timeshiftFocusIndex by remember { mutableIntStateOf(2) }
 
     val sleepTimer = remember { entryPoint.sleepTimerController() }
     val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
@@ -172,24 +176,28 @@ fun PlayerScreen(
         }
     }
 
-    val infoActionIndex = remember(sideMenuActions) {
-        sideMenuActions.indexOfFirst { it.id == "info" }.coerceAtLeast(0)
-    }
-    val lastNearbyIndex = (nearbyChannels.size - 1).coerceAtLeast(0)
-    fun menuSections() = visiblePlayerSideMenuSections(sportsCount = sportsPanelChannels.size)
-
-    fun zoneItemCount(section: PlayerSideMenuSection = focusZone): Int =
-        sectionSize(
-            section = section,
-            channelCount = nearbyChannels.size,
-            sportsCount = sportsPanelChannels.size,
+    val sideMenuFocusOrder = remember(
+        nearbyChannels.size,
+        sportsPanelChannels.size,
+        sideMenuActions.size
+    ) {
+        buildPlayerSideMenuFocusOrder(
+            nearbyChannelCount = nearbyChannels.size,
+            sportsChannelCount = sportsPanelChannels.size,
             actionCount = sideMenuActions.size
         )
+    }
+    val currentFocusTarget = sideMenuFocusOrder.getOrNull(focusTargetIndex)
+    val sideMenuFocusState = playerSideMenuFocusState(currentFocusTarget)
 
-    fun enterFocusZone(zone: PlayerSideMenuSection, index: Int = 0, flash: Boolean = true) {
-        focusZone = zone
-        focusZoneIndex = index.coerceIn(0, (zoneItemCount(zone) - 1).coerceAtLeast(0))
-        if (flash) flashingZone = zone
+    fun applyFocusTargetIndex(index: Int, flash: Boolean = true) {
+        if (sideMenuFocusOrder.isEmpty()) return
+        focusTargetIndex = index.coerceIn(0, sideMenuFocusOrder.lastIndex)
+        if (flash) {
+            sideMenuFocusOrder.getOrNull(focusTargetIndex)?.let {
+                flashingZone = playerSideMenuFocusSection(it)
+            }
+        }
     }
 
     fun activatePlayerAction(actionId: String) {
@@ -213,82 +221,38 @@ fun PlayerScreen(
         }
     }
 
-    fun selectedMenuChannelId(): Long? = when (focusZone) {
-        PlayerSideMenuSection.CHANNELS -> nearbyChannels.getOrNull(focusZoneIndex)?.id
-        PlayerSideMenuSection.SPORTS -> sportsPanelChannels.getOrNull(focusZoneIndex)?.id
-        PlayerSideMenuSection.ACTIONS -> null
-    }
-
     fun activateSideMenuSelection() {
-        when {
-            focusZone == PlayerSideMenuSection.ACTIONS -> {
-                sideMenuActions.getOrNull(focusZoneIndex)?.let { action ->
-                    showSideMenu = false
-                    activatePlayerAction(action.id)
-                }
-            }
-            else -> {
-                selectedMenuChannelId()?.let { id ->
+        when (val target = sideMenuFocusOrder.getOrNull(focusTargetIndex)) {
+            is PlayerSideMenuFocusTarget.NearbyChannel -> {
+                nearbyChannels.getOrNull(target.index)?.id?.let { id ->
                     viewModel.tuneChannel(id)
                     showSideMenu = false
                 }
             }
+            PlayerSideMenuFocusTarget.BrowseAll -> {
+                showSideMenu = false
+                onNavigateGuide()
+            }
+            PlayerSideMenuFocusTarget.SportsHeader -> Unit
+            is PlayerSideMenuFocusTarget.SportsChannel -> {
+                sportsPanelChannels.getOrNull(target.index)?.id?.let { id ->
+                    viewModel.tuneChannel(id)
+                    showSideMenu = false
+                }
+            }
+            is PlayerSideMenuFocusTarget.Action -> {
+                sideMenuActions.getOrNull(target.index)?.let { action ->
+                    showSideMenu = false
+                    activatePlayerAction(action.id)
+                }
+            }
+            null -> Unit
         }
     }
 
     fun moveSideMenuVertical(delta: Int) {
-        val zones = menuSections()
-        val zoneIdx = zones.indexOf(focusZone).coerceAtLeast(0)
-
-        if (delta > 0) {
-            when (focusZone) {
-                PlayerSideMenuSection.CHANNELS -> when {
-                    nearbyChannels.isEmpty() -> enterFocusZone(
-                        PlayerSideMenuSection.ACTIONS,
-                        infoActionIndex,
-                        flash = false
-                    )
-                    focusZoneIndex < lastNearbyIndex -> focusZoneIndex++
-                    else -> enterFocusZone(
-                        PlayerSideMenuSection.ACTIONS,
-                        infoActionIndex,
-                        flash = false
-                    )
-                }
-                PlayerSideMenuSection.SPORTS -> when {
-                    focusZoneIndex < sportsPanelChannels.size - 1 -> focusZoneIndex++
-                    else -> enterFocusZone(PlayerSideMenuSection.ACTIONS, infoActionIndex, flash = false)
-                }
-                PlayerSideMenuSection.ACTIONS -> {
-                    if (focusZoneIndex < sideMenuActions.size - 1) focusZoneIndex++
-                }
-            }
-        } else {
-            when (focusZone) {
-                PlayerSideMenuSection.CHANNELS -> {
-                    if (focusZoneIndex > 0) focusZoneIndex--
-                }
-                PlayerSideMenuSection.SPORTS -> when {
-                    focusZoneIndex > 0 -> focusZoneIndex--
-                    else -> enterFocusZone(PlayerSideMenuSection.CHANNELS, lastNearbyIndex, flash = false)
-                }
-                PlayerSideMenuSection.ACTIONS -> when {
-                    focusZoneIndex == infoActionIndex -> enterFocusZone(
-                        PlayerSideMenuSection.CHANNELS,
-                        lastNearbyIndex,
-                        flash = false
-                    )
-                    focusZoneIndex > 0 -> focusZoneIndex--
-                    zoneIdx > 0 -> {
-                        val prevZone = zones[zoneIdx - 1]
-                        val prevCount = zoneItemCount(prevZone)
-                        if (prevCount > 0) {
-                            enterFocusZone(prevZone, prevCount - 1, flash = false)
-                        }
-                    }
-                }
-            }
-        }
+        if (sideMenuFocusOrder.isEmpty()) return
+        applyFocusTargetIndex(focusTargetIndex + delta, flash = false)
     }
 
     fun revealOverlay() {
@@ -310,11 +274,14 @@ fun PlayerScreen(
         return true
     }
 
-    LaunchedEffect(showSideMenu) {
+    LaunchedEffect(showSideMenu, sideMenuFocusOrder) {
         if (showSideMenu) {
             sideMenuFocusRequester.requestFocus()
-            val idx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
-            enterFocusZone(PlayerSideMenuSection.CHANNELS, idx, flash = false)
+            val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
+            val startIndex = sideMenuFocusOrder.indexOfFirst {
+                it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
+            }.coerceAtLeast(0)
+            applyFocusTargetIndex(startIndex, flash = false)
         } else {
             playerFocusRequester.requestFocus()
         }
@@ -327,14 +294,56 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(focusZone, sideMenuActions.size, sportsPanelChannels.size, nearbyChannels.size) {
-        val maxIdx = (zoneItemCount() - 1).coerceAtLeast(0)
-        if (focusZoneIndex > maxIdx) focusZoneIndex = maxIdx
+    LaunchedEffect(sideMenuFocusOrder.size, focusTargetIndex) {
+        if (focusTargetIndex > sideMenuFocusOrder.lastIndex) {
+            focusTargetIndex = sideMenuFocusOrder.lastIndex.coerceAtLeast(0)
+        }
     }
 
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
     val player = remember { livePlayerManager.getOrCreatePlayer(context) }
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
+    val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
+    val atLiveEdge by livePlayerManager.atLiveEdgeFlow.collectAsStateWithLifecycle()
+
+    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding) {
+        livePlayerManager.applyPlaybackSettings(
+            context,
+            settings.bufferSize,
+            settings.preferHardwareDecoding
+        )
+    }
+
+    LaunchedEffect(canTimeshift, channel?.id) {
+        if (!canTimeshift) return@LaunchedEffect
+        while (true) {
+            livePlayerManager.refreshAtLiveEdge()
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(showOverlay, canTimeshift) {
+        if (showOverlay && canTimeshift) {
+            timeshiftFocusIndex = 2
+        }
+    }
+
+    LaunchedEffect(atLiveEdge) {
+        if (atLiveEdge && timeshiftFocusIndex > 2) {
+            timeshiftFocusIndex = 2
+        }
+    }
+
+    fun executeTimeshiftAction(index: Int) {
+        when (index) {
+            0 -> livePlayerManager.rewindMinutes(10)
+            1 -> livePlayerManager.rewindMinutes(30)
+            2 -> if (!atLiveEdge) livePlayerManager.jumpToLive()
+            3 -> livePlayerManager.jumpToLive()
+        }
+    }
+
+    fun timeshiftMaxFocusIndex(): Int = if (atLiveEdge) 2 else 3
 
     LaunchedEffect(player) {
         sleepTimer.onVolumeFade = { level -> player.volume = level }
@@ -367,7 +376,7 @@ fun PlayerScreen(
     LaunchedEffect(channel?.id, channel?.streamUrl) {
         val ch = channel ?: return@LaunchedEffect
         val url = ch.streamUrl
-        livePlayerManager.tuneChannel(context, ch.id, url)
+        livePlayerManager.tuneChannel(context, ch.id, url, ch.catchupDays)
         failures = 0
     }
 
@@ -454,27 +463,36 @@ fun PlayerScreen(
                     }
                     Key.DirectionLeft -> {
                         revealOverlay()
-                        player.seekBack()
-                        val url = channel?.streamUrl
-                        if (!url.isNullOrBlank()) {
-                            seekThumb = seekThumbnailProvider.thumbnail(url, player.currentPosition)
-                            showSeekThumb = true
+                        if (canTimeshift) {
+                            timeshiftFocusIndex = (timeshiftFocusIndex - 1).coerceAtLeast(0)
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "This channel does not support rewind",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         true
                     }
                     Key.DirectionRight -> {
-                        if (!showSideMenu) {
+                        if (showOverlay && canTimeshift && timeshiftFocusIndex < timeshiftMaxFocusIndex()) {
+                            timeshiftFocusIndex += 1
+                            revealOverlay()
+                        } else if (!showSideMenu) {
                             showSideMenu = true
                             showOverlay = false
-                            enterFocusZone(
-                                zone = PlayerSideMenuSection.CHANNELS,
-                                index = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0),
-                                flash = false
-                            )
+                            val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
+                            val startIndex = sideMenuFocusOrder.indexOfFirst {
+                                it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
+                            }.coerceAtLeast(0)
+                            applyFocusTargetIndex(startIndex, flash = false)
                         }
                         true
                     }
                     Key.Enter, Key.DirectionCenter -> {
+                        if (showOverlay && canTimeshift) {
+                            executeTimeshiftAction(timeshiftFocusIndex)
+                        }
                         revealOverlay()
                         true
                     }
@@ -720,6 +738,14 @@ fun PlayerScreen(
                                 )
                             }
                         }
+                        if (canTimeshift) {
+                            PlayerTimeshiftBar(
+                                focusedIndex = timeshiftFocusIndex,
+                                atLiveEdge = atLiveEdge,
+                                showGoLive = !atLiveEdge,
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -731,8 +757,7 @@ fun PlayerScreen(
             sportsChannels = sportsPanelChannels,
             actions = sideMenuActions,
             currentChannelId = channel?.id,
-            focusedSection = focusZone,
-            focusedIndex = focusZoneIndex,
+            focusState = sideMenuFocusState,
             flashingSection = flashingZone
         )
 

@@ -255,6 +255,20 @@ class HomeEpgViewModel @Inject constructor(
         return (shift * EpgLayout.dpPerMs()).toInt()
     }
 
+    fun toggleFavorite(channelId: Long, currentlyFavorite: Boolean) {
+        viewModelScope.launch {
+            if (channelId < 0) {
+                _demoFavoriteIds.value = if (currentlyFavorite) {
+                    _demoFavoriteIds.value - channelId
+                } else {
+                    _demoFavoriteIds.value + channelId
+                }
+            } else {
+                repository.toggleFavorite(channelId, !currentlyFavorite)
+            }
+        }
+    }
+
     fun createFavoriteGroup(name: String) {
         viewModelScope.launch { repository.createFavoriteGroup(name) }
     }
