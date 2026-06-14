@@ -27,13 +27,7 @@ object TimeshiftManager {
         val duration = player.duration
         if (duration == C.TIME_UNSET || duration <= 0L) return
 
-        val liveOffset = player.currentLiveOffset
-        // Prefer offset-derived edge when available — duration alone can lag the true live edge.
-        liveEdgePositionMs = if (liveOffset != C.TIME_UNSET && liveOffset >= 0L) {
-            (player.currentPosition + liveOffset).coerceAtLeast(duration)
-        } else {
-            duration
-        }
+        liveEdgePositionMs = duration
         bufferStartMs = 0L
 
         if (isAtLiveEdge(player)) {
@@ -77,12 +71,7 @@ object TimeshiftManager {
         (liveEdgePositionMs - player.currentPosition).coerceAtLeast(0L)
 
     fun jumpToLive(player: ExoPlayer) {
-        val liveOffset = player.currentLiveOffset
-        if (liveOffset != C.TIME_UNSET && liveOffset > LIVE_EDGE_TOLERANCE_MS) {
-            player.seekTo(player.currentPosition + liveOffset)
-        } else {
-            player.seekToDefaultPosition()
-        }
+        player.seekToDefaultPosition()
         player.playWhenReady = true
         isTimeshifting = false
     }
@@ -116,9 +105,14 @@ object TimeshiftManager {
     }
 
     fun seekTo(player: ExoPlayer, positionMs: Long) {
-        val target = positionMs.coerceIn(bufferStartMs, liveEdgePositionMs)
+        val duration = player.duration
+        val maxPosition = if (duration != C.TIME_UNSET && duration > 0L) {
+            duration
+        } else {
+            liveEdgePositionMs
+        }
+        val target = positionMs.coerceIn(bufferStartMs, maxPosition)
         player.seekTo(target)
-        isTimeshifting = !isAtLiveEdge(player)
     }
 
     fun seekRelative(player: ExoPlayer, deltaMs: Long) {

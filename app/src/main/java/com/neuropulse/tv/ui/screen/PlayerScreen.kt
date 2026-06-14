@@ -322,6 +322,28 @@ fun PlayerScreen(
                 else -> Unit
             }
             Key.Back, Key.Escape -> {
+                when (currentFocusTarget) {
+                    is PlayerSideMenuFocusTarget.NearbyChannel,
+                    PlayerSideMenuFocusTarget.BrowseAll -> {
+                        if (channelsExpanded) {
+                            channelsExpanded = false
+                            val headerIndex =
+                                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
+                            if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+                            return true
+                        }
+                    }
+                    is PlayerSideMenuFocusTarget.FavoriteChannel -> {
+                        if (favoritesExpanded) {
+                            favoritesExpanded = false
+                            val headerIndex =
+                                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.FavoritesHeader)
+                            if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+                            return true
+                        }
+                    }
+                    else -> Unit
+                }
                 showSideMenu = false
                 revealOverlay()
                 return true

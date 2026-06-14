@@ -1,6 +1,7 @@
 package com.neuropulse.tv.player
 
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -342,6 +343,14 @@ class LivePlayerManager @Inject constructor(
         val window = Timeline.Window()
         timeline.getWindow(exo.currentMediaItemIndex, window)
         val durationMs = window.durationMs
+        Log.d(
+            "LIVE_DEBUG",
+            "pos=${exo.currentPosition} " +
+                "dur=${exo.duration} " +
+                "offset=${exo.currentLiveOffset} " +
+                "dynamic=${exo.isCurrentMediaItemDynamic} " +
+                "defaultPos=${window.defaultPositionMs}"
+        )
         hasDvrWindow = exo.isCurrentMediaItemDynamic &&
             durationMs > 0 &&
             durationMs != C.TIME_UNSET

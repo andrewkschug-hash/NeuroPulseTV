@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,15 +135,36 @@ fun PlayerSideMenu(
 ) {
     val scrollState = rememberScrollState()
     val favoritesShown = favoriteChannels.take(PlayerSideMenuMaxFavorites)
+    val density = LocalDensity.current
 
-    LaunchedEffect(focusState, visible) {
+    LaunchedEffect(
+        focusState,
+        visible,
+        channelsExpanded,
+        favoritesExpanded,
+        channels.size,
+        favoritesShown.size
+    ) {
         if (!visible) return@LaunchedEffect
+        val rowPx = with(density) { 42.dp.roundToPx() }
+        val headerPx = with(density) { 36.dp.roundToPx() }
+        val dividerPx = with(density) { 22.dp.roundToPx() }
+        val channelsBlockPx = headerPx + dividerPx +
+            if (channelsExpanded) channels.size * rowPx + headerPx else 0
+
         val target = when {
             focusState.actionIndex != null -> scrollState.maxValue
-            focusState.favoritesHeader || focusState.favoriteChannelIndex != null -> 280
-            focusState.channelsHeader || focusState.browseAll -> 180
+            focusState.favoriteChannelIndex != null -> {
+                channelsBlockPx + headerPx + focusState.favoriteChannelIndex * rowPx
+            }
+            focusState.favoritesHeader -> channelsBlockPx
+            focusState.browseAll -> headerPx + channels.size * rowPx
+            focusState.nearbyChannelIndex != null -> {
+                headerPx + focusState.nearbyChannelIndex * rowPx
+            }
+            focusState.channelsHeader -> 0
             else -> 0
-        }
+        }.coerceIn(0, scrollState.maxValue)
         scrollState.scrollTo(target)
     }
 

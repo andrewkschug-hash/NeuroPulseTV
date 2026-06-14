@@ -88,7 +88,9 @@ import com.neuropulse.tv.ui.component.handleSettingsHorizontalKey
 import com.neuropulse.tv.ui.component.buildSettingsSectionCards
 import com.neuropulse.tv.ui.component.moveProfileSwatchFocus
 import com.neuropulse.tv.ui.component.profileContentFocusCount
+import com.neuropulse.tv.ui.component.moveSettingsVerticalFocus
 import com.neuropulse.tv.ui.component.rememberSettingsFocusChain
+import com.neuropulse.tv.ui.component.settingsVerticalFocusRows
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
@@ -288,6 +290,40 @@ fun SettingsScreen(
         focusedSectionIndex = focusedSectionIndex,
         sectionCards = sectionCards
     )
+    val profileUseButtonStart = 1 + if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
+    val profileUseButtonCount = profiles.count { it.id != activeProfile?.id }
+    val profileParentalStart = (contentFocusCount - 7).coerceAtLeast(0)
+    val verticalFocusRows = remember(
+        selectedSection,
+        contentFocusCount,
+        playlists.size,
+        playlistType,
+        showConnectionForm,
+        profiles.size,
+        activeProfile?.id,
+        activeProfile != null,
+        storageOptions.size
+    ) {
+        settingsVerticalFocusRows(
+            kind = sections[selectedSection].toKind(),
+            connectionsFormStart = connectionsFormStart,
+            connectionsPlaylistType = playlistType,
+            connectionsShowForm = showConnectionForm &&
+                sections[selectedSection] == SettingsSection.Connections,
+            playlistCount = playlists.size,
+            profileHasSwatches = activeProfile != null &&
+                sections[selectedSection] == SettingsSection.Profile,
+            profileSwatchStart = PROFILE_SWATCH_START,
+            profileUseButtonStart = profileUseButtonStart,
+            profileUseButtonCount = if (sections[selectedSection] == SettingsSection.Profile) {
+                profileUseButtonCount
+            } else {
+                0
+            },
+            parentalStart = profileParentalStart,
+            storageOptionCount = storageOptions.size
+        )
+    }
 
     val sidebarItemFocusRequesters = remember(sections.size) {
         List(sections.size) { FocusRequester() }
@@ -514,6 +550,45 @@ fun SettingsScreen(
             SettingsFocusLevel.INSIDE_CARD -> {
                 val card = sectionCards.getOrNull(focusedSectionIndex) ?: return false
                 val sectionKind = sections[selectedSection].toKind()
+                val connectionsShowFormActive = showConnectionForm &&
+                    sections[selectedSection] == SettingsSection.Connections
+
+                fun handleHorizontal(key: Key): Boolean = handleSettingsHorizontalKey(
+                    kind = sectionKind,
+                    currentIndex = contentChain.focusedIndex,
+                    key = key,
+                    chain = contentChain,
+                    connectionsFormStart = connectionsFormStart,
+                    connectionsPlaylistType = playlistType,
+                    connectionsShowForm = connectionsShowFormActive,
+                    playlistCount = playlists.size,
+                    parentalStart = profileParentalStart
+                )
+
+                fun handleVertical(delta: Int): Boolean {
+                    if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
+                        val swatchKey = if (delta < 0) Key.DirectionUp else Key.DirectionDown
+                        moveProfileSwatchFocus(
+                            contentChain.focusedIndex,
+                            PROFILE_SWATCH_START,
+                            PROFILE_SWATCH_COUNT,
+                            swatchKey
+                        )?.let {
+                            contentChain.moveTo(it)
+                            return true
+                        }
+                    }
+                    return moveSettingsVerticalFocus(
+                        currentIndex = contentChain.focusedIndex,
+                        delta = delta,
+                        focusedSectionIndex = focusedSectionIndex,
+                        sectionCards = sectionCards,
+                        rows = verticalFocusRows,
+                        chain = contentChain,
+                        onSectionChange = { focusedSectionIndex = it }
+                    )
+                }
+
                 when (event.key) {
                     Key.Back, Key.Escape -> {
                         if (showConnectionForm && sections[selectedSection] == SettingsSection.Connections) {
@@ -524,17 +599,7 @@ fun SettingsScreen(
                         true
                     }
                     Key.DirectionLeft -> {
-                        if (handleSettingsHorizontalKey(
-                                sectionKind,
-                                contentChain.focusedIndex,
-                                event.key,
-                                contentChain,
-                                connectionsFormStart = connectionsFormStart,
-                                connectionsPlaylistType = playlistType
-                            )
-                        ) {
-                            return true
-                        }
+                        if (handleHorizontal(Key.DirectionLeft)) return true
                         if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
                             moveProfileSwatchFocus(
                                 contentChain.focusedIndex,
@@ -548,23 +613,11 @@ fun SettingsScreen(
                         }
                         if (contentChain.focusedIndex <= card.firstFocusIndex) {
                             exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                        } else {
-                            contentChain.moveTo(contentChain.focusedIndex - 1)
                         }
                         true
                     }
                     Key.DirectionRight -> {
-                        if (handleSettingsHorizontalKey(
-                                sectionKind,
-                                contentChain.focusedIndex,
-                                event.key,
-                                contentChain,
-                                connectionsFormStart = connectionsFormStart,
-                                connectionsPlaylistType = playlistType
-                            )
-                        ) {
-                            return true
-                        }
+                        if (handleHorizontal(Key.DirectionRight)) return true
                         if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
                             moveProfileSwatchFocus(
                                 contentChain.focusedIndex,
@@ -573,52 +626,19 @@ fun SettingsScreen(
                                 event.key
                             )?.let {
                                 contentChain.moveTo(it)
-                                true
-                            } ?: false
-                        } else {
-                            false
+                                return true
+                            }
                         }
+                        false
                     }
                     Key.DirectionUp -> {
-                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                            val swatchTarget = moveProfileSwatchFocus(
-                                contentChain.focusedIndex,
-                                PROFILE_SWATCH_START,
-                                PROFILE_SWATCH_COUNT,
-                                event.key
-                            )
-                            when {
-                                swatchTarget != null -> contentChain.moveTo(swatchTarget)
-                                contentChain.focusedIndex in PROFILE_SWATCH_START until
-                                    PROFILE_SWATCH_START + PROFILE_SWATCH_COUNT ->
-                                    exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                                contentChain.focusedIndex <= card.firstFocusIndex ->
-                                    exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                                else -> contentChain.moveTo(contentChain.focusedIndex - 1)
-                            }
-                        } else if (contentChain.focusedIndex <= card.firstFocusIndex) {
+                        if (!handleVertical(-1)) {
                             exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                        } else {
-                            contentChain.moveTo(contentChain.focusedIndex - 1)
                         }
                         true
                     }
                     Key.DirectionDown -> {
-                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                            val swatchTarget = moveProfileSwatchFocus(
-                                contentChain.focusedIndex,
-                                PROFILE_SWATCH_START,
-                                PROFILE_SWATCH_COUNT,
-                                event.key
-                            )
-                            if (swatchTarget != null) {
-                                contentChain.moveTo(swatchTarget)
-                            } else if (contentChain.focusedIndex < card.lastFocusIndex) {
-                                contentChain.moveTo(contentChain.focusedIndex + 1)
-                            }
-                        } else if (contentChain.focusedIndex < card.lastFocusIndex) {
-                            contentChain.moveTo(contentChain.focusedIndex + 1)
-                        }
+                        handleVertical(1)
                         true
                     }
                     else -> false

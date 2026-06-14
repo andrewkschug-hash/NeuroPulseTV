@@ -161,6 +161,17 @@ fun settingsFocusModifier(
                 focus.chain.onItemFocused(chainIndex)
             }
         }
+        .onPreviewKeyEvent { event ->
+            if (focus.level != SettingsFocusLevel.INSIDE_CARD) return@onPreviewKeyEvent false
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when (event.key) {
+                Key.DirectionUp,
+                Key.DirectionDown,
+                Key.DirectionLeft,
+                Key.DirectionRight -> true
+                else -> false
+            }
+        }
 }
 
 @Composable
@@ -409,26 +420,164 @@ fun interfaceFocusCount(): Int = INTERFACE_FOCUS_COUNT
 
 fun aboutFocusCount(): Int = ABOUT_FOCUS_COUNT
 
-/** Horizontal pill groups per settings section (inclusive ranges). */
+/** Horizontal groups: LEFT/RIGHT move within the range; UP/DOWN move between rows. */
+fun settingsHorizontalFocusGroups(
+    kind: SettingsSectionKind,
+    connectionsFormStart: Int = 0,
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
+    connectionsShowForm: Boolean = false,
+    playlistCount: Int = 0,
+    parentalStart: Int = 0
+): List<IntRange> = when (kind) {
+    SettingsSectionKind.Profile -> listOf((parentalStart + 2)..(parentalStart + 5))
+    SettingsSectionKind.Connections -> if (connectionsShowForm) {
+        val timeoutStart = if (connectionsPlaylistType == PlaylistType.M3U) {
+            connectionsFormStart + 6
+        } else {
+            connectionsFormStart + 8
+        }
+        val saveStart = timeoutStart + 5
+        buildList {
+            add((connectionsFormStart + 1)..(connectionsFormStart + 2))
+            add(timeoutStart..(timeoutStart + 2))
+            add(saveStart..(saveStart + 3))
+        }
+    } else {
+        buildList {
+            for (i in 0 until playlistCount) {
+                val edit = 1 + i * 2
+                add(edit..(edit + 1))
+            }
+        }
+    }
+    SettingsSectionKind.Guide -> listOf(0..1, 2..4, 5..6, 7..11, 12..15)
+    SettingsSectionKind.Playback -> listOf(0..2, 3..6, 7..9, 12..15, 18..20, 24..28)
+    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11)
+    else -> emptyList()
+}
+
+/** @deprecated Use [settingsHorizontalFocusGroups]. */
 fun settingsHorizontalPillGroups(
     kind: SettingsSectionKind,
     connectionsFormStart: Int = 0,
     connectionsPlaylistType: PlaylistType = PlaylistType.M3U
+): List<IntRange> = settingsHorizontalFocusGroups(
+    kind = kind,
+    connectionsFormStart = connectionsFormStart,
+    connectionsPlaylistType = connectionsPlaylistType
+)
+
+fun settingsVerticalFocusRows(
+    kind: SettingsSectionKind,
+    connectionsFormStart: Int = 0,
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
+    connectionsShowForm: Boolean = false,
+    playlistCount: Int = 0,
+    profileHasSwatches: Boolean = false,
+    profileSwatchStart: Int = 1,
+    profileUseButtonStart: Int = 1,
+    profileUseButtonCount: Int = 0,
+    parentalStart: Int = 0,
+    storageOptionCount: Int = 0
 ): List<IntRange> = when (kind) {
-    SettingsSectionKind.Profile -> listOf(3..6)
-    SettingsSectionKind.Connections -> {
-        val timeoutStart = connectionsFormStart +
-            if (connectionsPlaylistType == PlaylistType.M3U) 6 else 8
-        listOf(
-            (connectionsFormStart + 1)..(connectionsFormStart + 2),
-            timeoutStart..(timeoutStart + 2)
-        )
+    SettingsSectionKind.Profile -> buildList {
+        add(0..0)
+        if (profileHasSwatches) {
+            add(profileSwatchStart..(profileSwatchStart + 3))
+            add((profileSwatchStart + 4)..(profileSwatchStart + 7))
+        }
+        repeat(profileUseButtonCount) { offset ->
+            val index = profileUseButtonStart + offset
+            add(index..index)
+        }
+        add(parentalStart..parentalStart)
+        add((parentalStart + 1)..(parentalStart + 1))
+        add((parentalStart + 2)..(parentalStart + 5))
+        add((parentalStart + 6)..(parentalStart + 6))
     }
-    SettingsSectionKind.Guide -> listOf(2..4, 5..6, 7..11, 12..15)
-    SettingsSectionKind.Playback -> listOf(3..6, 7..9, 12..15, 18..20)
-    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11)
-    else -> emptyList()
+    SettingsSectionKind.Connections -> if (connectionsShowForm) {
+        connectionFormVerticalRows(connectionsFormStart, connectionsPlaylistType)
+    } else {
+        buildList {
+            add(0..0)
+            repeat(playlistCount) { i ->
+                val edit = 1 + i * 2
+                add(edit..(edit + 1))
+            }
+        }
+    }
+    SettingsSectionKind.Guide -> listOf(
+        0..1,
+        2..4,
+        5..6,
+        7..11,
+        12..15,
+        16..16,
+        17..17,
+        18..18,
+        19..19
+    )
+    SettingsSectionKind.Playback -> listOf(
+        0..2,
+        3..6,
+        7..9,
+        10..10,
+        11..11,
+        12..15,
+        16..16,
+        17..17,
+        18..20,
+        21..21,
+        22..22,
+        23..23,
+        24..28
+    )
+    SettingsSectionKind.Interface -> listOf(
+        0..0,
+        1..4,
+        5..5,
+        6..8,
+        9..11
+    )
+    SettingsSectionKind.Recordings -> List(storageOptionCount) { index -> index..index }
+    SettingsSectionKind.About -> listOf(
+        0..1,
+        2..2,
+        3..3
+    )
 }
+
+private fun connectionFormVerticalRows(base: Int, type: PlaylistType): List<IntRange> {
+    val timeoutStart = if (type == PlaylistType.M3U) base + 6 else base + 8
+    val proxyToggle = timeoutStart + 3
+    val proxyUrl = proxyToggle + 1
+    val saveStart = proxyUrl + 1
+    return buildList {
+        add(base..base)
+        add((base + 1)..(base + 2))
+        if (type == PlaylistType.M3U) {
+            add((base + 3)..(base + 3))
+            add((base + 4)..(base + 4))
+            add((base + 5)..(base + 5))
+        } else {
+            add((base + 3)..(base + 3))
+            add((base + 4)..(base + 4))
+            add((base + 5)..(base + 5))
+            add((base + 6)..(base + 6))
+            add((base + 7)..(base + 7))
+        }
+        add(timeoutStart..(timeoutStart + 2))
+        add(proxyToggle..proxyToggle)
+        add(proxyUrl..proxyUrl)
+        add(saveStart..(saveStart + 3))
+    }
+}
+
+private fun rowsInCard(card: SettingsSectionCard, rows: List<IntRange>): List<IntRange> =
+    rows.filter { row -> row.last >= card.firstFocusIndex && row.first <= card.lastFocusIndex }
+
+private fun rowIndexFor(rows: List<IntRange>, index: Int): Int =
+    rows.indexOfFirst { index in it }
 
 fun handleSettingsHorizontalKey(
     kind: SettingsSectionKind,
@@ -436,9 +585,19 @@ fun handleSettingsHorizontalKey(
     key: Key,
     chain: SettingsFocusChain,
     connectionsFormStart: Int = 0,
-    connectionsPlaylistType: PlaylistType = PlaylistType.M3U
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
+    connectionsShowForm: Boolean = false,
+    playlistCount: Int = 0,
+    parentalStart: Int = 0
 ): Boolean {
-    for (range in settingsHorizontalPillGroups(kind, connectionsFormStart, connectionsPlaylistType)) {
+    for (range in settingsHorizontalFocusGroups(
+        kind = kind,
+        connectionsFormStart = connectionsFormStart,
+        connectionsPlaylistType = connectionsPlaylistType,
+        connectionsShowForm = connectionsShowForm,
+        playlistCount = playlistCount,
+        parentalStart = parentalStart
+    )) {
         if (currentIndex !in range) continue
         return when (key) {
             Key.DirectionLeft -> {
@@ -460,31 +619,56 @@ fun moveSettingsVerticalFocus(
     delta: Int,
     focusedSectionIndex: Int,
     sectionCards: List<SettingsSectionCard>,
+    rows: List<IntRange>,
     chain: SettingsFocusChain,
     onSectionChange: (Int) -> Unit
 ): Boolean {
     val card = sectionCards.getOrNull(focusedSectionIndex) ?: return false
-    val target = currentIndex + delta
-    if (target in card.firstFocusIndex..card.lastFocusIndex) {
-        chain.moveTo(target)
+    val cardRows = rowsInCard(card, rows)
+    if (cardRows.isEmpty()) return false
+
+    val currentRowIdx = rowIndexFor(cardRows, currentIndex).takeIf { it >= 0 }
+        ?: run {
+            chain.moveTo(cardRows.first().first)
+            return true
+        }
+
+    val targetRowIdx = currentRowIdx + delta
+    if (targetRowIdx in cardRows.indices) {
+        val targetRow = cardRows[targetRowIdx]
+        val targetIndex = if (delta < 0) {
+            targetRow.last.coerceAtMost(currentIndex).coerceIn(targetRow)
+        } else {
+            targetRow.first
+        }
+        chain.moveTo(targetIndex)
         return true
     }
-    if (delta > 0 && currentIndex >= card.lastFocusIndex && focusedSectionIndex < sectionCards.lastIndex) {
-        val next = sectionCards[focusedSectionIndex + 1]
-        if (next.hasFocusableItems) {
-            onSectionChange(focusedSectionIndex + 1)
-            chain.moveTo(next.firstFocusIndex)
-            return true
-        }
+
+    if (delta > 0 && currentRowIdx == cardRows.lastIndex && focusedSectionIndex < sectionCards.lastIndex) {
+        val nextCardIndex = ((focusedSectionIndex + 1)..sectionCards.lastIndex)
+            .firstOrNull { sectionCards[it].hasFocusableItems }
+            ?: return false
+        val nextCard = sectionCards[nextCardIndex]
+        val nextRows = rowsInCard(nextCard, rows)
+        if (nextRows.isEmpty()) return false
+        onSectionChange(nextCardIndex)
+        chain.moveTo(nextRows.first().first)
+        return true
     }
-    if (delta < 0 && currentIndex <= card.firstFocusIndex && focusedSectionIndex > 0) {
-        val prev = sectionCards[focusedSectionIndex - 1]
-        if (prev.hasFocusableItems) {
-            onSectionChange(focusedSectionIndex - 1)
-            chain.moveTo(prev.lastFocusIndex)
-            return true
-        }
+
+    if (delta < 0 && currentRowIdx == 0 && focusedSectionIndex > 0) {
+        val prevCardIndex = (focusedSectionIndex - 1 downTo 0)
+            .firstOrNull { sectionCards[it].hasFocusableItems }
+            ?: return false
+        val prevCard = sectionCards[prevCardIndex]
+        val prevRows = rowsInCard(prevCard, rows)
+        if (prevRows.isEmpty()) return false
+        onSectionChange(prevCardIndex)
+        chain.moveTo(prevRows.last().first)
+        return true
     }
+
     return false
 }
 
