@@ -390,7 +390,7 @@ fun AppNavHost(
                 PlayerScreen(
                     channelId = it.arguments?.getLong("channelId") ?: 0,
                     onBack = { navController.popBackStack() },
-                    onOpenSplit = { id -> navController.navigate(Routes.Multiview.build(id)) },
+                    onOpenSplit = { id -> navController.navigate(Routes.SplitView.build(id)) },
                     onNavigateGuide = { navController.popBackStack() },
                     onNavigateRecordings = {
                         navController.navigate(Routes.Recordings.route) { launchSingleTop = true }

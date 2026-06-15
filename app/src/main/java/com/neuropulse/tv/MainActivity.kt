@@ -1,10 +1,7 @@
 package com.neuropulse.tv
 
-import android.app.PictureInPictureParams
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.util.Rational
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -86,17 +83,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            isInPictureInPictureMode.not() &&
-            pipController.canEnterPictureInPicture()
-        ) {
-            runCatching {
-                enterPictureInPictureMode(
-                    PictureInPictureParams.Builder()
-                        .setAspectRatio(Rational(16, 9))
-                        .build()
-                )
-            }
+        if (isInPictureInPictureMode.not()) {
+            pipController.enterPictureInPicture(this)
         }
     }
 

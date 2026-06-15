@@ -34,12 +34,6 @@ enum class TimeshiftControlFocus {
     REWIND,
     PLAY_PAUSE,
     FAST_FORWARD,
-    SKIP_2M,
-    SKIP_30,
-    SKIP_10,
-    INSTANT_REPLAY,
-    SKIP_10_FWD,
-    SKIP_30_FWD,
     SEEK_BAR,
     LIVE_BADGE
 }
@@ -54,77 +48,36 @@ fun LiveTimeshiftControls(
     val showPauseIcon = timeshiftState.showPauseControl
     val canRewind = timeshiftState.canRewind
     val canFastForward = timeshiftState.canFastForward
-    val behindLiveLabel = if (atLiveEdge) "LIVE" else formatBehindLive(timeshiftState.behindLiveMs)
-
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            horizontalArrangement = if (atLiveEdge) Arrangement.Center else Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TimeshiftTransportButton(
-                glyph = "<<",
-                caption = "Rewind",
-                focused = focusedTarget == TimeshiftControlFocus.REWIND,
-                enabled = canRewind
-            )
+            if (!atLiveEdge) {
+                TimeshiftTransportButton(
+                    glyph = "<<",
+                    caption = "Rewind",
+                    focused = focusedTarget == TimeshiftControlFocus.REWIND,
+                    enabled = canRewind
+                )
+            }
             TimeshiftTransportButton(
                 glyph = if (showPauseIcon) "||" else ">",
                 caption = if (showPauseIcon) "Pause" else "Play",
                 focused = focusedTarget == TimeshiftControlFocus.PLAY_PAUSE
             )
-            TimeshiftTransportButton(
-                glyph = ">>",
-                caption = "Forward",
-                focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
-                enabled = canFastForward
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TimeshiftTransportButton(
-                glyph = "-2m",
-                caption = "2 min",
-                focused = focusedTarget == TimeshiftControlFocus.SKIP_2M,
-                enabled = canRewind
-            )
-            TimeshiftTransportButton(
-                glyph = "-30",
-                caption = "30 sec",
-                focused = focusedTarget == TimeshiftControlFocus.SKIP_30,
-                enabled = canRewind
-            )
-            TimeshiftTransportButton(
-                glyph = "-10",
-                caption = "10 sec",
-                focused = focusedTarget == TimeshiftControlFocus.SKIP_10,
-                enabled = canRewind
-            )
-            TimeshiftTransportButton(
-                glyph = "R",
-                caption = "Replay",
-                focused = focusedTarget == TimeshiftControlFocus.INSTANT_REPLAY,
-                enabled = canRewind
-            )
-            TimeshiftTransportButton(
-                glyph = "+10",
-                caption = "10 sec",
-                focused = focusedTarget == TimeshiftControlFocus.SKIP_10_FWD,
-                enabled = canFastForward
-            )
-            TimeshiftTransportButton(
-                glyph = "+30",
-                caption = "30 sec",
-                focused = focusedTarget == TimeshiftControlFocus.SKIP_30_FWD,
-                enabled = canFastForward
-            )
+            if (!atLiveEdge) {
+                TimeshiftTransportButton(
+                    glyph = ">>",
+                    caption = "Forward",
+                    focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
+                    enabled = canFastForward
+                )
+            }
         }
 
         Row(
@@ -145,35 +98,13 @@ fun LiveTimeshiftControls(
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (!atLiveEdge) {
             Text(
-                text = formatTimelineTimestamp(timeshiftState.bufferStartMs),
-                color = EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
-                fontSize = 10.sp
-            )
-            Text(
-                text = behindLiveLabel,
-                color = if (atLiveEdge) EpgColors.TextDimmed else EpgColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp
-            )
-            Text(
-                text = formatTimelineTimestamp(timeshiftState.currentPositionMs),
+                text = "${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
                 color = EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
-                fontSize = 10.sp
-            )
-            Text(
-                text = "LIVE",
-                color = if (atLiveEdge) EpgColors.LiveBadge else EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
                 fontSize = 11.sp,
-                fontWeight = if (atLiveEdge) FontWeight.SemiBold else FontWeight.Normal
+                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
         }
     }

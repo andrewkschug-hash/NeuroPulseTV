@@ -1,6 +1,7 @@
 package com.neuropulse.tv.ui.screen
 
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -161,7 +162,7 @@ fun PlayerScreen(
         favoriteChannels.take(PlayerSideMenuMaxFavorites)
     }
 
-    val sideMenuActions = remember(lastChannel, isRecordingActive) {
+    val sideMenuActions = remember(lastChannel, isRecordingActive, settings.pictureInPictureEnabled) {
         buildList {
             add(PlayerSideMenuAction("info", "Info", "ℹ"))
             if (lastChannel != null) {
@@ -175,6 +176,10 @@ fun PlayerScreen(
                     highlightStop = isRecordingActive
                 )
             )
+            add(PlayerSideMenuAction("split_view", "Split View", "▥"))
+            if (settings.pictureInPictureEnabled) {
+                add(PlayerSideMenuAction("pip", "Picture-in-Picture", "◱"))
+            }
             add(PlayerSideMenuAction("guide", "TV Guide", "📺"))
             add(PlayerSideMenuAction("settings", "Settings", "⚙"))
         }
@@ -226,6 +231,13 @@ fun PlayerScreen(
                         channel = ch,
                         title = ch.currentProgram ?: ch.name
                     )
+                }
+            }
+            "split_view" -> onOpenSplit(channel?.id ?: channelId)
+            "pip" -> {
+                val activity = context as? ComponentActivity
+                if (activity == null || !viewModel.pipController.enterPictureInPicture(activity)) {
+                    Toast.makeText(context, "Picture-in-Picture unavailable", Toast.LENGTH_SHORT).show()
                 }
             }
             "guide" -> onNavigateGuide()
@@ -413,6 +425,10 @@ fun PlayerScreen(
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
     val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
+    LaunchedEffect(settings.pictureInPictureEnabled) {
+        viewModel.pipController.pictureInPictureEnabled = settings.pictureInPictureEnabled
+    }
+
     LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding) {
         livePlayerManager.applyPlaybackSettings(
             context,
@@ -442,58 +458,26 @@ fun PlayerScreen(
                     livePlayerManager.fastForward(30_000L)
                 }
             }
-            TimeshiftControlFocus.SKIP_2M -> livePlayerManager.skipBack(120_000L)
-            TimeshiftControlFocus.SKIP_30 -> livePlayerManager.skipBack(30_000L)
-            TimeshiftControlFocus.SKIP_10 -> livePlayerManager.skipBack(10_000L)
-            TimeshiftControlFocus.INSTANT_REPLAY -> livePlayerManager.instantReplay()
-            TimeshiftControlFocus.SKIP_10_FWD -> livePlayerManager.skipForward(10_000L)
-            TimeshiftControlFocus.SKIP_30_FWD -> livePlayerManager.skipForward(30_000L)
             TimeshiftControlFocus.SEEK_BAR -> Unit
             TimeshiftControlFocus.LIVE_BADGE -> livePlayerManager.jumpToLive()
         }
     }
 
-    fun isQuickSkipFocus(target: TimeshiftControlFocus): Boolean = when (target) {
-        TimeshiftControlFocus.SKIP_2M,
-        TimeshiftControlFocus.SKIP_30,
-        TimeshiftControlFocus.SKIP_10,
-        TimeshiftControlFocus.INSTANT_REPLAY,
-        TimeshiftControlFocus.SKIP_10_FWD,
-        TimeshiftControlFocus.SKIP_30_FWD -> true
-        else -> false
-    }
-
     fun handleTimeshiftNavigation(key: Key): Boolean {
+        val behindLive = !timeshiftState.atLiveEdge
         when (key) {
             Key.DirectionLeft -> when (timeshiftFocusTarget) {
                 TimeshiftControlFocus.REWIND -> return false
                 TimeshiftControlFocus.PLAY_PAUSE -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.REWIND
+                    if (behindLive) {
+                        timeshiftFocusTarget = TimeshiftControlFocus.REWIND
+                    } else if (timeshiftState.canRewind) {
+                        livePlayerManager.seekRelative(-30_000L)
+                    }
                     return true
                 }
                 TimeshiftControlFocus.FAST_FORWARD -> {
                     timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_2M -> return false
-                TimeshiftControlFocus.SKIP_30 -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_2M
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_10 -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30
-                    return true
-                }
-                TimeshiftControlFocus.INSTANT_REPLAY -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_10_FWD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.INSTANT_REPLAY
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_30_FWD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10_FWD
                     return true
                 }
                 TimeshiftControlFocus.SEEK_BAR -> {
@@ -513,31 +497,14 @@ fun PlayerScreen(
                     return true
                 }
                 TimeshiftControlFocus.PLAY_PAUSE -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.FAST_FORWARD
+                    if (behindLive) {
+                        timeshiftFocusTarget = TimeshiftControlFocus.FAST_FORWARD
+                    } else if (timeshiftState.canFastForward) {
+                        livePlayerManager.seekRelative(30_000L)
+                    }
                     return true
                 }
                 TimeshiftControlFocus.FAST_FORWARD -> return false
-                TimeshiftControlFocus.SKIP_2M -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_30 -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_10 -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.INSTANT_REPLAY
-                    return true
-                }
-                TimeshiftControlFocus.INSTANT_REPLAY -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10_FWD
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_10_FWD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_30_FWD
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_30_FWD -> return false
                 TimeshiftControlFocus.SEEK_BAR -> {
                     if (timeshiftState.canFastForward) {
                         livePlayerManager.seekRelative(30_000L)
@@ -547,21 +514,6 @@ fun PlayerScreen(
                 TimeshiftControlFocus.LIVE_BADGE -> return true
             }
             Key.DirectionUp -> when (timeshiftFocusTarget) {
-                TimeshiftControlFocus.REWIND,
-                TimeshiftControlFocus.PLAY_PAUSE,
-                TimeshiftControlFocus.FAST_FORWARD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_2M,
-                TimeshiftControlFocus.SKIP_30,
-                TimeshiftControlFocus.SKIP_10,
-                TimeshiftControlFocus.INSTANT_REPLAY,
-                TimeshiftControlFocus.SKIP_10_FWD,
-                TimeshiftControlFocus.SKIP_30_FWD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                    return true
-                }
                 TimeshiftControlFocus.SEEK_BAR -> {
                     timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
                     return true
@@ -570,21 +522,15 @@ fun PlayerScreen(
                     timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
                     return true
                 }
+                TimeshiftControlFocus.REWIND,
+                TimeshiftControlFocus.PLAY_PAUSE,
+                TimeshiftControlFocus.FAST_FORWARD -> return false
             }
             Key.DirectionDown -> when (timeshiftFocusTarget) {
                 TimeshiftControlFocus.REWIND,
                 TimeshiftControlFocus.PLAY_PAUSE,
                 TimeshiftControlFocus.FAST_FORWARD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SKIP_10
-                    return true
-                }
-                TimeshiftControlFocus.SKIP_2M,
-                TimeshiftControlFocus.SKIP_30,
-                TimeshiftControlFocus.SKIP_10,
-                TimeshiftControlFocus.INSTANT_REPLAY,
-                TimeshiftControlFocus.SKIP_10_FWD,
-                TimeshiftControlFocus.SKIP_30_FWD -> {
-                    showOverlay = false
+                    timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
                     return true
                 }
                 TimeshiftControlFocus.SEEK_BAR -> {
