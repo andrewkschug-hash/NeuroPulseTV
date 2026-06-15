@@ -67,13 +67,34 @@ fun calculateFocusScrollTarget(
     itemBottom: Float,
     safeZonePx: Float,
     preferCenter: Boolean = true,
-    preferTopAlign: Boolean = false
+    preferTopAlign: Boolean = false,
+    preferFullyVisible: Boolean = false
 ): Int? {
     if (viewportHeight <= 0) return null
     val viewportTop = currentScroll.toFloat()
     val viewportBottom = viewportTop + viewportHeight
     val topSafe = viewportTop + safeZonePx
     val bottomSafe = viewportBottom - safeZonePx
+
+    if (preferFullyVisible) {
+        val itemHeight = itemBottom - itemTop
+        val maxVisibleHeight = viewportHeight - 2 * safeZonePx
+        val scrollDelta = when {
+            itemHeight <= maxVisibleHeight -> {
+                val idealTop = (viewportHeight - itemHeight) / 2f
+                itemTop - idealTop
+            }
+            itemTop < safeZonePx -> itemTop - safeZonePx
+            itemBottom > viewportHeight - safeZonePx -> {
+                val bottomDelta = itemBottom - (viewportHeight - safeZonePx)
+                val topAfter = itemTop - bottomDelta
+                if (topAfter < safeZonePx) itemTop - safeZonePx else bottomDelta
+            }
+            else -> 0f
+        }
+        val target = (currentScroll + scrollDelta).roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
+        return if (target == currentScroll) null else target
+    }
 
     if (!preferTopAlign && itemTop >= topSafe && itemBottom <= bottomSafe) return null
 
@@ -116,7 +137,8 @@ class TvFocusScrollState(
     suspend fun scrollIntoViewIfNeeded(
         itemCoords: LayoutCoordinates,
         safeZonePx: Float,
-        preferTopAlign: Boolean = false
+        preferTopAlign: Boolean = false,
+        preferFullyVisible: Boolean = false
     ) {
         if (!TvFocusScrollConfig.enabled) return
         scrollMutex.withLock {
@@ -134,14 +156,15 @@ class TvFocusScrollState(
                 itemBottom = itemBottom,
                 safeZonePx = safeZonePx,
                 preferCenter = TvFocusScrollConfig.preferCenter,
-                preferTopAlign = preferTopAlign
+                preferTopAlign = preferTopAlign,
+                preferFullyVisible = preferFullyVisible
             ) ?: return
 
             val delta = target - scrollState.value
             if (delta == 0) return
 
             // Top-aligned scrolling (Settings sections) snaps instantly to avoid bounce.
-            if (preferTopAlign || !TvFocusScrollConfig.animateScroll) {
+            if (preferTopAlign || preferFullyVisible || !TvFocusScrollConfig.animateScroll) {
                 scrollState.scrollTo(target)
             } else {
                 scrollState.animateScrollBy(
@@ -209,7 +232,8 @@ fun TvScrollContainer(
 fun Modifier.tvFocusScrollIntoView(
     scrollState: TvFocusScrollState? = LocalTvFocusScrollState.current,
     enabled: Boolean = true,
-    preferTopAlign: Boolean = false
+    preferTopAlign: Boolean = false,
+    preferFullyVisible: Boolean = false
 ): Modifier {
     if (scrollState == null || !enabled) return this
 
@@ -230,7 +254,8 @@ fun Modifier.tvFocusScrollIntoView(
                         scrollState.scrollIntoViewIfNeeded(
                             coords,
                             safeZonePx,
-                            preferTopAlign = preferTopAlign
+                            preferTopAlign = preferTopAlign,
+                            preferFullyVisible = preferFullyVisible
                         )
                     }
                 }
@@ -247,11 +272,11 @@ fun Modifier.tvScrollIntoViewWhen(
     active: Boolean,
     scrollState: TvFocusScrollState? = LocalTvFocusScrollState.current,
     preferTopAlign: Boolean = true,
+    preferFullyVisible: Boolean = false,
     enabled: Boolean = true
 ): Modifier {
     if (!enabled || scrollState == null || !active) return this
 
-    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val safeZonePx = with(density) { TvFocusScrollConfig.safeZoneDp.toPx() }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -260,7 +285,21 @@ fun Modifier.tvScrollIntoViewWhen(
         if (!active) return@LaunchedEffect
         delay(16)
         val coords = coordinates ?: return@LaunchedEffect
-        scrollState.scrollIntoViewIfNeeded(coords, safeZonePx, preferTopAlign = preferTopAlign)
+        scrollState.scrollIntoViewIfNeeded(
+            coords,
+            safeZonePx,
+            preferTopAlign = preferTopAlign,
+            preferFullyVisible = preferFullyVisible
+        )
+        if (preferFullyVisible) {
+            delay(48)
+            val settled = coordinates ?: return@LaunchedEffect
+            scrollState.scrollIntoViewIfNeeded(
+                settled,
+                safeZonePx,
+                preferFullyVisible = true
+            )
+        }
     }
 
     return this.onGloballyPositioned { coordinates = it }

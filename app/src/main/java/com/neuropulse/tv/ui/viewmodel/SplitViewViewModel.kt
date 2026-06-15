@@ -21,6 +21,12 @@ class SplitViewViewModel @Inject constructor(
     val channels: StateFlow<List<Channel>> = repository.channels(null, "", false, null)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val favoriteChannels: StateFlow<List<Channel>> = repository.channels(null, "", favoritesOnly = true, null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentChannels: StateFlow<List<Channel>> = repository.recentChannels(limit = 20)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _primaryChannel = MutableStateFlow<Channel?>(null)
     val primaryChannel: StateFlow<Channel?> = _primaryChannel.asStateFlow()
 

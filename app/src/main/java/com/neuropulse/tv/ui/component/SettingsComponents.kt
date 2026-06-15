@@ -181,7 +181,11 @@ fun SettingsPanel(
         modifier = modifier
             .fillMaxWidth()
             .tvScrollIntoViewWhen(
-                active = sectionHighlighted || insideActive,
+                active = sectionHighlighted,
+                preferFullyVisible = true
+            )
+            .tvScrollIntoViewWhen(
+                active = insideActive && !sectionHighlighted,
                 preferTopAlign = true
             )
             .background(backgroundColor, RoundedCornerShape(10.dp))

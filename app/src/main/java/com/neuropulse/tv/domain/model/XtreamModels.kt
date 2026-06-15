@@ -38,6 +38,8 @@ data class SeriesShow(
     val id: Long,
     val name: String,
     val coverUrl: String?,
+    val categoryId: String? = null,
+    val genre: String? = null,
     val playlistId: Long = 0L
 )
 
@@ -52,5 +54,6 @@ data class SeriesEpisode(
     val extension: String,
     val streamUrl: String,
     val plot: String?,
-    val duration: String?
+    val duration: String?,
+    val episodeNumber: Int? = null
 )

@@ -105,13 +105,12 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(url, resume, isRecordedPlayback, streamId) {
+    LaunchedEffect(url, resume, isRecordedPlayback, streamId, player.playbackState) {
         if (isRecordedPlayback || hasSeekedToResume) return@LaunchedEffect
-        if (player.playbackState == Player.STATE_READY) {
-            val startMs = viewModel.resumePositionMs(streamId, url, resume)
-            if (startMs > 0L) player.seekTo(startMs)
-            hasSeekedToResume = true
-        }
+        if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
+        val startMs = viewModel.resumePositionMs(streamId, url, resume)
+        if (startMs > 0L) player.seekTo(startMs)
+        hasSeekedToResume = true
     }
 
     LaunchedEffect(isRecordedPlayback) {
@@ -153,6 +152,18 @@ fun DirectPlayerScreen(
             delay(500)
             positionMs = player.currentPosition
             if (durationMs <= 0L && player.duration > 0) durationMs = player.duration
+        }
+    }
+
+    LaunchedEffect(isRecordedPlayback, url, streamId, title) {
+        if (isRecordedPlayback) return@LaunchedEffect
+        while (true) {
+            delay(10_000)
+            val pos = player.currentPosition
+            val dur = player.duration.coerceAtLeast(0L)
+            if (pos > 0L) {
+                viewModel.persistProgress(streamId, pos, title, dur, url)
+            }
         }
     }
 

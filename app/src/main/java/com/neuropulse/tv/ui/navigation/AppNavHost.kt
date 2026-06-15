@@ -35,6 +35,7 @@ import com.neuropulse.tv.ui.component.EpgLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.GridNavIconRow
 import com.neuropulse.tv.ui.component.ProfileMenuDropdown
+import com.neuropulse.tv.domain.model.VodPlaybackHelper
 import com.neuropulse.tv.ui.screen.DirectPlayerScreen
 import com.neuropulse.tv.ui.screen.EpgResolverScreen
 import com.neuropulse.tv.ui.screen.HomeEpgScreen
@@ -92,11 +93,11 @@ fun AppNavHost(
             initialTab = initialTab,
             initialSeriesId = initialSeriesId,
             profileInitials = profileInitials,
-            onPlayMovie = { title, url ->
-                navController.navigate(Routes.DirectPlayer.build(title, url))
+            onPlayMovie = { title, url, resume ->
+                navController.navigate(Routes.DirectPlayer.build(title, url, resume = resume))
             },
-            onPlayUrl = { url, title ->
-                navController.navigate(Routes.DirectPlayer.build(title, url))
+            onPlayUrl = { title, url, resume ->
+                navController.navigate(Routes.DirectPlayer.build(title, url, resume = resume))
             },
             onNavigateHome = {
                 navController.navigate(Routes.Home.route) {
@@ -271,13 +272,14 @@ fun AppNavHost(
                             launchSingleTop = true
                         }
                     },
-                    onPlayVod = { url, title ->
-                        navController.navigate(Routes.DirectPlayer.build(title, url))
+                    onPlayVod = { url, title, resume ->
+                        navController.navigate(Routes.DirectPlayer.build(title, url, resume = resume))
                     },
                     onPlayCatchup = { title, url ->
                         navController.navigate(Routes.DirectPlayer.build(title, url))
                     },
                     onResumeContinueWatching = { item ->
+                        VodPlaybackHelper.stageContinueWatching(item)
                         navController.navigate(
                             Routes.DirectPlayer.build(
                                 title = item.title,

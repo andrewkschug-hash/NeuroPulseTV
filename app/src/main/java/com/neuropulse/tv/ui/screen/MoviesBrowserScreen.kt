@@ -2,7 +2,6 @@ package com.neuropulse.tv.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,15 +12,16 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -31,14 +31,12 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.OutlinedTextField
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.neuropulse.tv.domain.model.VodPlaybackContext
+import com.neuropulse.tv.domain.model.VodPlaybackHelper
 import com.neuropulse.tv.ui.component.VodCategoryChip
 import com.neuropulse.tv.ui.component.VodEmptyState
 import com.neuropulse.tv.ui.component.VodPosterCard
@@ -46,12 +44,14 @@ import com.neuropulse.tv.ui.component.showsHdBadge
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.MoviesViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun MoviesBrowserScreen(
-    onPlayMovie: (String, String) -> Unit,
+    onPlayMovie: (String, String, Boolean) -> Unit,
     onBack: () -> Unit = {},
     embedded: Boolean = false,
+    hubSearchQuery: String = "",
     contentFocusRequester: FocusRequester? = null,
     onMoveFocusUp: (() -> Unit)? = null,
     viewModel: MoviesViewModel = hiltViewModel()
@@ -61,6 +61,11 @@ fun MoviesBrowserScreen(
     val progress by viewModel.vodProgress.collectAsStateWithLifecycle()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
     var search by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(hubSearchQuery, embedded) {
+        if (embedded) viewModel.setSearchQuery(hubSearchQuery)
+    }
 
     val genreOptions = remember(categories) {
         listOf(null to "All") + categories.distinctBy { it.id }.map { it.id to it.name }
@@ -94,66 +99,47 @@ fun MoviesBrowserScreen(
                 placeholder = { Text("Search movies") }
             )
         }
-        if (embedded) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier
-                    .padding(bottom = 12.dp)
-                    .then(
-                        if (onMoveFocusUp != null) {
-                            Modifier.onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                                    onMoveFocusUp()
-                                    true
-                                } else {
-                                    false
-                                }
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .padding(bottom = 12.dp)
+                .then(
+                    if (onMoveFocusUp != null) {
+                        Modifier.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
+                                onMoveFocusUp()
+                                true
+                            } else {
+                                false
                             }
-                        } else {
-                            Modifier
                         }
-                    )
-            ) {
-                itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { index, option ->
-                    val (categoryId, label) = option
-                    val selected = selectedCategoryId == categoryId
-                    VodCategoryChip(
-                        label = label,
-                        selected = selected,
-                        focused = false,
-                        onClick = { viewModel.setCategory(categoryId) },
-                        modifier = if (index == 0 && contentFocusRequester != null) {
-                            Modifier.focusRequester(contentFocusRequester)
-                        } else {
-                            Modifier
-                        }
-                    )
-                }
-            }
-        } else {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(vertical = 12.dp)
-            ) {
-                itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { _, option ->
-                    val (categoryId, label) = option
-                    val selected = selectedCategoryId == categoryId
-                    Surface(onClick = { viewModel.setCategory(categoryId) }) {
-                        Text(
-                            text = label,
-                            color = if (selected) EpgColors.Accent else EpgColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+                    } else {
+                        Modifier
                     }
-                }
+                )
+        ) {
+            itemsIndexed(genreOptions, key = { _, option -> option.first ?: "all" }) { index, option ->
+                val (categoryId, label) = option
+                val selected = selectedCategoryId == categoryId
+                VodCategoryChip(
+                    label = label,
+                    selected = selected,
+                    focused = false,
+                    onClick = { viewModel.setCategory(categoryId) },
+                    modifier = if (index == 0 && contentFocusRequester != null) {
+                        Modifier.focusRequester(contentFocusRequester)
+                    } else {
+                        Modifier
+                    }
+                )
             }
         }
+
         if (movies.isEmpty()) {
             VodEmptyState(
                 title = "No movies available",
-                message = "Add an Xtream or M3U playlist with VOD in Settings, or use ⌕ Search once titles are loaded."
+                message = "Add an Xtream playlist with VOD in Settings, or try another category."
             )
         } else {
             LazyVerticalGrid(
@@ -170,8 +156,11 @@ fun MoviesBrowserScreen(
                         progressFraction = viewModel.progressFraction(movie, progress),
                         showHdBadge = movie.showsHdBadge(),
                         onClick = {
-                            VodPlaybackContext.stageMovie(movie.posterUrl, movie.streamId)
-                            onPlayMovie(movie.title, movie.streamUrl)
+                            scope.launch {
+                                val resume = viewModel.shouldResume(movie, progress)
+                                VodPlaybackHelper.stageMovie(movie)
+                                onPlayMovie(movie.title, movie.streamUrl, resume)
+                            }
                         }
                     )
                 }

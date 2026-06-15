@@ -315,6 +315,16 @@ class IptvRepositoryImpl @Inject constructor(
             rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
         }
 
+    override fun recentChannels(limit: Int): Flow<List<Channel>> =
+        combine(
+            profileWatchHistoryDao.observeRecent(activeProfileId, limit),
+            playlistDao.observeAll()
+        ) { rows, playlists ->
+            val all = channelDao.all().associateBy { it.id }
+            val names = playlists.associate { it.id to it.name }
+            rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
+        }
+
     override fun recentlyAdded(limit: Int): Flow<List<Channel>> =
         combine(channelDao.observeRecentlyAdded(limit), playlistDao.observeAll()) { rows, playlists ->
             val names = playlists.associate { it.id to it.name }

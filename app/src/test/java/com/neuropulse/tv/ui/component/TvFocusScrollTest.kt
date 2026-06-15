@@ -77,6 +77,34 @@ class TvFocusScrollTest {
     }
 
     @Test
+    fun `preferFullyVisible centers item that fits in viewport`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 0,
+            maxScroll = 2000,
+            viewportHeight = 500,
+            itemTop = 350f,
+            itemBottom = 650f,
+            safeZonePx = 80f,
+            preferFullyVisible = true
+        )
+        assertEquals(250, result)
+    }
+
+    @Test
+    fun `preferFullyVisible scrolls to reveal clipped bottom edge`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 0,
+            maxScroll = 2000,
+            viewportHeight = 500,
+            itemTop = 120f,
+            itemBottom = 460f,
+            safeZonePx = 80f,
+            preferFullyVisible = true
+        )
+        assertEquals(40, result)
+    }
+
+    @Test
     fun `clamps target to max scroll`() {
         val result = calculateFocusScrollTarget(
             currentScroll = 1800,

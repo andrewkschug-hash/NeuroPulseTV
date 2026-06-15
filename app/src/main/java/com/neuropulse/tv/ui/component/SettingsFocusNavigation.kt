@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.PlaylistType
+import com.neuropulse.tv.ui.component.tvFocusScrollIntoView
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 enum class SettingsFocusPanel { TOP_BAR, LEFT, RIGHT }
@@ -156,6 +157,9 @@ fun settingsFocusModifier(
         .focusProperties {
             canFocus = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
         }
+        .tvFocusScrollIntoView(
+            enabled = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
+        )
         .onFocusChanged { state ->
             if (state.isFocused) {
                 focus.chain.onItemFocused(chainIndex)

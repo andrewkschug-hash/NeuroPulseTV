@@ -40,6 +40,24 @@ class ContinueWatchingRepository @Inject constructor(
         resumePosition(profileId, movieContentKey(streamId))
             ?: dao.get(profileId, "stream:$streamId")?.positionMs?.takeIf { it > 0L }
 
+    suspend fun resumePositionForSeriesEpisode(
+        profileId: Long,
+        seriesId: Long,
+        seasonNumber: Int,
+        episodeNumber: Int
+    ): Long? = resumePosition(profileId, seriesContentKey(seriesId, seasonNumber, episodeNumber))
+
+    suspend fun hasResumeProgress(profileId: Long, streamId: Long): Boolean =
+        resumePositionForStream(profileId, streamId)?.let { it > 5_000L } == true
+
+    suspend fun hasEpisodeResumeProgress(
+        profileId: Long,
+        seriesId: Long,
+        seasonNumber: Int,
+        episodeNumber: Int
+    ): Boolean = resumePositionForSeriesEpisode(profileId, seriesId, seasonNumber, episodeNumber)
+        ?.let { it > 5_000L } == true
+
     suspend fun saveMovie(
         profileId: Long,
         streamId: Long,

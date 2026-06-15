@@ -20,6 +20,10 @@ class MoviesViewModel @Inject constructor(
     private val repository: IptvRepository
 ) : ViewModel() {
 
+    private companion object {
+        const val COMPLETION_THRESHOLD = 0.95
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -61,5 +65,12 @@ class MoviesViewModel @Inject constructor(
         val progressMs = progressByStreamId[item.streamId] ?: return null
         if (durationMs <= 0L) return null
         return (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    }
+
+    suspend fun shouldResume(item: VodItem, progressByStreamId: Map<Long, Long>): Boolean {
+        val progressMs = progressByStreamId[item.streamId] ?: return false
+        if (progressMs <= 5_000L) return false
+        val durationMs = parseVodDurationMs(item.duration) ?: return progressMs > 5_000L
+        return progressMs.toDouble() / durationMs < COMPLETION_THRESHOLD
     }
 }

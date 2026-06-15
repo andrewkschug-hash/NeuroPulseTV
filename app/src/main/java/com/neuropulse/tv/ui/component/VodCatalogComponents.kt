@@ -260,6 +260,134 @@ fun SeriesHomeRow(
 }
 
 @Composable
+fun VodSearchField(
+    query: String,
+    placeholder: String,
+    focused: Boolean,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val borderColor = if (focused) EpgColors.Accent else EpgColors.BorderSubtle
+    Surface(
+        onClick = { },
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, borderColor, shape),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF13131A),
+            focusedContainerColor = EpgColors.ChannelRowFocusBg
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "⌕",
+                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                fontSize = 16.sp
+            )
+            Text(
+                text = when {
+                    query.isNotBlank() -> query
+                    focused -> "Type to search…"
+                    else -> placeholder
+                },
+                color = if (query.isNotBlank()) EpgColors.TextPrimary else EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (query.isNotBlank()) {
+                Text(
+                    text = "Clear",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun VodEpisodeCard(
+    episodeNumber: Int,
+    title: String,
+    duration: String?,
+    progressFraction: Float?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF13131A),
+            focusedContainerColor = EpgColors.ChannelRowFocusBg
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "E${episodeNumber.toString().padStart(2, '0')}",
+                    color = EpgColors.Accent,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!duration.isNullOrBlank()) {
+                    Text(
+                        text = duration,
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp
+                    )
+                }
+            }
+            Text(
+                text = title,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            progressFraction?.takeIf { it in 0.01f..0.98f }?.let { fraction ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .height(3.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(2.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(3.dp)
+                            .background(EpgColors.Accent, RoundedCornerShape(2.dp))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun VodHubHeader(
     title: String,
     subtitle: String,
@@ -281,13 +409,6 @@ fun VodHubHeader(
             color = EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
             fontSize = 13.sp
-        )
-        Text(
-            text = "Press ⌕ Search in the top bar to find titles",
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(top = 2.dp)
         )
     }
 }

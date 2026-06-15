@@ -97,16 +97,6 @@ fun LiveTimeshiftControls(
                 focused = focusedTarget == TimeshiftControlFocus.LIVE_BADGE
             )
         }
-
-        if (!atLiveEdge) {
-            Text(
-                text = "${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
-                color = EpgColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
-        }
     }
 }
 
@@ -116,9 +106,14 @@ fun TimeshiftStatusBadge(
     modifier: Modifier = Modifier
 ) {
     if (!timeshiftState.isTimeshifting || timeshiftState.atLiveEdge) return
-    val label = if (timeshiftState.showPauseControl) ">" else "||"
+    val offset = formatBehindLive(timeshiftState.behindLiveMs)
+    val label = if (!timeshiftState.isPlaying) {
+        "Paused · $offset behind live"
+    } else {
+        "$offset behind live"
+    }
     Text(
-        text = "$label ${formatBehindLive(timeshiftState.behindLiveMs)} behind live",
+        text = label,
         color = EpgColors.TextSecondary,
         fontFamily = DmSansFamily,
         fontSize = 11.sp,
@@ -308,6 +303,48 @@ fun formatBehindLive(behindMs: Long): String {
     val minutes = totalSec / 60
     val seconds = totalSec % 60
     return "-%d:%02d".format(minutes, seconds)
+}
+
+data class PlayerPlaybackStatus(
+    val label: String,
+    val showLiveDot: Boolean = false
+)
+
+fun playerPlaybackStatus(
+    playbackStatus: com.neuropulse.tv.player.StreamPlaybackStatus,
+    canTimeshift: Boolean,
+    timeshiftState: com.neuropulse.tv.player.TimeshiftUiState
+): PlayerPlaybackStatus? {
+    fun behindLiveLabel(): String {
+        val offset = formatBehindLive(timeshiftState.behindLiveMs)
+        return if (!timeshiftState.isPlaying) {
+            "Paused · $offset behind live"
+        } else {
+            "$offset behind live"
+        }
+    }
+
+    return when (playbackStatus) {
+        com.neuropulse.tv.player.StreamPlaybackStatus.PLAYING -> {
+            if (!canTimeshift) {
+                PlayerPlaybackStatus(label = "Live", showLiveDot = true)
+            } else when {
+                !timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = behindLiveLabel())
+                !timeshiftState.isPlaying -> PlayerPlaybackStatus(label = "Paused")
+                else -> PlayerPlaybackStatus(label = "Live", showLiveDot = true)
+            }
+        }
+        com.neuropulse.tv.player.StreamPlaybackStatus.AUDIO_ONLY -> {
+            if (!canTimeshift) {
+                PlayerPlaybackStatus(label = "Audio only")
+            } else when {
+                !timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = behindLiveLabel())
+                !timeshiftState.isPlaying -> PlayerPlaybackStatus(label = "Paused")
+                else -> PlayerPlaybackStatus(label = "Audio only")
+            }
+        }
+        else -> null
+    }
 }
 
 fun formatTimelineTimestamp(positionMs: Long): String {

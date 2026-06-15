@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
@@ -58,11 +59,13 @@ object EpgLayout {
     val TopBarHeight = 72.dp
     val ChannelColumnWidth = 180.dp
     val RowHeight = 64.dp
-    const val VisibleGuideRows = 3
-    /** Height for exactly [VisibleGuideRows] channel rows without vertical scroll. */
-    val GuideChannelListHeight = 210.dp
-    val TimelineHeaderHeight = 32.dp
+    const val VisibleGuideRows = 6
+    /** Minimum guide list height (~[VisibleGuideRows] rows); list expands to fill available space. */
+    val GuideChannelListMinHeight = RowHeight * VisibleGuideRows
+    val TimelineHeaderHeight = 36.dp
     val DetailPanelHeight = 84.dp
+    val PreviewSectionHeight = 240.dp
+    val PreviewInfoWidth = 280.dp
     val MiniPlayerWidth = 300.dp
     val MiniPlayerHeight = 169.dp
     val GuideHeaderBottomPadding = 8.dp
@@ -70,7 +73,8 @@ object EpgLayout {
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
     val ChannelLogoSize = 36.dp
-    val NowLineWidth = 1.5.dp
+    val NowLineWidth = 2.dp
+    val NowMarkerWidth = 64.dp
 
     fun dpPerMs(): Float = DpPerMinute / 60_000f
 
@@ -462,36 +466,40 @@ fun EpgTimelineHeader(
         }
 
         if (showNow) {
-            val markerWidth = 48.dp
-            Box(
+            Column(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = nowOffset - markerWidth / 2)
-                    .width(markerWidth)
-                    .height(10.dp)
+                    .align(Alignment.TopStart)
+                    .offset(x = nowOffset - EpgLayout.NowMarkerWidth / 2)
+                    .width(EpgLayout.NowMarkerWidth),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth()
-                        .height(2.dp)
-                        .background(EpgColors.Accent)
+                Text(
+                    text = formatEpgClock(now),
+                    color = EpgColors.Accent,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
                 )
-                androidx.compose.foundation.Canvas(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .size(width = 10.dp, height = 6.dp)
-                ) {
-                    val path = Path().apply {
-                        moveTo(size.width / 2f, size.height)
-                        lineTo(0f, 0f)
-                        lineTo(size.width, 0f)
-                        close()
-                    }
-                    drawPath(path, EpgColors.Accent, style = Fill)
-                }
+                EpgNowArrow(modifier = Modifier.padding(top = 2.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun EpgNowArrow(
+    modifier: Modifier = Modifier,
+    color: Color = EpgColors.Accent
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier.size(width = 10.dp, height = 6.dp)) {
+        val path = Path().apply {
+            moveTo(size.width / 2f, size.height)
+            lineTo(0f, 0f)
+            lineTo(size.width, 0f)
+            close()
+        }
+        drawPath(path, color, style = Fill)
     }
 }
 
@@ -500,47 +508,20 @@ fun EpgNowLine(
     windowStart: Long,
     windowDurationMs: Long,
     now: Long,
+    scrollOffsetPx: Int = 0,
     modifier: Modifier = Modifier
 ) {
     if (now !in windowStart..(windowStart + windowDurationMs)) return
     val nowOffset = EpgLayout.offsetForTime(now, windowStart)
+    val scrollOffsetDp = with(LocalDensity.current) { scrollOffsetPx.toDp() }
     Box(modifier = modifier) {
-        Column(
+        Box(
             modifier = Modifier
-                .offset(x = nowOffset - EpgLayout.NowLineWidth / 2)
+                .offset(x = nowOffset - scrollOffsetDp - EpgLayout.NowLineWidth / 2)
                 .width(EpgLayout.NowLineWidth)
                 .fillMaxHeight()
-        ) {
-            Text(
-                text = "NOW",
-                color = EpgColors.NowLine,
-                fontFamily = DmSansFamily,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .offset(y = (-10).dp)
-            )
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .size(width = 8.dp, height = 6.dp)
-                    .align(Alignment.CenterHorizontally)
-            ) {
-                val path = Path().apply {
-                    moveTo(size.width / 2f, size.height)
-                    lineTo(0f, 0f)
-                    lineTo(size.width, 0f)
-                    close()
-                }
-                drawPath(path, EpgColors.NowLine, style = Fill)
-            }
-            Box(
-                modifier = Modifier
-                    .width(EpgLayout.NowLineWidth)
-                    .weight(1f)
-                    .background(EpgColors.NowLine)
-            )
-        }
+                .background(EpgColors.Accent)
+        )
     }
 }
 
@@ -555,16 +536,16 @@ fun EpgJumpToLiveButton(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Red.copy(alpha = 0.15f),
-            focusedContainerColor = Color.Red.copy(alpha = 0.25f)
+            containerColor = EpgColors.Accent.copy(alpha = 0.15f),
+            focusedContainerColor = EpgColors.Accent.copy(alpha = 0.25f)
         ),
         modifier = modifier
             .height(32.dp)
-            .border(1.dp, EpgColors.NowLine, RoundedCornerShape(6.dp))
+            .border(1.dp, EpgColors.Accent, RoundedCornerShape(6.dp))
     ) {
         Text(
             text = "● Live",
-            color = EpgColors.NowLine,
+            color = EpgColors.Accent,
             fontFamily = DmSansFamily,
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,

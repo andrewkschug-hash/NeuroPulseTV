@@ -44,7 +44,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,7 +52,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,11 +64,11 @@ import androidx.tv.material3.Surface
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.requestFocusSafely
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
+import com.neuropulse.tv.ui.component.GridBrandWordmark
 import com.neuropulse.tv.ui.component.GridModal
 import com.neuropulse.tv.ui.component.GridOutlinedButton
 import com.neuropulse.tv.ui.component.GridPrimaryButton
 import com.neuropulse.tv.ui.component.TvTextField
-import com.neuropulse.tv.ui.theme.BarlowCondensedFamily
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
@@ -316,48 +314,16 @@ private fun ProfilePickerWordmark(
     alpha: Float,
     offsetY: Float
 ) {
-    val accentLight = Color(0xFF7EB8FF)
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .graphicsLayer {
-                this.alpha = alpha
-                translationY = offsetY
-            }
-    ) {
-        Text(
-            text = "GRID",
-            fontFamily = BarlowCondensedFamily,
-            fontSize = 44.sp,
-            fontWeight = FontWeight.ExtraBold,
-            letterSpacing = 14.sp,
-            style = TextStyle(
-                brush = Brush.linearGradient(
-                    colors = listOf(Accent, accentLight, Accent)
-                ),
-                shadow = Shadow(
-                    color = Accent.copy(alpha = 0.55f),
-                    offset = Offset(0f, 0f),
-                    blurRadius = 28f
-                )
-            )
-        )
-        Spacer(modifier = Modifier.height(18.dp))
-        Box(
-            modifier = Modifier
-                .width(140.dp)
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Accent.copy(alpha = 0.45f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-    }
+    GridBrandWordmark(
+        fontSize = 44.sp,
+        letterSpacing = 14.sp,
+        alpha = alpha,
+        glowAlpha = 0.55f,
+        dividerWidth = 140.dp,
+        modifier = Modifier.graphicsLayer {
+            translationY = offsetY
+        }
+    )
 }
 
 @Composable

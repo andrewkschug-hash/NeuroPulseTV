@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -63,7 +65,10 @@ class HomeEpgViewModel @Inject constructor(
         const val FAVORITES_FILTER = -1L
         private const val WINDOW_CHUNK_MS = 2 * 60 * 60 * 1000L
         private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
+        private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
     }
+
+    private var previewTuneJob: Job? = null
 
     private val _miniPlayerAudioEnabled = MutableStateFlow(false)
     val miniPlayerAudioEnabled = _miniPlayerAudioEnabled.asStateFlow()
@@ -397,11 +402,18 @@ class HomeEpgViewModel @Inject constructor(
 
     fun previewChannel(context: android.content.Context, channel: Channel, programTitle: String? = null) {
         lastHealthReport = null
-        viewModelScope.launch {
+        previewTuneJob?.cancel()
+        previewTuneJob = viewModelScope.launch {
+            delay(PREVIEW_TUNE_DEBOUNCE_MS)
             if (channel.streamUrl.isBlank()) return@launch
             livePlayerManager.tuneChannel(context, channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
+    }
+
+    fun cancelPreviewTune() {
+        previewTuneJob?.cancel()
+        previewTuneJob = null
     }
 
     suspend fun buildCatchupUrl(program: Program, channel: Channel): String? =

@@ -55,6 +55,7 @@ class LivePlayerManager @Inject constructor(
     private var preferHardwareDecoding: Boolean = true
 
     private var hasDvrWindow: Boolean = false
+    private var pendingJumpToLive: Boolean = false
 
     private val _activeChannelId = MutableStateFlow<Long?>(null)
     val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
@@ -180,8 +181,6 @@ class LivePlayerManager @Inject constructor(
         }
 
         TimeshiftManager.reset()
-        exo.stop()
-        exo.clearMediaItems()
         clearStreamCache(context)
         resetTimeshiftState()
         this.catchupDays = catchupDays
@@ -192,6 +191,8 @@ class LivePlayerManager @Inject constructor(
             channelSnapshot?.let { currentChannel = it }
             _activeChannelId.value = channelId
             _canTimeshift.value = false
+            exo.stop()
+            exo.clearMediaItems()
             return
         }
 
@@ -199,10 +200,24 @@ class LivePlayerManager @Inject constructor(
         currentStreamUrl = streamUrl
         channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
-        exo.setMediaItem(MediaItem.fromUri(streamUrl))
+        pendingJumpToLive = true
+        exo.setMediaItem(buildLiveMediaItem(streamUrl))
         exo.prepare()
         exo.playWhenReady = true
         applyVolume()
+    }
+
+    private fun buildLiveMediaItem(streamUrl: String): MediaItem {
+        return MediaItem.Builder()
+            .setUri(streamUrl)
+            .setLiveConfiguration(
+                MediaItem.LiveConfiguration.Builder()
+                    .setTargetOffsetMs(5_000L)
+                    .setMinOffsetMs(3_000L)
+                    .setMaxOffsetMs(15_000L)
+                    .build()
+            )
+            .build()
     }
 
     fun lastChannel(): Channel? = _lastChannel.value
@@ -337,6 +352,7 @@ class LivePlayerManager @Inject constructor(
 
     private fun resetTimeshiftState() {
         hasDvrWindow = false
+        pendingJumpToLive = false
         TimeshiftManager.reset()
         _canTimeshift.value = false
         _atLiveEdge.value = true
@@ -370,21 +386,34 @@ class LivePlayerManager @Inject constructor(
 
         if (hasDvrWindow) {
             TimeshiftManager.updateLiveEdge(exo)
+            if (pendingJumpToLive && exo.playbackState == Player.STATE_READY) {
+                if (!TimeshiftManager.isAtLiveEdge(exo)) {
+                    TimeshiftManager.jumpToLive(exo)
+                } else {
+                    pendingJumpToLive = false
+                }
+            }
+            if (pendingJumpToLive && TimeshiftManager.isAtLiveEdge(exo)) {
+                pendingJumpToLive = false
+            }
         } else {
             TimeshiftManager.reset()
+            pendingJumpToLive = false
         }
 
-        val atEdge = TimeshiftManager.isAtLiveEdge(exo)
-        TimeshiftManager.syncFromPlayer(exo)
+        val atEdge = pendingJumpToLive || TimeshiftManager.isAtLiveEdge(exo)
+        TimeshiftManager.syncFromPlayer(exo, treatAsLiveEdge = pendingJumpToLive)
         val behindMs = if (atEdge) 0L else TimeshiftManager.behindLiveMs(exo)
         Log.d(
             "TIMESHIFT_DEBUG",
             """
-            atEdge=$atEdge
-            behind=$behindMs
+            atEdge=${TimeshiftManager.isAtLiveEdge(exo)}
+            behind=${TimeshiftManager.behindLiveMs(exo)}
             offset=${exo.currentLiveOffset}
             position=${exo.currentPosition}
             duration=${exo.duration}
+            windowBehind=${window.defaultPositionMs - exo.currentPosition}
+            defaultPos=${window.defaultPositionMs}
             """.trimIndent()
         )
         _canTimeshift.value = canTimeshift()

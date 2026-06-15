@@ -65,6 +65,7 @@ import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.Program
+import com.neuropulse.tv.domain.model.VodPlaybackHelper
 import com.neuropulse.tv.feature.epg.EpgPlaceholderData
 import com.neuropulse.tv.feature.epg.ChannelCategoryPresets
 import com.neuropulse.tv.feature.recording.RecordingStatus
@@ -75,7 +76,6 @@ import com.neuropulse.tv.domain.model.SearchInputMode
 import com.neuropulse.tv.player.LivePlayerManager
 import dagger.hilt.android.EntryPointAccessors
 import com.neuropulse.tv.ui.component.EpgChannelCell
-import com.neuropulse.tv.ui.component.EpgDetailPanel
 import com.neuropulse.tv.ui.component.EpgEmptyState
 import com.neuropulse.tv.ui.component.EpgLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
@@ -94,9 +94,8 @@ import com.neuropulse.tv.ui.component.currentCategoryMenuIndex
 import com.neuropulse.tv.ui.component.EpgCategoryFilterChip
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
-import com.neuropulse.tv.ui.component.MiniPlayerOverlay
-import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.SearchOverlay
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -106,7 +105,7 @@ import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SearchViewModel
 import kotlinx.coroutines.launch
 
-private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, GRID_FILTER, GRID, DETAIL, MINI_PLAYER }
+private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FILTER, GRID }
 
 private val TopBarProfileIndex get() = GridNavTabs.size
 private const val TopBarSearchIndex = 0
@@ -120,7 +119,7 @@ fun HomeEpgScreen(
     onNavigateProfile: () -> Unit = {},
     onNavigateVod: (Int) -> Unit = {},
     onNavigateSeries: (Long) -> Unit = {},
-    onPlayVod: (String, String) -> Unit = { _, _ -> },
+    onPlayVod: (String, String, Boolean) -> Unit = { _, _, _ -> },
     onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
     profileInitials: String = "?",
     openFavoritesInitially: Boolean = false,
@@ -173,19 +172,27 @@ fun HomeEpgScreen(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
+    var previewSurfaceAttached by remember { mutableStateOf(true) }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
+                    previewSurfaceAttached = true
                     viewModel.reloadPlaybackSettings()
                     viewModel.setScannerForeground(true)
                 }
-                Lifecycle.Event.ON_PAUSE -> viewModel.setScannerForeground(false)
+                Lifecycle.Event.ON_PAUSE -> {
+                    previewSurfaceAttached = false
+                    viewModel.setScannerForeground(false)
+                }
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.cancelPreviewTune()
+        }
     }
 
     val showEmptyState = !isInitializing && !hasConnection
@@ -248,6 +255,11 @@ fun HomeEpgScreen(
     val liveChannelId by livePlayerManager.activeChannelIdFlow.collectAsStateWithLifecycle()
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
     val lastPlayedChannel by viewModel.lastPlayedChannel.collectAsStateWithLifecycle()
+
+    LaunchedEffect(liveChannelId, channels) {
+        val id = liveChannelId ?: return@LaunchedEffect
+        channels.find { it.id == id }?.let { viewModel.setLastPlayedChannel(it) }
+    }
     val channelScanStatuses by viewModel.channelScanStatuses.collectAsStateWithLifecycle()
     val guidePosition by viewModel.guidePosition.collectAsStateWithLifecycle()
 
@@ -314,6 +326,15 @@ fun HomeEpgScreen(
     var focusChannelIndex by remember { mutableIntStateOf(0) }
     var focusProgramIndex by remember { mutableIntStateOf(0) }
     var focusOnChannelColumn by remember { mutableStateOf(true) }
+    /** Channel shown in the mini preview player — only updated on explicit select (Enter), not grid focus. */
+    var previewChannelId by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(liveChannelId) {
+        if (previewChannelId == null && liveChannelId != null) {
+            previewChannelId = liveChannelId
+        }
+    }
+
     var detailExpanded by remember { mutableStateOf(false) }
     var detailActionIndex by remember { mutableIntStateOf(0) }
     var showFavoritePicker by remember { mutableStateOf(false) }
@@ -329,18 +350,9 @@ fun HomeEpgScreen(
     val gridFilterFocusRequester = remember { FocusRequester() }
     val topNavFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
-    val detailFocusRequester = remember { FocusRequester() }
-    val miniPlayerFocusRequester = remember { FocusRequester() }
-    var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var miniPlayerIdleShrunk by remember { mutableStateOf(false) }
+    val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
-
-    LaunchedEffect(lastInteractionMs, lastPlayedChannel) {
-        miniPlayerIdleShrunk = false
-        if (lastPlayedChannel == null) return@LaunchedEffect
-        delay(5000)
-        miniPlayerIdleShrunk = true
-    }
+    val previewPlayer = remember(context) { livePlayerManager.getOrCreatePlayer(context) }
 
     var didInitialScroll by remember { mutableStateOf(false) }
     var didRestoreGuide by remember { mutableStateOf(false) }
@@ -444,33 +456,61 @@ fun HomeEpgScreen(
         channelPrograms.getOrNull(focusProgramIndex)
     }
 
-    fun previewFocusedChannel() {
-        if (usePlaceholder) return
-        if (lastPlayedChannel != null) return
-        val ch = displayChannels.getOrNull(focusChannelIndex) ?: return
-        val fullChannel = channels.find { it.id == ch.id } ?: ch
-        if (fullChannel.streamUrl.isBlank()) return
-        val title = focusedProgram?.title ?: ch.epgId?.let { epgId ->
-            displayPrograms.firstOrNull { it.channelEpgId == epgId && now in it.startTime..it.endTime }?.title
+    fun channelById(id: Long?): Channel? =
+        id?.let { channelId -> channels.find { it.id == channelId } ?: displayChannels.find { it.id == channelId } }
+
+    val previewChannel = channelById(previewChannelId)
+    val previewChannelPrograms = remember(previewChannel, displayPrograms) {
+        previewChannel?.epgId?.let { epgId ->
+            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+        } ?: emptyList()
+    }
+    val previewProgram = remember(
+        previewChannel,
+        focusedChannel,
+        focusedProgram,
+        focusOnChannelColumn,
+        previewChannelPrograms,
+        now
+    ) {
+        if (previewChannel?.id == focusedChannel?.id && !focusOnChannelColumn) {
+            focusedProgram
+        } else {
+            previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
+                ?: previewChannelPrograms.firstOrNull()
         }
-        viewModel.previewChannel(context, fullChannel, title)
     }
 
-    LaunchedEffect(focusChannelIndex, focusedProgram?.id, displayChannels.size, usePlaceholder) {
-        if (usePlaceholder) return@LaunchedEffect
-        previewFocusedChannel()
+    fun selectChannelForPreview(channel: Channel) {
+        if (usePlaceholder || channel.streamUrl.isBlank()) return
+        previewChannelId = channel.id
+        val fullChannel = channels.find { it.id == channel.id } ?: channel
+        val programs = fullChannel.epgId?.let { epgId ->
+            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+        } ?: emptyList()
+        val programTitle = if (fullChannel.id == focusedChannel?.id && !focusOnChannelColumn) {
+            focusedProgram?.title
+        } else {
+            programs.firstOrNull { now in it.startTime..it.endTime }?.title
+                ?: programs.firstOrNull()?.title
+        }
+        viewModel.previewChannel(context, fullChannel, programTitle)
     }
 
-    LaunchedEffect(Unit) {
-        livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-    }
-
-    val previewStreamStatus = if (focusedChannel?.id == liveChannelId) {
+    val previewStreamStatus = if (previewChannelId == liveChannelId) {
         playbackStatus
     } else {
-        com.neuropulse.tv.player.StreamPlaybackStatus.IDLE
+        com.neuropulse.tv.player.StreamPlaybackStatus.LOADING
     }
-    val showDetailPanel = focusedChannel != null && (focusedProgram != null || channelPrograms.isEmpty())
+    val showPreviewSection = previewChannel != null
+    val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
+        val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
+        if (anchor != null) {
+            previewChannelPrograms.filter { it.startTime > anchor.startTime }.take(4)
+        } else {
+            previewChannelPrograms.filter { it.startTime > now }.take(4)
+        }
+    }
 
     LaunchedEffect(liveChannelId, playbackStatus) {
         liveChannelId?.let { viewModel.reportPlaybackHealth(it, playbackStatus) }
@@ -580,7 +620,11 @@ fun HomeEpgScreen(
                     }
                 }
             }
-            SearchResultType.VOD -> result.vodItem?.let { onPlayVod(it.streamUrl, it.title) }
+            SearchResultType.VOD -> result.vodItem?.let { item ->
+                VodPlaybackHelper.stageMovie(item)
+                val resume = (vodProgress[item.streamId] ?: 0L) > 5_000L
+                onPlayVod(item.streamUrl, item.title, resume)
+            }
             SearchResultType.SERIES -> result.seriesShow?.let { onNavigateSeries(it.id) }
         }
     }
@@ -634,17 +678,27 @@ fun HomeEpgScreen(
         focusOnChannelColumn = true
     }
 
+    fun focusPreviewSection() {
+        if (showPreviewSection) {
+            focusZone = EpgFocusZone.PREVIEW
+            detailActionIndex = 0
+        } else {
+            focusGuideFilter()
+        }
+    }
+
     fun moveGuideFocusUp(from: EpgFocusZone) {
         when (from) {
             EpgFocusZone.GRID_FILTER -> {
-                if (continueWatchingItems.isNotEmpty()) {
+                if (showPreviewSection) {
+                    focusPreviewSection()
+                } else if (continueWatchingItems.isNotEmpty()) {
                     focusZone = EpgFocusZone.CONTINUE_WATCHING
                 } else {
                     focusSearchTopBar()
                 }
             }
             EpgFocusZone.CONTINUE_WATCHING -> focusSearchTopBar()
-            EpgFocusZone.MINI_PLAYER -> focusSearchTopBar()
             else -> Unit
         }
     }
@@ -652,15 +706,21 @@ fun HomeEpgScreen(
     fun moveGuideFocusDown(from: EpgFocusZone) {
         when (from) {
             EpgFocusZone.TOP_BAR -> {
-                focusZone = if (continueWatchingItems.isNotEmpty()) {
-                    EpgFocusZone.CONTINUE_WATCHING
+                focusZone = when {
+                    continueWatchingItems.isNotEmpty() -> EpgFocusZone.CONTINUE_WATCHING
+                    showPreviewSection -> EpgFocusZone.PREVIEW
+                    else -> EpgFocusZone.GRID_FILTER
+                }
+                if (focusZone == EpgFocusZone.PREVIEW) detailActionIndex = 0
+            }
+            EpgFocusZone.CONTINUE_WATCHING -> {
+                if (showPreviewSection) {
+                    focusPreviewSection()
                 } else {
-                    EpgFocusZone.GRID_FILTER
+                    focusGuideFilter()
                 }
             }
-            EpgFocusZone.CONTINUE_WATCHING -> focusGuideFilter()
-            EpgFocusZone.GRID_FILTER -> focusGuideChannels()
-            EpgFocusZone.MINI_PLAYER -> focusGuideFilter()
+            EpgFocusZone.PREVIEW -> focusGuideFilter()
             else -> Unit
         }
     }
@@ -778,7 +838,11 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionDown -> {
-                focusGuideFilter()
+                if (showPreviewSection) {
+                    focusPreviewSection()
+                } else {
+                    focusGuideFilter()
+                }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -797,25 +861,27 @@ fun HomeEpgScreen(
         }
     }
 
-    fun handleDetailKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+    fun handlePreviewKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionLeft -> {
-                if (detailActionIndex > 0) {
-                    detailActionIndex -= 1
-                }
+                if (detailActionIndex > 0) detailActionIndex -= 1
                 true
             }
             Key.DirectionRight -> {
-                if (detailActionIndex < 2) {
-                    detailActionIndex += 1
-                } else if (lastPlayedChannel != null) {
-                    focusZone = EpgFocusZone.MINI_PLAYER
-                }
+                if (detailActionIndex < 2) detailActionIndex += 1
                 true
             }
             Key.DirectionUp -> {
-                focusZone = EpgFocusZone.GRID
+                if (continueWatchingItems.isNotEmpty()) {
+                    focusZone = EpgFocusZone.CONTINUE_WATCHING
+                } else {
+                    focusSearchTopBar()
+                }
+                true
+            }
+            Key.DirectionDown -> {
+                focusGuideFilter()
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -825,40 +891,6 @@ fun HomeEpgScreen(
             Key.Back, Key.Escape -> {
                 focusZone = EpgFocusZone.GRID
                 detailExpanded = false
-                true
-            }
-            else -> false
-        }
-    }
-
-    fun handleMiniPlayerKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        return when (event.key) {
-            Key.DirectionLeft -> {
-                focusZone = EpgFocusZone.GRID
-                focusOnChannelColumn = false
-                val progs = displayChannels.getOrNull(focusChannelIndex)
-                    ?.let { programsForChannel(it) }
-                    ?: emptyList()
-                if (progs.isNotEmpty()) {
-                    focusProgramIndex = progs.lastIndex
-                }
-                true
-            }
-            Key.DirectionUp -> {
-                focusSearchTopBar()
-                true
-            }
-            Key.DirectionDown -> {
-                focusGuideFilter()
-                true
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                lastPlayedChannel?.let { watchChannel(it) }
-                true
-            }
-            Key.Back, Key.Escape -> {
-                focusZone = EpgFocusZone.GRID
                 true
             }
             else -> false
@@ -903,8 +935,6 @@ fun HomeEpgScreen(
                 } else if (focusProgramIndex < progs.lastIndex) {
                     focusProgramIndex += 1
                     scrollToProgram(progs[focusProgramIndex])
-                } else if (lastPlayedChannel != null) {
-                    focusZone = EpgFocusZone.MINI_PLAYER
                 } else {
                     val last = progs.lastOrNull()
                     val windowEnd = windowStart + windowDurationMs
@@ -948,9 +978,9 @@ fun HomeEpgScreen(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                previewFocusedChannel()
-                if (focusedChannel != null) {
-                    focusZone = EpgFocusZone.DETAIL
+                displayChannels.getOrNull(focusChannelIndex)?.let { selectChannelForPreview(it) }
+                if (showPreviewSection) {
+                    focusZone = EpgFocusZone.PREVIEW
                     detailActionIndex = 0
                     detailExpanded = true
                 }
@@ -1002,18 +1032,11 @@ fun HomeEpgScreen(
         }
     }
 
-    val miniPlayerAudioEnabled by viewModel.miniPlayerAudioEnabled.collectAsStateWithLifecycle()
-    val miniPlayerChannel = lastPlayedChannel?.let { played ->
-        val streamUrl = channels.find { it.id == played.id }?.streamUrl ?: played.streamUrl
-        if (streamUrl.isNotBlank()) played to streamUrl else null
-    }
-
     LaunchedEffect(
         focusZone,
         displayChannels.size,
-        showDetailPanel,
-        continueWatchingItems.isNotEmpty(),
-        miniPlayerChannel != null
+        showPreviewSection,
+        continueWatchingItems.isNotEmpty()
     ) {
         when (focusZone) {
             EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
@@ -1026,11 +1049,8 @@ fun HomeEpgScreen(
             EpgFocusZone.CONTINUE_WATCHING -> if (continueWatchingItems.isNotEmpty()) {
                 continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
             }
-            EpgFocusZone.DETAIL -> if (showDetailPanel) {
-                detailFocusRequester.requestFocusSafelyAfterLayout(150)
-            }
-            EpgFocusZone.MINI_PLAYER -> if (miniPlayerChannel != null) {
-                miniPlayerFocusRequester.requestFocusSafelyAfterLayout(150)
+            EpgFocusZone.PREVIEW -> if (showPreviewSection) {
+                previewFocusRequester.requestFocusSafelyAfterLayout(150)
             }
         }
     }
@@ -1040,10 +1060,6 @@ fun HomeEpgScreen(
             .fillMaxSize()
             .background(EpgColors.Background)
             .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown) {
-                    lastInteractionMs = System.currentTimeMillis()
-                    miniPlayerIdleShrunk = false
-                }
                 if (showCategoryFilterMenu) handleCategoryFilterMenuKey(event) else false
             }
     ) {
@@ -1097,7 +1113,7 @@ fun HomeEpgScreen(
                 )
             }
 
-            if (continueWatchingItems.isNotEmpty() || miniPlayerChannel != null) {
+            if (continueWatchingItems.isNotEmpty()) {
                 HomeEpgContinueWatchingRow(
                     continueWatchingItems = continueWatchingItems,
                     focusedContinueIndex = focusedContinueIndex,
@@ -1108,22 +1124,50 @@ fun HomeEpgScreen(
                         }
                     },
                     continueWatchingFocusRequester = continueWatchingFocusRequester,
-                    onContinueWatchingKey = ::handleContinueWatchingKey,
-                    miniPlayerChannel = miniPlayerChannel,
-                    miniPlayerFocused = focusZone == EpgFocusZone.MINI_PLAYER,
-                    miniPlayerIdleShrunk = miniPlayerIdleShrunk,
-                    miniPlayerAudioEnabled = miniPlayerAudioEnabled,
-                    onMiniPlayerClick = ::watchChannel,
-                    miniPlayerFocusRequester = miniPlayerFocusRequester,
-                    onMiniPlayerKey = ::handleMiniPlayerKey
+                    onContinueWatchingKey = ::handleContinueWatchingKey
                 )
             }
 
-            if (featuredMovies.isNotEmpty()) {
+            if (showPreviewSection) {
+                HomeEpgPreviewSection(
+                    channel = previewChannel,
+                    program = previewProgram,
+                    upcomingPrograms = upcomingPrograms,
+                    now = now,
+                    player = previewPlayer,
+                    streamStatus = previewStreamStatus,
+                    detailActionIndex = detailActionIndex,
+                    previewFocused = focusZone == EpgFocusZone.PREVIEW,
+                    attachSurface = previewSurfaceAttached,
+                    isFavorite = previewChannel?.let { ch ->
+                        if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
+                    } ?: false,
+                    onWatch = {
+                        detailActionIndex = 0
+                        executeDetailAction()
+                    },
+                    onFavorite = {
+                        detailActionIndex = 1
+                        executeDetailAction()
+                    },
+                    onRecord = {
+                        detailActionIndex = 2
+                        executeDetailAction()
+                    },
+                    previewFocusRequester = previewFocusRequester,
+                    onPreviewKey = ::handlePreviewKey
+                )
+            }
+
+            if (featuredMovies.isNotEmpty() && !showPreviewSection) {
                 MoviesHomeRow(
                     movies = featuredMovies,
                     progressByStreamId = vodProgress,
-                    onPlayMovie = { movie -> onPlayVod(movie.streamUrl, movie.title) },
+                    onPlayMovie = { movie ->
+                        VodPlaybackHelper.stageMovie(movie)
+                        val resume = (vodProgress[movie.streamId] ?: 0L) > 5_000L
+                        onPlayVod(movie.streamUrl, movie.title, resume)
+                    },
                     onSeeAll = { onNavigateVod(0) }
                 )
                 SeriesHomeRow(
@@ -1161,39 +1205,11 @@ fun HomeEpgScreen(
                 focusChannelIndex = focusChannelIndex,
                 focusProgramIndex = focusProgramIndex,
                 focusOnChannelColumn = focusOnChannelColumn,
-                confirmedProgramId = if (focusZone == EpgFocusZone.DETAIL) focusedProgram?.id else null,
+                confirmedProgramId = if (focusZone == EpgFocusZone.PREVIEW) focusedProgram?.id else null,
                 scheduled = scheduled,
                 timelineWidth = timelineWidth,
                 scrolledAwayFromLive = scrolledAwayFromLive,
                 onJumpToLive = ::scrollToLive
-            )
-
-            HomeEpgDetailBar(
-                showDetailPanel = showDetailPanel,
-                channel = focusedChannel,
-                program = focusedProgram,
-                now = now,
-                detailFocused = focusZone == EpgFocusZone.DETAIL,
-                detailActionIndex = detailActionIndex,
-                onDetailActionIndexChange = { detailActionIndex = it },
-                onWatch = {
-                    detailActionIndex = 0
-                    executeDetailAction()
-                },
-                onFavorite = {
-                    detailActionIndex = 1
-                    executeDetailAction()
-                },
-                onRecord = {
-                    detailActionIndex = 2
-                    executeDetailAction()
-                },
-                isFavorite = focusedChannel?.let { ch ->
-                    if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
-                } ?: false,
-                streamStatus = previewStreamStatus,
-                detailFocusRequester = detailFocusRequester,
-                onDetailKey = ::handleDetailKey
             )
         }
 

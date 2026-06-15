@@ -132,6 +132,8 @@ class XtreamParser {
                 id = id,
                 name = item.optString("name").ifBlank { "Series $id" },
                 coverUrl = item.optString("cover").ifBlank { null },
+                categoryId = item.optString("category_id").ifBlank { null },
+                genre = item.optString("genre").ifBlank { null },
                 playlistId = playlistId
             )
         }
@@ -154,13 +156,17 @@ class XtreamParser {
                 val ext = item.optString("container_extension").ifBlank { "mp4" }
                 val title = item.optString("title").ifBlank { "Episode $id" }
                 val url = "$serverUrl/series/$username/$password/$id.$ext"
+                val episodeNumber = item.optInt("episode_num", -1).takeIf { it > 0 }
+                    ?: info?.optInt("episode_num", -1)?.takeIf { it > 0 }
+                    ?: (i + 1)
                 episodeRows += SeriesEpisode(
                     id = id,
                     title = title,
                     extension = ext,
                     streamUrl = url,
                     plot = info?.optString("plot")?.ifBlank { null },
-                    duration = info?.optString("duration")?.ifBlank { null }
+                    duration = info?.optString("duration")?.ifBlank { null },
+                    episodeNumber = episodeNumber
                 )
             }
             val seasonNo = seasonKey.toIntOrNull() ?: (seasons.size + 1)

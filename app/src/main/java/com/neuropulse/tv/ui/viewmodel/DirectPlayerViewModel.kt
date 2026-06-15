@@ -47,6 +47,15 @@ class DirectPlayerViewModel @Inject constructor(
     suspend fun resumePositionMs(streamId: Long?, url: String, resume: Boolean): Long {
         if (!resume) return 0L
         val profileId = profileDao.activeProfile()?.profileId ?: return 0L
+        val meta = vodMeta
+        if (meta.isSeries && meta.seriesId != null && meta.seasonNumber != null && meta.episodeNumber != null) {
+            continueWatchingRepository.resumePositionForSeriesEpisode(
+                profileId = profileId,
+                seriesId = meta.seriesId,
+                seasonNumber = meta.seasonNumber,
+                episodeNumber = meta.episodeNumber
+            )?.let { return it }
+        }
         streamId?.let { id ->
             continueWatchingRepository.resumePositionForStream(profileId, id)?.let { return it }
         }

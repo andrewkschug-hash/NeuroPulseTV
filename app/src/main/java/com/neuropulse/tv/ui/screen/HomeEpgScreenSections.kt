@@ -1,10 +1,5 @@
 package com.neuropulse.tv.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -12,10 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -43,12 +38,12 @@ import com.neuropulse.tv.player.StreamPlaybackStatus
 import com.neuropulse.tv.ui.component.ContinueWatchingRow
 import com.neuropulse.tv.ui.component.EpgCategoryFilterChip
 import com.neuropulse.tv.ui.component.EpgChannelCell
-import com.neuropulse.tv.ui.component.EpgDetailPanel
 import com.neuropulse.tv.ui.component.EpgJumpToLiveButton
 import com.neuropulse.tv.ui.component.EpgLayout
+import com.neuropulse.tv.ui.component.EpgNowLine
+import com.neuropulse.tv.ui.component.EpgPreviewSection
 import com.neuropulse.tv.ui.component.EpgProgramCell
 import com.neuropulse.tv.ui.component.EpgTimelineHeader
-import com.neuropulse.tv.ui.component.MiniPlayerOverlay
 import com.neuropulse.tv.ui.component.formatEpgDay
 import com.neuropulse.tv.ui.component.formatLastChecked
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -61,84 +56,63 @@ internal fun HomeEpgContinueWatchingRow(
     continueWatchingFocused: Boolean,
     onContinueSelect: (ContinueWatchingItem) -> Unit,
     continueWatchingFocusRequester: FocusRequester,
-    onContinueWatchingKey: (KeyEvent) -> Boolean,
-    miniPlayerChannel: Pair<Channel, String>?,
-    miniPlayerFocused: Boolean,
-    miniPlayerIdleShrunk: Boolean,
-    miniPlayerAudioEnabled: Boolean,
-    onMiniPlayerClick: (Channel) -> Unit,
-    miniPlayerFocusRequester: FocusRequester,
-    onMiniPlayerKey: (KeyEvent) -> Boolean
+    onContinueWatchingKey: (KeyEvent) -> Boolean
 ) {
-    if (continueWatchingItems.isEmpty() && miniPlayerChannel == null) return
+    if (continueWatchingItems.isEmpty()) return
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        if (continueWatchingItems.isNotEmpty()) {
-            ContinueWatchingRow(
-                items = continueWatchingItems,
-                focusedIndex = focusedContinueIndex,
-                rowFocused = continueWatchingFocused,
-                onSelect = onContinueSelect,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(continueWatchingFocusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent { continueWatchingFocused && onContinueWatchingKey(it) }
-            )
-        } else {
-            Spacer(modifier = Modifier.weight(1f))
-        }
-
-        HomeEpgMiniPlayer(
-            miniPlayerChannel = miniPlayerChannel,
-            miniPlayerFocused = miniPlayerFocused,
-            miniPlayerIdleShrunk = miniPlayerIdleShrunk,
-            miniPlayerAudioEnabled = miniPlayerAudioEnabled,
-            onMiniPlayerClick = onMiniPlayerClick,
-            miniPlayerFocusRequester = miniPlayerFocusRequester,
-            onMiniPlayerKey = onMiniPlayerKey
-        )
-    }
+    ContinueWatchingRow(
+        items = continueWatchingItems,
+        focusedIndex = focusedContinueIndex,
+        rowFocused = continueWatchingFocused,
+        onSelect = onContinueSelect,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .focusRequester(continueWatchingFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { continueWatchingFocused && onContinueWatchingKey(it) }
+    )
 }
 
 @Composable
-internal fun HomeEpgMiniPlayer(
-    miniPlayerChannel: Pair<Channel, String>?,
-    miniPlayerFocused: Boolean,
-    miniPlayerIdleShrunk: Boolean,
-    miniPlayerAudioEnabled: Boolean,
-    onMiniPlayerClick: (Channel) -> Unit,
-    miniPlayerFocusRequester: FocusRequester,
-    onMiniPlayerKey: (KeyEvent) -> Boolean
+internal fun HomeEpgPreviewSection(
+    channel: Channel?,
+    program: Program?,
+    upcomingPrograms: List<Program>,
+    now: Long,
+    player: androidx.media3.exoplayer.ExoPlayer?,
+    streamStatus: StreamPlaybackStatus?,
+    detailActionIndex: Int,
+    previewFocused: Boolean,
+    attachSurface: Boolean,
+    isFavorite: Boolean,
+    onWatch: () -> Unit,
+    onFavorite: () -> Unit,
+    onRecord: () -> Unit,
+    previewFocusRequester: FocusRequester,
+    onPreviewKey: (KeyEvent) -> Boolean
 ) {
-    AnimatedVisibility(
-        visible = miniPlayerChannel != null,
-        enter = fadeIn() + expandHorizontally(),
-        exit = fadeOut() + shrinkHorizontally()
-    ) {
-        miniPlayerChannel?.let { (playedChannel, streamUrl) ->
-            MiniPlayerOverlay(
-                channel = playedChannel,
-                streamUrl = streamUrl,
-                isFocused = miniPlayerFocused,
-                isIdleShrunk = miniPlayerIdleShrunk,
-                miniAudioEnabled = miniPlayerAudioEnabled,
-                onClick = { onMiniPlayerClick(playedChannel) },
-                modifier = Modifier
-                    .padding(
-                        top = 8.dp,
-                        end = 16.dp,
-                        bottom = EpgLayout.GuideHeaderBottomPadding
-                    )
-                    .focusRequester(miniPlayerFocusRequester)
-                    .focusable()
-                    .onPreviewKeyEvent { miniPlayerFocused && onMiniPlayerKey(it) }
-            )
-        }
-    }
+    val ch = channel ?: return
+
+    EpgPreviewSection(
+        channel = ch,
+        program = program,
+        upcomingPrograms = upcomingPrograms,
+        now = now,
+        player = player,
+        streamStatus = streamStatus,
+        detailActionFocused = detailActionIndex,
+        isFavorite = isFavorite,
+        previewFocused = previewFocused,
+        attachSurface = attachSurface,
+        onWatch = onWatch,
+        onFavorite = onFavorite,
+        onRecord = onRecord,
+        modifier = Modifier
+            .focusRequester(previewFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { previewFocused && onPreviewKey(it) }
+    )
 }
 
 @Composable
@@ -176,12 +150,13 @@ internal fun HomeEpgChannelList(
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
                     .focusRequester(gridFocusRequester)
                     .focusable()
                     .onPreviewKeyEvent { gridFocused && onGridKey(it) }
             ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxSize()) {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Box(
                             modifier = Modifier
@@ -231,8 +206,9 @@ internal fun HomeEpgChannelList(
 
                     Box(
                         modifier = Modifier
-                            .height(EpgLayout.GuideChannelListHeight)
+                            .weight(1f)
                             .fillMaxWidth()
+                            .heightIn(min = EpgLayout.GuideChannelListMinHeight)
                     ) {
                         LazyColumn(
                             state = listState,
@@ -273,6 +249,20 @@ internal fun HomeEpgChannelList(
                                 }
                             }
                         }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(start = EpgLayout.ChannelColumnWidth)
+                        ) {
+                            EpgNowLine(
+                                windowStart = windowStart,
+                                windowDurationMs = windowDurationMs,
+                                now = now,
+                                scrollOffsetPx = hScroll.value,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     }
                 }
 
@@ -286,45 +276,6 @@ internal fun HomeEpgChannelList(
             }
         }
     }
-}
-
-@Composable
-internal fun HomeEpgDetailBar(
-    showDetailPanel: Boolean,
-    channel: Channel?,
-    program: Program?,
-    now: Long,
-    detailFocused: Boolean,
-    detailActionIndex: Int,
-    onDetailActionIndexChange: (Int) -> Unit,
-    onWatch: () -> Unit,
-    onFavorite: () -> Unit,
-    onRecord: () -> Unit,
-    isFavorite: Boolean,
-    streamStatus: StreamPlaybackStatus?,
-    detailFocusRequester: FocusRequester,
-    onDetailKey: (KeyEvent) -> Boolean
-) {
-    if (!showDetailPanel) return
-
-    EpgDetailPanel(
-        channel = channel,
-        program = program,
-        now = now,
-        detailActionFocused = if (detailFocused) detailActionIndex else -1,
-        onActionFocusChange = onDetailActionIndexChange,
-        onWatch = onWatch,
-        onFavorite = onFavorite,
-        onRecord = onRecord,
-        isFavorite = isFavorite,
-        visible = true,
-        streamStatus = streamStatus,
-        modifier = Modifier
-            .fillMaxWidth()
-            .focusRequester(detailFocusRequester)
-            .focusable()
-            .onPreviewKeyEvent { detailFocused && onDetailKey(it) }
-    )
 }
 
 @Composable

@@ -34,6 +34,7 @@ interface IptvRepository {
     fun continueWatching(limit: Int = 5): Flow<List<Channel>>
     fun continueWatchingItems(limit: Int = 5): Flow<List<ContinueWatchingItem>>
     fun topChannels(limit: Int = 8): Flow<List<Channel>>
+    fun recentChannels(limit: Int = 20): Flow<List<Channel>>
     fun recentlyAdded(limit: Int = 8): Flow<List<Channel>>
     fun liveSportsNow(): Flow<List<Program>>
     fun moviesStartingSoon(now: Long): Flow<List<Program>>

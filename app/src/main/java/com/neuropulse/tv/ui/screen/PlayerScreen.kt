@@ -1,7 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -82,11 +81,13 @@ import com.neuropulse.tv.ui.component.LiveTimeshiftControls
 import com.neuropulse.tv.ui.component.PausedCornerIndicator
 import com.neuropulse.tv.ui.component.TimeshiftControlFocus
 import com.neuropulse.tv.ui.component.TimeshiftStatusBadge
+import com.neuropulse.tv.ui.component.playerPlaybackStatus
 import androidx.compose.runtime.mutableIntStateOf
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
+import com.neuropulse.tv.util.findComponentActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -235,10 +236,17 @@ fun PlayerScreen(
             }
             "split_view" -> onOpenSplit(channel?.id ?: channelId)
             "pip" -> {
-                val activity = context as? ComponentActivity
-                if (activity == null || !viewModel.pipController.enterPictureInPicture(activity)) {
-                    Toast.makeText(context, "Picture-in-Picture unavailable", Toast.LENGTH_SHORT).show()
+                val activity = context.findComponentActivity()
+                if (activity != null && viewModel.pipController.enterPictureInPicture(activity)) {
+                    return
                 }
+                livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+                onNavigateGuide()
+                Toast.makeText(
+                    context,
+                    "Playing in mini player on guide",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
             "guide" -> onNavigateGuide()
             "settings" -> onNavigateSettings()
@@ -248,7 +256,7 @@ fun PlayerScreen(
     fun activateSideMenuSelection() {
         when (val target = sideMenuFocusOrder.getOrNull(focusTargetIndex)) {
             PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                channelsExpanded = !channelsExpanded
+                if (!channelsExpanded) channelsExpanded = true
             }
             is PlayerSideMenuFocusTarget.NearbyChannel -> {
                 nearbyChannels.getOrNull(target.index)?.id?.let { id ->
@@ -261,7 +269,7 @@ fun PlayerScreen(
                 onNavigateGuide()
             }
             PlayerSideMenuFocusTarget.FavoritesHeader -> {
-                favoritesExpanded = !favoritesExpanded
+                if (!favoritesExpanded) favoritesExpanded = true
             }
             is PlayerSideMenuFocusTarget.FavoriteChannel -> {
                 favoritePanelChannels.getOrNull(target.index)?.id?.let { id ->
@@ -369,7 +377,7 @@ fun PlayerScreen(
         return true
     }
 
-    LaunchedEffect(showSideMenu, sideMenuFocusOrder) {
+    LaunchedEffect(showSideMenu) {
         if (showSideMenu) {
             sideMenuFocusRequester.requestFocusSafelyAfterLayout()
             val startIndex = if (!channelsExpanded) {
@@ -763,7 +771,7 @@ fun PlayerScreen(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
         }
 
-        if (canTimeshift && timeshiftState.isTimeshifting && !timeshiftState.atLiveEdge) {
+        if (!showOverlay && canTimeshift && timeshiftState.isTimeshifting && !timeshiftState.atLiveEdge) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -894,36 +902,36 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(top = 10.dp)
                         ) {
-                            when {
-                                playbackStatus == StreamPlaybackStatus.PLAYING -> {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                            val playbackStatusLabel = playerPlaybackStatus(
+                                playbackStatus = playbackStatus,
+                                canTimeshift = canTimeshift,
+                                timeshiftState = timeshiftState
+                            )
+                            if (playbackStatusLabel != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (playbackStatusLabel.showLiveDot) {
                                         Box(
                                             modifier = Modifier
                                                 .size(7.dp)
                                                 .background(EpgColors.LiveBadge, CircleShape)
                                         )
-                                        Text(
-                                            text = "Live",
-                                            color = Color.White.copy(alpha = 0.9f),
-                                            fontFamily = DmSansFamily,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.padding(start = 5.dp)
-                                        )
                                     }
-                                }
-                                playbackStatus == StreamPlaybackStatus.AUDIO_ONLY -> {
                                     Text(
-                                        text = "Audio only",
-                                        color = EpgColors.TextSecondary,
+                                        text = playbackStatusLabel.label,
+                                        color = Color.White.copy(alpha = 0.9f),
                                         fontFamily = DmSansFamily,
-                                        fontSize = 11.sp
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(
+                                            start = if (playbackStatusLabel.showLiveDot) 5.dp else 0.dp
+                                        )
                                     )
                                 }
-                                playbackStatus == StreamPlaybackStatus.NO_SIGNAL ||
-                                    playbackStatus == StreamPlaybackStatus.STALLED ||
-                                    playbackStatus == StreamPlaybackStatus.ERROR ||
-                                    playbackStatus == StreamPlaybackStatus.UNAVAILABLE -> {
+                            } else when (playbackStatus) {
+                                com.neuropulse.tv.player.StreamPlaybackStatus.NO_SIGNAL,
+                                com.neuropulse.tv.player.StreamPlaybackStatus.STALLED,
+                                com.neuropulse.tv.player.StreamPlaybackStatus.ERROR,
+                                com.neuropulse.tv.player.StreamPlaybackStatus.UNAVAILABLE -> {
                                     Text(
                                         text = playbackStatus.userLabel(),
                                         color = Color.White.copy(alpha = 0.65f),
@@ -931,6 +939,7 @@ fun PlayerScreen(
                                         fontSize = 11.sp
                                     )
                                 }
+                                else -> Unit
                             }
                             if (showBuffering) {
                                 Text(
