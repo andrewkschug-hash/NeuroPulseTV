@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.navigation
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,7 +20,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -117,7 +117,7 @@ private fun NoServiceFallback(
 @Composable
 private fun RowButtons(onRetry: () -> Unit, onConnect: () -> Unit) {
     androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(onClick = onRetry) { Text("Retry") }
-        Button(onClick = onConnect) { Text("Continue") }
+        GlowFocusButton(onClick = onRetry) { Text("Retry") }
+        GlowFocusButton(onClick = onConnect) { Text("Continue") }
     }
 }

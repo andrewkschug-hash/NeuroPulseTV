@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -59,7 +60,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.requestFocusSafely
@@ -586,7 +586,7 @@ private fun PinEntryOverlay(
                 },
                 onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
             )
-            Button(onClick = onDismiss) {
+            GlowFocusButton(onClick = onDismiss) {
                 Text("Cancel", fontFamily = DmSansFamily)
             }
         }
@@ -611,7 +611,7 @@ private fun PinNumberPad(
                     if (key.isEmpty()) {
                         Spacer(modifier = Modifier.size(64.dp))
                     } else {
-                        Button(
+                        GlowFocusButton(
                             onClick = {
                                 if (key == "⌫") onBackspace() else onDigit(key)
                             },

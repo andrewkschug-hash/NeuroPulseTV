@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,7 +24,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.neuropulse.tv.feature.preview.PreviewPlayerManager
@@ -45,13 +45,13 @@ fun ChannelBrowserScreen(
 
     Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { viewModel.selectAll() }) { Text("All Channels") }
-            Button(onClick = { viewModel.selectFavorites() }) { Text("Favorites") }
-            Button(onClick = { viewModel.selectSports() }) { Text("Sports") }
+            GlowFocusButton(onClick = { viewModel.selectAll() }) { Text("All Channels") }
+            GlowFocusButton(onClick = { viewModel.selectFavorites() }) { Text("Favorites") }
+            GlowFocusButton(onClick = { viewModel.selectSports() }) { Text("Sports") }
             groups.forEach { group ->
-                Button(onClick = { viewModel.selectGroup(group) }) { Text(group) }
+                GlowFocusButton(onClick = { viewModel.selectGroup(group) }) { Text(group) }
             }
-            Button(onClick = onMultiview) { Text("Multiview") }
+            GlowFocusButton(onClick = onMultiview) { Text("Multiview") }
         }
 
         Text("Total channels: ${channels.size}")

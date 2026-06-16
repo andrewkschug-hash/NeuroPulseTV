@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
@@ -87,6 +88,7 @@ import com.neuropulse.tv.domain.model.SearchResultItem
 import com.neuropulse.tv.domain.model.SearchResultType
 import com.neuropulse.tv.ui.component.CategoryFilterMenu
 import com.neuropulse.tv.ui.component.ContinueWatchingRow
+import com.neuropulse.tv.ui.component.MiniNowPlayingPlayer
 import com.neuropulse.tv.ui.component.MoviesHomeRow
 import com.neuropulse.tv.ui.component.SeriesHomeRow
 import com.neuropulse.tv.ui.component.categoryFilterForMenuIndex
@@ -506,7 +508,11 @@ fun HomeEpgScreen(
     } else {
         com.neuropulse.tv.player.StreamPlaybackStatus.LOADING
     }
+    val showTopBarMiniPlayer = guidePreviewEnabled && liveChannelId != null &&
+        (previewChannel != null || lastPlayedChannel != null)
+    val topBarMiniChannel = previewChannel ?: lastPlayedChannel
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
+
     val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
         val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
         if (anchor != null) {
@@ -599,6 +605,7 @@ fun HomeEpgScreen(
                     }
                     if (ch.streamUrl.isNotBlank()) {
                         viewModel.setLastPlayedChannel(ch)
+                        viewModel.enableGuidePreview(ch.id)
                         onWatchChannel(ch.id)
                     }
                 }
@@ -1097,7 +1104,18 @@ fun HomeEpgScreen(
                     topBarFocusIndex = GridNavTabs.indexOf(tab)
                     activateNavTab(tab)
                 },
-                miniPlayer = {},
+                miniPlayer = {
+                    if (showTopBarMiniPlayer && previewPlayer != null && topBarMiniChannel != null) {
+                        MiniNowPlayingPlayer(
+                            channel = topBarMiniChannel,
+                            program = previewProgram,
+                            player = previewPlayer,
+                            isFocused = false,
+                            onFocus = { watchChannel(topBarMiniChannel) },
+                            streamStatus = previewStreamStatus
+                        )
+                    }
+                },
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
                 recordingHealth = recordingHealth,
@@ -1238,7 +1256,7 @@ fun HomeEpgScreen(
                         androidx.compose.foundation.lazy.LazyColumn {
                             items(favoriteGroups.size) { idx ->
                                 val group = favoriteGroups[idx]
-                                androidx.tv.material3.Button(onClick = {
+                                GlowFocusButton(onClick = {
                                     focusedChannel?.let {
                                         viewModel.addChannelToFavoriteGroup(it.id, group.id)
                                         showFavoritePicker = false
@@ -1249,7 +1267,7 @@ fun HomeEpgScreen(
                     }
                 },
                 confirmButton = {
-                    androidx.tv.material3.Button(onClick = { showFavoritePicker = false }) {
+                    GlowFocusButton(onClick = { showFavoritePicker = false }) {
                         androidx.tv.material3.Text("Close")
                     }
                 }
@@ -1288,7 +1306,7 @@ fun HomeEpgScreen(
                     )
                 },
                 confirmButton = {
-                    androidx.tv.material3.Button(onClick = {
+                    GlowFocusButton(onClick = {
                         if (newGroupName.isNotBlank()) {
                             viewModel.createFavoriteGroup(newGroupName.trim())
                             newGroupName = ""

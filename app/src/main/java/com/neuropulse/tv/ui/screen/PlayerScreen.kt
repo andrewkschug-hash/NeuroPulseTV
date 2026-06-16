@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -55,7 +56,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import androidx.compose.material3.AlertDialog
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.di.PlayerEntryPoint
@@ -495,7 +495,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(player) {
-        sleepTimer.onVolumeFade = { level -> player.volume = level }
+        sleepTimer.onVolumeFade = { level -> livePlayerManager.setVolumeFade(level) }
         sleepTimer.onExpired = {
             player.pause()
             showStillWatching = true
@@ -503,20 +503,19 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(Unit) {
-        livePlayerManager.setMode(LivePlayerManager.Mode.FULLSCREEN)
+        livePlayerManager.enterFullscreen()
         viewModel.pipController.setPlaybackActive(true)
-        player.playWhenReady = true
     }
 
     LaunchedEffect(channelId) {
         viewModel.load(channelId)
     }
 
-    LaunchedEffect(channel?.id, channel?.streamUrl) {
+    LaunchedEffect(channel?.id, channel?.streamUrl, playbackSettingsSynced) {
+        if (!playbackSettingsSynced) return@LaunchedEffect
         val ch = channel ?: return@LaunchedEffect
-        livePlayerManager.tuneChannel(context, ch)
+        livePlayerManager.ensureFullscreenPlayback(context, ch)
         failures = 0
-        player.playWhenReady = true
     }
 
     LaunchedEffect(channel?.id, channel?.streamUrl, settings.sleepTimerAutoEnabled, settings.sleepTimerMinutes) {
@@ -545,7 +544,11 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             playerViewRef[0]?.player = null
-            livePlayerManager.onFullscreenPlayerClosed(context)
+            sleepTimer.cancel()
+            sleepTimer.onVolumeFade = null
+            sleepTimer.onExpired = null
+            livePlayerManager.resetVolumeFade()
+            livePlayerManager.exitFullscreen(context)
             viewModel.pipController.setPlaybackActive(false)
             livePlayerManager.activePlayer()?.let { exo ->
                 viewModel.savePosition(exo.currentPosition)
@@ -916,7 +919,7 @@ fun PlayerScreen(
             onDismissRequest = { showInfo = false },
             title = { Text(channel?.name ?: "Program Info") },
             text = { Text(channel?.currentProgram ?: "No details") },
-            confirmButton = { Button(onClick = { showInfo = false }) { Text("Close") } }
+            confirmButton = { GlowFocusButton(onClick = { showInfo = false }) { Text("Close") } }
         )
     }
 
@@ -927,8 +930,12 @@ fun PlayerScreen(
             text = { Text("Playback paused by sleep timer") },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { player.play(); showStillWatching = false }) { Text("Continue") }
-                    Button(onClick = ::leavePlayer) { Text("Exit") }
+                    GlowFocusButton(onClick = {
+                        livePlayerManager.resetVolumeFade()
+                        player.play()
+                        showStillWatching = false
+                    }) { Text("Continue") }
+                    GlowFocusButton(onClick = ::leavePlayer) { Text("Exit") }
                 }
             }
         )
@@ -942,11 +949,11 @@ fun PlayerScreen(
             text = { Text("Stop recording $recTitle?") },
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
+                    GlowFocusButton(onClick = {
                         recordingViewModel.stopActiveRecording(context)
                         showStopRecordingDialog = false
                     }) { Text("Stop") }
-                    Button(onClick = { showStopRecordingDialog = false }) { Text("Cancel") }
+                    GlowFocusButton(onClick = { showStopRecordingDialog = false }) { Text("Cancel") }
                 }
             }
         )

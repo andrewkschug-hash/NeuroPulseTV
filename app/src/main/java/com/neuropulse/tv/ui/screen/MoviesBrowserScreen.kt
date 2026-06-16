@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.VodPlaybackHelper
@@ -79,7 +79,7 @@ fun MoviesBrowserScreen(
             .padding(if (embedded) 0.dp else 20.dp)
     ) {
         if (!embedded) {
-            Button(onClick = onBack) {
+            GlowFocusButton(onClick = onBack) {
                 Text("← Back", fontFamily = DmSansFamily)
             }
             Text(

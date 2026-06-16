@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -113,7 +112,6 @@ fun SplitViewChannelPicker(
                                 SplitChannelPickerFilter.ALL_CHANNELS -> "All Channels"
                             },
                             selected = selectedFilter == filter,
-                            focused = false,
                             onClick = {
                                 selectedFilter = filter
                                 allChannelsExpanded = filter == SplitChannelPickerFilter.ALL_CHANNELS
@@ -147,7 +145,6 @@ fun SplitViewChannelPicker(
                                 itemsIndexed(quickPickChannels, key = { _, channel -> channel.id }) { _, channel ->
                                     SplitPickerChannelRow(
                                         channel = channel,
-                                        focused = false,
                                         onClick = { onSelect(channel) }
                                     )
                                 }
@@ -175,7 +172,6 @@ fun SplitViewChannelPicker(
                                 itemsIndexed(playableAll, key = { _, channel -> channel.id }) { _, channel ->
                                     SplitPickerChannelRow(
                                         channel = channel,
-                                        focused = false,
                                         onClick = { onSelect(channel) }
                                     )
                                 }
@@ -188,8 +184,13 @@ fun SplitViewChannelPicker(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    Button(onClick = onDismiss) {
-                        Text("Close")
+                    GlowFocusButton(onClick = onDismiss) {
+                        Text(
+                            text = "Close",
+                            color = EpgColors.TextPrimary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             }
@@ -201,29 +202,26 @@ fun SplitViewChannelPicker(
 private fun SplitPickerFilterChip(
     label: String,
     selected: Boolean,
-    focused: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(20.dp)
-    val background = when {
-        selected -> EpgColors.Accent.copy(alpha = 0.22f)
-        focused -> EpgColors.ChannelRowFocusBg
-        else -> Color(0xFF252530)
+    val chipShape = RoundedCornerShape(20.dp)
+    val containerColor = if (selected) {
+        EpgColors.Accent.copy(alpha = 0.22f)
+    } else {
+        Color(0xFF252530)
     }
-    val borderColor = when {
-        focused -> EpgColors.FocusBorder
-        selected -> EpgColors.Accent.copy(alpha = 0.55f)
-        else -> EpgColors.BorderSubtle
-    }
-    Button(
+    GlowFocusButton(
         onClick = onClick,
-        modifier = Modifier
-            .border(1.dp, borderColor, shape)
-            .background(background, shape)
+        containerColor = containerColor,
+        modifier = Modifier.border(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) EpgColors.Accent.copy(alpha = 0.55f) else EpgColors.BorderSubtle,
+            shape = chipShape
+        )
     ) {
         Text(
             text = label,
-            color = if (selected || focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+            color = if (selected) EpgColors.TextPrimary else EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
             fontSize = 13.sp
         )
@@ -237,13 +235,9 @@ private fun SplitPickerDropdown(
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    Button(
+    GlowFocusButton(
         onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(1.dp, EpgColors.BorderSubtle, shape)
-            .background(Color(0xFF252530), shape)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -279,23 +273,11 @@ private fun SplitPickerDropdown(
 @Composable
 private fun SplitPickerChannelRow(
     channel: Channel,
-    focused: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    Button(
+    GlowFocusButton(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) EpgColors.FocusBorder else Color.Transparent,
-                shape = shape
-            )
-            .background(
-                if (focused) EpgColors.ChannelRowFocusBg else Color(0xFF252530),
-                shape
-            )
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),

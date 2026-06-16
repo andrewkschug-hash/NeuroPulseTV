@@ -51,7 +51,7 @@ import com.neuropulse.tv.ui.theme.EpgColors
 val TvFocusAccent = EpgColors.FocusBorder
 private val TvInputBg = Color(0xFF1E1E2E)
 private val TvInputBorder = Color(0xFF3A3A3A)
-private val TvInputFocusBorder = Color.White
+private val TvInputFocusBorder = EpgColors.FocusBorder
 private val TvTextMuted = Color(0xFF9CA3AF)
 
 fun Modifier.tvFocusRing(

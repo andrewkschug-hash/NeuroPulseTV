@@ -192,7 +192,6 @@ private fun PlayerControlChip(
         else -> Color.Transparent
     }
     val bg = when {
-        focused -> Color.White.copy(alpha = 0.15f)
         selected -> EpgColors.Accent.copy(alpha = 0.2f)
         else -> Color.White.copy(alpha = 0.08f)
     }

@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.AlertDialog
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.data.db.entity.EpgResolutionSuggestionEntity
 import com.neuropulse.tv.data.db.entity.EpgSourceChannelEntity
@@ -66,8 +66,8 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.runResolver() }, enabled = !running) { Text("Run Auto-Resolver") }
-                Button(onClick = { viewModel.cancelResolver() }, enabled = running) { Text("Cancel") }
+                GlowFocusButton(onClick = { viewModel.runResolver() }, enabled = !running) { Text("Run Auto-Resolver") }
+                GlowFocusButton(onClick = { viewModel.cancelResolver() }, enabled = running) { Text("Cancel") }
             }
         }
 
@@ -86,7 +86,7 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Needs Your Confirmation")
-                Button(onClick = { viewModel.acceptAll() }, enabled = suggestions.isNotEmpty()) { Text("Accept All") }
+                GlowFocusButton(onClick = { viewModel.acceptAll() }, enabled = suggestions.isNotEmpty()) { Text("Accept All") }
             }
         }
 
@@ -105,7 +105,7 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(channel.name)
-                Button(onClick = {
+                GlowFocusButton(onClick = {
                     manualTargetChannelId = channel.id
                     manualQuery = channel.name
                     viewModel.searchManualCandidates(channel.name)
@@ -131,7 +131,7 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
                     )
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(manualCandidates) { candidate ->
-                            Button(onClick = {
+                            GlowFocusButton(onClick = {
                                 viewModel.applyManual(manualTargetChannelId, candidate.epgId, candidate.source)
                                 manualTargetChannelId = -1L
                             }) {
@@ -141,7 +141,7 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
                     }
                 }
             },
-            confirmButton = { Button(onClick = { manualTargetChannelId = -1L }) { Text("Close") } }
+            confirmButton = { GlowFocusButton(onClick = { manualTargetChannelId = -1L }) { Text("Close") } }
         )
     }
 }
@@ -162,8 +162,8 @@ private fun SuggestionRow(
             Text(item.source)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onAccept) { Text("Accept") }
-            Button(onClick = onDismiss) { Text("Dismiss") }
+            GlowFocusButton(onClick = onAccept) { Text("Accept") }
+            GlowFocusButton(onClick = onDismiss) { Text("Dismiss") }
         }
     }
 }

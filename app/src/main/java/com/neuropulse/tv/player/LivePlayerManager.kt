@@ -80,6 +80,11 @@ class LivePlayerManager @Inject constructor(
     var mode: Mode = Mode.IDLE
         private set
 
+    private var fullscreenSessions: Int = 0
+    private var volumeFadeMultiplier: Float = 1f
+
+    fun isFullscreenActive(): Boolean = fullscreenSessions > 0
+
     private val timeshiftListener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
             player?.let { refreshTimeshiftWindow(it) }
@@ -128,15 +133,15 @@ class LivePlayerManager @Inject constructor(
         if (this.bufferSize == bufferSize && this.preferHardwareDecoding == preferHardwareDecoding) {
             return
         }
-        if (player == null) {
-            this.bufferSize = bufferSize
-            this.preferHardwareDecoding = preferHardwareDecoding
-            TimeshiftManager.maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize)
-            return
-        }
         this.bufferSize = bufferSize
         this.preferHardwareDecoding = preferHardwareDecoding
         TimeshiftManager.maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize)
+        if (fullscreenSessions > 0) {
+            return
+        }
+        if (player == null) {
+            return
+        }
         val channelId = currentChannelId
         val streamUrl = currentStreamUrl
         val days = catchupDays
@@ -317,13 +322,53 @@ class LivePlayerManager @Inject constructor(
         player?.playWhenReady = newMode != Mode.IDLE
     }
 
+    fun enterFullscreen() {
+        fullscreenSessions++
+        resetVolumeFade()
+        setMode(Mode.FULLSCREEN)
+    }
+
+    fun exitFullscreen(context: Context) {
+        if (fullscreenSessions > 0) {
+            fullscreenSessions--
+        }
+        if (fullscreenSessions > 0) return
+
+        TimeshiftManager.reset()
+        resetVolumeFade()
+        if (currentChannelId != null && !currentStreamUrl.isNullOrBlank()) {
+            resumeGuidePreview(context, withAudio = true)
+        } else {
+            playbackMonitor.onPlaybackPaused()
+            setMode(Mode.IDLE)
+            player?.let { exo ->
+                if (exo.isCurrentMediaItemDynamic) {
+                    exo.seekToDefaultPosition()
+                }
+                exo.pause()
+                refreshTimeshiftWindow(exo)
+            } ?: resetTimeshiftState()
+        }
+    }
+
+    fun setVolumeFade(multiplier: Float) {
+        volumeFadeMultiplier = multiplier.coerceIn(0f, 1f)
+        applyVolume()
+    }
+
+    fun resetVolumeFade() {
+        volumeFadeMultiplier = 1f
+        applyVolume()
+    }
+
     private fun applyVolume() {
         val exo = player ?: return
-        exo.volume = when (mode) {
+        val baseVolume = when (mode) {
             Mode.FULLSCREEN -> 1f
             Mode.MINI -> if (miniAudioEnabled) 1f else 0f
             Mode.IDLE -> 0f
         }
+        exo.volume = baseVolume * volumeFadeMultiplier
     }
 
     fun activeChannelId(): Long? = currentChannelId
@@ -335,18 +380,18 @@ class LivePlayerManager @Inject constructor(
         player?.clearVideoSurface()
     }
 
+    /** @deprecated Use [exitFullscreen]. */
     fun onFullscreenPlayerClosed(context: Context) {
-        TimeshiftManager.reset()
-        mode = Mode.IDLE
-        playbackMonitor.onPlaybackPaused()
-        player?.let { exo ->
-            if (exo.isCurrentMediaItemDynamic) {
-                exo.seekToDefaultPosition()
-            }
-            exo.playWhenReady = false
-            exo.pause()
-            refreshTimeshiftWindow(exo)
-        } ?: resetTimeshiftState()
+        exitFullscreen(context)
+    }
+
+    fun ensureFullscreenPlayback(context: Context, channel: Channel) {
+        resetVolumeFade()
+        if (mode != Mode.FULLSCREEN) {
+            setMode(Mode.FULLSCREEN)
+        }
+        tuneChannel(context, channel)
+        player?.playWhenReady = true
         applyVolume()
     }
 
@@ -360,13 +405,17 @@ class LivePlayerManager @Inject constructor(
     }
 
     /** Resume guide preview after leaving fullscreen or returning to the EPG. */
-    fun resumeGuidePreview(context: Context) {
+    fun resumeGuidePreview(context: Context, withAudio: Boolean = false) {
         mode = Mode.MINI
-        applyVolume()
         val exo = player ?: return
         val url = currentStreamUrl
         if (url.isNullOrBlank()) {
             currentChannel?.let { tuneChannel(context, it) }
+            if (withAudio) {
+                exo.volume = 1f * volumeFadeMultiplier
+            } else {
+                applyVolume()
+            }
             return
         }
         playbackMonitor.onPreviewResumed()
@@ -380,6 +429,11 @@ class LivePlayerManager @Inject constructor(
                 }
             }
             else -> Unit
+        }
+        if (withAudio) {
+            exo.volume = 1f * volumeFadeMultiplier
+        } else {
+            applyVolume()
         }
     }
 
@@ -397,6 +451,8 @@ class LivePlayerManager @Inject constructor(
         TimeshiftManager.reset()
         resetTimeshiftState()
         mode = Mode.IDLE
+        fullscreenSessions = 0
+        volumeFadeMultiplier = 1f
         markPlayerReplaced()
         context?.let { clearStreamCache(it) }
     }

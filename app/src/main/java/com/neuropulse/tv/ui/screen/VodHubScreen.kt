@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -25,7 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -48,7 +48,7 @@ import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
 import com.neuropulse.tv.ui.component.PersonalizedVodRow
-import com.neuropulse.tv.ui.component.VodHubHeader
+import com.neuropulse.tv.ui.component.VodHeroSection
 import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -103,10 +103,24 @@ fun VodHubScreen(
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
-    val topPicksForYou by hubViewModel.topPicksForYou.collectAsStateWithLifecycle()
-    val somethingDifferent by hubViewModel.somethingDifferent.collectAsStateWithLifecycle()
+    val recommendedForYou by hubViewModel.recommendedForYou.collectAsStateWithLifecycle()
+    val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
+    val heroMovie by hubViewModel.heroMovie.collectAsStateWithLifecycle()
+    val heroEnrichment by hubViewModel.heroEnrichment.collectAsStateWithLifecycle()
+    val featuredCarousel by hubViewModel.featuredCarousel.collectAsStateWithLifecycle()
+    val heroIndex by hubViewModel.heroIndex.collectAsStateWithLifecycle()
+    val enrichmentMap by hubViewModel.enrichmentMap.collectAsStateWithLifecycle()
     val vodProgress by hubViewModel.vodProgress.collectAsStateWithLifecycle()
     val searchQuery by hubViewModel.searchQuery.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(8_000)
+            if (featuredCarousel.size > 1) {
+                hubViewModel.advanceHeroCarousel()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         homeViewModel.livePlayerManager.setMode(com.neuropulse.tv.player.LivePlayerManager.Mode.IDLE)
@@ -320,6 +334,19 @@ fun VodHubScreen(
         else -> false
     }
 
+    fun ratingFor(movie: com.neuropulse.tv.domain.model.VodItem): String? =
+        hubViewModel.displayRating(movie, hubViewModel.enrichmentFor(movie, enrichmentMap))
+
+    fun posterFor(movie: com.neuropulse.tv.domain.model.VodItem): String? {
+        val enrichment = hubViewModel.enrichmentFor(movie, enrichmentMap)
+        return enrichment?.posterUrl ?: movie.posterUrl
+    }
+
+    fun playMovie(movie: com.neuropulse.tv.domain.model.VodItem) {
+        hubViewModel.enrichOnBrowse(movie)
+        onPlayMovie(movie.title, movie.streamUrl, false)
+    }
+
     ScreenBackHandler(
         onNavigateBack = onBack,
         onBackPressed = ::consumeVodLocalBack
@@ -385,124 +412,149 @@ fun VodHubScreen(
                     }
             )
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color(0xFF141420), EpgColors.Background)
-                        )
-                    )
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                VodHubHeader(
-                    title = "On Demand",
-                    subtitle = if (tab == 0) {
-                        "Movies and specials from your provider"
-                    } else {
-                        "Browse shows by season and episode"
-                    }
-                )
-
-                if (continueWatchingItems.isNotEmpty()) {
-                    ContinueWatchingRow(
-                        items = continueWatchingItems,
-                        focusedIndex = continueFocusIndex,
-                        rowFocused = focusZone == VodFocusZone.CONTINUE,
-                        onSelect = ::resumeItem,
-                        modifier = Modifier
-                            .focusRequester(continueFocusRequester)
-                            .focusable()
-                            .onPreviewKeyEvent {
-                                focusZone == VodFocusZone.CONTINUE && handleContinueKey(it)
-                            }
-                    )
-                }
-
-                if (topPicksForYou.isNotEmpty()) {
-                    PersonalizedVodRow(
-                        title = "Top Picks For You",
-                        movies = topPicksForYou.take(12),
-                        progressByStreamId = vodProgress,
-                        onPlayMovie = { movie -> onPlayMovie(movie.title, movie.streamUrl, false) },
-                        onSeeAll = { focusZone = VodFocusZone.CONTENT }
-                    )
-                }
-
-                if (somethingDifferent.isNotEmpty()) {
-                    PersonalizedVodRow(
-                        title = "Something Different",
-                        movies = somethingDifferent.take(12),
-                        progressByStreamId = vodProgress,
-                        onPlayMovie = { movie -> onPlayMovie(movie.title, movie.streamUrl, false) },
-                        onSeeAll = { focusZone = VodFocusZone.CONTENT }
-                    )
-                }
-
-                VodHubSearchField(
-                    value = searchQuery,
-                    onValueChange = hubViewModel::setSearchQuery,
-                    placeholder = if (tab == 0) "Search movies…" else "Search series…",
-                    focused = focusZone == VodFocusZone.SEARCH,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(searchFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            focusZone = VodFocusZone.SEARCH
-                            when (event.key) {
-                                Key.DirectionUp -> {
-                                    moveFocusToContinue()
-                                    true
-                                }
-                                Key.DirectionDown -> {
-                                    moveFocusToTabs()
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                )
-
-                EpgChipFilterBar(
-                    labels = listOf("Movies", "Series"),
-                    activeIndex = tab,
-                    focusedIndex = tabFocusIndex,
-                    barFocused = focusZone == VodFocusZone.TABS,
-                    modifier = Modifier
-                        .focusRequester(tabsFocusRequester)
-                        .focusable()
-                        .onPreviewKeyEvent {
-                            focusZone == VodFocusZone.TABS && handleTabsKey(it)
-                        }
-                )
-            }
-
-            Box(
+            LazyColumn(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
             ) {
-                when (tab) {
-                    0 -> MoviesBrowserScreen(
-                        onPlayMovie = onPlayMovie,
-                        embedded = true,
-                        hubSearchQuery = searchQuery,
-                        contentFocusRequester = contentFocusRequester,
-                        onMoveFocusUp = { moveFocusToTabs() },
-                        onMovieBrowse = { hubViewModel.enrichOnBrowse(it) }
-                    )
-                    else -> SeriesBrowserScreen(
-                        initialSeriesId = initialSeriesId,
-                        onPlayUrl = onPlayUrl,
-                        embedded = true,
-                        hubSearchQuery = searchQuery,
-                        contentFocusRequester = contentFocusRequester,
-                        onMoveFocusUp = { moveFocusToTabs() }
-                    )
+                heroMovie?.let { hero ->
+                    item(key = "hero") {
+                        VodHeroSection(
+                            movie = hero,
+                            enrichment = heroEnrichment,
+                            carouselSize = featuredCarousel.size,
+                            carouselIndex = heroIndex,
+                            onPlay = { playMovie(hero) },
+                            onMoreInfo = { playMovie(hero) }
+                        )
+                    }
+                }
+
+                if (continueWatchingItems.isNotEmpty()) {
+                    item(key = "continue_watching") {
+                        ContinueWatchingRow(
+                            items = continueWatchingItems,
+                            focusedIndex = continueFocusIndex,
+                            rowFocused = focusZone == VodFocusZone.CONTINUE,
+                            onSelect = ::resumeItem,
+                            modifier = Modifier
+                                .focusRequester(continueFocusRequester)
+                                .focusable()
+                                .onPreviewKeyEvent {
+                                    focusZone == VodFocusZone.CONTINUE && handleContinueKey(it)
+                                }
+                        )
+                    }
+                }
+
+                if (recommendedForYou.isNotEmpty()) {
+                    item(key = "recommended") {
+                        PersonalizedVodRow(
+                            title = "Recommended For You",
+                            movies = recommendedForYou.take(16),
+                            progressByStreamId = vodProgress,
+                            onPlayMovie = ::playMovie,
+                            onSeeAll = {
+                                applyTab(0)
+                                focusZone = VodFocusZone.CONTENT
+                            },
+                            ratingForMovie = ::ratingFor,
+                            posterUrlForMovie = ::posterFor
+                        )
+                    }
+                }
+
+                if (trendingNow.isNotEmpty()) {
+                    item(key = "trending") {
+                        PersonalizedVodRow(
+                            title = "Trending Now",
+                            movies = trendingNow.take(16),
+                            progressByStreamId = vodProgress,
+                            onPlayMovie = ::playMovie,
+                            onSeeAll = {
+                                applyTab(0)
+                                focusZone = VodFocusZone.CONTENT
+                            },
+                            ratingForMovie = ::ratingFor,
+                            posterUrlForMovie = ::posterFor
+                        )
+                    }
+                }
+
+                item(key = "search_tabs") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        VodHubSearchField(
+                            value = searchQuery,
+                            onValueChange = hubViewModel::setSearchQuery,
+                            placeholder = if (tab == 0) "Search movies…" else "Search series…",
+                            focused = focusZone == VodFocusZone.SEARCH,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(searchFocusRequester)
+                                .focusable()
+                                .onPreviewKeyEvent { event ->
+                                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                    focusZone = VodFocusZone.SEARCH
+                                    when (event.key) {
+                                        Key.DirectionUp -> {
+                                            moveFocusToContinue()
+                                            true
+                                        }
+                                        Key.DirectionDown -> {
+                                            moveFocusToTabs()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
+                        )
+
+                        EpgChipFilterBar(
+                            labels = listOf("Movies", "Series"),
+                            activeIndex = tab,
+                            focusedIndex = tabFocusIndex,
+                            barFocused = focusZone == VodFocusZone.TABS,
+                            modifier = Modifier
+                                .focusRequester(tabsFocusRequester)
+                                .focusable()
+                                .onPreviewKeyEvent {
+                                    focusZone == VodFocusZone.TABS && handleTabsKey(it)
+                                }
+                        )
+                    }
+                }
+
+                item(key = "browse") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(520.dp)
+                            .padding(horizontal = 24.dp)
+                    ) {
+                        when (tab) {
+                            0 -> MoviesBrowserScreen(
+                                onPlayMovie = onPlayMovie,
+                                embedded = true,
+                                hubSearchQuery = searchQuery,
+                                contentFocusRequester = contentFocusRequester,
+                                onMoveFocusUp = { moveFocusToTabs() },
+                                onMovieBrowse = { hubViewModel.enrichOnBrowse(it) }
+                            )
+                            else -> SeriesBrowserScreen(
+                                initialSeriesId = initialSeriesId,
+                                onPlayUrl = onPlayUrl,
+                                embedded = true,
+                                hubSearchQuery = searchQuery,
+                                contentFocusRequester = contentFocusRequester,
+                                onMoveFocusUp = { moveFocusToTabs() }
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,7 +38,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.component.RecordedPlayerControlsOverlay
 import com.neuropulse.tv.ui.component.ScreenBackHandler
@@ -389,7 +389,7 @@ fun DirectPlayerScreen(
                     .padding(16.dp)
             ) {
                 Text(title, color = Color.White)
-                Button(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("Back") }
+                GlowFocusButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("Back") }
             }
         }
 

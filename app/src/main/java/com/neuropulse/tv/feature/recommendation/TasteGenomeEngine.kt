@@ -37,6 +37,28 @@ class TasteGenomeEngine {
             .toList()
     }
 
+    fun trendingNow(
+        catalog: List<VodItem>,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity> = emptyMap(),
+        limit: Int = 20
+    ): List<VodItem> {
+        if (catalog.isEmpty()) return emptyList()
+        return catalog
+            .asSequence()
+            .map { item ->
+                val enrichment = enrichmentForItem(item, enrichmentByProviderKey)
+                val popularity = enrichment?.popularity ?: 0.0
+                val rating = enrichment?.rating ?: parseProviderRating(item.rating)
+                val recency = item.addedEpochSec?.toDouble() ?: 0.0
+                val score = popularity * 0.55 + rating * 0.30 + recency * 0.000_000_15
+                ScoredVod(item, score)
+            }
+            .sortedByDescending { it.score }
+            .take(limit)
+            .map { it.item }
+            .toList()
+    }
+
     fun somethingDifferent(
         catalog: List<VodItem>,
         continueWatching: List<ContinueWatchingItem>,
@@ -225,4 +247,9 @@ class TasteGenomeEngine {
             .map { it.trim() }
             .filter { it.length >= 3 }
             .toSet()
+
+    private fun parseProviderRating(raw: String?): Double {
+        if (raw.isNullOrBlank()) return 0.0
+        return raw.trim().toDoubleOrNull()?.coerceIn(0.0, 10.0) ?: 0.0
+    }
 }

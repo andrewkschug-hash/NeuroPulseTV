@@ -54,7 +54,7 @@ fun GridPrimaryButton(
             .onFocusChanged { focused = it.isFocused }
             .border(
                 width = if (focused) 2.dp else 0.dp,
-                color = if (focused) Color.White else Color.Transparent,
+                color = if (focused) EpgColors.FocusBorder else Color.Transparent,
                 shape = buttonShape
             )
             .semantics { this.contentDescription = contentDescription },

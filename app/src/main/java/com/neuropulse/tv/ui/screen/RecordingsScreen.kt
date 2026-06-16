@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -43,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
@@ -593,7 +593,7 @@ fun RecordingsScreen(
                 title = { Text("Recording") },
                 text = { Text(message.orEmpty()) },
                 confirmButton = {
-                    Button(onClick = { viewModel.clearMessage() }) { Text("OK") }
+                    GlowFocusButton(onClick = { viewModel.clearMessage() }) { Text("OK") }
                 }
             )
         }
@@ -856,13 +856,13 @@ fun RecordingsScreen(
                 title = { Text("Cancel scheduled recording?") },
                 text = { Text("This will remove the recording timer.") },
                 confirmButton = {
-                    Button(onClick = {
+                    GlowFocusButton(onClick = {
                         viewModel.deleteScheduled(id)
                         deleteScheduledId = null
                     }) { Text("Delete") }
                 },
                 dismissButton = {
-                    Button(onClick = { deleteScheduledId = null }) { Text("Close") }
+                    GlowFocusButton(onClick = { deleteScheduledId = null }) { Text("Close") }
                 }
             )
         }
@@ -886,13 +886,13 @@ fun RecordingsScreen(
                 title = { Text("Delete series rule?") },
                 text = { Text("Future episodes will no longer be scheduled automatically.") },
                 confirmButton = {
-                    Button(onClick = {
+                    GlowFocusButton(onClick = {
                         viewModel.deleteSeriesRule(ruleId)
                         deleteSeriesRuleId = null
                     }) { Text("Delete") }
                 },
                 dismissButton = {
-                    Button(onClick = { deleteSeriesRuleId = null }) { Text("Close") }
+                    GlowFocusButton(onClick = { deleteSeriesRuleId = null }) { Text("Close") }
                 }
             )
         }

@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.component
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -45,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
@@ -639,7 +639,7 @@ fun RecordingDeleteDialog(
             }
         },
         confirmButton = {
-            Button(
+            GlowFocusButton(
                 onClick = onConfirm,
                 modifier = Modifier
                     .focusRequester(deleteFocusRequester)
@@ -656,7 +656,7 @@ fun RecordingDeleteDialog(
             }
         },
         dismissButton = {
-            Button(
+            GlowFocusButton(
                 onClick = onDismiss,
                 modifier = Modifier
                     .focusRequester(cancelFocusRequester)

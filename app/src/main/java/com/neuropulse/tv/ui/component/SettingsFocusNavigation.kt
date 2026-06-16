@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.component
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,7 +37,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.ui.theme.DmSansFamily
@@ -332,7 +332,7 @@ fun SettingsFocusButton(
     destructive: Boolean = false
 ) {
     val highlighted = focus.isFocused(chainIndex)
-    Button(
+    GlowFocusButton(
         onClick = onClick,
         enabled = enabled && !isLoading,
         modifier = modifier

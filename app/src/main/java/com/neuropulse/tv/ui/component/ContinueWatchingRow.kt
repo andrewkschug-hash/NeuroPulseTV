@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,9 +43,10 @@ fun ContinueWatchingRow(
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(
             text = "Continue Watching",
-            color = EpgColors.TextPrimary,
+            color = Color(0xFFD4A574),
             fontFamily = DmSansFamily,
-            fontSize = 16.sp,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -80,7 +82,7 @@ private fun ContinueWatchingCard(
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
-            focusedContainerColor = EpgColors.ChannelRowFocusBg
+            focusedContainerColor = bg
         )
     ) {
         Column(modifier = Modifier.padding(8.dp)) {

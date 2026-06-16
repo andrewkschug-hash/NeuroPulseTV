@@ -89,7 +89,7 @@ fun CategoryFilterMenu(
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
-                        focusedContainerColor = EpgColors.ChannelRowFocusBg
+                        focusedContainerColor = if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
                     )
                 ) {
                     Text(

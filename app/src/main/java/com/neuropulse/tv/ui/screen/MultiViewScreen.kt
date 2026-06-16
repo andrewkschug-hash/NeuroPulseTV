@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -37,7 +38,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.player.multiview.MultiViewLayout
@@ -150,13 +150,13 @@ fun MultiViewScreen(
             ) {
                 Text("MultiView", color = EpgColors.TextPrimary)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { viewModel.setLayout(MultiViewLayout.TWO) }) {
+                    GlowFocusButton(onClick = { viewModel.setLayout(MultiViewLayout.TWO) }) {
                         Text("2-Screen")
                     }
-                    Button(onClick = { viewModel.setLayout(MultiViewLayout.FOUR) }) {
+                    GlowFocusButton(onClick = { viewModel.setLayout(MultiViewLayout.FOUR) }) {
                         Text("4-Screen")
                     }
-                    Button(onClick = onBack) { Text("Back") }
+                    GlowFocusButton(onClick = onBack) { Text("Back") }
                 }
             }
 
@@ -295,12 +295,12 @@ private fun MultiViewChannelPicker(
             Text("Replace channel", color = EpgColors.TextPrimary, modifier = Modifier.padding(bottom = 12.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(channels.filter { it.streamUrl.isNotBlank() }, key = { it.id }) { channel ->
-                    Button(onClick = { onSelect(channel) }) {
+                    GlowFocusButton(onClick = { onSelect(channel) }) {
                         Text(channel.name)
                     }
                 }
             }
-            Button(onClick = onDismiss, modifier = Modifier.padding(top = 12.dp)) {
+            GlowFocusButton(onClick = onDismiss, modifier = Modifier.padding(top = 12.dp)) {
                 Text("Cancel")
             }
         }

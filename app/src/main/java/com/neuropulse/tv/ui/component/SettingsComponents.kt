@@ -51,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -314,7 +313,7 @@ fun SettingsToggleRow(
                 selected = enabled,
                 focused = focused
             )
-            Button(
+            GlowFocusButton(
                 onClick = onToggle,
                 modifier = Modifier.focusProperties { canFocus = false }
             ) {
@@ -338,7 +337,7 @@ fun SettingsChip(
         Color.Transparent
     }
     val borderColor = when {
-        focused -> Color.White
+        focused -> EpgColors.FocusBorder
         selected -> EpgColors.Accent
         else -> Color(0xFF3A3A4A)
     }
@@ -561,7 +560,7 @@ fun ConnectionResultDialog(
                     )
                 },
                 confirmButton = {
-                    Button(
+                    GlowFocusButton(
                         onClick = onGoToGuide,
                         modifier = Modifier.focusRequester(confirmFocusRequester)
                     ) {
@@ -593,7 +592,7 @@ fun ConnectionResultDialog(
                     )
                 },
                 confirmButton = {
-                    Button(
+                    GlowFocusButton(
                         onClick = onDismiss,
                         modifier = Modifier.focusRequester(confirmFocusRequester)
                     ) {

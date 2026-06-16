@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.component
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -27,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -108,7 +108,7 @@ fun PinEntryDialog(
                 },
                 onBackspace = { if (pin.isNotEmpty()) pin = pin.dropLast(1) }
             )
-            Button(onClick = onDismiss) {
+            GlowFocusButton(onClick = onDismiss) {
                 Text("Cancel", fontFamily = DmSansFamily)
             }
         }
@@ -133,7 +133,7 @@ private fun PinNumberPad(
                     if (key.isEmpty()) {
                         Spacer(modifier = Modifier.size(64.dp))
                     } else {
-                        Button(
+                        GlowFocusButton(
                             onClick = {
                                 if (key == "⌫") onBackspace() else onDigit(key)
                             },

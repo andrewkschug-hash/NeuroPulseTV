@@ -49,9 +49,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.Channel
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import com.neuropulse.tv.ui.component.SplitViewChannelPicker
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.ScreenBackHandler
@@ -86,7 +86,6 @@ fun SplitViewScreen(
     var showPicker by remember { mutableStateOf(false) }
     var showPaneMenu by remember { mutableStateOf(false) }
     var menuPaneIndex by remember { mutableIntStateOf(0) }
-    var menuFocusIndex by remember { mutableIntStateOf(0) }
 
     val playbackContext = remember {
         MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
@@ -163,7 +162,6 @@ fun SplitViewScreen(
 
     fun openPaneMenu(index: Int) {
         menuPaneIndex = index
-        menuFocusIndex = 0
         showPaneMenu = true
         revealControls()
     }
@@ -257,28 +255,7 @@ fun SplitViewScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 revealControls()
 
-                if (showPaneMenu) {
-                    val actions = menuActionsForPane(menuPaneIndex)
-                    return@onPreviewKeyEvent when (event.key) {
-                        Key.Back, Key.Escape -> {
-                            showPaneMenu = false
-                            true
-                        }
-                        Key.DirectionUp -> {
-                            menuFocusIndex = (menuFocusIndex - 1).coerceAtLeast(0)
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            menuFocusIndex = (menuFocusIndex + 1).coerceAtMost(actions.lastIndex)
-                            true
-                        }
-                        Key.Enter, Key.DirectionCenter -> {
-                            actions.getOrNull(menuFocusIndex)?.let { activateMenuAction(it) }
-                            true
-                        }
-                        else -> false
-                    }
-                }
+                if (showPaneMenu) return@onPreviewKeyEvent false
 
                 when (event.key) {
                     Key.Back, Key.Escape -> consumeSplitViewLocalBack()
@@ -351,7 +328,7 @@ fun SplitViewScreen(
         SplitPaneActionMenu(
             paneLabel = paneChannels.getOrNull(menuPaneIndex)?.name ?: "Stream ${menuPaneIndex + 1}",
             actions = actions,
-            focusIndex = menuFocusIndex,
+            onAction = ::activateMenuAction,
             onDismiss = { showPaneMenu = false }
         )
     }
@@ -377,9 +354,14 @@ fun SplitViewScreen(
 private fun SplitPaneActionMenu(
     paneLabel: String,
     actions: List<SplitPaneMenuAction>,
-    focusIndex: Int,
+    onAction: (SplitPaneMenuAction) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val firstActionFocus = remember { FocusRequester() }
+    LaunchedEffect(actions) {
+        firstActionFocus.requestFocusSafelyAfterLayout()
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -407,25 +389,17 @@ private fun SplitPaneActionMenu(
                     fontSize = 12.sp
                 )
                 actions.forEachIndexed { index, action ->
-                    val shape = RoundedCornerShape(8.dp)
-                    val focused = focusIndex == index
-                    Button(
-                        onClick = { },
+                    GlowFocusButton(
+                        onClick = { onAction(action) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(
-                                width = if (focused) 2.dp else 1.dp,
-                                color = if (focused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
-                                shape = shape
-                            )
-                            .background(
-                                if (focused) EpgColors.ChannelRowFocusBg else Color(0xFF252530),
-                                shape
+                            .then(
+                                if (index == 0) Modifier.focusRequester(firstActionFocus) else Modifier
                             )
                     ) {
                         Text(
                             text = action.label,
-                            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                            color = EpgColors.TextPrimary,
                             fontFamily = DmSansFamily,
                             fontSize = 14.sp
                         )

@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.screen
 
+import com.neuropulse.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -112,7 +112,7 @@ fun SeriesBrowserScreen(
             title = { Text("Series recording") },
             text = { Text(message.orEmpty()) },
             confirmButton = {
-                Button(onClick = { viewModel.clearMessage() }) {
+                GlowFocusButton(onClick = { viewModel.clearMessage() }) {
                     Text("OK")
                 }
             }
@@ -140,7 +140,7 @@ fun SeriesBrowserScreen(
             .padding(if (embedded) 0.dp else 20.dp)
     ) {
         if (!embedded) {
-            Button(onClick = onBack) {
+            GlowFocusButton(onClick = onBack) {
                 Text("← Back", fontFamily = DmSansFamily)
             }
             Text(
@@ -335,11 +335,11 @@ private fun SeriesDetailHeader(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
-                Button(onClick = onBackToShows) {
+                GlowFocusButton(onClick = onBackToShows) {
                     Text("← All Shows", fontFamily = DmSansFamily)
                 }
                 if (showRecord) {
-                    Button(onClick = onRecordSeries) {
+                    GlowFocusButton(onClick = onRecordSeries) {
                         Text("Record Series", fontFamily = DmSansFamily)
                     }
                 }

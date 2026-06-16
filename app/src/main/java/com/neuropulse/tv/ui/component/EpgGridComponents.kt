@@ -679,7 +679,7 @@ internal fun EpgActionButton(
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = EpgColors.GridBg,
-            focusedContainerColor = EpgColors.ChannelRowFocusBg
+            focusedContainerColor = EpgColors.GridBg
         ),
         modifier = Modifier
             .scale(scale)
@@ -769,7 +769,7 @@ fun EpgCategoryFilterChip(
         }
         val borderWidth = if (focused) 2.dp else 1.dp
         val textColor = when {
-            focused -> Color.White
+            focused -> EpgColors.TextPrimary
             active -> EpgColors.TextPrimary
             else -> EpgColors.TextDimmed
         }
