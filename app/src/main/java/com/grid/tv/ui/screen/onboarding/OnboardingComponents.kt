@@ -39,7 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.component.GridPrimaryButton
 import com.grid.tv.ui.component.TvFocusChain
 import com.grid.tv.ui.component.TvTextField
@@ -87,7 +87,7 @@ internal fun MethodCard(
         label = "chevronRotate"
     )
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .width(MethodCardWidth)
@@ -283,7 +283,7 @@ internal fun OnboardingSkipLink(
     var focused by remember { mutableStateOf(false) }
     val textColor = if (focused) OnboardingTextPrimary else OnboardingTextMuted
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .tvFocusScrollIntoView()

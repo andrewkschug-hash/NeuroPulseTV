@@ -35,6 +35,8 @@ android {
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnvValue("OPENSUBTITLES_API_KEY")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${readEnvValue("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readEnvValue("SUPABASE_ANON_KEY")}\"")
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${readEnvValue("GOOGLE_WEB_CLIENT_ID")}\"")
+        manifestPlaceholders["supabaseAuthRedirectScheme"] = "com.grid.tv"
     }
 
     flavorDimensions += "store"
@@ -155,6 +157,15 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.compose.auth)
+    implementation(libs.ktor.client.android)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services)
+    implementation(libs.google.googleid)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
 

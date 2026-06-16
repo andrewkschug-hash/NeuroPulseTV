@@ -96,6 +96,7 @@ import com.grid.tv.ui.component.rememberSettingsFocusChain
 import com.grid.tv.ui.component.settingsVerticalFocusRows
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.viewmodel.AuthViewModel
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
@@ -146,8 +147,10 @@ fun SettingsScreen(
     onPickTiviMateZip: () -> Unit,
     onOpenEpgResolver: () -> Unit = {},
     onRestartToOnboarding: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
-    profileViewModel: ProfileViewModel = hiltViewModel()
+    profileViewModel: ProfileViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -750,6 +753,7 @@ fun SettingsScreen(
                                 importSummary = importSummary,
                                 cacheMessage = cacheMessage,
                                 focus = contentFocus,
+                                onSignOut = { authViewModel.signOut(onComplete = onSignOut) },
                                 onExportBackup = { viewModel.exportBackup(context.cacheDir) },
                                 onClearCache = { viewModel.clearCache() },
                                 onResetSettings = { showResetSettingsConfirm = true },
@@ -1894,6 +1898,7 @@ private fun AboutSettingsContent(
     importSummary: String?,
     cacheMessage: String?,
     focus: SettingsContentFocus,
+    onSignOut: () -> Unit,
     onExportBackup: () -> Unit,
     onClearCache: () -> Unit,
     onResetSettings: () -> Unit,
@@ -1907,16 +1912,24 @@ private fun AboutSettingsContent(
         Text("Version ${SettingsViewModel.APP_VERSION}", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
         Text("Live TV Guide for Android TV", color = EpgColors.TextDimmed, fontFamily = DmSansFamily, fontSize = 13.sp)
         SettingsFocusButton(
+            text = "Sign out",
+            onClick = onSignOut,
+            chainIndex = 0,
+            focus = focus,
+            destructive = true,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        SettingsFocusButton(
             text = "Export .grid backup",
             onClick = onExportBackup,
-            chainIndex = 0,
+            chainIndex = 1,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
         )
         SettingsFocusButton(
             text = "Clear cache",
             onClick = onClearCache,
-            chainIndex = 1,
+            chainIndex = 2,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -1936,7 +1949,7 @@ private fun AboutSettingsContent(
         SettingsFocusButton(
             text = "Reset all settings",
             onClick = onResetSettings,
-            chainIndex = 2,
+            chainIndex = 3,
             focus = focus,
             destructive = true
         )
@@ -1950,7 +1963,7 @@ private fun AboutSettingsContent(
         SettingsFocusButton(
             text = "Reset everything",
             onClick = onResetApp,
-            chainIndex = 3,
+            chainIndex = 4,
             focus = focus,
             destructive = true
         )

@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
@@ -296,7 +296,7 @@ fun SearchOverlay(
                         .onPreviewKeyEvent { handleKey(it) }
                 )
                 if (query.isNotEmpty()) {
-                    Surface(onClick = onClear) {
+                    GridFocusSurface(onClick = onClear) {
                         Text(
                             text = "✕",
                             color = EpgColors.TextSecondary,
@@ -409,7 +409,7 @@ private fun MicButton(
         else -> Color(0xFF2A2A38)
     }
     val iconColor = if (listening) Color(0xFFFF3B3B) else EpgColors.TextSecondary
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
@@ -438,7 +438,7 @@ private fun SearchResultRow(
     modifier: Modifier = Modifier
 ) {
     val bg = if (focused) Color(0xFF1C1C2E) else Color.Transparent
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()

@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.ui.theme.DmSansFamily
@@ -83,7 +83,7 @@ fun CategoryFilterMenu(
                     )
                 }
                 val focused = index == focusedIndex
-                Surface(
+                GridFocusSurface(
                     onClick = { onSelect(index) },
                     modifier = Modifier.fillMaxWidth(),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),

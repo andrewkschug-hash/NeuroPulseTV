@@ -1,5 +1,6 @@
 package com.grid.tv
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
@@ -10,7 +11,10 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.grid.tv.di.SupabaseEntryPoint
 import com.grid.tv.domain.repository.IptvRepository
+import dagger.hilt.android.EntryPointAccessors
+import io.github.jan.supabase.auth.handleDeeplinks
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
 import com.grid.tv.player.PictureInPictureController
@@ -34,6 +38,8 @@ class MainActivity : ComponentActivity() {
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
 
+    private var authDeepLinkHandler: ((String) -> Unit)? = null
+
     private val pickM3u = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@registerForActivityResult
         when (pickerMode) {
@@ -56,6 +62,8 @@ class MainActivity : ComponentActivity() {
             pipController.pictureInPictureEnabled = repository.loadSettings().pictureInPictureEnabled
         }
 
+        handleAuthDeepLink(intent)
+
         setContent {
             val themeId by themeManager.themeId.collectAsStateWithLifecycle()
             GridTheme(themeId = themeId) {
@@ -71,6 +79,31 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthDeepLink(intent)
+    }
+
+    fun registerAuthDeepLinkHandler(handler: (String) -> Unit) {
+        authDeepLinkHandler = handler
+    }
+
+    fun clearAuthDeepLinkHandler() {
+        authDeepLinkHandler = null
+    }
+
+    private fun handleAuthDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != "com.grid.tv" || data.host != "auth") return
+        val supabaseClient = EntryPointAccessors.fromApplication(
+            applicationContext,
+            SupabaseEntryPoint::class.java
+        ).supabaseClient()
+        supabaseClient.handleDeeplinks(intent)
+        authDeepLinkHandler?.invoke(data.toString())
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

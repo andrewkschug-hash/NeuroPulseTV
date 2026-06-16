@@ -556,10 +556,7 @@ private fun SplitPane(
             .fillMaxHeight()
             .then(
                 if (focused || activeAudio) {
-                    Modifier.border(
-                        width = if (focused) 3.dp else 2.dp,
-                        color = borderColor
-                    )
+                    Modifier.border(width = 2.dp, color = borderColor)
                 } else {
                     Modifier
                 }

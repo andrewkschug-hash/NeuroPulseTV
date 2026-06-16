@@ -591,7 +591,7 @@ private fun VodHubSearchField(
             .height(48.dp)
             .background(backgroundColor, shape)
             .border(
-                width = if (focused) 2.5.dp else 1.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = shape
             )

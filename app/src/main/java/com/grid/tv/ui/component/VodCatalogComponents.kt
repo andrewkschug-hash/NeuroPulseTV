@@ -30,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.SeriesShow
@@ -65,7 +65,7 @@ fun VodPosterCard(
     ratingBadge: String? = null,
     posterHeight: androidx.compose.ui.unit.Dp = 168.dp
 ) {
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier.width(112.dp),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -175,7 +175,7 @@ fun SeriesPosterCard(
 
 @Composable
 fun SeeAllVodCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .width(112.dp)
@@ -336,7 +336,7 @@ fun VodSearchField(
 ) {
     val shape = RoundedCornerShape(8.dp)
     val borderColor = if (focused) EpgColors.Accent else EpgColors.BorderSubtle
-    Surface(
+    GridFocusSurface(
         onClick = { },
         modifier = modifier
             .fillMaxWidth()
@@ -394,7 +394,7 @@ fun VodEpisodeCard(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(8.dp)
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -596,7 +596,7 @@ fun VodHeroSection(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(
+                GridFocusSurface(
                     onClick = onPlay,
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     colors = ClickableSurfaceDefaults.colors(
@@ -613,7 +613,7 @@ fun VodHeroSection(
                         modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
                     )
                 }
-                Surface(
+                GridFocusSurface(
                     onClick = onMoreInfo,
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     colors = ClickableSurfaceDefaults.colors(
@@ -737,7 +737,7 @@ fun VodCategoryChip(
         selected -> EpgColors.Accent.copy(alpha = 0.45f)
         else -> EpgColors.BorderSubtle.copy(alpha = 0.65f)
     }
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier.border(1.dp, borderColor, RoundedCornerShape(20.dp)),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),

@@ -1,6 +1,5 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +27,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -41,7 +39,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.Channel
@@ -529,7 +527,7 @@ fun EpgJumpToLiveButton(
     modifier: Modifier = Modifier
 ) {
     if (!visible) return
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
         colors = ClickableSurfaceDefaults.colors(
@@ -670,11 +668,7 @@ internal fun EpgActionButton(
     labelColor: Color? = null
 ) {
     val shape = RoundedCornerShape(6.dp)
-    val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.04f else 1f,
-        label = "epgActionScale"
-    )
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
@@ -682,13 +676,8 @@ internal fun EpgActionButton(
             focusedContainerColor = EpgColors.GridBg
         ),
         modifier = Modifier
-            .scale(scale)
             .height(if (compact) 32.dp else 36.dp)
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
-                shape = shape
-            )
+            .tvFocusBorder(focused = isFocused, shape = shape)
             .focusProperties { canFocus = false }
     ) {
         Box(
@@ -767,13 +756,12 @@ fun EpgCategoryFilterChip(
             active -> EpgColors.Accent.copy(alpha = 0.55f)
             else -> EpgColors.BorderSubtle.copy(alpha = 0.45f)
         }
-        val borderWidth = if (focused) 2.dp else 1.dp
         val textColor = when {
             focused -> EpgColors.TextPrimary
             active -> EpgColors.TextPrimary
             else -> EpgColors.TextDimmed
         }
-        Surface(
+        GridFocusSurface(
             onClick = onClick,
             modifier = modifier,
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
@@ -785,7 +773,7 @@ fun EpgCategoryFilterChip(
             Row(
                 modifier = Modifier
                     .background(bg, RoundedCornerShape(6.dp))
-                    .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
+                    .border(2.dp, borderColor, RoundedCornerShape(6.dp))
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -821,7 +809,7 @@ fun EpgCategoryFilterChip(
         active -> EpgColors.Accent.copy(alpha = 0.45f)
         else -> EpgColors.BorderSubtle
     }
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier.height(chipHeight),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
@@ -897,7 +885,7 @@ fun RecordingsListRow(
             .clip(shape)
             .background(bg, shape)
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = shape
             )

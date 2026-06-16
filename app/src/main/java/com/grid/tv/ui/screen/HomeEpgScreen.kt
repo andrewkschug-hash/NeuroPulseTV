@@ -88,7 +88,6 @@ import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.ui.component.CategoryFilterMenu
 import com.grid.tv.ui.component.ContinueWatchingRow
-import com.grid.tv.ui.component.MiniNowPlayingPlayer
 import com.grid.tv.ui.component.MoviesHomeRow
 import com.grid.tv.ui.component.SeriesHomeRow
 import com.grid.tv.ui.component.categoryFilterForMenuIndex
@@ -253,7 +252,6 @@ fun HomeEpgScreen(
 
     val liveChannelId by livePlayerManager.activeChannelIdFlow.collectAsStateWithLifecycle()
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
-    val lastPlayedChannel by viewModel.lastPlayedChannel.collectAsStateWithLifecycle()
 
     LaunchedEffect(liveChannelId, channels) {
         val id = liveChannelId ?: return@LaunchedEffect
@@ -508,9 +506,6 @@ fun HomeEpgScreen(
     } else {
         com.grid.tv.player.StreamPlaybackStatus.LOADING
     }
-    val showTopBarMiniPlayer = guidePreviewEnabled && liveChannelId != null &&
-        (previewChannel != null || lastPlayedChannel != null)
-    val topBarMiniChannel = previewChannel ?: lastPlayedChannel
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
 
     val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
@@ -1104,18 +1099,7 @@ fun HomeEpgScreen(
                     topBarFocusIndex = GridNavTabs.indexOf(tab)
                     activateNavTab(tab)
                 },
-                miniPlayer = {
-                    if (showTopBarMiniPlayer && previewPlayer != null && topBarMiniChannel != null) {
-                        MiniNowPlayingPlayer(
-                            channel = topBarMiniChannel,
-                            program = previewProgram,
-                            player = previewPlayer,
-                            isFocused = false,
-                            onFocus = { watchChannel(topBarMiniChannel) },
-                            streamStatus = previewStreamStatus
-                        )
-                    }
-                },
+                miniPlayer = {},
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
                 recordingHealth = recordingHealth,

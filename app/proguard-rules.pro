@@ -11,3 +11,9 @@
 # Hilt
 -keep class dagger.hilt.** { *; }
 -keep class javax.inject.** { *; }
+
+# Supabase / Ktor / kotlinx.serialization (used by auth)
+-keepattributes InnerClasses
+-dontwarn io.ktor.**
+-dontwarn kotlinx.serialization.**
+-keepclassmembers class kotlinx.serialization.json.** { *; }

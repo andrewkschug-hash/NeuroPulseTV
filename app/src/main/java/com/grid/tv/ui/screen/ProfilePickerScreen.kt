@@ -1,6 +1,8 @@
 package com.grid.tv.ui.screen
 
 import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.component.GridFocusSurface
+import com.grid.tv.ui.component.tvFocusBorder
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -60,7 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.ui.component.requestFocusSafely
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
@@ -353,9 +355,8 @@ private fun ProfileCard(
     focusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "cardScale")
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .width(CardWidth)
@@ -363,16 +364,15 @@ private fun ProfileCard(
             .graphicsLayer {
                 this.alpha = alpha
                 this.translationY = offsetY
-                scaleX = scale
-                scaleY = scale
             }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
-            .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
-            .border(
-                width = if (focused) 2.5.dp else 1.dp,
-                color = if (focused) Accent else CardBorderRest,
-                shape = CardShape
+            .tvFocusBorder(
+                focused = focused,
+                shape = CardShape,
+                width = 2.dp,
+                unfocusedColor = CardBorderRest,
+                focusedColor = Accent
             ),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(CardShape),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
@@ -393,10 +393,12 @@ private fun ProfileCard(
                     .size(88.dp)
                     .clip(CircleShape)
                     .background(avatarColor)
-                    .border(
-                        width = if (focused) 2.5.dp else 1.5.dp,
-                        color = if (focused) Accent else AvatarBorderRest,
-                        shape = CircleShape
+                    .tvFocusBorder(
+                        focused = focused,
+                        shape = CircleShape,
+                        width = 2.dp,
+                        unfocusedColor = AvatarBorderRest,
+                        focusedColor = Accent
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -434,9 +436,8 @@ private fun AddProfileCard(
     focusRequester: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.05f else 1f, tween(200), label = "addScale")
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .width(CardWidth)
@@ -444,16 +445,15 @@ private fun AddProfileCard(
             .graphicsLayer {
                 this.alpha = alpha
                 this.translationY = offsetY
-                scaleX = scale
-                scaleY = scale
             }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
-            .then(if (focused) Modifier.profileCardFocusGlow() else Modifier)
-            .border(
-                width = if (focused) 2.5.dp else 1.dp,
-                color = if (focused) Accent else CardBorderRest,
-                shape = CardShape
+            .tvFocusBorder(
+                focused = focused,
+                shape = CardShape,
+                width = 2.dp,
+                unfocusedColor = CardBorderRest,
+                focusedColor = Accent
             ),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(CardShape),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
@@ -474,10 +474,12 @@ private fun AddProfileCard(
                     .size(88.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF141420))
-                    .border(
-                        width = if (focused) 2.5.dp else 1.5.dp,
-                        color = if (focused) Accent else AvatarBorderRest,
-                        shape = CircleShape
+                    .tvFocusBorder(
+                        focused = focused,
+                        shape = CircleShape,
+                        width = 2.dp,
+                        unfocusedColor = AvatarBorderRest,
+                        focusedColor = Accent
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -502,15 +504,6 @@ private fun AddProfileCard(
             )
         }
     }
-}
-
-private fun Modifier.profileCardFocusGlow(): Modifier = drawBehind {
-    val corner = 16.dp.toPx()
-    drawRoundRect(
-        color = Accent.copy(alpha = 0.3f),
-        cornerRadius = CornerRadius(corner),
-        style = Stroke(width = 8.dp.toPx())
-    )
 }
 
 @Composable
@@ -658,7 +651,6 @@ private fun ProfileNameDialog(
     var avatarFocused by remember { mutableStateOf(false) }
     val fieldFocusRequester = remember { FocusRequester() }
     val initials = profileInitials(name.ifBlank { "?" })
-    val avatarScale by animateFloatAsState(if (avatarFocused || fieldFocused) 1.05f else 1f, tween(150), label = "dlgAvatar")
 
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
 
@@ -666,15 +658,12 @@ private fun ProfileNameDialog(
         Box(
             modifier = Modifier
                 .size(56.dp)
-                .graphicsLayer {
-                    scaleX = avatarScale
-                    scaleY = avatarScale
-                }
                 .clip(CircleShape)
                 .background(ProfileAvatarColors.first())
-                .then(
-                    if (fieldFocused) Modifier.border(2.dp, Accent, CircleShape)
-                    else Modifier
+                .tvFocusBorder(
+                    focused = fieldFocused || avatarFocused,
+                    shape = CircleShape,
+                    unfocusedColor = Color.Transparent
                 )
                 .align(Alignment.CenterHorizontally)
                 .onFocusChanged { avatarFocused = it.isFocused },

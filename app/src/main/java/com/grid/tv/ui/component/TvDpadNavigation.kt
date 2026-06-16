@@ -43,7 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
@@ -331,7 +331,7 @@ fun TvTextField(
         }
         if (isPassword) {
             var showFocused by remember { mutableStateOf(false) }
-            Surface(
+            GridFocusSurface(
                 onClick = { showPassword = !showPassword },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -377,7 +377,7 @@ fun TvTextLink(
     var focused by remember { mutableStateOf(false) }
     val color = if (focused) Color.White else TvTextMuted
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
@@ -422,7 +422,7 @@ fun TvBackButton(
 ) {
     var focused by remember { mutableStateOf(false) }
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)

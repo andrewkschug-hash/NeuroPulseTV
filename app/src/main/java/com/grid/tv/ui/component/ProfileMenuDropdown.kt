@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -81,16 +81,16 @@ private fun ProfileMenuDropdownItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 2.dp)
             .onFocusChanged { isFocused = it.isFocused }
-            .border(
-                width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) EpgColors.FocusBorder else Color.Transparent,
-                shape = RowShape
+            .tvFocusBorder(
+                focused = isFocused,
+                shape = RowShape,
+                unfocusedColor = Color.Transparent
             )
             .background(
                 color = if (isFocused) EpgColors.ChannelRowFocusBg else Color.Transparent,

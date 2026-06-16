@@ -23,7 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -46,16 +46,16 @@ fun GridPrimaryButton(
     val bg = if (focused) PrimaryBlueFocus else PrimaryBlue
 
     val buttonShape = RoundedCornerShape(8.dp)
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
             .height(ButtonHeight)
             .onFocusChanged { focused = it.isFocused }
-            .border(
-                width = if (focused) 2.dp else 0.dp,
-                color = if (focused) EpgColors.FocusBorder else Color.Transparent,
-                shape = buttonShape
+            .tvFocusBorder(
+                focused = focused,
+                shape = buttonShape,
+                unfocusedColor = Color.Transparent
             )
             .semantics { this.contentDescription = contentDescription },
         shape = ClickableSurfaceDefaults.shape(buttonShape),
@@ -95,7 +95,7 @@ fun GridOutlinedButton(
     val borderColor = if (focused) EpgColors.FocusBorder else OutlinedBorder
     val textColor = if (focused) Color.White else Color(0xFF9CA3AF)
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
@@ -112,7 +112,7 @@ fun GridOutlinedButton(
             modifier = Modifier
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+                .tvFocusBorder(focused = focused, shape = RoundedCornerShape(8.dp))
                 .padding(horizontal = ButtonHorizontalPadding),
             contentAlignment = Alignment.Center
         ) {
@@ -137,7 +137,7 @@ fun GridGhostLink(
     var focused by remember { mutableStateOf(false) }
     val color = if (focused) Color.White else Color(0xFF9CA3AF)
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .onFocusChanged { focused = it.isFocused }

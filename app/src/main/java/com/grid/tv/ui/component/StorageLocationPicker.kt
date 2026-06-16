@@ -42,7 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.feature.recording.RecordingPrecheck
@@ -86,7 +86,7 @@ fun StorageLocationPicker(
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(options) { option ->
-                    Surface(
+                    GridFocusSurface(
                         onClick = { onSelect(option.id) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -110,7 +110,7 @@ fun StorageLocationPicker(
             }
         },
         confirmButton = {
-            Surface(
+            GridFocusSurface(
                 onClick = onDismiss,
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(
@@ -442,7 +442,7 @@ private fun PrecheckQualityPill(
     Box(
         modifier = modifier
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = shape
             )
@@ -492,7 +492,7 @@ private fun PrecheckActionButton(
         modifier = modifier
             .height(48.dp)
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = shape
             )

@@ -52,7 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -97,7 +97,7 @@ fun SettingsSidebar(
                 selected -> EpgColors.ChannelRowFocusBg
                 else -> Color.Transparent
             }
-            Surface(
+            GridFocusSurface(
                 onClick = { onSectionSelected(index) },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(
@@ -487,7 +487,7 @@ private fun ProfileColorSwatch(
     }
     val ringWidth = if (highlighted || selected) 2.dp else 0.dp
 
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .size(44.dp)

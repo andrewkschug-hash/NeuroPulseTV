@@ -8,7 +8,7 @@ import androidx.compose.runtime.setValue
 import com.grid.tv.ui.screen.ProfilePickerScreen
 import com.grid.tv.ui.screen.SplashScreen
 
-private enum class AppPhase { Splash, Profile, Setup, Main }
+private enum class AppPhase { Splash, Auth, Profile, Setup, Main }
 
 @Composable
 fun AppRoot(
@@ -18,14 +18,16 @@ fun AppRoot(
     var phase by rememberSaveable { mutableStateOf(AppPhase.Splash) }
 
     when (phase) {
-        AppPhase.Splash -> SplashScreen(onFinished = { phase = AppPhase.Profile })
+        AppPhase.Splash -> SplashScreen(onFinished = { phase = AppPhase.Auth })
+        AppPhase.Auth -> AuthGate(onAuthenticated = { phase = AppPhase.Profile })
         AppPhase.Profile -> ProfilePickerScreen(onProfileSelected = { phase = AppPhase.Setup })
         AppPhase.Setup -> SetupGate(onComplete = { phase = AppPhase.Main })
         AppPhase.Main -> MainContentGate(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
             onSwitchProfile = { phase = AppPhase.Profile },
-            onRestartToOnboarding = { phase = AppPhase.Splash }
+            onRestartToOnboarding = { phase = AppPhase.Splash },
+            onSignOut = { phase = AppPhase.Auth }
         )
     }
 }

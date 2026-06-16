@@ -30,7 +30,8 @@ fun MainContentGate(
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
     onSwitchProfile: () -> Unit,
-    onRestartToOnboarding: () -> Unit
+    onRestartToOnboarding: () -> Unit,
+    onSignOut: () -> Unit
 ) {
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -55,7 +56,8 @@ fun MainContentGate(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
             onSwitchProfile = onSwitchProfile,
-            onRestartToOnboarding = onRestartToOnboarding
+            onRestartToOnboarding = onRestartToOnboarding,
+            onSignOut = onSignOut
         )
     }
 }

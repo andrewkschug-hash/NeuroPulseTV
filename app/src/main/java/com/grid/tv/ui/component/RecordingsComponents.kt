@@ -252,7 +252,7 @@ fun RecordingGridCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .border(
-                width = if (isFocused) 2.dp else 1.dp,
+                width = 2.dp,
                 color = borderColor,
                 shape = RoundedCornerShape(8.dp)
             )
@@ -716,7 +716,7 @@ fun RecordingIndicatorChip(
             .clip(RoundedCornerShape(8.dp))
             .background(chipBg, RoundedCornerShape(8.dp))
             .border(
-                width = if (focused) 2.dp else 0.dp,
+                width = 2.dp,
                 color = if (focused) EpgColors.FocusBorder else Color.Transparent,
                 shape = RoundedCornerShape(8.dp)
             )

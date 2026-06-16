@@ -206,7 +206,7 @@ private fun TimeshiftSeekBar(
             .clip(shape)
             .background(Color(0xFF1A1A24))
             .border(
-                width = if (focused) 2.dp else 0.dp,
+                width = 2.dp,
                 color = if (focused) EpgColors.FocusBorder else Color.Transparent,
                 shape = shape
             )
@@ -266,7 +266,7 @@ private fun TimeshiftLiveBadge(
                 shape
             )
             .border(
-                width = if (focused) 2.dp else 1.dp,
+                width = 2.dp,
                 color = when {
                     focused -> EpgColors.FocusBorder
                     atLiveEdge -> EpgColors.LiveBadge.copy(alpha = 0.6f)

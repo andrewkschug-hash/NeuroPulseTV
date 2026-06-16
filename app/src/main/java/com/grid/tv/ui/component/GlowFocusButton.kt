@@ -1,6 +1,5 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,7 +17,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
 import com.grid.tv.ui.theme.EpgColors
 
 private val DefaultContainerColor = Color(0xFF252530)
@@ -34,7 +32,7 @@ fun GlowFocusButton(
     content: @Composable () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
@@ -46,11 +44,7 @@ fun GlowFocusButton(
                     Modifier
                 }
             )
-            .border(
-                width = if (focused) 2.dp else 1.dp,
-                color = if (focused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
-                shape = ButtonShape
-            ),
+            .tvFocusBorder(focused = focused, shape = ButtonShape),
         shape = ClickableSurfaceDefaults.shape(ButtonShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,
@@ -76,15 +70,11 @@ fun GlowFocusMenuRow(
     containerColor: Color = DefaultContainerColor,
     content: @Composable () -> Unit
 ) {
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .border(
-                width = if (isFocused) 2.dp else 1.dp,
-                color = if (isFocused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
-                shape = ButtonShape
-            ),
+            .tvFocusBorder(focused = isFocused, shape = ButtonShape),
         shape = ClickableSurfaceDefaults.shape(ButtonShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = containerColor,

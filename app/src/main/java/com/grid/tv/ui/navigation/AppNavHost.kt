@@ -61,7 +61,8 @@ fun AppNavHost(
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit,
     onSwitchProfile: () -> Unit = {},
-    onRestartToOnboarding: () -> Unit = {}
+    onRestartToOnboarding: () -> Unit = {},
+    onSignOut: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val current = navController.currentBackStackEntryAsState().value?.destination?.route
@@ -383,7 +384,8 @@ fun AppNavHost(
                     onPickLocalFile = onPickLocalFile,
                     onPickTiviMateZip = onPickTiviMateZip,
                     onOpenEpgResolver = { navController.navigate(Routes.EpgResolver.route) },
-                    onRestartToOnboarding = onRestartToOnboarding
+                    onRestartToOnboarding = onRestartToOnboarding,
+                    onSignOut = onSignOut
                 )
             }
             composable(Routes.EpgResolver.route) {

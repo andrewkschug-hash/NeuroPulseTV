@@ -79,7 +79,7 @@ fun MiniNowPlayingPlayer(
     val hasMedia = player != null && (player.mediaItemCount > 0)
     val showVideo = hasMedia && playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED
     val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.15f)
-    val borderWidth = if (isFocused) 2.dp else 1.5.dp
+    val borderWidth = 2.dp
     val initials = channel?.name?.take(2)?.uppercase() ?: "TV"
 
     Box(

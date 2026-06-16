@@ -106,12 +106,9 @@ fun MiniPlayerOverlay(
         playbackState == Player.STATE_BUFFERING ||
         playbackState == Player.STATE_READY
 
-    val scale = if (isIdleShrunk && !isFocused) 0.95f else 1f
-
     val shape = RoundedCornerShape(OverlayCorner)
     val borderColor = if (isFocused) EpgColors.Accent else Color.White.copy(alpha = 0.3f)
-    val borderWidth = if (isFocused) 2.dp else 1.dp
-    val glowColor = EpgColors.Accent.copy(alpha = 0.45f)
+    val borderWidth = 2.dp
 
     Box(
         modifier = modifier
@@ -121,23 +118,9 @@ fun MiniPlayerOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .scale(scale)
-            .then(
-                if (isFocused) {
-                    Modifier.drawBehind {
-                        drawRoundRect(
-                            color = glowColor,
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(OverlayCorner.toPx()),
-                            style = Stroke(width = 8.dp.toPx())
-                        )
-                    }
-                } else {
-                    Modifier
-                }
-            )
-            .clip(shape)
-            .border(borderWidth, borderColor, shape)
-            .clickable(onClick = onClick)
+                .clip(shape)
+                .border(borderWidth, borderColor, shape)
+                .clickable(onClick = onClick)
         ) {
         AndroidView(
             factory = { ctx ->

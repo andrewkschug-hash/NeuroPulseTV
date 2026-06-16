@@ -23,7 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.Surface
+import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.ContinueWatchingContentType
@@ -68,17 +68,12 @@ private fun ContinueWatchingCard(
     onClick: () -> Unit
 ) {
     val bg = if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF1A1A22)
-    val borderMod = if (isFocused) {
-        Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
-    } else {
-        Modifier
-    }
-    Surface(
+    GridFocusSurface(
         onClick = onClick,
         modifier = Modifier
             .width(150.dp)
             .height(210.dp)
-            .then(borderMod),
+            .tvFocusBorder(focused = isFocused, shape = RoundedCornerShape(8.dp)),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,

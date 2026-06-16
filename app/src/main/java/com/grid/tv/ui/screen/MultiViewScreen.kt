@@ -245,7 +245,7 @@ private fun MultiViewPanel(
     Box(
         modifier = modifier
             .padding(6.dp)
-            .border(if (focused) 3.dp else 1.dp, borderColor, shape)
+            .border(2.dp, borderColor, shape)
             .background(Color.Black, shape)
     ) {
         AndroidView(

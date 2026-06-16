@@ -184,7 +184,7 @@ fun GridProfileAvatar(
                 .clip(CircleShape)
                 .background(avatarColor)
                 .border(
-                    width = if (focused) 2.dp else 1.5.dp,
+                    width = 2.dp,
                     color = if (focused) EpgColors.Accent else Color.White.copy(alpha = 0.15f),
                     shape = CircleShape
                 )
