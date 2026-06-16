@@ -92,8 +92,31 @@ class HomeEpgViewModel @Inject constructor(
     private val _lastPlayedChannel = MutableStateFlow<Channel?>(null)
     val lastPlayedChannel: StateFlow<Channel?> = _lastPlayedChannel.asStateFlow()
 
+    /** True after the user has opened a stream (preview or fullscreen) this session. */
+    private val _guidePreviewEnabled = MutableStateFlow(false)
+    val guidePreviewEnabled: StateFlow<Boolean> = _guidePreviewEnabled.asStateFlow()
+
+    private val _guidePreviewChannelId = MutableStateFlow<Long?>(null)
+    val guidePreviewChannelId: StateFlow<Long?> = _guidePreviewChannelId.asStateFlow()
+
     fun setLastPlayedChannel(channel: Channel) {
         _lastPlayedChannel.value = channel
+    }
+
+    fun enableGuidePreview(channelId: Long) {
+        _guidePreviewEnabled.value = true
+        _guidePreviewChannelId.value = channelId
+    }
+
+    fun clearGuidePreviewUi() {
+        _guidePreviewEnabled.value = false
+        _guidePreviewChannelId.value = null
+        clearGuidePreview()
+    }
+
+    fun resumeGuidePreviewIfEnabled(context: android.content.Context) {
+        if (!_guidePreviewEnabled.value) return
+        livePlayerManager.resumeGuidePreview(context)
     }
 
     private val _hasConnection = MutableStateFlow(false)
@@ -349,12 +372,17 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
-    fun reloadPlaybackSettings() {
+    fun reloadPlaybackSettings(context: android.content.Context) {
         viewModelScope.launch {
             val settings = repository.loadSettings()
             _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
             _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+            livePlayerManager.syncPlaybackSettings(
+                context.applicationContext,
+                settings.bufferSize,
+                settings.preferHardwareDecoding
+            )
         }
     }
 
@@ -408,6 +436,11 @@ class HomeEpgViewModel @Inject constructor(
     fun cancelPreviewTune() {
         previewTuneJob?.cancel()
         previewTuneJob = null
+    }
+
+    fun clearGuidePreview() {
+        cancelPreviewTune()
+        livePlayerManager.stopGuidePreview()
     }
 
     suspend fun buildCatchupUrl(program: Program, channel: Channel): String? =

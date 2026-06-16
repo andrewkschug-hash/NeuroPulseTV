@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
@@ -169,8 +170,13 @@ fun HomeEpgScreen(
     }
 
     LaunchedEffect(Unit) {
-        viewModel.reloadPlaybackSettings()
+        viewModel.reloadPlaybackSettings(context)
     }
+
+    /** Channel shown in the preview pane — persisted in ViewModel across navigation. */
+    val guidePreviewEnabled by viewModel.guidePreviewEnabled.collectAsStateWithLifecycle()
+    val previewChannelId by viewModel.guidePreviewChannelId.collectAsStateWithLifecycle()
+    val guidePreviewEnabledState = rememberUpdatedState(guidePreviewEnabled)
 
     val lifecycleOwner = LocalLifecycleOwner.current
     var previewSurfaceAttached by remember { mutableStateOf(true) }
@@ -181,8 +187,11 @@ fun HomeEpgScreen(
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
                     previewSurfaceAttached = true
-                    viewModel.reloadPlaybackSettings()
+                    viewModel.reloadPlaybackSettings(context)
                     viewModel.setScannerForeground(true)
+                    if (guidePreviewEnabledState.value) {
+                        viewModel.resumeGuidePreviewIfEnabled(context)
+                    }
                 }
                 Lifecycle.Event.ON_PAUSE -> {
                     previewSurfaceAttached = false
@@ -237,10 +246,6 @@ fun HomeEpgScreen(
             delay(2500)
             viewModel.clearFavoriteSavedMessage()
         }
-    }
-
-    LaunchedEffect(Unit) {
-        livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
     }
 
     val liveChannelId by livePlayerManager.activeChannelIdFlow.collectAsStateWithLifecycle()
@@ -317,30 +322,23 @@ fun HomeEpgScreen(
     var focusChannelIndex by remember { mutableIntStateOf(0) }
     var focusProgramIndex by remember { mutableIntStateOf(0) }
     var focusOnChannelColumn by remember { mutableStateOf(true) }
-    /** Channel shown in the preview pane — only updated on explicit select (Enter), not grid focus. */
-    var previewChannelId by remember { mutableStateOf<Long?>(null) }
-
-    LaunchedEffect(liveChannelId) {
-        if (previewChannelId == null && liveChannelId != null) {
-            previewChannelId = liveChannelId
-        }
+    LaunchedEffect(guidePreviewEnabled, previewChannelId, liveChannelId) {
+        if (!guidePreviewEnabled) return@LaunchedEffect
+        if (previewChannelId == null && liveChannelId == null) return@LaunchedEffect
+        viewModel.resumeGuidePreviewIfEnabled(context)
     }
 
-    LaunchedEffect(categoryFilter, displayChannels, focusChannelIndex, usePlaceholder) {
+    LaunchedEffect(categoryFilter, displayChannels, previewChannelId, guidePreviewEnabled) {
+        if (!guidePreviewEnabled) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
-            previewChannelId = null
+            viewModel.clearGuidePreviewUi()
             return@LaunchedEffect
         }
         val previewStillVisible = previewChannelId?.let { id ->
             displayChannels.any { it.id == id }
         } == true
         if (!previewStillVisible) {
-            val nextIndex = focusChannelIndex.coerceIn(0, displayChannels.lastIndex)
-            val nextChannel = displayChannels[nextIndex]
-            previewChannelId = nextChannel.id
-            if (!usePlaceholder && nextChannel.streamUrl.isNotBlank()) {
-                viewModel.previewChannel(context, nextChannel)
-            }
+            viewModel.clearGuidePreviewUi()
         }
     }
 
@@ -361,7 +359,11 @@ fun HomeEpgScreen(
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
-    val previewPlayer = remember(context) { livePlayerManager.getOrCreatePlayer(context) }
+    val needsPreviewPlayer = guidePreviewEnabled && previewChannelId != null
+    val playerGeneration by livePlayerManager.playerGeneration.collectAsStateWithLifecycle()
+    val previewPlayer = remember(playerGeneration, context, needsPreviewPlayer) {
+        if (needsPreviewPlayer) livePlayerManager.getOrCreatePlayer(context) else null
+    }
 
     var didInitialScroll by remember { mutableStateOf(false) }
     var didRestoreGuide by remember { mutableStateOf(false) }
@@ -449,6 +451,7 @@ fun HomeEpgScreen(
     fun watchChannel(ch: Channel) {
         val full = channels.find { it.id == ch.id } ?: ch
         viewModel.setLastPlayedChannel(full)
+        viewModel.enableGuidePreview(full.id)
         onWatchChannel(full.id)
     }
 
@@ -492,7 +495,7 @@ fun HomeEpgScreen(
 
     fun selectChannelForPreview(channel: Channel) {
         if (usePlaceholder || channel.streamUrl.isBlank()) return
-        previewChannelId = channel.id
+        viewModel.enableGuidePreview(channel.id)
         val fullChannel = channels.find { it.id == channel.id } ?: channel
         viewModel.previewChannel(context, fullChannel)
     }
@@ -502,7 +505,7 @@ fun HomeEpgScreen(
     } else {
         com.neuropulse.tv.player.StreamPlaybackStatus.LOADING
     }
-    val showPreviewSection = previewChannel != null
+    val showPreviewSection = guidePreviewEnabled && previewChannel != null
     val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
         val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
         if (anchor != null) {

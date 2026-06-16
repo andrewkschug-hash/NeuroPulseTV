@@ -77,6 +77,9 @@ class SettingsViewModel @Inject constructor(
     private val _settings = MutableStateFlow(AppSettings())
     val settings = _settings.asStateFlow()
 
+    private val _settingsReady = MutableStateFlow(false)
+    val settingsReady: StateFlow<Boolean> = _settingsReady.asStateFlow()
+
     private val _m3uProgress = MutableStateFlow("Idle")
     val m3uProgress = _m3uProgress.asStateFlow()
 
@@ -104,6 +107,7 @@ class SettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             _settings.value = repository.loadSettings()
+            _settingsReady.value = true
             scheduler.scheduleAtLaunch()
             refreshStorageSettings()
             syncScannerSettings()

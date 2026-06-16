@@ -68,13 +68,25 @@ fun calculateFocusScrollTarget(
     safeZonePx: Float,
     preferCenter: Boolean = true,
     preferTopAlign: Boolean = false,
-    preferFullyVisible: Boolean = false
+    preferFullyVisible: Boolean = false,
+    minimalScroll: Boolean = false
 ): Int? {
     if (viewportHeight <= 0) return null
     val viewportTop = currentScroll.toFloat()
     val viewportBottom = viewportTop + viewportHeight
     val topSafe = viewportTop + safeZonePx
     val bottomSafe = viewportBottom - safeZonePx
+
+    if (minimalScroll) {
+        if (itemTop >= topSafe && itemBottom <= bottomSafe) return null
+        val rawTarget = when {
+            itemTop < topSafe -> currentScroll + (itemTop - topSafe)
+            itemBottom > bottomSafe -> currentScroll + (itemBottom - bottomSafe)
+            else -> currentScroll.toFloat()
+        }
+        val target = rawTarget.roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
+        return if (target == currentScroll) null else target
+    }
 
     if (preferFullyVisible) {
         val itemHeight = itemBottom - itemTop
@@ -138,7 +150,8 @@ class TvFocusScrollState(
         itemCoords: LayoutCoordinates,
         safeZonePx: Float,
         preferTopAlign: Boolean = false,
-        preferFullyVisible: Boolean = false
+        preferFullyVisible: Boolean = false,
+        minimalScroll: Boolean = false
     ) {
         if (!TvFocusScrollConfig.enabled) return
         scrollMutex.withLock {
@@ -157,7 +170,8 @@ class TvFocusScrollState(
                 safeZonePx = safeZonePx,
                 preferCenter = TvFocusScrollConfig.preferCenter,
                 preferTopAlign = preferTopAlign,
-                preferFullyVisible = preferFullyVisible
+                preferFullyVisible = preferFullyVisible,
+                minimalScroll = minimalScroll
             ) ?: return
 
             val delta = target - scrollState.value
@@ -233,7 +247,8 @@ fun Modifier.tvFocusScrollIntoView(
     scrollState: TvFocusScrollState? = LocalTvFocusScrollState.current,
     enabled: Boolean = true,
     preferTopAlign: Boolean = false,
-    preferFullyVisible: Boolean = false
+    preferFullyVisible: Boolean = false,
+    minimalScroll: Boolean = false
 ): Modifier {
     if (scrollState == null || !enabled) return this
 
@@ -255,7 +270,8 @@ fun Modifier.tvFocusScrollIntoView(
                             coords,
                             safeZonePx,
                             preferTopAlign = preferTopAlign,
-                            preferFullyVisible = preferFullyVisible
+                            preferFullyVisible = preferFullyVisible,
+                            minimalScroll = minimalScroll
                         )
                     }
                 }

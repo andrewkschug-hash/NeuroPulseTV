@@ -3,6 +3,7 @@ package com.neuropulse.tv.ui.component
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +39,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.domain.model.PlaylistType
-import com.neuropulse.tv.ui.component.tvFocusScrollIntoView
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 enum class SettingsFocusPanel { TOP_BAR, LEFT, RIGHT }
@@ -136,31 +136,43 @@ fun rememberSettingsFocusChain(
     return chain
 }
 
+/**
+ * Drives the Settings content focus highlight. Focus *movement* is handled by Compose's
+ * native directional focus (every control is plainly `focusable`); this type only tracks
+ * which control currently holds focus (for highlight) and which card contains it.
+ */
 data class SettingsContentFocus(
     val chain: SettingsFocusChain,
-    val level: SettingsFocusLevel,
-    val focusedSectionIndex: Int,
-    val sectionCards: List<SettingsSectionCard>
+    val sectionCards: List<SettingsSectionCard> = emptyList()
 ) {
-    fun isFocused(index: Int): Boolean =
-        level == SettingsFocusLevel.INSIDE_CARD && chain.focusedIndex == index
+    fun isFocused(index: Int): Boolean = chain.focusedIndex == index
 
-    fun isSectionHighlighted(cardIndex: Int): Boolean =
-        level == SettingsFocusLevel.SECTION && cardIndex == focusedSectionIndex
+    /** Every in-range control is focusable now; cards are visual-only. */
+    fun isIndexInActiveCard(index: Int): Boolean = index in 0 until chain.itemCount
 
-    fun isInsideSection(cardIndex: Int): Boolean =
-        level == SettingsFocusLevel.INSIDE_CARD && cardIndex == focusedSectionIndex
-
-    fun activeCard(): SettingsSectionCard? = sectionCards.getOrNull(focusedSectionIndex)
-
-    fun isIndexInActiveCard(index: Int): Boolean {
-        if (level != SettingsFocusLevel.INSIDE_CARD) return false
-        val card = activeCard() ?: return false
+    private fun cardContainsFocus(cardIndex: Int): Boolean {
+        val card = sectionCards.getOrNull(cardIndex) ?: return false
         if (!card.hasFocusableItems) return false
-        return index in card.firstFocusIndex..card.lastFocusIndex
+        return chain.focusedIndex in card.firstFocusIndex..card.lastFocusIndex
+    }
+
+    /** A card is highlighted when one of its controls currently holds focus. */
+    fun isSectionHighlighted(cardIndex: Int): Boolean = cardContainsFocus(cardIndex)
+
+    fun isInsideSection(cardIndex: Int): Boolean = cardContainsFocus(cardIndex)
+
+    fun activeCard(): SettingsSectionCard? = sectionCards.firstOrNull {
+        it.hasFocusableItems && chain.focusedIndex in it.firstFocusIndex..it.lastFocusIndex
     }
 }
 
+/**
+ * Wires a control into the native focus system: attaches its [FocusRequester] (used for
+ * programmatic entry from the sidebar) and records it as the focused control for
+ * highlighting. The actual `focusable()` is applied by each control, so D-pad navigation
+ * and scroll-into-view are handled by Compose itself (the content area is a vertical
+ * scroll container that brings focused children into view automatically).
+ */
 @Composable
 fun settingsFocusModifier(
     chainIndex: Int,
@@ -172,33 +184,13 @@ fun settingsFocusModifier(
             SETTINGS_FOCUS_LOG_TAG,
             "Focus index $chainIndex out of bounds (chain size ${focus.chain.requesters.size})"
         )
-        return Modifier.focusProperties {
-            canFocus = false
-        }
+        return Modifier
     }
-    val canReceiveFocus = enabled && focus.isIndexInActiveCard(chainIndex)
     return Modifier
         .focusRequester(focus.chain.requesters[chainIndex])
-        .focusProperties {
-            canFocus = canReceiveFocus
-        }
-        .tvFocusScrollIntoView(
-            enabled = canReceiveFocus && focus.level != SettingsFocusLevel.INSIDE_CARD
-        )
         .onFocusChanged { state ->
-            if (state.isFocused && focus.isIndexInActiveCard(chainIndex)) {
+            if (state.isFocused) {
                 focus.chain.onItemFocused(chainIndex)
-            }
-        }
-        .onPreviewKeyEvent { event ->
-            if (!focus.isIndexInActiveCard(chainIndex)) return@onPreviewKeyEvent false
-            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-            when (event.key) {
-                Key.DirectionUp,
-                Key.DirectionDown,
-                Key.DirectionLeft,
-                Key.DirectionRight -> true
-                else -> false
             }
         }
 }
@@ -311,7 +303,10 @@ fun SettingsFocusPillGroup(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = modifier.focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         labels.forEachIndexed { index, label ->
             SettingsFocusPill(
                 label = label,
@@ -504,6 +499,7 @@ fun settingsVerticalFocusRows(
     connectionsFormStart: Int = 0,
     connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
     connectionsShowForm: Boolean = false,
+    connectionsUseProxy: Boolean = false,
     playlistCount: Int = 0,
     profileHasSwatches: Boolean = false,
     profileSwatchStart: Int = 1,
@@ -528,7 +524,11 @@ fun settingsVerticalFocusRows(
         add((parentalStart + 6)..(parentalStart + 6))
     }
     SettingsSectionKind.Connections -> if (connectionsShowForm) {
-        connectionFormVerticalRows(connectionsFormStart, connectionsPlaylistType)
+        connectionFormVerticalRows(
+            base = connectionsFormStart,
+            type = connectionsPlaylistType,
+            useProxy = connectionsUseProxy
+        )
     } else {
         buildList {
             add(0..0)
@@ -580,7 +580,11 @@ fun settingsVerticalFocusRows(
     )
 }
 
-private fun connectionFormVerticalRows(base: Int, type: PlaylistType): List<IntRange> {
+private fun connectionFormVerticalRows(
+    base: Int,
+    type: PlaylistType,
+    useProxy: Boolean
+): List<IntRange> {
     val timeoutStart = if (type == PlaylistType.M3U) base + 6 else base + 8
     val proxyToggle = timeoutStart + 3
     val proxyUrl = proxyToggle + 1
@@ -601,7 +605,9 @@ private fun connectionFormVerticalRows(base: Int, type: PlaylistType): List<IntR
         }
         add(timeoutStart..(timeoutStart + 2))
         add(proxyToggle..proxyToggle)
-        add(proxyUrl..proxyUrl)
+        if (useProxy) {
+            add(proxyUrl..proxyUrl)
+        }
         add(saveStart..(saveStart + 3))
     }
 }

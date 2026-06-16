@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NeuroPulseTV"
+rootProject.name = "GRID"
 include(":app")

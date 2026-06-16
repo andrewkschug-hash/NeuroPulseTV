@@ -60,6 +60,10 @@ class LivePlayerManager @Inject constructor(
     private val _activeChannelId = MutableStateFlow<Long?>(null)
     val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
 
+    /** Bumped whenever the underlying ExoPlayer instance is replaced. */
+    private val _playerGeneration = MutableStateFlow(0)
+    val playerGeneration: StateFlow<Int> = _playerGeneration.asStateFlow()
+
     private val _canTimeshift = MutableStateFlow(false)
     val canTimeshiftFlow: StateFlow<Boolean> = _canTimeshift.asStateFlow()
 
@@ -116,12 +120,18 @@ class LivePlayerManager @Inject constructor(
     }
 
     @UnstableApi
-    fun applyPlaybackSettings(
+    fun syncPlaybackSettings(
         context: Context,
         bufferSize: BufferSize,
         preferHardwareDecoding: Boolean
     ) {
         if (this.bufferSize == bufferSize && this.preferHardwareDecoding == preferHardwareDecoding) {
+            return
+        }
+        if (player == null) {
+            this.bufferSize = bufferSize
+            this.preferHardwareDecoding = preferHardwareDecoding
+            TimeshiftManager.maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize)
             return
         }
         this.bufferSize = bufferSize
@@ -145,6 +155,11 @@ class LivePlayerManager @Inject constructor(
             miniAudioEnabled = audio
             applyVolume()
         }
+        markPlayerReplaced()
+    }
+
+    private fun markPlayerReplaced() {
+        _playerGeneration.value++
     }
 
     fun setMiniAudioEnabled(enabled: Boolean) {
@@ -165,16 +180,21 @@ class LivePlayerManager @Inject constructor(
     ) {
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
-        playbackMonitor.onTuneStarted(streamUrl)
-        this.catchupDays = catchupDays
 
-        if (currentChannelId == channelId && currentStreamUrl == streamUrl) {
+        if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
             channelSnapshot?.let { currentChannel = it }
+            if (exo.playbackState == Player.STATE_IDLE && exo.mediaItemCount > 0) {
+                exo.prepare()
+            }
             exo.playWhenReady = true
             applyVolume()
             refreshTimeshiftWindow(exo)
+            playbackMonitor.onStreamContinued(exo)
             return
         }
+
+        playbackMonitor.onTuneStarted(streamUrl)
+        this.catchupDays = catchupDays
 
         currentChannel?.takeIf { it.id != channelId }?.let { previous ->
             _lastChannel.value = previous
@@ -294,7 +314,7 @@ class LivePlayerManager @Inject constructor(
     fun setMode(newMode: Mode) {
         mode = newMode
         applyVolume()
-        player?.playWhenReady = true
+        player?.playWhenReady = newMode != Mode.IDLE
     }
 
     private fun applyVolume() {
@@ -318,6 +338,7 @@ class LivePlayerManager @Inject constructor(
     fun onFullscreenPlayerClosed(context: Context) {
         TimeshiftManager.reset()
         mode = Mode.IDLE
+        playbackMonitor.onPlaybackPaused()
         player?.let { exo ->
             if (exo.isCurrentMediaItemDynamic) {
                 exo.seekToDefaultPosition()
@@ -327,6 +348,39 @@ class LivePlayerManager @Inject constructor(
             refreshTimeshiftWindow(exo)
         } ?: resetTimeshiftState()
         applyVolume()
+    }
+
+    /** Stop guide mini-player without releasing the tuned stream. */
+    fun stopGuidePreview() {
+        mode = Mode.IDLE
+        playbackMonitor.onPlaybackPaused()
+        player?.playWhenReady = false
+        player?.pause()
+        applyVolume()
+    }
+
+    /** Resume guide preview after leaving fullscreen or returning to the EPG. */
+    fun resumeGuidePreview(context: Context) {
+        mode = Mode.MINI
+        applyVolume()
+        val exo = player ?: return
+        val url = currentStreamUrl
+        if (url.isNullOrBlank()) {
+            currentChannel?.let { tuneChannel(context, it) }
+            return
+        }
+        playbackMonitor.onPreviewResumed()
+        exo.playWhenReady = true
+        when (exo.playbackState) {
+            Player.STATE_IDLE, Player.STATE_ENDED -> {
+                if (exo.mediaItemCount > 0) {
+                    exo.prepare()
+                } else {
+                    currentChannel?.let { tuneChannel(context, it) }
+                }
+            }
+            else -> Unit
+        }
     }
 
     fun release(context: Context? = null) {
@@ -343,15 +397,18 @@ class LivePlayerManager @Inject constructor(
         TimeshiftManager.reset()
         resetTimeshiftState()
         mode = Mode.IDLE
+        markPlayerReplaced()
         context?.let { clearStreamCache(it) }
     }
 
     private fun clearStreamCache(context: Context) {
-        context.applicationContext.cacheDir.listFiles()
-            ?.filter { it.name.startsWith("exo") }
-            ?.forEach { file ->
-                if (file.isDirectory) file.deleteRecursively() else file.delete()
-            }
+        runCatching {
+            context.applicationContext.cacheDir.listFiles()
+                ?.filter { it.name.startsWith("exo") }
+                ?.forEach { file ->
+                    if (file.isDirectory) file.deleteRecursively() else file.delete()
+                }
+        }
     }
 
     private fun resetTimeshiftState() {

@@ -1,6 +1,7 @@
 package com.neuropulse.tv.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -54,7 +56,6 @@ import com.neuropulse.tv.domain.model.ScannerRuntimeState
 import com.neuropulse.tv.domain.model.Playlist
 import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.UserProfile
-import com.neuropulse.tv.ui.component.requestFocusSafely
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.EpgNavTab
@@ -70,7 +71,6 @@ import com.neuropulse.tv.ui.component.TvScrollContainer
 import com.neuropulse.tv.ui.component.SettingsChip
 import com.neuropulse.tv.ui.component.SettingsContentFocus
 import com.neuropulse.tv.ui.component.SettingsFocusButton
-import com.neuropulse.tv.ui.component.SettingsFocusLevel
 import com.neuropulse.tv.ui.component.SettingsFocusPanel
 import com.neuropulse.tv.ui.component.SettingsFocusToggleRow
 import com.neuropulse.tv.ui.component.SettingsListRow
@@ -132,25 +132,6 @@ private fun SettingsSection.toKind(): SettingsSectionKind = when (this) {
     SettingsSection.About -> SettingsSectionKind.About
 }
 
-private fun exitToSidebar(
-    focusPanel: (SettingsFocusPanel) -> Unit,
-    focusLevel: (SettingsFocusLevel) -> Unit,
-    sidebarFocusIndex: (Int) -> Unit,
-    selectedSection: Int
-) {
-    focusPanel(SettingsFocusPanel.LEFT)
-    focusLevel(SettingsFocusLevel.SIDEBAR)
-    sidebarFocusIndex(selectedSection)
-}
-
-private fun exitCardToSection(
-    focusLevel: (SettingsFocusLevel) -> Unit,
-    contentAreaFocusRequester: FocusRequester
-) {
-    focusLevel(SettingsFocusLevel.SECTION)
-    contentAreaFocusRequester.requestFocusSafely()
-}
-
 private enum class ChangePinStep { VERIFY_CURRENT, ENTER_NEW, CONFIRM_NEW }
 
 @Composable
@@ -205,8 +186,6 @@ fun SettingsScreen(
 
     var selectedSection by rememberSaveable { mutableIntStateOf(0) }
     var focusPanel by rememberSaveable { mutableStateOf(SettingsFocusPanel.LEFT) }
-    var focusLevel by remember { mutableStateOf(SettingsFocusLevel.SIDEBAR) }
-    var focusedSectionIndex by remember { mutableIntStateOf(0) }
     var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(0) }
     var topBarFocusIndex by remember { mutableIntStateOf(3) }
 
@@ -294,8 +273,6 @@ fun SettingsScreen(
     val contentChain = rememberSettingsFocusChain(contentFocusCount, selectedSection, 0)
     val contentFocus = SettingsContentFocus(
         chain = contentChain,
-        level = focusLevel,
-        focusedSectionIndex = focusedSectionIndex,
         sectionCards = sectionCards
     )
     val profileUseButtonStart = 1 + if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
@@ -307,6 +284,7 @@ fun SettingsScreen(
         playlists.size,
         playlistType,
         showConnectionForm,
+        settings.useProxy,
         profiles.size,
         activeProfile?.id,
         activeProfile != null,
@@ -318,6 +296,7 @@ fun SettingsScreen(
             connectionsPlaylistType = playlistType,
             connectionsShowForm = showConnectionForm &&
                 sections[selectedSection] == SettingsSection.Connections,
+            connectionsUseProxy = settings.useProxy,
             playlistCount = playlists.size,
             profileHasSwatches = activeProfile != null &&
                 sections[selectedSection] == SettingsSection.Profile,
@@ -337,52 +316,17 @@ fun SettingsScreen(
         List(sections.size) { FocusRequester() }
     }
     val topNavFocusRequester = remember { FocusRequester() }
-    val contentAreaFocusRequester = remember { FocusRequester() }
     val contentFocusScope = rememberCoroutineScope()
 
-    fun enterCard(card: SettingsSectionCard) {
-        focusLevel = SettingsFocusLevel.INSIDE_CARD
-        contentChain.moveTo(card.firstFocusIndex)
-        contentFocusScope.launch {
-            withFrameMillis { }
-            contentChain.requestFocusAtCurrentIndex()
-            withFrameMillis { }
-            contentChain.requestFocusAtCurrentIndex()
-        }
-    }
-
-    LaunchedEffect(selectedSection, focusPanel) {
-        sidebarFocusIndex = selectedSection
-        if (focusPanel == SettingsFocusPanel.RIGHT) {
-            val firstCard = sectionCards.indexOfFirst { it.hasFocusableItems }
-            focusedSectionIndex = if (firstCard >= 0) firstCard else 0
-            focusLevel = SettingsFocusLevel.SECTION
-        } else {
-            focusedSectionIndex = 0
-        }
-    }
-
-    LaunchedEffect(focusPanel, focusLevel, sidebarFocusIndex, contentFocusCount) {
+    // Move focus to the sidebar item / top bar whenever the focused region or sidebar
+    // selection changes via explicit navigation. Content focus is requested directly in
+    // enterContentFromSidebar(); native directional focus handles movement inside content.
+    LaunchedEffect(focusPanel, sidebarFocusIndex) {
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
-            SettingsFocusPanel.LEFT -> {
+            SettingsFocusPanel.LEFT ->
                 sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocusSafelyAfterLayout()
-            }
-            SettingsFocusPanel.RIGHT -> when (focusLevel) {
-                SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocusSafelyAfterLayout()
-                SettingsFocusLevel.INSIDE_CARD -> Unit
-                SettingsFocusLevel.SIDEBAR -> Unit
-            }
-        }
-    }
-
-    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, contentChain.focusedIndex) {
-        if (focusPanel == SettingsFocusPanel.RIGHT &&
-            focusLevel == SettingsFocusLevel.INSIDE_CARD &&
-            contentChain.itemCount > 0
-        ) {
-            withFrameMillis { }
-            contentChain.requestFocusAtCurrentIndex()
+            SettingsFocusPanel.RIGHT -> Unit
         }
     }
 
@@ -395,8 +339,6 @@ fun SettingsScreen(
         }
         sidebarFocusIndex = clamped
         selectedSection = clamped
-        focusedSectionIndex = 0
-        focusLevel = SettingsFocusLevel.SIDEBAR
     }
 
     fun enterContentFromSidebar() {
@@ -408,10 +350,13 @@ fun SettingsScreen(
         }
         selectedSection = clamped
         sidebarFocusIndex = clamped
+        if (sectionCards.none { it.hasFocusableItems }) return
         focusPanel = SettingsFocusPanel.RIGHT
-        val firstCard = sectionCards.indexOfFirst { it.hasFocusableItems }
-        focusedSectionIndex = if (firstCard >= 0) firstCard else 0
-        focusLevel = SettingsFocusLevel.SECTION
+        contentChain.moveTo(0)
+        contentFocusScope.launch {
+            withFrameMillis { }
+            contentChain.requestFocusAtCurrentIndex()
+        }
     }
 
     fun handleBackKey(): Boolean {
@@ -428,16 +373,10 @@ fun SettingsScreen(
             showResetSettingsConfirm -> showResetSettingsConfirm = false
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
-            focusPanel == SettingsFocusPanel.RIGHT && focusLevel == SettingsFocusLevel.INSIDE_CARD -> {
-                exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-            }
-            focusPanel == SettingsFocusPanel.RIGHT && focusLevel == SettingsFocusLevel.SECTION -> {
-                exitToSidebar(
-                    focusPanel = { focusPanel = it },
-                    focusLevel = { focusLevel = it },
-                    sidebarFocusIndex = { sidebarFocusIndex = it },
-                    selectedSection = selectedSection
-                )
+            focusPanel == SettingsFocusPanel.RIGHT -> {
+                // Back from any control returns to the sidebar category it belongs to.
+                sidebarFocusIndex = selectedSection
+                focusPanel = SettingsFocusPanel.LEFT
             }
             else -> return false
         }
@@ -488,7 +427,6 @@ fun SettingsScreen(
             }
             Key.DirectionDown -> {
                 focusPanel = SettingsFocusPanel.LEFT
-                focusLevel = SettingsFocusLevel.SIDEBAR
                 sidebarFocusIndex = selectedSection
                 true
             }
@@ -540,144 +478,6 @@ fun SettingsScreen(
         }
     }
 
-    fun handleContentKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (sectionCards.isEmpty()) return false
-
-        return when (focusLevel) {
-            SettingsFocusLevel.SECTION -> when (event.key) {
-                Key.DirectionLeft -> {
-                    exitToSidebar(
-                        focusPanel = { focusPanel = it },
-                        focusLevel = { focusLevel = it },
-                        sidebarFocusIndex = { sidebarFocusIndex = it },
-                        selectedSection = selectedSection
-                    )
-                    true
-                }
-                Key.DirectionUp -> {
-                    focusedSectionIndex = (focusedSectionIndex - 1 downTo 0)
-                        .firstOrNull { sectionCards[it].hasFocusableItems }
-                        ?: focusedSectionIndex
-                    true
-                }
-                Key.DirectionDown -> {
-                    focusedSectionIndex = ((focusedSectionIndex + 1)..sectionCards.lastIndex)
-                        .firstOrNull { sectionCards[it].hasFocusableItems }
-                        ?: focusedSectionIndex
-                    true
-                }
-                Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                    sectionCards.getOrNull(focusedSectionIndex)
-                        ?.takeIf { it.hasFocusableItems }
-                        ?.let(::enterCard)
-                    true
-                }
-                else -> false
-            }
-            SettingsFocusLevel.INSIDE_CARD -> {
-                val card = sectionCards.getOrNull(focusedSectionIndex) ?: return false
-                val sectionKind = sections[selectedSection].toKind()
-                val connectionsShowFormActive = showConnectionForm &&
-                    sections[selectedSection] == SettingsSection.Connections
-
-                fun handleHorizontal(key: Key): Boolean = handleSettingsHorizontalKey(
-                    kind = sectionKind,
-                    currentIndex = contentChain.focusedIndex,
-                    key = key,
-                    chain = contentChain,
-                    connectionsFormStart = connectionsFormStart,
-                    connectionsPlaylistType = playlistType,
-                    connectionsShowForm = connectionsShowFormActive,
-                    playlistCount = playlists.size,
-                    parentalStart = profileParentalStart
-                )
-
-                fun handleVertical(delta: Int): Boolean {
-                    if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                        val idx = contentChain.focusedIndex
-                        if (idx in PROFILE_SWATCH_START until PROFILE_SWATCH_START + PROFILE_SWATCH_COUNT) {
-                            val swatchKey = if (delta < 0) Key.DirectionUp else Key.DirectionDown
-                            moveProfileSwatchFocus(
-                                idx,
-                                PROFILE_SWATCH_START,
-                                PROFILE_SWATCH_COUNT,
-                                swatchKey
-                            )?.let {
-                                contentChain.moveTo(it)
-                                return true
-                            }
-                        }
-                    }
-                    return moveSettingsVerticalFocus(
-                        currentIndex = contentChain.focusedIndex,
-                        delta = delta,
-                        focusedSectionIndex = focusedSectionIndex,
-                        sectionCards = sectionCards,
-                        rows = verticalFocusRows,
-                        chain = contentChain,
-                        onSectionChange = { focusedSectionIndex = it },
-                        allowCrossCard = false
-                    )
-                }
-
-                when (event.key) {
-                    Key.Back, Key.Escape -> {
-                        if (showConnectionForm && sections[selectedSection] == SettingsSection.Connections) {
-                            dismissConnectionForm()
-                        } else {
-                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                        }
-                        true
-                    }
-                    Key.DirectionLeft -> {
-                        if (handleHorizontal(Key.DirectionLeft)) return true
-                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                            moveProfileSwatchFocus(
-                                contentChain.focusedIndex,
-                                PROFILE_SWATCH_START,
-                                PROFILE_SWATCH_COUNT,
-                                event.key
-                            )?.let {
-                                contentChain.moveTo(it)
-                                return true
-                            }
-                        }
-                        if (contentChain.focusedIndex <= card.firstFocusIndex) {
-                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                        }
-                        true
-                    }
-                    Key.DirectionRight -> {
-                        if (handleHorizontal(Key.DirectionRight)) return true
-                        if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                            moveProfileSwatchFocus(
-                                contentChain.focusedIndex,
-                                PROFILE_SWATCH_START,
-                                PROFILE_SWATCH_COUNT,
-                                event.key
-                            )?.let {
-                                contentChain.moveTo(it)
-                                return true
-                            }
-                        }
-                        false
-                    }
-                    Key.DirectionUp -> {
-                        handleVertical(-1)
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        handleVertical(1)
-                        true
-                    }
-                    else -> false
-                }
-            }
-            SettingsFocusLevel.SIDEBAR -> false
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -713,8 +513,8 @@ fun SettingsScreen(
                 miniPlayer = {},
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
-                    .focusProperties { canFocus = focusPanel == SettingsFocusPanel.TOP_BAR }
-                    .focusable(focusPanel == SettingsFocusPanel.TOP_BAR)
+                    .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.TOP_BAR }
+                    .focusable()
                     .onPreviewKeyEvent {
                         if (focusPanel == SettingsFocusPanel.TOP_BAR) handleTopBarKey(it) else false
                     }
@@ -731,6 +531,7 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .clip(RectangleShape)
                         .background(EpgColors.ChannelColumnBg)
+                        .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.LEFT }
                         .onPreviewKeyEvent {
                             if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
                         }
@@ -742,14 +543,14 @@ fun SettingsScreen(
                         sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
                         itemFocusRequesters = sidebarItemFocusRequesters,
                         onItemFocused = { index ->
-                            if (focusPanel == SettingsFocusPanel.LEFT) {
-                                sidebarFocusIndex = index
-                            }
+                            // Keep the highlight in sync with the natively-focused item.
+                            // (Section selection is driven by D-pad in handleSidebarKey so
+                            // returning from content via Left doesn't switch sections.)
+                            sidebarFocusIndex = index
                         },
                         onSectionSelected = { index ->
                             selectSidebarSection(index)
                             focusPanel = SettingsFocusPanel.LEFT
-                            focusLevel = SettingsFocusLevel.SIDEBAR
                         }
                     )
                 }
@@ -760,15 +561,16 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .background(EpgColors.GridBg)
                         .clip(RectangleShape)
-                        .focusRequester(contentAreaFocusRequester)
+                        .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.RIGHT }
                         .focusProperties {
-                            canFocus = focusPanel == SettingsFocusPanel.RIGHT &&
-                                focusLevel != SettingsFocusLevel.INSIDE_CARD
+                            // Deterministic exits from the content area: Left always returns
+                            // to the current section's sidebar entry, Up to the top bar.
+                            left = sidebarItemFocusRequesters.getOrElse(selectedSection) {
+                                sidebarItemFocusRequesters.firstOrNull() ?: FocusRequester.Default
+                            }
+                            up = topNavFocusRequester
                         }
-                        .focusable()
-                        .onPreviewKeyEvent {
-                            if (focusPanel == SettingsFocusPanel.RIGHT) handleContentKey(it) else false
-                        }
+                        .focusGroup()
                 ) {
                     TvScrollContainer(
                         modifier = Modifier

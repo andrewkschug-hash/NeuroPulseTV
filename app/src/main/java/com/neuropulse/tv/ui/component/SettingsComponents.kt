@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.TextButton as M3TextButton
 import androidx.compose.ui.text.TextStyle
@@ -107,8 +113,8 @@ fun SettingsSidebar(
                         itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
                             ?: Modifier
                     )
-                    .focusProperties { canFocus = sidebarFocused }
-                    .focusable(sidebarFocused)
+                    .focusProperties { canFocus = true }
+                    .focusable()
                     .onFocusChanged { if (it.isFocused) onItemFocused(index) }
             ) {
                 Row(
@@ -161,34 +167,20 @@ fun SettingsPanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    // A card is highlighted when one of its controls currently holds focus. Scroll-into-view
+    // is handled natively by `focusable()` inside the vertical scroll container, so the card
+    // itself no longer drives scrolling (which used to fight the focused control's own scroll).
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
-    val insideActive = cardIndex != null && focus != null && focus.isInsideSection(cardIndex)
-    val borderWidth = when {
-        sectionHighlighted -> 2.dp
-        insideActive -> 2.dp
-        else -> 1.dp
-    }
-    val borderColor = when {
-        sectionHighlighted -> EpgColors.Accent
-        insideActive -> EpgColors.Accent.copy(alpha = 0.55f)
-        else -> EpgColors.BorderSubtle
-    }
-    val backgroundColor = when {
-        sectionHighlighted -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.55f)
-        insideActive -> EpgColors.DetailPanelBg.copy(alpha = 0.58f)
-        else -> EpgColors.DetailPanelBg.copy(alpha = 0.45f)
+    val borderWidth = if (sectionHighlighted) 2.dp else 1.dp
+    val borderColor = if (sectionHighlighted) EpgColors.Accent else EpgColors.BorderSubtle
+    val backgroundColor = if (sectionHighlighted) {
+        EpgColors.DetailPanelBg.copy(alpha = 0.58f)
+    } else {
+        EpgColors.DetailPanelBg.copy(alpha = 0.45f)
     }
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .tvScrollIntoViewWhen(
-                active = sectionHighlighted,
-                preferFullyVisible = true
-            )
-            .tvScrollIntoViewWhen(
-                active = insideActive && !sectionHighlighted,
-                preferTopAlign = true
-            )
             .background(backgroundColor, RoundedCornerShape(10.dp))
             .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
             .padding(20.dp),
@@ -453,7 +445,7 @@ fun ProfileColorPicker(
     modifier: Modifier = Modifier
 ) {
     val normalizedSelected = selectedHex.trim().uppercase()
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier.focusGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         colors.chunked(4).forEachIndexed { rowIndex, rowColors ->
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 rowColors.forEachIndexed { colIndex, color ->
@@ -502,6 +494,7 @@ private fun ProfileColorSwatch(
             .size(44.dp)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .focusProperties { canFocus = focusable }
+            .focusable(focusable)
             .onFocusChanged { if (it.isFocused) onFocused() },
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(

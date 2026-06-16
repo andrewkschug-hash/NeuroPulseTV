@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -117,6 +118,7 @@ fun PlayerScreen(
     val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val numberInput by viewModel.numberInput.collectAsStateWithLifecycle()
     val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
+    val settingsReady by settingsViewModel.settingsReady.collectAsStateWithLifecycle()
 
     var showOverlay by remember { mutableStateOf(true) }
     var showSideMenu by remember { mutableStateOf(false) }
@@ -459,21 +461,37 @@ fun PlayerScreen(
         }
     }
 
-    val player = remember { livePlayerManager.getOrCreatePlayer(context) }
+    var playbackSettingsSynced by remember { mutableStateOf(false) }
+
+    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding, settingsReady) {
+        if (!settingsReady) return@LaunchedEffect
+        livePlayerManager.syncPlaybackSettings(
+            context,
+            settings.bufferSize,
+            settings.preferHardwareDecoding
+        )
+        playbackSettingsSynced = true
+    }
+
+    if (!playbackSettingsSynced) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        )
+        return
+    }
+
+    val playerGeneration by livePlayerManager.playerGeneration.collectAsStateWithLifecycle()
+    val player = remember(playerGeneration, context) {
+        livePlayerManager.getOrCreatePlayer(context)
+    }
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
     val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(settings.pictureInPictureEnabled) {
         viewModel.pipController.pictureInPictureEnabled = settings.pictureInPictureEnabled
-    }
-
-    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding) {
-        livePlayerManager.applyPlaybackSettings(
-            context,
-            settings.bufferSize,
-            settings.preferHardwareDecoding
-        )
     }
 
     LaunchedEffect(player) {
@@ -484,18 +502,21 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(channelId) {
-        val resume = viewModel.lastPosition()
-        if (resume > 0) player.seekTo(resume)
-    }
-
     LaunchedEffect(Unit) {
         livePlayerManager.setMode(LivePlayerManager.Mode.FULLSCREEN)
         viewModel.pipController.setPlaybackActive(true)
+        player.playWhenReady = true
     }
 
     LaunchedEffect(channelId) {
         viewModel.load(channelId)
+    }
+
+    LaunchedEffect(channel?.id, channel?.streamUrl) {
+        val ch = channel ?: return@LaunchedEffect
+        livePlayerManager.tuneChannel(context, ch)
+        failures = 0
+        player.playWhenReady = true
     }
 
     LaunchedEffect(channel?.id, channel?.streamUrl, settings.sleepTimerAutoEnabled, settings.sleepTimerMinutes) {
@@ -503,12 +524,6 @@ fun PlayerScreen(
         if (settings.sleepTimerAutoEnabled) {
             sleepTimer.start(settings.sleepTimerMinutes)
         }
-    }
-
-    LaunchedEffect(channel?.id, channel?.streamUrl) {
-        val ch = channel ?: return@LaunchedEffect
-        livePlayerManager.tuneChannel(context, ch)
-        failures = 0
     }
 
     LaunchedEffect(channel?.id, playbackStatus) {
@@ -528,6 +543,17 @@ fun PlayerScreen(
     }
 
     DisposableEffect(Unit) {
+        onDispose {
+            playerViewRef[0]?.player = null
+            livePlayerManager.onFullscreenPlayerClosed(context)
+            viewModel.pipController.setPlaybackActive(false)
+            livePlayerManager.activePlayer()?.let { exo ->
+                viewModel.savePosition(exo.currentPosition)
+            }
+        }
+    }
+
+    DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = state == Player.STATE_BUFFERING
@@ -561,11 +587,6 @@ fun PlayerScreen(
         player.addListener(listener)
         onDispose {
             player.removeListener(listener)
-            playerViewRef[0]?.player = null
-            livePlayerManager.onFullscreenPlayerClosed(context)
-            viewModel.pipController.setPlaybackActive(false)
-            viewModel.savePosition(player.currentPosition)
-            livePlayerManager.setMode(LivePlayerManager.Mode.IDLE)
         }
     }
 
