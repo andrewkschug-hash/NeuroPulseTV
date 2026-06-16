@@ -12,6 +12,7 @@ import com.neuropulse.tv.data.db.dao.PlaylistDao
 import com.neuropulse.tv.data.db.dao.ProfileDao
 import com.neuropulse.tv.data.db.dao.ProfileFavoriteDao
 import com.neuropulse.tv.data.db.dao.ProfileSettingsDao
+import com.neuropulse.tv.data.db.dao.ProfileTasteGenomeDao
 import com.neuropulse.tv.data.db.dao.ProfileWatchHistoryDao
 import com.neuropulse.tv.data.db.dao.ProgramDao
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
@@ -20,6 +21,7 @@ import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
+import com.neuropulse.tv.data.db.dao.TitleEnrichmentDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ContinueWatchingEntity
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
@@ -39,6 +41,8 @@ import com.neuropulse.tv.data.db.entity.RecordingEntity
 import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.data.db.entity.SeriesRecordingRuleEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
+import com.neuropulse.tv.data.db.entity.ProfileTasteGenomeEntity
+import com.neuropulse.tv.data.db.entity.TitleEnrichmentEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
 import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
 
@@ -63,9 +67,11 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         EpgResolutionSuggestionEntity::class,
         FavoriteGroupEntity::class,
         ChannelScanEntity::class,
-        ContinueWatchingEntity::class
+        ContinueWatchingEntity::class,
+        TitleEnrichmentEntity::class,
+        ProfileTasteGenomeEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -79,6 +85,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileFavoriteDao(): ProfileFavoriteDao
     abstract fun profileWatchHistoryDao(): ProfileWatchHistoryDao
     abstract fun profileSettingsDao(): ProfileSettingsDao
+    abstract fun profileTasteGenomeDao(): ProfileTasteGenomeDao
+    abstract fun titleEnrichmentDao(): TitleEnrichmentDao
     abstract fun streamHealthDao(): StreamHealthDao
     abstract fun scheduledRecordingDao(): ScheduledRecordingDao
     abstract fun recordedMediaDao(): RecordedMediaDao

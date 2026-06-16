@@ -47,6 +47,7 @@ import com.neuropulse.tv.ui.component.EpgChipFilterBar
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
+import com.neuropulse.tv.ui.component.PersonalizedVodRow
 import com.neuropulse.tv.ui.component.VodHubHeader
 import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
@@ -102,6 +103,9 @@ fun VodHubScreen(
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
+    val topPicksForYou by hubViewModel.topPicksForYou.collectAsStateWithLifecycle()
+    val somethingDifferent by hubViewModel.somethingDifferent.collectAsStateWithLifecycle()
+    val vodProgress by hubViewModel.vodProgress.collectAsStateWithLifecycle()
     val searchQuery by hubViewModel.searchQuery.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
@@ -413,6 +417,26 @@ fun VodHubScreen(
                             .onPreviewKeyEvent {
                                 focusZone == VodFocusZone.CONTINUE && handleContinueKey(it)
                             }
+                    )
+                }
+
+                if (topPicksForYou.isNotEmpty()) {
+                    PersonalizedVodRow(
+                        title = "Top Picks For You",
+                        movies = topPicksForYou.take(12),
+                        progressByStreamId = vodProgress,
+                        onPlayMovie = { movie -> onPlayMovie(movie.title, movie.streamUrl, false) },
+                        onSeeAll = { focusZone = VodFocusZone.CONTENT }
+                    )
+                }
+
+                if (somethingDifferent.isNotEmpty()) {
+                    PersonalizedVodRow(
+                        title = "Something Different",
+                        movies = somethingDifferent.take(12),
+                        progressByStreamId = vodProgress,
+                        onPlayMovie = { movie -> onPlayMovie(movie.title, movie.streamUrl, false) },
+                        onSeeAll = { focusZone = VodFocusZone.CONTENT }
                     )
                 }
 

@@ -17,6 +17,7 @@ import com.neuropulse.tv.data.db.dao.PlaylistDao
 import com.neuropulse.tv.data.db.dao.ProfileDao
 import com.neuropulse.tv.data.db.dao.ProfileFavoriteDao
 import com.neuropulse.tv.data.db.dao.ProfileSettingsDao
+import com.neuropulse.tv.data.db.dao.ProfileTasteGenomeDao
 import com.neuropulse.tv.data.db.dao.ProfileWatchHistoryDao
 import com.neuropulse.tv.data.db.dao.ProgramDao
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
@@ -25,6 +26,7 @@ import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
+import com.neuropulse.tv.data.db.dao.TitleEnrichmentDao
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
@@ -60,6 +62,7 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_14_15)
             .addMigrations(DbMigrations.MIGRATION_15_16)
             .addMigrations(DbMigrations.MIGRATION_16_17)
+            .addMigrations(DbMigrations.MIGRATION_17_18)
             .build()
 
     @Provides
@@ -119,6 +122,12 @@ object AppProvidesModule {
 
     @Provides
     fun provideStreamHealthDao(db: AppDatabase): StreamHealthDao = db.streamHealthDao()
+
+    @Provides
+    fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
+
+    @Provides
+    fun provideProfileTasteGenomeDao(db: AppDatabase): ProfileTasteGenomeDao = db.profileTasteGenomeDao()
 
     @Provides
     fun provideScheduledRecordingDao(db: AppDatabase): ScheduledRecordingDao = db.scheduledRecordingDao()

@@ -397,4 +397,44 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS title_enrichment (
+                    providerKey TEXT NOT NULL,
+                    normalizedTitle TEXT NOT NULL,
+                    releaseYear INTEGER,
+                    tmdbId INTEGER,
+                    imdbId TEXT,
+                    cast TEXT,
+                    directors TEXT,
+                    rating REAL,
+                    popularity REAL,
+                    posterUrl TEXT,
+                    backdropUrl TEXT,
+                    genres TEXT,
+                    keywords TEXT,
+                    contentVector TEXT,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(providerKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_title_enrichment_tmdbId ON title_enrichment(tmdbId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_title_enrichment_normalizedTitle ON title_enrichment(normalizedTitle)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS profile_taste_genome (
+                    profileId INTEGER NOT NULL,
+                    tasteVector TEXT NOT NULL,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(profileId)
+                )
+                """.trimIndent()
+            )
+        }
+    }
 }

@@ -209,7 +209,25 @@ fun MoviesHomeRow(
     onSeeAll: () -> Unit
 ) {
     if (movies.isEmpty()) return
-    VodCatalogRow(title = "Movies") {
+    PersonalizedVodRow(
+        title = "Movies",
+        movies = movies,
+        progressByStreamId = progressByStreamId,
+        onPlayMovie = onPlayMovie,
+        onSeeAll = onSeeAll
+    )
+}
+
+@Composable
+fun PersonalizedVodRow(
+    title: String,
+    movies: List<VodItem>,
+    progressByStreamId: Map<Long, Long>,
+    onPlayMovie: (VodItem) -> Unit,
+    onSeeAll: () -> Unit
+) {
+    if (movies.isEmpty()) return
+    VodCatalogRow(title = title) {
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(end = 8.dp)
