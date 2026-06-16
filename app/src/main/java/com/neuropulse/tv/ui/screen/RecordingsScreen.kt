@@ -54,6 +54,7 @@ import com.neuropulse.tv.feature.recording.RecordingStatus
 import com.neuropulse.tv.feature.recording.SeriesTitleMatcher
 import com.neuropulse.tv.feature.recording.StorageFormat
 import com.neuropulse.tv.player.LivePlayerManager
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
@@ -174,6 +175,7 @@ private fun RecordingRow.isGridCard(): Boolean = this is RecordingRow.Saved || t
 @Composable
 fun RecordingsScreen(
     profileInitials: String = "?",
+    profileAvatarColor: String = com.neuropulse.tv.util.DEFAULT_PROFILE_AVATAR_COLOR,
     onNavigateHome: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
     onNavigateVod: (Int) -> Unit = {},
@@ -535,8 +537,41 @@ fun RecordingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+        livePlayerManager.setMode(LivePlayerManager.Mode.IDLE)
     }
+
+    fun consumeRecordingsLocalBack(): Boolean = when {
+        deleteScheduledId != null -> {
+            deleteScheduledId = null
+            true
+        }
+        deleteMedia != null -> {
+            deleteMedia = null
+            true
+        }
+        deleteSeriesRuleId != null -> {
+            deleteSeriesRuleId = null
+            true
+        }
+        profileMenuOpen -> {
+            profileMenuOpen = false
+            true
+        }
+        focusZone == RecFocusZone.DETAIL -> {
+            focusZone = RecFocusZone.LIST
+            true
+        }
+        focusZone == RecFocusZone.LIST && topBarRow > 0 -> {
+            focusZone = RecFocusZone.TOP_BAR
+            true
+        }
+        else -> false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = onNavigateHome,
+        onBackPressed = ::consumeRecordingsLocalBack
+    )
 
     Box(
         modifier = Modifier
@@ -545,36 +580,7 @@ fun RecordingsScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.Back, Key.Escape -> when {
-                        deleteScheduledId != null -> {
-                            deleteScheduledId = null
-                            true
-                        }
-                        deleteMedia != null -> {
-                            deleteMedia = null
-                            true
-                        }
-                        deleteSeriesRuleId != null -> {
-                            deleteSeriesRuleId = null
-                            true
-                        }
-                        profileMenuOpen -> {
-                            profileMenuOpen = false
-                            true
-                        }
-                        focusZone == RecFocusZone.DETAIL -> {
-                            focusZone = RecFocusZone.LIST
-                            true
-                        }
-                        focusZone == RecFocusZone.LIST && topBarRow > 0 -> {
-                            focusZone = RecFocusZone.TOP_BAR
-                            true
-                        }
-                        else -> {
-                            onNavigateHome()
-                            true
-                        }
-                    }
+                    Key.Back, Key.Escape -> consumeRecordingsLocalBack()
                     else -> false
                 }
             }
@@ -587,6 +593,7 @@ fun RecordingsScreen(
                 navFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex <= GridNavTabs.lastIndex,
                 profileFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex == TopBarProfileIndex,
                 profileInitials = profileInitials,
+                profileAvatarColor = profileAvatarColor,
                 profileMenuExpanded = profileMenuOpen,
                 profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {

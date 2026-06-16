@@ -54,30 +54,26 @@ fun LiveTimeshiftControls(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (atLiveEdge) Arrangement.Center else Arrangement.SpaceEvenly,
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (!atLiveEdge) {
-                TimeshiftTransportButton(
-                    glyph = "<<",
-                    caption = "Rewind",
-                    focused = focusedTarget == TimeshiftControlFocus.REWIND,
-                    enabled = canRewind
-                )
-            }
+            TimeshiftTransportButton(
+                glyph = "<<",
+                caption = if (atLiveEdge) "-30s" else "Rewind",
+                focused = focusedTarget == TimeshiftControlFocus.REWIND,
+                enabled = canRewind
+            )
             TimeshiftTransportButton(
                 glyph = if (showPauseIcon) "||" else ">",
                 caption = if (showPauseIcon) "Pause" else "Play",
                 focused = focusedTarget == TimeshiftControlFocus.PLAY_PAUSE
             )
-            if (!atLiveEdge) {
-                TimeshiftTransportButton(
-                    glyph = ">>",
-                    caption = "Forward",
-                    focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
-                    enabled = canFastForward
-                )
-            }
+            TimeshiftTransportButton(
+                glyph = ">>",
+                caption = if (atLiveEdge) "+30s" else "Forward",
+                focused = focusedTarget == TimeshiftControlFocus.FAST_FORWARD,
+                enabled = canFastForward
+            )
         }
 
         Row(
@@ -315,32 +311,23 @@ fun playerPlaybackStatus(
     canTimeshift: Boolean,
     timeshiftState: com.neuropulse.tv.player.TimeshiftUiState
 ): PlayerPlaybackStatus? {
-    fun behindLiveLabel(): String {
-        val offset = formatBehindLive(timeshiftState.behindLiveMs)
-        return if (!timeshiftState.isPlaying) {
-            "Paused · $offset behind live"
-        } else {
-            "$offset behind live"
-        }
-    }
-
     return when (playbackStatus) {
         com.neuropulse.tv.player.StreamPlaybackStatus.PLAYING -> {
             if (!canTimeshift) {
                 PlayerPlaybackStatus(label = "Live", showLiveDot = true)
             } else when {
-                !timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = behindLiveLabel())
                 !timeshiftState.isPlaying -> PlayerPlaybackStatus(label = "Paused")
-                else -> PlayerPlaybackStatus(label = "Live", showLiveDot = true)
+                timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = "Live", showLiveDot = true)
+                else -> null
             }
         }
         com.neuropulse.tv.player.StreamPlaybackStatus.AUDIO_ONLY -> {
             if (!canTimeshift) {
                 PlayerPlaybackStatus(label = "Audio only")
             } else when {
-                !timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = behindLiveLabel())
                 !timeshiftState.isPlaying -> PlayerPlaybackStatus(label = "Paused")
-                else -> PlayerPlaybackStatus(label = "Audio only")
+                timeshiftState.atLiveEdge -> PlayerPlaybackStatus(label = "Audio only")
+                else -> null
             }
         }
         else -> null

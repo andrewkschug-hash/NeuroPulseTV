@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import com.neuropulse.tv.domain.model.PlaylistType
 import com.neuropulse.tv.domain.model.UserProfile
 import com.neuropulse.tv.ui.component.requestFocusSafely
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
@@ -87,6 +89,7 @@ import com.neuropulse.tv.ui.component.interfaceFocusCount
 import com.neuropulse.tv.ui.component.playbackFocusCount
 import com.neuropulse.tv.ui.component.handleSettingsHorizontalKey
 import com.neuropulse.tv.ui.component.buildSettingsSectionCards
+import com.neuropulse.tv.ui.component.SettingsSectionCard
 import com.neuropulse.tv.ui.component.moveProfileSwatchFocus
 import com.neuropulse.tv.ui.component.profileContentFocusCount
 import com.neuropulse.tv.ui.component.moveSettingsVerticalFocus
@@ -96,10 +99,14 @@ import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
+import com.neuropulse.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
+import com.neuropulse.tv.util.profileInitials
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameMillis
 
 private enum class SettingsSection(val title: String, val subtitle: String) {
     Profile("Profile", "Who's watching & parental"),
@@ -331,6 +338,18 @@ fun SettingsScreen(
     }
     val topNavFocusRequester = remember { FocusRequester() }
     val contentAreaFocusRequester = remember { FocusRequester() }
+    val contentFocusScope = rememberCoroutineScope()
+
+    fun enterCard(card: SettingsSectionCard) {
+        focusLevel = SettingsFocusLevel.INSIDE_CARD
+        contentChain.moveTo(card.firstFocusIndex)
+        contentFocusScope.launch {
+            withFrameMillis { }
+            contentChain.requestFocusAtCurrentIndex()
+            withFrameMillis { }
+            contentChain.requestFocusAtCurrentIndex()
+        }
+    }
 
     LaunchedEffect(selectedSection, focusPanel) {
         sidebarFocusIndex = selectedSection
@@ -343,7 +362,7 @@ fun SettingsScreen(
         }
     }
 
-    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, sidebarFocusIndex, contentFocusCount) {
+    LaunchedEffect(focusPanel, focusLevel, sidebarFocusIndex, contentFocusCount) {
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
             SettingsFocusPanel.LEFT -> {
@@ -351,13 +370,19 @@ fun SettingsScreen(
             }
             SettingsFocusPanel.RIGHT -> when (focusLevel) {
                 SettingsFocusLevel.SECTION -> contentAreaFocusRequester.requestFocusSafelyAfterLayout()
-                SettingsFocusLevel.INSIDE_CARD -> {
-                    if (contentChain.itemCount > 0) {
-                        contentChain.moveTo(contentChain.focusedIndex)
-                    }
-                }
+                SettingsFocusLevel.INSIDE_CARD -> Unit
                 SettingsFocusLevel.SIDEBAR -> Unit
             }
+        }
+    }
+
+    LaunchedEffect(focusPanel, focusLevel, focusedSectionIndex, contentChain.focusedIndex) {
+        if (focusPanel == SettingsFocusPanel.RIGHT &&
+            focusLevel == SettingsFocusLevel.INSIDE_CARD &&
+            contentChain.itemCount > 0
+        ) {
+            withFrameMillis { }
+            contentChain.requestFocusAtCurrentIndex()
         }
     }
 
@@ -414,10 +439,15 @@ fun SettingsScreen(
                     selectedSection = selectedSection
                 )
             }
-            else -> onBack()
+            else -> return false
         }
         return true
     }
+
+    ScreenBackHandler(
+        onNavigateBack = onBack,
+        onBackPressed = ::handleBackKey
+    )
 
     fun activateNavTab(tab: EpgNavTab) {
         when (tab) {
@@ -540,10 +570,7 @@ fun SettingsScreen(
                 Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                     sectionCards.getOrNull(focusedSectionIndex)
                         ?.takeIf { it.hasFocusableItems }
-                        ?.let {
-                            focusLevel = SettingsFocusLevel.INSIDE_CARD
-                            contentChain.moveTo(it.firstFocusIndex)
-                        }
+                        ?.let(::enterCard)
                     true
                 }
                 else -> false
@@ -568,15 +595,18 @@ fun SettingsScreen(
 
                 fun handleVertical(delta: Int): Boolean {
                     if (sections[selectedSection] == SettingsSection.Profile && activeProfile != null) {
-                        val swatchKey = if (delta < 0) Key.DirectionUp else Key.DirectionDown
-                        moveProfileSwatchFocus(
-                            contentChain.focusedIndex,
-                            PROFILE_SWATCH_START,
-                            PROFILE_SWATCH_COUNT,
-                            swatchKey
-                        )?.let {
-                            contentChain.moveTo(it)
-                            return true
+                        val idx = contentChain.focusedIndex
+                        if (idx in PROFILE_SWATCH_START until PROFILE_SWATCH_START + PROFILE_SWATCH_COUNT) {
+                            val swatchKey = if (delta < 0) Key.DirectionUp else Key.DirectionDown
+                            moveProfileSwatchFocus(
+                                idx,
+                                PROFILE_SWATCH_START,
+                                PROFILE_SWATCH_COUNT,
+                                swatchKey
+                            )?.let {
+                                contentChain.moveTo(it)
+                                return true
+                            }
                         }
                     }
                     return moveSettingsVerticalFocus(
@@ -586,7 +616,8 @@ fun SettingsScreen(
                         sectionCards = sectionCards,
                         rows = verticalFocusRows,
                         chain = contentChain,
-                        onSectionChange = { focusedSectionIndex = it }
+                        onSectionChange = { focusedSectionIndex = it },
+                        allowCrossCard = false
                     )
                 }
 
@@ -633,9 +664,7 @@ fun SettingsScreen(
                         false
                     }
                     Key.DirectionUp -> {
-                        if (!handleVertical(-1)) {
-                            exitCardToSection({ focusLevel = it }, contentAreaFocusRequester)
-                        }
+                        handleVertical(-1)
                         true
                     }
                     Key.DirectionDown -> {
@@ -653,13 +682,6 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.Back, Key.Escape -> handleBackKey()
-                    else -> false
-                }
-            }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
@@ -670,7 +692,8 @@ fun SettingsScreen(
                     topBarFocusIndex <= GridNavTabs.lastIndex,
                 profileFocused = focusPanel == SettingsFocusPanel.TOP_BAR &&
                     topBarFocusIndex == TopBarProfileIndex,
-                profileInitials = profileInitials,
+                profileInitials = activeProfile?.let { profileInitials(it.name) } ?: profileInitials,
+                profileAvatarColor = activeProfile?.avatarColor ?: DEFAULT_PROFILE_AVATAR_COLOR,
                 profileMenuExpanded = profileMenuOpen,
                 profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {
@@ -690,7 +713,8 @@ fun SettingsScreen(
                 miniPlayer = {},
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
-                    .focusable()
+                    .focusProperties { canFocus = focusPanel == SettingsFocusPanel.TOP_BAR }
+                    .focusable(focusPanel == SettingsFocusPanel.TOP_BAR)
                     .onPreviewKeyEvent {
                         if (focusPanel == SettingsFocusPanel.TOP_BAR) handleTopBarKey(it) else false
                     }
@@ -718,9 +742,9 @@ fun SettingsScreen(
                         sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
                         itemFocusRequesters = sidebarItemFocusRequesters,
                         onItemFocused = { index ->
-                            sidebarFocusIndex = index
-                            focusPanel = SettingsFocusPanel.LEFT
-                            focusLevel = SettingsFocusLevel.SIDEBAR
+                            if (focusPanel == SettingsFocusPanel.LEFT) {
+                                sidebarFocusIndex = index
+                            }
                         },
                         onSectionSelected = { index ->
                             selectSidebarSection(index)
@@ -738,7 +762,8 @@ fun SettingsScreen(
                         .clip(RectangleShape)
                         .focusRequester(contentAreaFocusRequester)
                         .focusProperties {
-                            canFocus = focusPanel == SettingsFocusPanel.RIGHT
+                            canFocus = focusPanel == SettingsFocusPanel.RIGHT &&
+                                focusLevel != SettingsFocusLevel.INSIDE_CARD
                         }
                         .focusable()
                         .onPreviewKeyEvent {
@@ -901,7 +926,6 @@ fun SettingsScreen(
                         SettingsSection.Interface -> InterfaceSettingsContent(
                             settings = settings,
                             focus = contentFocus,
-                            onToggleMiniPlayer = { viewModel.updateMiniPlayerEnabled(!settings.miniPlayerEnabled) },
                             onSidebarAutoHide = { viewModel.updateSidebarAutoHideSeconds(it) },
                             onToggleShowChannelNumbers = {
                                 viewModel.updateShowChannelNumbers(!settings.showChannelNumbers)
@@ -1912,7 +1936,6 @@ private fun PlaybackSettingsContent(
 private fun InterfaceSettingsContent(
     settings: com.neuropulse.tv.domain.model.AppSettings,
     focus: SettingsContentFocus,
-    onToggleMiniPlayer: () -> Unit,
     onSidebarAutoHide: (Int) -> Unit,
     onToggleShowChannelNumbers: () -> Unit,
     onDpadSensitivity: (DpadSensitivity) -> Unit,
@@ -1921,23 +1944,16 @@ private fun InterfaceSettingsContent(
     onTogglePictureInPicture: () -> Unit
 ) {
     SettingsPanel(
-        title = "Mini player",
-        description = "Picture-in-picture preview while browsing the guide.",
+        title = "Picture-in-Picture & sidebar",
+        description = "System PiP and guide sidebar behavior.",
         cardIndex = 0,
         focus = focus
     ) {
         SettingsFocusToggleRow(
-            label = "Allow mini player (PiP)",
-            enabled = settings.miniPlayerEnabled,
-            onToggle = onToggleMiniPlayer,
-            chainIndex = 0,
-            focus = focus
-        )
-        SettingsFocusToggleRow(
             label = "Android TV Picture-in-Picture",
             enabled = settings.pictureInPictureEnabled,
             onToggle = onTogglePictureInPicture,
-            chainIndex = 12,
+            chainIndex = 0,
             focus = focus
         )
         Text(
@@ -2012,7 +2028,7 @@ private fun InterfaceSettingsContent(
         SettingsFocusPillGroup(
             labels = AppThemeId.entries.map { it.displayName },
             selectedIndex = AppThemeId.entries.indexOf(settings.themeId).coerceAtLeast(0),
-            startChainIndex = 13,
+            startChainIndex = 12,
             focus = focus,
             onSelect = { index -> onTheme(AppThemeId.entries[index]) }
         )

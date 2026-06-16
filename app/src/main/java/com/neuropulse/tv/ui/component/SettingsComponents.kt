@@ -107,7 +107,8 @@ fun SettingsSidebar(
                         itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
                             ?: Modifier
                     )
-                    .focusable()
+                    .focusProperties { canFocus = sidebarFocused }
+                    .focusable(sidebarFocused)
                     .onFocusChanged { if (it.isFocused) onItemFocused(index) }
             ) {
                 Row(
@@ -321,7 +322,10 @@ fun SettingsToggleRow(
                 selected = enabled,
                 focused = focused
             )
-            Button(onClick = onToggle) {
+            Button(
+                onClick = onToggle,
+                modifier = Modifier.focusProperties { canFocus = false }
+            ) {
                 Text(if (enabled) "Turn off" else "Turn on")
             }
         }
@@ -461,8 +465,12 @@ fun ProfileColorPicker(
                         highlighted = focus.isFocused(chainIndex),
                         onClick = { onColorSelected(hex) },
                         focusRequester = focus.chain.requesters.getOrNull(chainIndex),
-                        focusable = focus.level == SettingsFocusLevel.INSIDE_CARD,
-                        onFocused = { focus.chain.onItemFocused(chainIndex) }
+                        focusable = focus.isIndexInActiveCard(chainIndex),
+                        onFocused = {
+                            if (focus.isIndexInActiveCard(chainIndex)) {
+                                focus.chain.onItemFocused(chainIndex)
+                            }
+                        }
                     )
                 }
             }

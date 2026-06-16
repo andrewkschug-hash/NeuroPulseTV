@@ -15,7 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +58,7 @@ data class SettingsSectionCard(
 @Stable
 class SettingsFocusChain(
     private val requesterPool: MutableList<FocusRequester>,
+    private val focusedIndexState: MutableIntState,
     initialCount: Int,
     startIndex: Int = 0
 ) {
@@ -65,10 +68,17 @@ class SettingsFocusChain(
     val requesters: List<FocusRequester>
         get() = if (itemCount <= 0) emptyList() else requesterPool.take(itemCount)
 
-    var focusedIndex: Int = if (itemCount <= 0) 0 else startIndex.coerceIn(0, itemCount - 1)
-        private set
+    var focusedIndex: Int
+        get() = focusedIndexState.intValue
+        private set(value) {
+            focusedIndexState.intValue = value
+        }
 
     val lastIndex: Int get() = (itemCount - 1).coerceAtLeast(0)
+
+    init {
+        focusedIndex = if (initialCount <= 0) 0 else startIndex.coerceIn(0, initialCount - 1)
+    }
 
     fun moveTo(index: Int) {
         if (itemCount <= 0) return
@@ -81,6 +91,12 @@ class SettingsFocusChain(
             return
         }
         focusedIndex = target
+    }
+
+    fun requestFocusAtCurrentIndex() {
+        if (itemCount <= 0) return
+        val target = focusedIndex.coerceIn(0, itemCount - 1)
+        if (target >= requesterPool.size) return
         requesterPool[target].requestFocusSafely()
     }
 
@@ -104,13 +120,14 @@ fun rememberSettingsFocusChain(
     val requesterPool = remember {
         mutableListOf<FocusRequester>()
     }
+    val focusedIndexState = remember { mutableIntStateOf(0) }
     if (requesterPool.size < count) {
         repeat(count - requesterPool.size) {
             requesterPool.add(FocusRequester())
         }
     }
-    val chain = remember(requesterPool) {
-        SettingsFocusChain(requesterPool, count, startIndex)
+    val chain = remember(requesterPool, focusedIndexState) {
+        SettingsFocusChain(requesterPool, focusedIndexState, count, startIndex)
     }
     chain.itemCount = count
     LaunchedEffect(sectionKey, count) {
@@ -135,6 +152,13 @@ data class SettingsContentFocus(
         level == SettingsFocusLevel.INSIDE_CARD && cardIndex == focusedSectionIndex
 
     fun activeCard(): SettingsSectionCard? = sectionCards.getOrNull(focusedSectionIndex)
+
+    fun isIndexInActiveCard(index: Int): Boolean {
+        if (level != SettingsFocusLevel.INSIDE_CARD) return false
+        val card = activeCard() ?: return false
+        if (!card.hasFocusableItems) return false
+        return index in card.firstFocusIndex..card.lastFocusIndex
+    }
 }
 
 @Composable
@@ -152,21 +176,22 @@ fun settingsFocusModifier(
             canFocus = false
         }
     }
+    val canReceiveFocus = enabled && focus.isIndexInActiveCard(chainIndex)
     return Modifier
         .focusRequester(focus.chain.requesters[chainIndex])
         .focusProperties {
-            canFocus = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
+            canFocus = canReceiveFocus
         }
         .tvFocusScrollIntoView(
-            enabled = enabled && focus.level == SettingsFocusLevel.INSIDE_CARD
+            enabled = canReceiveFocus && focus.level != SettingsFocusLevel.INSIDE_CARD
         )
         .onFocusChanged { state ->
-            if (state.isFocused) {
+            if (state.isFocused && focus.isIndexInActiveCard(chainIndex)) {
                 focus.chain.onItemFocused(chainIndex)
             }
         }
         .onPreviewKeyEvent { event ->
-            if (focus.level != SettingsFocusLevel.INSIDE_CARD) return@onPreviewKeyEvent false
+            if (!focus.isIndexInActiveCard(chainIndex)) return@onPreviewKeyEvent false
             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (event.key) {
                 Key.DirectionUp,
@@ -190,6 +215,7 @@ fun SettingsFocusTextField(
     singleLine: Boolean = true
 ) {
     val highlighted = focus.isFocused(chainIndex)
+    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     val keyboardController = LocalSoftwareKeyboardController.current
     SettingsTextField(
         label = label,
@@ -200,7 +226,7 @@ fun SettingsFocusTextField(
         singleLine = singleLine,
         modifier = modifier
             .then(settingsFocusModifier(chainIndex, focus))
-            .focusable()
+            .focusable(enabled = canReceiveFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -231,6 +257,7 @@ fun SettingsFocusPill(
     modifier: Modifier = Modifier
 ) {
     val highlighted = focus.isFocused(chainIndex)
+    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     val borderWidth = if (highlighted || selected) 2.dp else 1.dp
     val backgroundColor = if (selected) {
         EpgColors.Accent.copy(alpha = 0.15f)
@@ -254,7 +281,7 @@ fun SettingsFocusPill(
         fontWeight = if (selected || highlighted) FontWeight.SemiBold else FontWeight.Normal,
         modifier = modifier
             .then(settingsFocusModifier(chainIndex, focus))
-            .focusable()
+            .focusable(enabled = canReceiveFocus)
             .background(backgroundColor, PillShape)
             .border(borderWidth, borderColor, PillShape)
             .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -356,6 +383,7 @@ fun SettingsFocusToggleRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val highlighted = focus.isFocused(chainIndex)
+    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
 
     SettingsToggleRow(
         label = label,
@@ -365,7 +393,7 @@ fun SettingsFocusToggleRow(
         onToggle = onToggle,
         modifier = modifier
             .then(settingsFocusModifier(chainIndex, focus))
-            .focusable(interactionSource = interactionSource)
+            .focusable(enabled = canReceiveFocus, interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -456,7 +484,7 @@ fun settingsHorizontalFocusGroups(
     }
     SettingsSectionKind.Guide -> listOf(0..1, 2..4, 5..6, 7..11, 12..15)
     SettingsSectionKind.Playback -> listOf(0..2, 3..6, 7..9, 12..15, 18..20, 24..28)
-    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11)
+    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11, 12..16)
     else -> emptyList()
 }
 
@@ -541,7 +569,8 @@ fun settingsVerticalFocusRows(
         1..4,
         5..5,
         6..8,
-        9..11
+        9..11,
+        12..16
     )
     SettingsSectionKind.Recordings -> List(storageOptionCount) { index -> index..index }
     SettingsSectionKind.About -> listOf(
@@ -625,7 +654,8 @@ fun moveSettingsVerticalFocus(
     sectionCards: List<SettingsSectionCard>,
     rows: List<IntRange>,
     chain: SettingsFocusChain,
-    onSectionChange: (Int) -> Unit
+    onSectionChange: (Int) -> Unit,
+    allowCrossCard: Boolean = true
 ): Boolean {
     val card = sectionCards.getOrNull(focusedSectionIndex) ?: return false
     val cardRows = rowsInCard(card, rows)
@@ -633,7 +663,19 @@ fun moveSettingsVerticalFocus(
 
     val currentRowIdx = rowIndexFor(cardRows, currentIndex).takeIf { it >= 0 }
         ?: run {
-            chain.moveTo(cardRows.first().first)
+            val fallbackRow = cardRows.minByOrNull { row ->
+                when {
+                    currentIndex < row.first -> row.first - currentIndex
+                    currentIndex > row.last -> currentIndex - row.last
+                    else -> 0
+                }
+            } ?: return false
+            val fallbackIndex = when {
+                currentIndex < fallbackRow.first -> fallbackRow.first
+                currentIndex > fallbackRow.last -> fallbackRow.last
+                else -> currentIndex
+            }
+            chain.moveTo(fallbackIndex)
             return true
         }
 
@@ -649,7 +691,7 @@ fun moveSettingsVerticalFocus(
         return true
     }
 
-    if (delta > 0 && currentRowIdx == cardRows.lastIndex && focusedSectionIndex < sectionCards.lastIndex) {
+    if (allowCrossCard && delta > 0 && currentRowIdx == cardRows.lastIndex && focusedSectionIndex < sectionCards.lastIndex) {
         val nextCardIndex = ((focusedSectionIndex + 1)..sectionCards.lastIndex)
             .firstOrNull { sectionCards[it].hasFocusableItems }
             ?: return false
@@ -661,7 +703,7 @@ fun moveSettingsVerticalFocus(
         return true
     }
 
-    if (delta < 0 && currentRowIdx == 0 && focusedSectionIndex > 0) {
+    if (allowCrossCard && delta < 0 && currentRowIdx == 0 && focusedSectionIndex > 0) {
         val prevCardIndex = (focusedSectionIndex - 1 downTo 0)
             .firstOrNull { sectionCards[it].hasFocusableItems }
             ?: return false
@@ -796,7 +838,8 @@ fun buildSettingsSectionCards(
     SettingsSectionKind.Interface -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = 5),
         SettingsSectionCard(firstFocusIndex = 5, focusCount = 1),
-        SettingsSectionCard(firstFocusIndex = 6, focusCount = 6)
+        SettingsSectionCard(firstFocusIndex = 6, focusCount = 6),
+        SettingsSectionCard(firstFocusIndex = 12, focusCount = 5)
     )
     SettingsSectionKind.Recordings -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = storageOptionCount)

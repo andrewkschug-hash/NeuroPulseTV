@@ -1,14 +1,17 @@
 package com.neuropulse.tv.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -29,7 +33,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
@@ -41,6 +48,7 @@ import com.neuropulse.tv.ui.component.EpgNavTab
 import com.neuropulse.tv.ui.component.EpgTopBar
 import com.neuropulse.tv.ui.component.GridNavTabs
 import com.neuropulse.tv.ui.component.VodHubHeader
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -58,6 +66,7 @@ fun VodHubScreen(
     initialTab: Int = 0,
     initialSeriesId: Long? = null,
     profileInitials: String = "?",
+    profileAvatarColor: String = com.neuropulse.tv.util.DEFAULT_PROFILE_AVATAR_COLOR,
     onPlayMovie: (String, String, Boolean) -> Unit,
     onPlayUrl: (String, String, Boolean) -> Unit,
     onNavigateHome: () -> Unit = {},
@@ -96,7 +105,7 @@ fun VodHubScreen(
     val searchQuery by hubViewModel.searchQuery.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
-        homeViewModel.livePlayerManager.setMode(com.neuropulse.tv.player.LivePlayerManager.Mode.MINI)
+        homeViewModel.livePlayerManager.setMode(com.neuropulse.tv.player.LivePlayerManager.Mode.IDLE)
     }
 
     val topNavFocusRequester = remember { FocusRequester() }
@@ -283,6 +292,35 @@ fun VodHubScreen(
         }
     }
 
+    fun consumeVodLocalBack(): Boolean = when {
+        profileMenuOpen -> {
+            profileMenuOpen = false
+            true
+        }
+        focusZone == VodFocusZone.CONTENT -> {
+            moveFocusToTabs()
+            true
+        }
+        focusZone == VodFocusZone.TABS -> {
+            moveFocusToSearch()
+            true
+        }
+        focusZone == VodFocusZone.SEARCH -> {
+            moveFocusToContinue()
+            true
+        }
+        focusZone == VodFocusZone.CONTINUE -> {
+            focusZone = VodFocusZone.TOP_BAR
+            true
+        }
+        else -> false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = onBack,
+        onBackPressed = ::consumeVodLocalBack
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -290,32 +328,7 @@ fun VodHubScreen(
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.Back, Key.Escape -> when {
-                        profileMenuOpen -> {
-                            profileMenuOpen = false
-                            true
-                        }
-                        focusZone == VodFocusZone.CONTENT -> {
-                            moveFocusToTabs()
-                            true
-                        }
-                        focusZone == VodFocusZone.TABS -> {
-                            moveFocusToSearch()
-                            true
-                        }
-                        focusZone == VodFocusZone.SEARCH -> {
-                            moveFocusToContinue()
-                            true
-                        }
-                        focusZone == VodFocusZone.CONTINUE -> {
-                            focusZone = VodFocusZone.TOP_BAR
-                            true
-                        }
-                        else -> {
-                            onBack()
-                            true
-                        }
-                    }
+                    Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> false
                 }
             }
@@ -332,6 +345,7 @@ fun VodHubScreen(
                     topBarRow == 0 &&
                     topBarFocusIndex == TopBarProfileIndex,
                 profileInitials = profileInitials,
+                profileAvatarColor = profileAvatarColor,
                 profileMenuExpanded = profileMenuOpen,
                 profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {
@@ -402,15 +416,18 @@ fun VodHubScreen(
                     )
                 }
 
-                OutlinedTextField(
+                VodHubSearchField(
                     value = searchQuery,
                     onValueChange = hubViewModel::setSearchQuery,
+                    placeholder = if (tab == 0) "Search movies…" else "Search series…",
+                    focused = focusZone == VodFocusZone.SEARCH,
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(searchFocusRequester)
                         .focusable()
                         .onPreviewKeyEvent { event ->
                             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            focusZone = VodFocusZone.SEARCH
                             when (event.key) {
                                 Key.DirectionUp -> {
                                     moveFocusToContinue()
@@ -422,14 +439,7 @@ fun VodHubScreen(
                                 }
                                 else -> false
                             }
-                        },
-                    placeholder = {
-                        Text(
-                            text = if (tab == 0) "Search movies…" else "Search series…",
-                            fontFamily = DmSansFamily
-                        )
-                    },
-                    singleLine = true
+                        }
                 )
 
                 EpgChipFilterBar(
@@ -472,4 +482,55 @@ fun VodHubScreen(
             }
         }
     }
+}
+
+@Composable
+private fun VodHubSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    focused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(8.dp)
+    val borderColor = if (focused) EpgColors.Accent else EpgColors.BorderSubtle
+    val backgroundColor = if (focused) {
+        EpgColors.Accent.copy(alpha = 0.14f)
+    } else {
+        Color(0xFF13131A)
+    }
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        textStyle = TextStyle(
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium
+        ),
+        singleLine = true,
+        modifier = modifier
+            .height(48.dp)
+            .background(backgroundColor, shape)
+            .border(
+                width = if (focused) 2.5.dp else 1.dp,
+                color = borderColor,
+                shape = shape
+            )
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        decorationBox = { inner ->
+            Box(contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        color = if (focused) EpgColors.TextSecondary else EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 15.sp
+                    )
+                }
+                inner()
+            }
+        }
+    )
 }

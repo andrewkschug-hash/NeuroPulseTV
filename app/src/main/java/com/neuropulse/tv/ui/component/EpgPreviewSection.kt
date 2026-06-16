@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -159,20 +160,22 @@ private fun EpgPreviewPlayerPane(
             .border(1.dp, EpgColors.BorderSubtle, shape)
     ) {
         if (player != null && attachSurface) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                        this.player = player
-                    }
-                },
-                update = { view ->
-                    view.player = if (attachSurface) player else null
-                },
-                onRelease = { view -> view.player = null },
-                modifier = Modifier.fillMaxSize()
-            )
+            key(attachSurface) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            useController = false
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                            this.player = player
+                        }
+                    },
+                    update = { view ->
+                        if (view.player != player) view.player = player
+                    },
+                    onRelease = { view -> view.player = null },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         if (!showVideo) {

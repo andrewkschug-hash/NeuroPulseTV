@@ -40,6 +40,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.component.RecordedPlayerControlsOverlay
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.RecordedPlayerFocusZone
 import com.neuropulse.tv.ui.component.RecordingDeleteDialog
 import com.neuropulse.tv.ui.component.formatPlayerTime
@@ -77,6 +78,7 @@ fun DirectPlayerScreen(
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume) { mutableStateOf(false) }
+    val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
 
     val player = remember(url) {
         ExoPlayer.Builder(
@@ -177,6 +179,8 @@ fun DirectPlayerScreen(
             } else {
                 viewModel.persistProgress(streamId, positionMs, title, durationMs, url)
             }
+            playerViewRef[0]?.player = null
+            player.clearVideoSurface()
             player.release()
         }
     }
@@ -213,16 +217,27 @@ fun DirectPlayerScreen(
         revealOverlay()
     }
 
+    fun leaveScreen() {
+        playerViewRef[0]?.player = null
+        onBack()
+    }
+
+    fun consumeDirectPlayerLocalBack(): Boolean {
+        if (showDeleteDialog) {
+            showDeleteDialog = false
+            return true
+        }
+        return false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = ::leaveScreen,
+        onBackPressed = ::consumeDirectPlayerLocalBack
+    )
+
     fun handleRecordedKey(key: Key): Boolean {
         when (key) {
-            Key.Back, Key.Escape -> {
-                if (showDeleteDialog) {
-                    showDeleteDialog = false
-                    return true
-                }
-                onBack()
-                return true
-            }
+            Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
             Key.Enter, Key.DirectionCenter -> {
                 revealOverlay()
                 when (focusZone) {
@@ -321,10 +336,7 @@ fun DirectPlayerScreen(
                 if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (isRecordedPlayback) handleRecordedKey(it.key)
                 else when (it.key) {
-                    Key.Back, Key.Escape -> {
-                        onBack()
-                        true
-                    }
+                    Key.Back, Key.Escape -> consumeDirectPlayerLocalBack()
                     Key.Enter, Key.DirectionCenter -> {
                         showOverlay = !showOverlay
                         true
@@ -335,7 +347,17 @@ fun DirectPlayerScreen(
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { PlayerView(it).apply { this.player = player; useController = false } }
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    this.player = player
+                    useController = false
+                    playerViewRef[0] = this
+                }
+            },
+            onRelease = { view ->
+                view.player = null
+                if (playerViewRef[0] === view) playerViewRef[0] = null
+            }
         )
 
         if (isRecordedPlayback) {

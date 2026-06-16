@@ -101,6 +101,7 @@ fun MiniNowPlayingPlayer(
                 update = { view ->
                     if (view.player != player) view.player = player
                 },
+                onRelease = { view -> view.player = null },
                 modifier = Modifier.fillMaxSize()
             )
         }

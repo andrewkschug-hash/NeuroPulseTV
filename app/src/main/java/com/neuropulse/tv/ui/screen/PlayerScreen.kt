@@ -1,6 +1,5 @@
 package com.neuropulse.tv.ui.screen
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -76,18 +75,14 @@ import com.neuropulse.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.neuropulse.tv.ui.component.playerSideMenuFocusSection
 import com.neuropulse.tv.ui.component.playerSideMenuFocusState
 import com.neuropulse.tv.ui.component.RecordingPrecheckDialog
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
-import com.neuropulse.tv.ui.component.LiveTimeshiftControls
-import com.neuropulse.tv.ui.component.PausedCornerIndicator
-import com.neuropulse.tv.ui.component.TimeshiftControlFocus
-import com.neuropulse.tv.ui.component.TimeshiftStatusBadge
 import com.neuropulse.tv.ui.component.playerPlaybackStatus
 import androidx.compose.runtime.mutableIntStateOf
 import com.neuropulse.tv.ui.component.StorageLocationPicker
 import com.neuropulse.tv.ui.viewmodel.PlayerViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
-import com.neuropulse.tv.util.findComponentActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -131,6 +126,7 @@ fun PlayerScreen(
     var flashingZone by remember { mutableStateOf<PlayerSideMenuSection?>(null) }
     val playerFocusRequester = remember { FocusRequester() }
     val sideMenuFocusRequester = remember { FocusRequester() }
+    val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
     var showInfo by remember { mutableStateOf(false) }
     var videoQuality by remember { mutableStateOf("") }
     var isBuffering by remember { mutableStateOf(false) }
@@ -140,8 +136,6 @@ fun PlayerScreen(
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
-    var timeshiftFocusTarget by remember { mutableStateOf(TimeshiftControlFocus.PLAY_PAUSE) }
-
     val sleepTimer = remember { entryPoint.sleepTimerController() }
     val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
     val dimAlpha by animateFloatAsState(if (sleepRemaining in 1..120) 0.35f else 0f, label = "sleepDim")
@@ -163,7 +157,7 @@ fun PlayerScreen(
         favoriteChannels.take(PlayerSideMenuMaxFavorites)
     }
 
-    val sideMenuActions = remember(lastChannel, isRecordingActive, settings.pictureInPictureEnabled) {
+    val sideMenuActions = remember(lastChannel, isRecordingActive) {
         buildList {
             add(PlayerSideMenuAction("info", "Info", "ℹ"))
             if (lastChannel != null) {
@@ -178,9 +172,6 @@ fun PlayerScreen(
                 )
             )
             add(PlayerSideMenuAction("split_view", "Split View", "▥"))
-            if (settings.pictureInPictureEnabled) {
-                add(PlayerSideMenuAction("pip", "Picture-in-Picture", "◱"))
-            }
             add(PlayerSideMenuAction("guide", "TV Guide", "📺"))
             add(PlayerSideMenuAction("settings", "Settings", "⚙"))
         }
@@ -235,28 +226,39 @@ fun PlayerScreen(
                 }
             }
             "split_view" -> onOpenSplit(channel?.id ?: channelId)
-            "pip" -> {
-                val activity = context.findComponentActivity()
-                if (activity != null && viewModel.pipController.enterPictureInPicture(activity)) {
-                    return
-                }
-                livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-                onNavigateGuide()
-                Toast.makeText(
-                    context,
-                    "Playing in mini player on guide",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
             "guide" -> onNavigateGuide()
             "settings" -> onNavigateSettings()
         }
     }
 
+    fun focusChannelsHeader() {
+        val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
+        if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+    }
+
+    fun focusFavoritesHeader() {
+        val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.FavoritesHeader)
+        if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
+    }
+
+    fun collapseChannelsSection(): Boolean {
+        if (!channelsExpanded) return false
+        channelsExpanded = false
+        focusChannelsHeader()
+        return true
+    }
+
+    fun collapseFavoritesSection(): Boolean {
+        if (!favoritesExpanded) return false
+        favoritesExpanded = false
+        focusFavoritesHeader()
+        return true
+    }
+
     fun activateSideMenuSelection() {
         when (val target = sideMenuFocusOrder.getOrNull(focusTargetIndex)) {
             PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                if (!channelsExpanded) channelsExpanded = true
+                channelsExpanded = !channelsExpanded
             }
             is PlayerSideMenuFocusTarget.NearbyChannel -> {
                 nearbyChannels.getOrNull(target.index)?.id?.let { id ->
@@ -269,7 +271,7 @@ fun PlayerScreen(
                 onNavigateGuide()
             }
             PlayerSideMenuFocusTarget.FavoritesHeader -> {
-                if (!favoritesExpanded) favoritesExpanded = true
+                favoritesExpanded = !favoritesExpanded
             }
             is PlayerSideMenuFocusTarget.FavoriteChannel -> {
                 favoritePanelChannels.getOrNull(target.index)?.id?.let { id ->
@@ -312,6 +314,11 @@ fun PlayerScreen(
         overlayInteractionToken++
     }
 
+    fun leavePlayer() {
+        playerViewRef[0]?.player = null
+        onBack()
+    }
+
     fun handleSideMenuKey(key: Key): Boolean {
         when (key) {
             Key.DirectionUp -> moveSideMenuVertical(-1)
@@ -328,39 +335,34 @@ fun PlayerScreen(
             }
             Key.DirectionLeft -> when (currentFocusTarget) {
                 PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                    if (channelsExpanded) {
-                        channelsExpanded = false
-                        return true
-                    }
+                    if (collapseChannelsSection()) return true
                 }
                 PlayerSideMenuFocusTarget.FavoritesHeader -> {
-                    if (favoritesExpanded) {
-                        favoritesExpanded = false
-                        return true
-                    }
+                    if (collapseFavoritesSection()) return true
+                }
+                is PlayerSideMenuFocusTarget.NearbyChannel,
+                PlayerSideMenuFocusTarget.BrowseAll -> {
+                    if (collapseChannelsSection()) return true
+                }
+                is PlayerSideMenuFocusTarget.FavoriteChannel -> {
+                    if (collapseFavoritesSection()) return true
                 }
                 else -> Unit
             }
             Key.Back, Key.Escape -> {
                 when (currentFocusTarget) {
+                    PlayerSideMenuFocusTarget.ChannelsHeader -> {
+                        if (collapseChannelsSection()) return true
+                    }
+                    PlayerSideMenuFocusTarget.FavoritesHeader -> {
+                        if (collapseFavoritesSection()) return true
+                    }
                     is PlayerSideMenuFocusTarget.NearbyChannel,
                     PlayerSideMenuFocusTarget.BrowseAll -> {
-                        if (channelsExpanded) {
-                            channelsExpanded = false
-                            val headerIndex =
-                                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
-                            if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
-                            return true
-                        }
+                        if (collapseChannelsSection()) return true
                     }
                     is PlayerSideMenuFocusTarget.FavoriteChannel -> {
-                        if (favoritesExpanded) {
-                            favoritesExpanded = false
-                            val headerIndex =
-                                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.FavoritesHeader)
-                            if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
-                            return true
-                        }
+                        if (collapseFavoritesSection()) return true
                     }
                     else -> Unit
                 }
@@ -376,6 +378,35 @@ fun PlayerScreen(
         }
         return true
     }
+
+    fun consumePlayerLocalBack(): Boolean {
+        if (showStopRecordingDialog) {
+            showStopRecordingDialog = false
+            return true
+        }
+        if (showInfo) {
+            showInfo = false
+            return true
+        }
+        if (showStoragePicker) {
+            recordingViewModel.dismissStoragePicker()
+            return true
+        }
+        if (precheck != null) {
+            recordingViewModel.dismissPrecheck()
+            return true
+        }
+        if (showSideMenu) {
+            handleSideMenuKey(Key.Back)
+            return true
+        }
+        return false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = ::leavePlayer,
+        onBackPressed = ::consumePlayerLocalBack
+    )
 
     LaunchedEffect(showSideMenu) {
         if (showSideMenu) {
@@ -443,121 +474,6 @@ fun PlayerScreen(
             settings.bufferSize,
             settings.preferHardwareDecoding
         )
-    }
-
-    LaunchedEffect(canTimeshift, channel?.id) {
-        if (!canTimeshift) return@LaunchedEffect
-        while (true) {
-            livePlayerManager.refreshAtLiveEdge()
-            delay(1000)
-        }
-    }
-
-    fun executeTimeshiftAction() {
-        when (timeshiftFocusTarget) {
-            TimeshiftControlFocus.REWIND -> {
-                if (timeshiftState.canRewind) {
-                    livePlayerManager.rewind(30_000L)
-                }
-            }
-            TimeshiftControlFocus.PLAY_PAUSE -> livePlayerManager.togglePlayPause()
-            TimeshiftControlFocus.FAST_FORWARD -> {
-                if (timeshiftState.canFastForward) {
-                    livePlayerManager.fastForward(30_000L)
-                }
-            }
-            TimeshiftControlFocus.SEEK_BAR -> Unit
-            TimeshiftControlFocus.LIVE_BADGE -> livePlayerManager.jumpToLive()
-        }
-    }
-
-    fun handleTimeshiftNavigation(key: Key): Boolean {
-        val behindLive = !timeshiftState.atLiveEdge
-        when (key) {
-            Key.DirectionLeft -> when (timeshiftFocusTarget) {
-                TimeshiftControlFocus.REWIND -> return false
-                TimeshiftControlFocus.PLAY_PAUSE -> {
-                    if (behindLive) {
-                        timeshiftFocusTarget = TimeshiftControlFocus.REWIND
-                    } else if (timeshiftState.canRewind) {
-                        livePlayerManager.seekRelative(-30_000L)
-                    }
-                    return true
-                }
-                TimeshiftControlFocus.FAST_FORWARD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                    return true
-                }
-                TimeshiftControlFocus.SEEK_BAR -> {
-                    if (timeshiftState.canRewind) {
-                        livePlayerManager.seekRelative(-30_000L)
-                    }
-                    return true
-                }
-                TimeshiftControlFocus.LIVE_BADGE -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
-                    return true
-                }
-            }
-            Key.DirectionRight -> when (timeshiftFocusTarget) {
-                TimeshiftControlFocus.REWIND -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                    return true
-                }
-                TimeshiftControlFocus.PLAY_PAUSE -> {
-                    if (behindLive) {
-                        timeshiftFocusTarget = TimeshiftControlFocus.FAST_FORWARD
-                    } else if (timeshiftState.canFastForward) {
-                        livePlayerManager.seekRelative(30_000L)
-                    }
-                    return true
-                }
-                TimeshiftControlFocus.FAST_FORWARD -> return false
-                TimeshiftControlFocus.SEEK_BAR -> {
-                    if (timeshiftState.canFastForward) {
-                        livePlayerManager.seekRelative(30_000L)
-                    }
-                    return true
-                }
-                TimeshiftControlFocus.LIVE_BADGE -> return true
-            }
-            Key.DirectionUp -> when (timeshiftFocusTarget) {
-                TimeshiftControlFocus.SEEK_BAR -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                    return true
-                }
-                TimeshiftControlFocus.LIVE_BADGE -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
-                    return true
-                }
-                TimeshiftControlFocus.REWIND,
-                TimeshiftControlFocus.PLAY_PAUSE,
-                TimeshiftControlFocus.FAST_FORWARD -> return false
-            }
-            Key.DirectionDown -> when (timeshiftFocusTarget) {
-                TimeshiftControlFocus.REWIND,
-                TimeshiftControlFocus.PLAY_PAUSE,
-                TimeshiftControlFocus.FAST_FORWARD -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.SEEK_BAR
-                    return true
-                }
-                TimeshiftControlFocus.SEEK_BAR -> {
-                    timeshiftFocusTarget = TimeshiftControlFocus.LIVE_BADGE
-                    return true
-                }
-                TimeshiftControlFocus.LIVE_BADGE -> {
-                    showOverlay = false
-                    return true
-                }
-            }
-            else -> return false
-        }
-    }
-
-    LaunchedEffect(showOverlay, canTimeshift, timeshiftState.atLiveEdge) {
-        if (showOverlay && canTimeshift) {
-            timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-        }
     }
 
     LaunchedEffect(player) {
@@ -644,17 +560,17 @@ fun PlayerScreen(
         }
         player.addListener(listener)
         onDispose {
+            player.removeListener(listener)
+            playerViewRef[0]?.player = null
+            livePlayerManager.onFullscreenPlayerClosed(context)
             viewModel.pipController.setPlaybackActive(false)
             viewModel.savePosition(player.currentPosition)
-            player.removeListener(listener)
-            livePlayerManager.onFullscreenPlayerClosed(context)
-            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
+            livePlayerManager.setMode(LivePlayerManager.Mode.IDLE)
         }
     }
 
-    LaunchedEffect(showOverlay, overlayInteractionToken, timeshiftState.isPlaying) {
+    LaunchedEffect(showOverlay, overlayInteractionToken) {
         if (showOverlay) {
-            if (!timeshiftState.isPlaying) return@LaunchedEffect
             delay(4000)
             showOverlay = false
         }
@@ -671,48 +587,26 @@ fun PlayerScreen(
                 when (it.key) {
                     Key.DirectionUp -> {
                         revealOverlay()
-                        if (showOverlay && canTimeshift && handleTimeshiftNavigation(Key.DirectionUp)) {
-                            return@onPreviewKeyEvent true
-                        }
                         viewModel.switchPrev()
                         true
                     }
                     Key.DirectionDown -> {
                         revealOverlay()
-                        if (showOverlay && canTimeshift && handleTimeshiftNavigation(Key.DirectionDown)) {
-                            return@onPreviewKeyEvent true
-                        }
                         viewModel.switchNext()
                         true
                     }
                     Key.DirectionLeft -> {
                         revealOverlay()
-                        if (showOverlay && canTimeshift && handleTimeshiftNavigation(Key.DirectionLeft)) {
-                            return@onPreviewKeyEvent true
-                        }
-                        if (!canTimeshift) {
-                            Toast.makeText(
-                                context,
-                                "Buffering live stream for timeshift…",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
                         true
                     }
                     Key.DirectionRight -> {
                         revealOverlay()
-                        if (showOverlay && canTimeshift && handleTimeshiftNavigation(Key.DirectionRight)) {
-                            return@onPreviewKeyEvent true
-                        }
                         if (!showSideMenu) {
                             openSideMenu()
                         }
                         true
                     }
                     Key.Enter, Key.DirectionCenter -> {
-                        if (showOverlay && canTimeshift) {
-                            executeTimeshiftAction()
-                        }
                         revealOverlay()
                         true
                     }
@@ -737,10 +631,7 @@ fun PlayerScreen(
                         viewModel.clearNumberInput()
                         true
                     }
-                    Key.Back, Key.Escape -> {
-                        onBack()
-                        true
-                    }
+                    Key.Back, Key.Escape -> consumePlayerLocalBack()
                     else -> false
                 }
             }
@@ -758,44 +649,22 @@ fun PlayerScreen(
                     controllerHideOnTouch = true
                     isFocusable = true
                     this.player = player
+                    playerViewRef[0] = this
                 }
             },
             update = { view ->
                 view.isFocusable = !showSideMenu
                 view.isFocusableInTouchMode = !showSideMenu
-                if (!showSideMenu) view.player = player
+                if (view.player != player) view.player = player
+            },
+            onRelease = { view ->
+                view.player = null
+                if (playerViewRef[0] === view) playerViewRef[0] = null
             }
         )
 
         if (dimAlpha > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
-        }
-
-        if (!showOverlay && canTimeshift && timeshiftState.isTimeshifting && !timeshiftState.atLiveEdge) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 14.dp, end = 16.dp)
-                    .focusable()
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        if (event.key == Key.Enter || event.key == Key.DirectionCenter) {
-                            revealOverlay()
-                            timeshiftFocusTarget = TimeshiftControlFocus.PLAY_PAUSE
-                            true
-                        } else false
-                    }
-            ) {
-                TimeshiftStatusBadge(timeshiftState = timeshiftState)
-            }
-        }
-
-        if (!showOverlay && canTimeshift && !timeshiftState.isPlaying && timeshiftState.atLiveEdge) {
-            PausedCornerIndicator(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(20.dp)
-            )
         }
 
         if (showSeekThumb && seekThumb != null) {
@@ -986,13 +855,6 @@ fun PlayerScreen(
                                 )
                             }
                         }
-                        if (canTimeshift) {
-                            LiveTimeshiftControls(
-                                focusedTarget = timeshiftFocusTarget,
-                                timeshiftState = timeshiftState,
-                                modifier = Modifier.padding(top = 12.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -1045,7 +907,7 @@ fun PlayerScreen(
             confirmButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { player.play(); showStillWatching = false }) { Text("Continue") }
-                    Button(onClick = onBack) { Text("Exit") }
+                    Button(onClick = ::leavePlayer) { Text("Exit") }
                 }
             }
         )

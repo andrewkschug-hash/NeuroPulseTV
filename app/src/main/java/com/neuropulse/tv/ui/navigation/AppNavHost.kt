@@ -1,5 +1,6 @@
 package com.neuropulse.tv.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
@@ -52,6 +53,8 @@ import com.neuropulse.tv.ui.viewmodel.ProfileViewModel
 import com.neuropulse.tv.ui.viewmodel.RecordingViewModel
 import com.neuropulse.tv.ui.viewmodel.SearchViewModel
 import com.neuropulse.tv.ui.viewmodel.SettingsViewModel
+import com.neuropulse.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
+import com.neuropulse.tv.util.profileInitials
 
 @Composable
 fun AppNavHost(
@@ -63,8 +66,9 @@ fun AppNavHost(
     val navController = rememberNavController()
     val current = navController.currentBackStackEntryAsState().value?.destination?.route
     val profileViewModel: ProfileViewModel = hiltViewModel()
-    val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
-    val profileInitials = profiles.firstOrNull()?.name?.take(2)?.uppercase() ?: "?"
+    val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
+    val profileInitials = activeProfile?.let { profileInitials(it.name) } ?: "?"
+    val profileAvatarColor = activeProfile?.avatarColor ?: DEFAULT_PROFILE_AVATAR_COLOR
     val settingsViewModel: SettingsViewModel = hiltViewModel()
     var showWhatsNew by remember { mutableStateOf(false) }
 
@@ -93,6 +97,7 @@ fun AppNavHost(
             initialTab = initialTab,
             initialSeriesId = initialSeriesId,
             profileInitials = profileInitials,
+            profileAvatarColor = profileAvatarColor,
             onPlayMovie = { title, url, resume ->
                 navController.navigate(Routes.DirectPlayer.build(title, url, resume = resume))
             },
@@ -145,6 +150,11 @@ fun AppNavHost(
     val hideGlobalTopNav = current?.startsWith("player/") == true ||
         current?.startsWith("direct-player/") == true
 
+    val canNavigateBack = navController.previousBackStackEntry != null
+    BackHandler(enabled = !canNavigateBack) {
+        // Keep the app open when back is pressed on the root TV guide.
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         if (!hasEmbeddedTopBar && !hideGlobalTopNav) {
             val selectedTab = when {
@@ -181,6 +191,7 @@ fun AppNavHost(
                     focusedIndex = -1,
                     navFocused = false,
                     profileInitials = profileInitials,
+                    profileAvatarColor = profileAvatarColor,
                     profileFocused = false,
                     onTabSelected = { tab ->
                         when (tab) {
@@ -288,7 +299,8 @@ fun AppNavHost(
                             )
                         )
                     },
-                    profileInitials = profileInitials
+                    profileInitials = profileInitials,
+                    profileAvatarColor = profileAvatarColor
                 )
             }
             composable(Routes.Movies.route) {
@@ -312,6 +324,7 @@ fun AppNavHost(
             composable(Routes.Recordings.route) {
                 RecordingsScreen(
                     profileInitials = profileInitials,
+                    profileAvatarColor = profileAvatarColor,
                     onNavigateHome = {
                         navController.navigate(Routes.Home.route) {
                             popUpTo(Routes.Home.route) { inclusive = false }

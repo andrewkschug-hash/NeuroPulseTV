@@ -51,6 +51,7 @@ import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.model.ProgramGenre
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
+import com.neuropulse.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -136,6 +137,7 @@ fun EpgTopBar(
     navFocused: Boolean = false,
     profileFocused: Boolean = false,
     profileInitials: String = "?",
+    profileAvatarColor: String = DEFAULT_PROFILE_AVATAR_COLOR,
     profileMenuExpanded: Boolean = false,
     profileMenuFocusIndex: Int = 0,
     onTabSelected: (EpgNavTab) -> Unit,
@@ -167,6 +169,7 @@ fun EpgTopBar(
                 navFocused = navFocused,
                 profileInitials = profileInitials,
                 profileFocused = profileFocused,
+                profileAvatarColor = profileAvatarColor,
                 onTabSelected = onTabSelected,
                 onProfileClick = onProfileClick,
                 modifier = Modifier.fillMaxWidth(),
@@ -466,22 +469,14 @@ fun EpgTimelineHeader(
         }
 
         if (showNow) {
-            Column(
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset(x = nowOffset - EpgLayout.NowMarkerWidth / 2)
                     .width(EpgLayout.NowMarkerWidth),
-                horizontalAlignment = Alignment.CenterHorizontally
+                contentAlignment = Alignment.TopCenter
             ) {
-                Text(
-                    text = formatEpgClock(now),
-                    color = EpgColors.Accent,
-                    fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-                EpgNowArrow(modifier = Modifier.padding(top = 2.dp))
+                EpgNowArrow()
             }
         }
     }
@@ -760,28 +755,36 @@ fun EpgCategoryFilterChip(
 ) {
     if (headerStyle) {
         val display = if (active) label else "Filter"
-        val borderColor = when {
-            focused -> EpgColors.BorderSubtle.copy(alpha = 0.55f)
-            else -> EpgColors.BorderSubtle.copy(alpha = 0.35f)
+        val bg = when {
+            focused -> EpgColors.Accent.copy(alpha = 0.22f)
+            active -> EpgColors.ChannelRowFocusBg
+            else -> Color.Transparent
         }
+        val borderColor = when {
+            focused -> EpgColors.Accent
+            active -> EpgColors.Accent.copy(alpha = 0.55f)
+            else -> EpgColors.BorderSubtle.copy(alpha = 0.45f)
+        }
+        val borderWidth = if (focused) 2.dp else 1.dp
         val textColor = when {
-            focused -> EpgColors.TextSecondary
-            active -> EpgColors.TextSecondary
+            focused -> Color.White
+            active -> EpgColors.TextPrimary
             else -> EpgColors.TextDimmed
         }
         Surface(
             onClick = onClick,
             modifier = modifier,
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent
+                containerColor = bg,
+                focusedContainerColor = bg
             )
         ) {
             Row(
                 modifier = Modifier
-                    .border(0.5.dp, borderColor, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .background(bg, RoundedCornerShape(6.dp))
+                    .border(borderWidth, borderColor, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -796,7 +799,7 @@ fun EpgCategoryFilterChip(
                     color = textColor,
                     fontFamily = DmSansFamily,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Normal,
+                    fontWeight = if (focused || active) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1
                 )
             }

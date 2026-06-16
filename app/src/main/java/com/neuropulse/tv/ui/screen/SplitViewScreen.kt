@@ -1,5 +1,8 @@
 package com.neuropulse.tv.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -25,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -36,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
@@ -45,12 +51,14 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.neuropulse.tv.ui.component.SplitViewChannelPicker
 import com.neuropulse.tv.ui.component.requestFocusSafelyAfterLayout
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
 import com.neuropulse.tv.ui.viewmodel.SplitViewViewModel
 import com.neuropulse.tv.util.MediaAttribution
+import kotlinx.coroutines.delay
 
-private enum class SplitViewFocusZone { TOP_BAR, PANES }
+private enum class SplitViewFocusZone { CONTROLS, PANES }
 
 private enum class SplitViewTopAction(val label: String) {
     AUDIO_LEFT("Audio Left"),
@@ -80,7 +88,9 @@ fun SplitViewScreen(
     val leftPlayer = remember(playbackContext) { ExoPlayer.Builder(playbackContext).build() }
     val rightPlayer = remember(playbackContext) { ExoPlayer.Builder(playbackContext).build() }
 
-    var focusZone by remember { mutableStateOf(SplitViewFocusZone.TOP_BAR) }
+    var showControls by remember { mutableStateOf(true) }
+    var controlsInteractionToken by remember { mutableIntStateOf(0) }
+    var focusZone by remember { mutableStateOf(SplitViewFocusZone.PANES) }
     var topBarIndex by remember { mutableIntStateOf(0) }
     var paneIndex by remember { mutableIntStateOf(0) }
     var activeAudioPane by remember { mutableIntStateOf(0) }
@@ -120,6 +130,21 @@ fun SplitViewScreen(
         rootFocusRequester.requestFocusSafelyAfterLayout()
     }
 
+    LaunchedEffect(showControls, controlsInteractionToken) {
+        if (showControls) {
+            delay(5_000)
+            showControls = false
+            if (focusZone == SplitViewFocusZone.CONTROLS) {
+                focusZone = SplitViewFocusZone.PANES
+            }
+        }
+    }
+
+    fun revealControls() {
+        showControls = true
+        controlsInteractionToken++
+    }
+
     fun setAudioLeft() {
         leftPlayer.volume = 1f
         rightPlayer.volume = 0f
@@ -141,30 +166,46 @@ fun SplitViewScreen(
         }
     }
 
+    fun consumeSplitViewLocalBack(): Boolean {
+        if (showPicker) {
+            showPicker = false
+            return true
+        }
+        if (showControls) {
+            showControls = false
+            focusZone = SplitViewFocusZone.PANES
+            return true
+        }
+        return false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = onBack,
+        onBackPressed = ::consumeSplitViewLocalBack
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(EpgColors.Background)
+            .background(Color.Black)
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
                 if (showPicker) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                revealControls()
                 when (event.key) {
-                    Key.Back, Key.Escape -> {
-                        onBack()
-                        true
-                    }
+                    Key.Back, Key.Escape -> consumeSplitViewLocalBack()
                     Key.DirectionUp -> {
                         if (focusZone == SplitViewFocusZone.PANES) {
-                            focusZone = SplitViewFocusZone.TOP_BAR
+                            focusZone = SplitViewFocusZone.CONTROLS
                             true
                         } else {
                             false
                         }
                     }
                     Key.DirectionDown -> {
-                        if (focusZone == SplitViewFocusZone.TOP_BAR) {
+                        if (focusZone == SplitViewFocusZone.CONTROLS) {
                             focusZone = SplitViewFocusZone.PANES
                             true
                         } else {
@@ -173,7 +214,7 @@ fun SplitViewScreen(
                     }
                     Key.DirectionLeft -> {
                         when (focusZone) {
-                            SplitViewFocusZone.TOP_BAR -> {
+                            SplitViewFocusZone.CONTROLS -> {
                                 topBarIndex = (topBarIndex - 1).coerceAtLeast(0)
                                 true
                             }
@@ -185,7 +226,7 @@ fun SplitViewScreen(
                     }
                     Key.DirectionRight -> {
                         when (focusZone) {
-                            SplitViewFocusZone.TOP_BAR -> {
+                            SplitViewFocusZone.CONTROLS -> {
                                 topBarIndex = (topBarIndex + 1)
                                     .coerceAtMost(SplitViewTopAction.entries.lastIndex)
                                 true
@@ -198,74 +239,103 @@ fun SplitViewScreen(
                     }
                     Key.Enter, Key.DirectionCenter -> {
                         when (focusZone) {
-                            SplitViewFocusZone.TOP_BAR -> activateTopAction()
+                            SplitViewFocusZone.CONTROLS -> activateTopAction()
                             SplitViewFocusZone.PANES -> {
                                 if (paneIndex == 0) setAudioLeft() else setAudioRight()
                             }
                         }
                         true
                     }
+                    Key.Menu -> {
+                        focusZone = SplitViewFocusZone.CONTROLS
+                        true
+                    }
                     else -> false
                 }
             }
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Row(
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            SplitPane(
+                label = primary?.name ?: "Channel 1",
+                player = leftPlayer,
+                focused = focusZone == SplitViewFocusZone.PANES && paneIndex == 0,
+                activeAudio = activeAudioPane == 0,
+                modifier = Modifier.weight(1f)
+            )
+            SplitPane(
+                label = secondary?.name ?: "Pick a channel",
+                player = rightPlayer,
+                focused = focusZone == SplitViewFocusZone.PANES && paneIndex == 1,
+                activeAudio = activeAudioPane == 1,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(1f)
+        ) {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Split View",
-                        color = EpgColors.TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = when (focusZone) {
-                            SplitViewFocusZone.TOP_BAR -> "↑↓ move between toolbar and streams"
-                            SplitViewFocusZone.PANES -> "Enter selects audio for focused stream"
-                        },
-                        color = EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = 12.sp
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SplitViewTopAction.entries.forEachIndexed { index, action ->
-                        SplitViewToolbarButton(
-                            label = action.label,
-                            focused = focusZone == SplitViewFocusZone.TOP_BAR && topBarIndex == index
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.88f),
+                                Color.Black.copy(alpha = 0.55f),
+                                Color.Transparent
+                            )
                         )
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Split View",
+                                color = EpgColors.TextPrimary,
+                                fontFamily = DmSansFamily,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = when (focusZone) {
+                                    SplitViewFocusZone.CONTROLS ->
+                                        "↑↓ toolbar and streams  ·  Enter to activate"
+                                    SplitViewFocusZone.PANES ->
+                                        "Enter on a stream to route audio"
+                                },
+                                color = EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SplitViewTopAction.entries.forEachIndexed { index, action ->
+                                SplitViewToolbarButton(
+                                    label = action.label,
+                                    focused = focusZone == SplitViewFocusZone.CONTROLS &&
+                                        topBarIndex == index
+                                )
+                            }
+                        }
                     }
                 }
-            }
-
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SplitPane(
-                    label = primary?.name ?: "Channel 1",
-                    player = leftPlayer,
-                    focused = focusZone == SplitViewFocusZone.PANES && paneIndex == 0,
-                    activeAudio = activeAudioPane == 0,
-                    modifier = Modifier.weight(1f)
-                )
-                SplitPane(
-                    label = secondary?.name ?: "Pick a channel",
-                    player = rightPlayer,
-                    focused = focusZone == SplitViewFocusZone.PANES && paneIndex == 1,
-                    activeAudio = activeAudioPane == 1,
-                    modifier = Modifier.weight(1f)
-                )
             }
         }
     }
@@ -294,24 +364,25 @@ private fun SplitViewToolbarButton(
     val shape = RoundedCornerShape(8.dp)
     Box(
         modifier = modifier
+            .height(40.dp)
             .clip(shape)
             .border(
                 width = if (focused) 2.dp else 1.dp,
-                color = if (focused) EpgColors.FocusBorder else EpgColors.BorderSubtle,
+                color = if (focused) EpgColors.Accent else EpgColors.BorderSubtle,
                 shape = shape
             )
             .background(
-                if (focused) EpgColors.ChannelRowFocusBg else Color(0xFF252530),
+                if (focused) EpgColors.Accent.copy(alpha = 0.18f) else Color(0xFF252530),
                 shape
             )
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+            color = if (focused) Color.White else EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
-            fontSize = 14.sp,
+            fontSize = 13.sp,
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal
         )
     }
@@ -326,19 +397,26 @@ private fun SplitPane(
     activeAudio: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(8.dp)
     val borderColor = when {
-        focused -> EpgColors.FocusBorder
-        activeAudio -> EpgColors.Accent.copy(alpha = 0.6f)
-        else -> EpgColors.BorderSubtle
+        focused -> EpgColors.Accent
+        activeAudio -> EpgColors.Accent.copy(alpha = 0.45f)
+        else -> Color.Transparent
     }
 
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .clip(shape)
-            .border(width = if (focused) 3.dp else 1.dp, color = borderColor, shape = shape)
-            .background(Color.Black, shape)
+            .then(
+                if (focused || activeAudio) {
+                    Modifier.border(
+                        width = if (focused) 3.dp else 2.dp,
+                        color = borderColor
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .background(Color.Black)
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
@@ -358,8 +436,8 @@ private fun SplitPane(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .background(Color.Black.copy(alpha = 0.62f))
+                .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Text(
                 text = label,

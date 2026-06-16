@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.neuropulse.tv.ui.component.ScreenBackHandler
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -74,6 +75,19 @@ fun MultiViewScreen(
     val replacing = state.replacingPanelIndex != null
     val fullscreenIndex = state.fullscreenPanelIndex
 
+    fun consumeMultiViewLocalBack(): Boolean {
+        if (fullscreenIndex != null) {
+            viewModel.exitFullscreen()
+            return true
+        }
+        return false
+    }
+
+    ScreenBackHandler(
+        onNavigateBack = onBack,
+        onBackPressed = ::consumeMultiViewLocalBack
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -84,15 +98,7 @@ fun MultiViewScreen(
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (replacing) return@onPreviewKeyEvent false
                 when (event.key) {
-                    Key.Back -> {
-                        if (fullscreenIndex != null) {
-                            viewModel.exitFullscreen()
-                            true
-                        } else {
-                            onBack()
-                            true
-                        }
-                    }
+                    Key.Back -> consumeMultiViewLocalBack()
                     Key.DirectionLeft -> {
                         viewModel.moveFocus(-1)
                         true

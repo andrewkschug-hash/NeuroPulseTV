@@ -359,13 +359,7 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun tuneLastWatched(context: android.content.Context) {
-        viewModelScope.launch {
-            val ch = continueWatching.value.firstOrNull()
-                ?: channels.value.firstOrNull()
-                ?: return@launch
-            livePlayerManager.tuneChannel(context, ch)
-            livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
-        }
+        // Mini player removed — no background tune on the guide.
     }
 
     private var lastHealthReport: Pair<Long, StreamPlaybackStatus>? = null

@@ -1,6 +1,7 @@
 package com.neuropulse.tv.ui.component
 
 import android.util.Log
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.focus.FocusRequester
 import kotlinx.coroutines.delay
 
@@ -18,8 +19,9 @@ fun FocusRequester.requestFocusSafely() {
     }
 }
 
-/** Waits for composition/layout, then [requestFocusSafely]. */
-suspend fun FocusRequester.requestFocusSafelyAfterLayout(delayMs: Long = 100L) {
+/** Waits one frame for layout/canFocus, then [requestFocusSafely]. */
+suspend fun FocusRequester.requestFocusSafelyAfterLayout(delayMs: Long = 0L) {
+    withFrameMillis { }
     if (delayMs > 0L) {
         delay(delayMs)
     }

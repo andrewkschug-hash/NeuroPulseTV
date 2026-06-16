@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -100,7 +100,7 @@ fun SearchOverlay(
 
     val leadingIcon = when (searchBarState) {
         SearchBarState.DEFAULT -> "⌕"
-        SearchBarState.LISTENING -> "🎤"
+        SearchBarState.LISTENING -> null
         SearchBarState.CONFIRMED -> "✓"
     }
 
@@ -224,16 +224,24 @@ fun SearchOverlay(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = leadingIcon,
-                    fontSize = 20.sp,
-                    color = leadingIconColor,
-                    modifier = if (searchBarState == SearchBarState.LISTENING) {
-                        Modifier.scale(micPulse)
-                    } else {
-                        Modifier
-                    }
-                )
+                if (leadingIcon != null) {
+                    Text(
+                        text = leadingIcon,
+                        fontSize = 20.sp,
+                        color = leadingIconColor,
+                        modifier = Modifier
+                    )
+                } else {
+                    VoiceInputGlyph(
+                        listening = true,
+                        color = leadingIconColor,
+                        modifier = if (searchBarState == SearchBarState.LISTENING) {
+                            Modifier.scale(micPulse)
+                        } else {
+                            Modifier
+                        }
+                    )
+                }
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
@@ -343,6 +351,46 @@ fun SearchOverlay(
 }
 
 @Composable
+private fun VoiceInputGlyph(
+    listening: Boolean,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.size(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 9.dp, height = 14.dp)
+                .then(
+                    if (listening) {
+                        Modifier.background(color.copy(alpha = 0.2f), RoundedCornerShape(5.dp))
+                    } else {
+                        Modifier
+                    }
+                )
+                .border(1.5.dp, color, RoundedCornerShape(5.dp))
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Box(
+            modifier = Modifier
+                .width(1.5.dp)
+                .height(4.dp)
+                .background(color)
+        )
+        Spacer(modifier = Modifier.height(1.dp))
+        Box(
+            modifier = Modifier
+                .width(12.dp)
+                .height(1.5.dp)
+                .background(color)
+        )
+    }
+}
+
+@Composable
 private fun MicButton(
     listening: Boolean,
     focused: Boolean,
@@ -360,23 +408,23 @@ private fun MicButton(
         focused -> EpgColors.FocusBorder
         else -> Color(0xFF2A2A38)
     }
+    val iconColor = if (listening) Color(0xFFFF3B3B) else EpgColors.TextSecondary
     Surface(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
             .scale(if (listening) pulseScale else 1f)
-            .border(1.5.dp, border, CircleShape),
-        shape = ClickableSurfaceDefaults.shape(CircleShape),
+            .border(1.5.dp, border, RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg
         )
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = if (listening) "🎤" else "🎙",
-                fontSize = 22.sp,
-                color = if (listening) Color(0xFFFF3B3B) else EpgColors.TextSecondary
+            VoiceInputGlyph(
+                listening = listening,
+                color = iconColor
             )
         }
     }

@@ -310,19 +310,23 @@ class LivePlayerManager @Inject constructor(
 
     fun activePlayer(): ExoPlayer? = player
 
+    /** Clears the video surface. Call only after every [PlayerView] has set `player = null`. */
     fun detachFromSurface() {
-        // PlayerView should set player = null before another view attaches.
+        player?.clearVideoSurface()
     }
 
     fun onFullscreenPlayerClosed(context: Context) {
         TimeshiftManager.reset()
-        clearStreamCache(context)
+        mode = Mode.IDLE
         player?.let { exo ->
             if (exo.isCurrentMediaItemDynamic) {
                 exo.seekToDefaultPosition()
             }
+            exo.playWhenReady = false
+            exo.pause()
             refreshTimeshiftWindow(exo)
         } ?: resetTimeshiftState()
+        applyVolume()
     }
 
     fun release(context: Context? = null) {
