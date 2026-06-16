@@ -18,11 +18,11 @@ fun readEnvValue(key: String, default: String = ""): String {
 
 android {
     namespace = "com.grid.tv"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.grid.tv"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 2
         versionName = "2.1.0"
@@ -101,15 +101,6 @@ android {
         jniLibs {
             useLegacyPackaging = false
         }
-    }
-}
-
-configurations.configureEach {
-    resolutionStrategy {
-        force("androidx.room:room-runtime:2.6.1")
-        force("androidx.room:room-runtime-android:2.6.1")
-        force("androidx.room:room-ktx:2.6.1")
-        force("androidx.room:room-common:2.6.1")
     }
 }
 

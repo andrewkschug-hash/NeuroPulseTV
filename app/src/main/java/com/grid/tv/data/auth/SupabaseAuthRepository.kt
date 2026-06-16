@@ -3,9 +3,7 @@ package com.grid.tv.data.auth
 import com.grid.tv.domain.model.AuthAccount
 import com.grid.tv.domain.model.OAuthProviderId
 import com.grid.tv.domain.repository.AuthRepository
-import io.github.jan.supabase.auth.OAuthProvider
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.postgrest.postgrest
@@ -49,23 +47,21 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signInWithOAuth(provider: OAuthProviderId) {
-        val oauthProvider = provider.toOAuthProvider()
-        auth.signInWith(oauthProvider, redirectUrl = SupabaseClientProvider.REDIRECT_URL)
+        when (provider) {
+            OAuthProviderId.Google -> auth.signInWith(
+                Google,
+                redirectUrl = SupabaseClientProvider.REDIRECT_URL
+            )
+        }
     }
 
     override suspend fun handleOAuthCallback(url: String): Boolean {
-        return runCatching {
-            client.handleDeeplinks(url)
-            auth.currentUserOrNull() != null
-        }.getOrDefault(false)
+        // MainActivity already calls supabaseClient.handleDeeplinks(intent).
+        return auth.currentUserOrNull() != null
     }
 
     override suspend fun signOut() {
         auth.signOut()
-    }
-
-    private fun OAuthProviderId.toOAuthProvider(): OAuthProvider = when (this) {
-        OAuthProviderId.Google -> Google
     }
 
     private fun io.github.jan.supabase.auth.user.UserInfo.toAuthAccount(): AuthAccount {
