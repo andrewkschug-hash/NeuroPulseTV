@@ -153,6 +153,25 @@ class RecordingStorageManager @Inject constructor(
         return "${StorageFormat.formatFreeSpace(freeBytes())} on $label"
     }
 
+    suspend fun isStorageAvailable(dir: File): Boolean {
+        return try {
+            (dir.exists() || dir.mkdirs()) && dir.canWrite()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun currentStorageHealth(dir: File): StorageHealth {
+        val free = runCatching { dir.usableSpace }.getOrDefault(0L)
+        val available = isStorageAvailable(dir)
+        val criticalLow = free < CRITICAL_MB
+        return StorageHealth(
+            available = available,
+            freeBytes = free,
+            isCriticalLow = criticalLow
+        )
+    }
+
     suspend fun lowStorageWarning(): String? =
         if (!hasAtLeast2Gb()) "Storage is below 2 GB free. Recording may fail." else null
 
@@ -165,3 +184,9 @@ class RecordingStorageManager @Inject constructor(
         }
     }
 }
+
+data class StorageHealth(
+    val available: Boolean,
+    val freeBytes: Long,
+    val isCriticalLow: Boolean
+)

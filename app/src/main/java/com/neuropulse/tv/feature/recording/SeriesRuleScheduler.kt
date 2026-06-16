@@ -23,6 +23,11 @@ class SeriesRuleScheduler @Inject constructor(
     private val recordingScheduler: RecordingScheduler,
     private val repository: IptvRepository
 ) {
+    data class ApplySummary(
+        val scheduledCount: Int,
+        val conflictCount: Int
+    )
+
     suspend fun createRule(
         seriesTitle: String,
         seriesId: Long?,
@@ -52,15 +57,22 @@ class SeriesRuleScheduler @Inject constructor(
         ruleDao.deleteById(ruleId)
     }
 
-    suspend fun applyRulesAfterEpgRefresh() {
+    suspend fun applyRulesAfterEpgRefresh(): ApplySummary {
         val now = System.currentTimeMillis()
+        var scheduledCount = 0
+        var conflictCount = 0
         ruleDao.getAll().forEach { rule ->
-            runCatching { applyRule(rule, now) }
+            runCatching {
+                val result = applyRule(rule, now)
+                scheduledCount += result.scheduledCount
+                conflictCount += result.conflictCount
+            }
         }
+        return ApplySummary(scheduledCount = scheduledCount, conflictCount = conflictCount)
     }
 
-    private suspend fun applyRule(rule: SeriesRecordingRuleEntity, now: Long) {
-        if (isAtEpisodeLimit(rule)) return
+    private suspend fun applyRule(rule: SeriesRecordingRuleEntity, now: Long): ApplySummary {
+        if (isAtEpisodeLimit(rule)) return ApplySummary(0, 0)
 
         val channelsByEpg = channelDao.getByPlaylist(rule.playlistId)
             .filter { !it.epgId.isNullOrBlank() }
@@ -77,10 +89,15 @@ class SeriesRuleScheduler @Inject constructor(
             }
             .sortedBy { it.startTime }
 
+        var scheduledCount = 0
+        var conflictCount = 0
         for (program in candidates) {
             if (isAtEpisodeLimit(rule)) break
-            scheduleProgramIfNeeded(rule, program, channelsByEpg, xtreamEpisodes)
+            val decision = scheduleProgramIfNeeded(rule, program, channelsByEpg, xtreamEpisodes)
+            if (decision?.allowed == true) scheduledCount++
+            if (decision?.allowed == false) conflictCount++
         }
+        return ApplySummary(scheduledCount = scheduledCount, conflictCount = conflictCount)
     }
 
     private suspend fun isAtEpisodeLimit(rule: SeriesRecordingRuleEntity): Boolean {
@@ -95,14 +112,14 @@ class SeriesRuleScheduler @Inject constructor(
         program: ProgramEntity,
         channelsByEpg: Map<String, com.neuropulse.tv.data.db.entity.ChannelEntity>,
         xtreamEpisodes: List<SeriesEpisode>
-    ) {
-        val channel = channelsByEpg[program.channelEpgId] ?: return
+    ): ConflictDecision? {
+        val channel = channelsByEpg[program.channelEpgId] ?: return null
 
         val paddedStart = program.startTime - rule.paddingStartMins * 60_000L
         val paddedEnd = program.endTime + rule.paddingEndMins * 60_000L
 
         if (scheduledRecordingDao.countExisting(channel.id, paddedStart, program.title) > 0) {
-            return
+            return null
         }
 
         if (rule.recordNewOnly) {
@@ -110,7 +127,7 @@ class SeriesRuleScheduler @Inject constructor(
                 programTitle = program.title,
                 programStartTime = program.startTime
             )
-            if (alreadyRecorded) return
+            if (alreadyRecorded) return null
         }
 
         val streamUrl = resolveStreamUrl(program, xtreamEpisodes, channel.streamUrl)
@@ -123,7 +140,7 @@ class SeriesRuleScheduler @Inject constructor(
             channelName = channel.name,
             status = RecordingStatus.SCHEDULED.name
         )
-        recordingScheduler.scheduleOrConflict(item)
+        return recordingScheduler.scheduleOrConflict(item)
     }
 
     private fun resolveStreamUrl(

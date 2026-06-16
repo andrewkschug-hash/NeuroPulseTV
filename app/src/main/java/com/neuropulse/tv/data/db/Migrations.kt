@@ -4,6 +4,26 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DbMigrations {
+    val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN mediaType TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN title TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN overview TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN tagline TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN releaseDate TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN runtimeMinutes INTEGER")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN writers TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN voteCount INTEGER")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN spokenLanguages TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN originCountry TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN status TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN ageCertification TEXT")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN numberOfSeasons INTEGER")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN numberOfEpisodes INTEGER")
+            db.execSQL("ALTER TABLE title_enrichment ADD COLUMN episodeRunTime TEXT")
+        }
+    }
+
     val MIGRATION_2_3 = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE channels ADD COLUMN backupStreamUrl TEXT")
@@ -394,6 +414,14 @@ object DbMigrations {
             db.execSQL(
                 "UPDATE profile_favorites SET groupId = ? WHERE profileId = ? AND groupId IS NULL",
                 arrayOf(favoritesGroupId, profileId)
+            )
+        }
+    }
+
+    val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE recorded_media ADD COLUMN integrityStatus TEXT NOT NULL DEFAULT 'OK'"
             )
         }
     }

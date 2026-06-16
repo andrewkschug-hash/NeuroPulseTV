@@ -198,6 +198,7 @@ fun RecordingsScreen(
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by viewModel.activeRecordingTitle.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
     val livePlayerManager = homeViewModel.livePlayerManager
 
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -306,7 +307,7 @@ fun RecordingsScreen(
             add("ℹ Info")
         }
         is RecordingRow.SeriesGroupHeader -> emptyList()
-        is RecordingRow.SeriesRule -> listOf("✕ Delete rule")
+        is RecordingRow.SeriesRule -> listOf("↻ Apply now", "✕ Delete rule")
         null -> emptyList()
     }
 
@@ -340,7 +341,8 @@ fun RecordingsScreen(
                 }
             }
             is RecordingRow.SeriesRule -> when (detailActionIndex) {
-                0 -> deleteSeriesRuleId = row.rule.id
+                0 -> viewModel.applySeriesRulesNow()
+                1 -> deleteSeriesRuleId = row.rule.id
             }
             is RecordingRow.SeriesGroupHeader -> Unit
             null -> Unit
@@ -585,6 +587,17 @@ fun RecordingsScreen(
                 }
             }
     ) {
+        if (message != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.clearMessage() },
+                title = { Text("Recording") },
+                text = { Text(message.orEmpty()) },
+                confirmButton = {
+                    Button(onClick = { viewModel.clearMessage() }) { Text("OK") }
+                }
+            )
+        }
+
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
                 now = now,
@@ -732,6 +745,7 @@ fun RecordingsScreen(
                                         fileSizeBytes = row.item.fileSizeBytes,
                                         thumbnailPath = row.item.thumbnailPath,
                                         playbackPositionMs = row.item.playbackPositionMs,
+                                        integrityStatus = row.item.integrityStatus,
                                         isFocused = focusZone == RecFocusZone.LIST && index == listFocusIndex,
                                         nowMs = now
                                     )
@@ -745,6 +759,7 @@ fun RecordingsScreen(
                                         fileSizeBytes = row.item.fileSizeBytes,
                                         thumbnailPath = row.item.thumbnailPath,
                                         playbackPositionMs = row.item.playbackPositionMs,
+                                        integrityStatus = row.item.integrityStatus,
                                         isFocused = focusZone == RecFocusZone.LIST && index == listFocusIndex,
                                         nowMs = now
                                     )
@@ -785,6 +800,7 @@ fun RecordingsScreen(
                         durationMs = media.durationMs,
                         fileSizeBytes = media.fileSizeBytes,
                         thumbnailPath = media.thumbnailPath,
+                        integrityStatus = media.integrityStatus,
                         actions = actions,
                         detailActionFocused = if (focusZone == RecFocusZone.DETAIL) detailActionIndex else -1,
                         visible = focusZone == RecFocusZone.DETAIL || focusZone == RecFocusZone.LIST,

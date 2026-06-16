@@ -49,6 +49,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
+import com.neuropulse.tv.feature.recording.RecordingHealth
 import com.neuropulse.tv.feature.recording.StorageFormat
 import com.neuropulse.tv.ui.theme.DmSansFamily
 import com.neuropulse.tv.ui.theme.EpgColors
@@ -235,6 +236,7 @@ fun RecordingGridCard(
     fileSizeBytes: Long,
     thumbnailPath: String?,
     playbackPositionMs: Long,
+    integrityStatus: String,
     isFocused: Boolean,
     nowMs: Long,
     modifier: Modifier = Modifier
@@ -366,6 +368,20 @@ fun RecordingGridCard(
             fontSize = 10.sp,
             modifier = Modifier.padding(top = 2.dp)
         )
+        if (integrityStatus != "OK") {
+            val (label, color) = when (integrityStatus) {
+                "CORRUPT" -> "CORRUPT FILE" to Color(0xFFE53935)
+                else -> "INCOMPLETE RECORDING" to Color(0xFFFFA726)
+            }
+            Text(
+                text = label,
+                color = color,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }
 
@@ -377,6 +393,7 @@ fun RecordingsBottomSheetPanel(
     durationMs: Long,
     fileSizeBytes: Long,
     thumbnailPath: String?,
+    integrityStatus: String = "OK",
     actions: List<String>,
     detailActionFocused: Int,
     visible: Boolean,
@@ -457,6 +474,20 @@ fun RecordingsBottomSheetPanel(
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                if (integrityStatus != "OK") {
+                    val issueLabel = if (integrityStatus == "CORRUPT") {
+                        "Integrity: Corrupt transport stream data detected"
+                    } else {
+                        "Integrity: Incomplete recording (stream dropouts detected)"
+                    }
+                    Text(
+                        text = issueLabel,
+                        color = if (integrityStatus == "CORRUPT") Color(0xFFE53935) else Color(0xFFFFA726),
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 10.dp)
@@ -650,8 +681,28 @@ fun RecordingIndicatorChip(
     title: String?,
     focused: Boolean,
     onClick: () -> Unit,
+    health: RecordingHealth = RecordingHealth.RECORDING,
     modifier: Modifier = Modifier
 ) {
+    val dotColor = when (health) {
+        RecordingHealth.RECONNECTING -> Color(0xFFFFA726)
+        RecordingHealth.STORAGE_PAUSED -> Color(0xFFFFC107)
+        RecordingHealth.SIGNAL_LOST  -> Color(0xFF9E9E9E)
+        else                         -> Color.Red
+    }
+    val chipBg = when (health) {
+        RecordingHealth.RECONNECTING -> dotColor.copy(alpha = if (focused) 0.22f else 0.10f)
+        RecordingHealth.STORAGE_PAUSED -> dotColor.copy(alpha = if (focused) 0.20f else 0.09f)
+        RecordingHealth.SIGNAL_LOST  -> dotColor.copy(alpha = if (focused) 0.20f else 0.08f)
+        else                         -> Color.Red.copy(alpha = if (focused) 0.25f else 0.12f)
+    }
+    val badgeText = when (health) {
+        RecordingHealth.RECONNECTING -> "⟳ RECONNECTING"
+        RecordingHealth.STORAGE_PAUSED -> "⏸ STORAGE PAUSED"
+        RecordingHealth.SIGNAL_LOST  -> "✕ SIGNAL LOST"
+        else                         -> "REC"
+    }
+
     val pulseTransition = rememberInfiniteTransition(label = "recPulse")
     val pulse by pulseTransition.animateFloat(
         initialValue = 0.8f,
@@ -659,13 +710,11 @@ fun RecordingIndicatorChip(
         animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse),
         label = "recPulseScale"
     )
+
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (focused) Color.Red.copy(alpha = 0.25f) else Color.Red.copy(alpha = 0.12f),
-                RoundedCornerShape(8.dp)
-            )
+            .background(chipBg, RoundedCornerShape(8.dp))
             .border(
                 width = if (focused) 2.dp else 0.dp,
                 color = if (focused) EpgColors.FocusBorder else Color.Transparent,
@@ -676,28 +725,32 @@ fun RecordingIndicatorChip(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size((8.dp * pulse))
-                .clip(RoundedCornerShape(50))
-                .background(Color.Red)
-        )
+        if (health == RecordingHealth.RECORDING) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp * pulse)
+                    .clip(RoundedCornerShape(50))
+                    .background(dotColor)
+            )
+        }
         Text(
-            text = "REC",
-            color = Color.Red,
+            text = badgeText,
+            color = dotColor,
             fontFamily = DmSansFamily,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold
         )
-        title?.take(18)?.let {
-            Text(
-                text = it,
-                color = EpgColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 10.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        if (health == RecordingHealth.RECORDING) {
+            title?.take(18)?.let {
+                Text(
+                    text = it,
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

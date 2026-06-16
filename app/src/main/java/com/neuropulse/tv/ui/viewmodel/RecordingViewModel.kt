@@ -13,8 +13,10 @@ import com.neuropulse.tv.domain.model.Channel
 import com.neuropulse.tv.domain.model.Program
 import com.neuropulse.tv.domain.model.RecordQuality
 import com.neuropulse.tv.domain.repository.IptvRepository
+import com.neuropulse.tv.feature.recording.ActiveRecordingSession
 import com.neuropulse.tv.feature.recording.PendingRecording
 import com.neuropulse.tv.feature.recording.RecordingBitrateEstimator
+import com.neuropulse.tv.feature.recording.RecordingHealth
 import com.neuropulse.tv.feature.recording.RecordingPrecheck
 import com.neuropulse.tv.feature.recording.RecordingScheduler
 import com.neuropulse.tv.feature.recording.RecordingService
@@ -43,7 +45,8 @@ class RecordingViewModel @Inject constructor(
     private val scheduler: RecordingScheduler,
     private val seriesRuleScheduler: SeriesRuleScheduler,
     private val storageManager: RecordingStorageManager,
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val activeSession: ActiveRecordingSession
 ) : ViewModel() {
 
     private val _message = MutableStateFlow<String?>(null)
@@ -73,6 +76,9 @@ class RecordingViewModel @Inject constructor(
 
     /** Global recording indicator — true while any stream is being recorded. */
     val isRecording: StateFlow<Boolean> = isRecordingActive
+
+    /** Live health state of the active recording session (IDLE when nothing is recording). */
+    val recordingHealth: StateFlow<RecordingHealth> = activeSession.health
 
     val activeRecording = scheduled.map { list ->
         list.firstOrNull { it.status == RecordingStatus.RECORDING.name }
@@ -244,7 +250,7 @@ class RecordingViewModel @Inject constructor(
         _message.value = if (result.allowed) {
             "Recording scheduled"
         } else {
-            "Conflict: already recording 2 streams"
+            result.reason ?: "Conflict: already recording 2 streams"
         }
     }
 
@@ -303,6 +309,21 @@ class RecordingViewModel @Inject constructor(
     fun deleteSeriesRule(ruleId: Long) {
         viewModelScope.launch {
             seriesRuleScheduler.deleteRule(ruleId)
+        }
+    }
+
+    fun applySeriesRulesNow() {
+        viewModelScope.launch {
+            val summary = seriesRuleScheduler.applyRulesAfterEpgRefresh()
+            _message.value = when {
+                summary.conflictCount > 0 && summary.scheduledCount > 0 ->
+                    "Series rules updated: ${summary.scheduledCount} scheduled, ${summary.conflictCount} conflicted"
+                summary.conflictCount > 0 ->
+                    "Series rule conflicts: ${summary.conflictCount} episode(s) skipped"
+                summary.scheduledCount > 0 ->
+                    "Series rules scheduled ${summary.scheduledCount} episode(s)"
+                else -> "Series rules checked: no new episodes"
+            }
         }
     }
 

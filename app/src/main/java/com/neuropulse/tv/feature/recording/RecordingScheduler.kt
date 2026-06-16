@@ -15,7 +15,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.flow.first
 
 @Singleton
 class RecordingScheduler @Inject constructor(
@@ -25,14 +24,14 @@ class RecordingScheduler @Inject constructor(
     private val scheduledRecordingDao: ScheduledRecordingDao
 ) {
     suspend fun scheduleOrConflict(item: ScheduledRecordingEntity): ConflictDecision {
-        val active = scheduledRecordingDao.observeUpcomingAndActive().first()
-            .filter { it.status == RecordingStatus.RECORDING.name }
-        val decision = RecordingConflictResolver.resolve(active.map { it.id })
+        val overlaps = scheduledRecordingDao.getOverlapping(item.startTime, item.endTime)
+            .filter { it.id != item.id }
+        val decision = RecordingConflictResolver.resolve(overlaps.map { it.id })
         if (!decision.allowed) return decision
 
         val id = scheduledRecordingDao.insert(item)
         registerWork(item.copy(id = id))
-        return ConflictDecision(allowed = true, activeIds = emptyList())
+        return ConflictDecision(allowed = true, activeIds = emptyList(), reason = null)
     }
 
     fun registerWork(item: ScheduledRecordingEntity) {

@@ -145,6 +145,7 @@ fun HomeEpgScreen(
     val vodProgress by viewModel.vodProgress.collectAsStateWithLifecycle()
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
+    val recordingHealth by recordingViewModel.recordingHealth.collectAsStateWithLifecycle()
     val favoriteGroups by viewModel.favoriteGroups.collectAsStateWithLifecycle()
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
     val categoryFilter by viewModel.categoryFilter.collectAsStateWithLifecycle()
@@ -1103,6 +1104,7 @@ fun HomeEpgScreen(
                 miniPlayer = {},
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
+                recordingHealth = recordingHealth,
                 onRecordingIndicatorClick = onNavigateRecordings,
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)

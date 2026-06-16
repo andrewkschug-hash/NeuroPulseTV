@@ -63,7 +63,9 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_15_16)
             .addMigrations(DbMigrations.MIGRATION_16_17)
             .addMigrations(DbMigrations.MIGRATION_17_18)
-            .build()
+            .addMigrations(DbMigrations.MIGRATION_18_19)
+            .addMigrations(DbMigrations.MIGRATION_19_20)
+             .build()
 
     @Provides
     fun provideM3uParser(): M3uParser = M3uParser()

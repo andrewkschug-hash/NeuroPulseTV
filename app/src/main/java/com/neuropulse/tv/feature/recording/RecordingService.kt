@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.neuropulse.tv.R
@@ -28,17 +29,11 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class RecordingService : Service() {
 
-    @Inject
-    lateinit var scheduledRecordingDao: ScheduledRecordingDao
-
-    @Inject
-    lateinit var recordedMediaDao: RecordedMediaDao
-
-    @Inject
-    lateinit var storageManager: RecordingStorageManager
-
-    @Inject
-    lateinit var appHttpClient: AppHttpClient
+    @Inject lateinit var scheduledRecordingDao: ScheduledRecordingDao
+    @Inject lateinit var recordedMediaDao: RecordedMediaDao
+    @Inject lateinit var storageManager: RecordingStorageManager
+    @Inject lateinit var appHttpClient: AppHttpClient
+    @Inject lateinit var activeSession: ActiveRecordingSession
 
     private val scope = CoroutineScope(Dispatchers.IO)
     private var notificationJob: Job? = null
@@ -50,6 +45,12 @@ class RecordingService : Service() {
     private var currentChannelId: Long = -1
     private var currentChannelName: String = ""
     private var currentTitle: String = ""
+    private var currentHealth: RecordingHealth = RecordingHealth.IDLE
+    @Volatile private var pauseForStorage = false
+    private var currentOutputDir: File? = null
+    private var preflightEstimateText: String? = null
+
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -63,7 +64,6 @@ class RecordingService : Service() {
                 stopRecording(manual = true)
                 return START_NOT_STICKY
             }
-
             ACTION_START -> {
                 val streamUrl = intent.getStringExtra(EXTRA_STREAM_URL).orEmpty()
                 if (streamUrl.isBlank()) {
@@ -76,11 +76,7 @@ class RecordingService : Service() {
                 currentChannelName = intent.getStringExtra(EXTRA_CHANNEL_NAME).orEmpty()
                 currentTitle = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 val endAt = intent.getLongExtra(EXTRA_END_AT, 0L)
-                Log.i(
-                    TAG,
-                    "ACTION_START scheduledId=$currentScheduledId channelId=$currentChannelId " +
-                        "channel=$currentChannelName title=$currentTitle endAt=$endAt streamUrl=$streamUrl"
-                )
+                Log.i(TAG, "ACTION_START scheduledId=$currentScheduledId title=$currentTitle")
                 scope.launch { startRecording(streamUrl, endAt) }
             }
         }
@@ -94,47 +90,39 @@ class RecordingService : Service() {
         val internalDir = storageManager.internalRecordingsDir()
         val outputDir = savedDir ?: internalDir
         val outputFile = RecordingFilenameUtil.resolveUniqueFile(
-            outputDir,
-            currentChannelName,
-            currentTitle,
-            System.currentTimeMillis()
+            outputDir, currentChannelName, currentTitle, System.currentTimeMillis()
         )
+        currentOutputDir = outputDir
+        preflightEstimateText = null
 
-        Log.i(
-            TAG,
-            "Recording storage savedDir=${savedDir?.absolutePath ?: "null"} " +
-                "internalDir=${internalDir.absolutePath} usingDir=${outputDir.absolutePath}"
-        )
-        Log.i(
-            TAG,
-            "Recording output file path=${outputFile.absolutePath} exists=${outputFile.exists()} " +
-                "parentExists=${outputFile.parentFile?.exists() == true} freeBytes=${outputDir.usableSpace}"
-        )
-
-        if (!storageManager.hasAtLeast2Gb()) {
-            Log.w(TAG, "Low storage (<2GB free) before recording path=${outputFile.absolutePath}")
-            startForeground(NOTIFICATION_ID, buildNotification(0, "Low storage (<2GB). Recording may fail."))
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification(0, "Starting recording..."))
-        }
-
-        if (storageManager.isCriticalLowStorage()) {
-            Log.e(TAG, "Critical low storage — aborting recording path=${outputFile.absolutePath}")
+        if (storageManager.currentStorageHealth(outputDir).isCriticalLow) {
+            Log.e(TAG, "Critical low storage at start — aborting recording")
             stopSelf()
             return
         }
 
+        acquireWakeLock()
+
+        if (!storageManager.hasAtLeast2Gb()) {
+            Log.w(TAG, "Low storage (<2 GB free)")
+        }
+
+        startForeground(NOTIFICATION_ID, buildNotification(0))
+
         currentOutputPath = outputFile.absolutePath
         recordingStartedAt = System.currentTimeMillis()
-        Log.i(TAG, "Recording started at $recordingStartedAt path=$currentOutputPath")
+        val estimatedBytes = estimateRecordingBytes(endAt)
+        preflightEstimateText = if (estimatedBytes != null) {
+            val free = storageManager.currentStorageHealth(outputDir).freeBytes
+            "Est. ${StorageFormat.formatFileSize(estimatedBytes)} · Free ${StorageFormat.formatFreeSpace(free)}"
+        } else {
+            null
+        }
 
         if (currentScheduledId > 0) {
             scheduledRecordingDao.getById(currentScheduledId)?.let {
                 scheduledRecordingDao.update(
-                    it.copy(
-                        status = RecordingStatus.RECORDING.name,
-                        outputPath = currentOutputPath
-                    )
+                    it.copy(status = RecordingStatus.RECORDING.name, outputPath = currentOutputPath)
                 )
             }
         }
@@ -142,20 +130,30 @@ class RecordingService : Service() {
         recordingJob?.cancel()
         recordingJob = scope.launch {
             try {
-                val recorder = TsStreamRecorder(appHttpClient.client(), outputFile)
-                streamRecorder = recorder
-                val success = recorder.record(streamUrl)
-                streamRecorder = null
-                Log.i(
-                    TAG,
-                    "Recording loop finished success=$success path=${outputFile.absolutePath} " +
-                        "exists=${outputFile.exists()} length=${outputFile.length()}"
+                val recorder = TsStreamRecorder(
+                    client = appHttpClient.client(),
+                    outputFile = outputFile,
+                    onHealthChanged = { health ->
+                        currentHealth = health
+                        activeSession.setHealth(health)
+                    },
+                    shouldPauseForStorage = { pauseForStorage }
                 )
-                finalizeRecording(success, outputDir)
+                streamRecorder = recorder
+                val outcome = recorder.record(streamUrl)
+                streamRecorder = null
+                Log.i(TAG, "Recording loop finished $outcome path=${outputFile.absolutePath}")
+                finalizeRecording(outcome, outputDir, endAt)
             } catch (e: Exception) {
-                Log.e(TAG, "Recording job failed path=${outputFile.absolutePath}", e)
-                finalizeRecording(false, outputDir)
+                Log.e(TAG, "Recording job failed", e)
+                finalizeRecording(
+                    RecordingOutcome(bytesWritten = 0, hadDropouts = true, signalLost = true),
+                    outputDir,
+                    endAt
+                )
             } finally {
+                releaseWakeLock()
+                activeSession.clear()
                 stopSelf()
             }
         }
@@ -164,18 +162,15 @@ class RecordingService : Service() {
         notificationJob = scope.launch {
             while (isActive) {
                 val elapsedSec = ((System.currentTimeMillis() - recordingStartedAt) / 1000).coerceAtLeast(0)
-                val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.notify(NOTIFICATION_ID, buildNotification(elapsedSec))
+                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.notify(NOTIFICATION_ID, buildNotification(elapsedSec))
 
-                if (storageManager.isCriticalLowStorage()) {
-                    stopRecording(manual = false)
-                    break
-                }
+                refreshStoragePauseState()
                 if (endAt > 0 && System.currentTimeMillis() >= endAt) {
                     stopRecording(manual = false)
                     break
                 }
-                delay(1000)
+                delay(1_000)
             }
         }
     }
@@ -187,86 +182,159 @@ class RecordingService : Service() {
         if (manual) stopSelf()
     }
 
-    private suspend fun finalizeRecording(success: Boolean, outputDir: File) {
-        val path = currentOutputPath ?: run {
-            Log.w(TAG, "finalizeRecording called with no output path success=$success")
-            return
-        }
+    private suspend fun finalizeRecording(outcome: RecordingOutcome, outputDir: File, scheduledEndMs: Long) {
+        val path = currentOutputPath ?: return
         val file = File(path)
-        Log.i(
-            TAG,
-            "finalizeRecording success=$success path=$path exists=${file.exists()} length=${file.length()}"
-        )
+
+        val resolvedStatus = when {
+            !outcome.saved -> RecordingStatus.FAILED
+            else -> RecordingStatus.COMPLETED
+        }
+
         if (currentScheduledId > 0) {
             scheduledRecordingDao.getById(currentScheduledId)?.let {
-                scheduledRecordingDao.update(
-                    it.copy(status = if (success) RecordingStatus.COMPLETED.name else RecordingStatus.FAILED.name)
-                )
+                scheduledRecordingDao.update(it.copy(status = resolvedStatus.name))
             }
         }
-        if (success && file.exists()) {
-            val duration = System.currentTimeMillis() - recordingStartedAt
-            val thumbDir = File(outputDir, ".thumbnails")
-            val thumbnailPath = try {
-                RecordingThumbnailExtractor.extractThumbnail(path, thumbDir)
-            } catch (e: Exception) {
-                Log.e(TAG, "Thumbnail extraction failed path=$path", e)
-                null
-            }
-            recordedMediaDao.insert(
-                RecordedMediaEntity(
-                    channelId = currentChannelId,
-                    channelName = currentChannelName,
-                    programTitle = currentTitle,
-                    filePath = path,
-                    durationMs = duration,
-                    fileSizeBytes = file.length(),
-                    recordedAt = System.currentTimeMillis(),
-                    thumbnailPath = thumbnailPath
-                )
-            )
-            Log.i(TAG, "Recorded media saved path=$path size=${file.length()} durationMs=$duration")
-        } else if (!success) {
-            Log.e(
-                TAG,
-                "Recording failed — no media saved path=$path exists=${file.exists()} length=${file.length()}"
-            )
+
+        if (!outcome.saved) {
+            Log.e(TAG, "Recording failed — file empty or missing path=$path")
+            sendNotification("Recording failed — ${currentTitle.ifBlank { "Program" }}", NOTIFICATION_ID_EVENTS)
+            return
         }
+
+        val duration = System.currentTimeMillis() - recordingStartedAt
+        val expectedMs = if (scheduledEndMs > recordingStartedAt) scheduledEndMs - recordingStartedAt else duration
+
+        val integrity = RecordingIntegrityChecker.validate(file, expectedMs, outcome)
+        Log.i(TAG, "Integrity check: ${integrity.status} — ${integrity.message}")
+
+        val thumbDir = File(outputDir, ".thumbnails")
+        val thumbnailPath = runCatching { RecordingThumbnailExtractor.extractThumbnail(path, thumbDir) }
+            .onFailure { Log.e(TAG, "Thumbnail extraction failed path=$path", it) }
+            .getOrNull()
+
+        recordedMediaDao.insert(
+            RecordedMediaEntity(
+                channelId = currentChannelId,
+                channelName = currentChannelName,
+                programTitle = currentTitle,
+                filePath = path,
+                durationMs = duration,
+                fileSizeBytes = file.length(),
+                recordedAt = System.currentTimeMillis(),
+                thumbnailPath = thumbnailPath,
+                integrityStatus = integrity.status.name
+            )
+        )
+        Log.i(TAG, "Recorded media saved path=$path size=${file.length()} durationMs=$duration integrity=${integrity.status}")
+
+        val eventMsg = if (integrity.status == RecordingIntegrityStatus.OK) {
+            "Recording saved — ${currentTitle.ifBlank { "Program" }}"
+        } else {
+            "Recording saved with issues (${integrity.status.name.lowercase().replace('_', ' ')}) — ${currentTitle.ifBlank { "Program" }}"
+        }
+        sendNotification(eventMsg, NOTIFICATION_ID_EVENTS)
+    }
+
+    private fun sendNotification(text: String, notificationId: Int) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val n = NotificationCompat.Builder(this, CHANNEL_ID_EVENTS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("GRID Recording")
+            .setContentText(text)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(notificationId, n)
     }
 
     override fun onDestroy() {
-        Log.i(
-            TAG,
-            "RecordingService destroyed scheduledId=$currentScheduledId path=$currentOutputPath " +
-                "recordingJobActive=${recordingJob?.isActive == true}"
-        )
+        Log.i(TAG, "RecordingService destroyed scheduledId=$currentScheduledId path=$currentOutputPath")
         notificationJob?.cancel()
         streamRecorder?.cancel()
         recordingJob?.cancel()
+        releaseWakeLock()
+        activeSession.clear()
+        pauseForStorage = false
+        currentOutputDir = null
         super.onDestroy()
+    }
+
+    private suspend fun refreshStoragePauseState() {
+        val dir = currentOutputDir ?: return
+        val health = storageManager.currentStorageHealth(dir)
+        val shouldPause = !health.available || health.isCriticalLow
+        if (shouldPause != pauseForStorage) {
+            pauseForStorage = shouldPause
+            currentHealth = if (shouldPause) RecordingHealth.STORAGE_PAUSED else RecordingHealth.RECORDING
+            activeSession.setHealth(currentHealth)
+            if (shouldPause) {
+                sendNotification(
+                    "Recording paused — ${if (!health.available) "storage unavailable" else "storage full"}",
+                    NOTIFICATION_ID_EVENTS
+                )
+            } else {
+                sendNotification("Recording resumed — storage available", NOTIFICATION_ID_EVENTS)
+            }
+        }
+    }
+
+    private fun estimateRecordingBytes(endAt: Long): Long? {
+        if (endAt <= 0L || recordingStartedAt <= 0L) return null
+        val durationMs = (endAt - recordingStartedAt).coerceAtLeast(0L)
+        if (durationMs <= 0L) return null
+        return RecordingBitrateEstimator.estimateBytes(durationMs)
+    }
+
+    private fun acquireWakeLock() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "neuropulse:recording").apply {
+            acquire(4 * 60 * 60 * 1_000L) // max 4-hour safety timeout
+        }
+        Log.i(TAG, "Wake lock acquired")
+    }
+
+    private fun releaseWakeLock() {
+        runCatching {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+                Log.i(TAG, "Wake lock released")
+            }
+        }
+        wakeLock = null
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channel = NotificationChannel(CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW)
-        nm.createNotificationChannel(channel)
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Recording", NotificationManager.IMPORTANCE_LOW)
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID_EVENTS, "Recording Events", NotificationManager.IMPORTANCE_DEFAULT)
+        )
     }
 
-    private fun buildNotification(elapsedSec: Long, statusOverride: String? = null): Notification {
+    private fun buildNotification(elapsedSec: Long): Notification {
         val stopIntent = Intent(this, RecordingService::class.java).apply { action = ACTION_STOP }
         val stopPending = android.app.PendingIntent.getService(
-            this,
-            22101,
-            stopIntent,
+            this, 22101, stopIntent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
-        val title = "● Recording — ${currentTitle.ifBlank { "Program" }} (${currentChannelName.ifBlank { "Channel" }})"
-        val elapsed = statusOverride ?: RecordingCountdown.formatElapsed(elapsedSec)
+        val statusText: String = when (currentHealth) {
+            RecordingHealth.RECONNECTING -> "⟳  Reconnecting… (${currentTitle.ifBlank { "Program" }})"
+            RecordingHealth.SIGNAL_LOST  -> "✕  Signal lost  (${currentTitle.ifBlank { "Program" }})"
+            RecordingHealth.STORAGE_PAUSED -> "⏸  Paused — storage unavailable/full"
+            else -> {
+                val elapsed = RecordingCountdown.formatElapsed(elapsedSec)
+                val estimate = preflightEstimateText?.let { " · $it" }.orEmpty()
+                "● Recording — ${currentTitle.ifBlank { "Program" }} ($elapsed)$estimate"
+            }
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(title)
-            .setContentText(elapsed)
+            .setContentTitle("GRID Recording")
+            .setContentText(statusText)
             .setOngoing(true)
             .addAction(0, "Stop", stopPending)
             .build()
@@ -274,16 +342,18 @@ class RecordingService : Service() {
 
     companion object {
         const val ACTION_START = "com.neuropulse.tv.recording.START"
-        const val ACTION_STOP = "com.neuropulse.tv.recording.STOP"
-        const val EXTRA_SCHEDULED_ID = "extra_scheduled_id"
-        const val EXTRA_CHANNEL_ID = "extra_channel_id"
-        const val EXTRA_CHANNEL_NAME = "extra_channel_name"
-        const val EXTRA_TITLE = "extra_title"
-        const val EXTRA_STREAM_URL = "extra_stream_url"
-        const val EXTRA_END_AT = "extra_end_at"
+        const val ACTION_STOP  = "com.neuropulse.tv.recording.STOP"
+        const val EXTRA_SCHEDULED_ID  = "extra_scheduled_id"
+        const val EXTRA_CHANNEL_ID    = "extra_channel_id"
+        const val EXTRA_CHANNEL_NAME  = "extra_channel_name"
+        const val EXTRA_TITLE         = "extra_title"
+        const val EXTRA_STREAM_URL    = "extra_stream_url"
+        const val EXTRA_END_AT        = "extra_end_at"
 
-        private const val CHANNEL_ID = "recording_channel"
-        private const val NOTIFICATION_ID = 22100
+        private const val CHANNEL_ID        = "recording_channel"
+        private const val CHANNEL_ID_EVENTS = "recording_events_channel"
+        private const val NOTIFICATION_ID   = 22100
+        private const val NOTIFICATION_ID_EVENTS = 22102
         private const val TAG = "RecordingService"
     }
 }

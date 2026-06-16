@@ -147,6 +147,7 @@ fun EpgTopBar(
     onOpenSettings: () -> Unit = {},
     isRecording: Boolean = false,
     activeRecordingTitle: String? = null,
+    recordingHealth: com.neuropulse.tv.feature.recording.RecordingHealth = com.neuropulse.tv.feature.recording.RecordingHealth.RECORDING,
     recordingIndicatorFocused: Boolean = false,
     onRecordingIndicatorClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
@@ -178,7 +179,8 @@ fun EpgTopBar(
                         RecordingIndicatorChip(
                             title = activeRecordingTitle,
                             focused = recordingIndicatorFocused,
-                            onClick = onRecordingIndicatorClick
+                            onClick = onRecordingIndicatorClick,
+                            health = recordingHealth
                         )
                     }
                     Column(horizontalAlignment = Alignment.End) {

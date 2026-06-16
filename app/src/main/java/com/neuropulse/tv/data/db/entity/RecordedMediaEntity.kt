@@ -14,5 +14,6 @@ data class RecordedMediaEntity(
     val fileSizeBytes: Long,
     val recordedAt: Long,
     val playbackPositionMs: Long = 0,
-    val thumbnailPath: String? = null
+    val thumbnailPath: String? = null,
+    val integrityStatus: String = "OK"   // RecordingIntegrityStatus enum name
 )

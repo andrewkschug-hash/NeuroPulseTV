@@ -3,6 +3,7 @@ package com.neuropulse.tv.feature.recording
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.URI
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -12,11 +13,13 @@ import okhttp3.Request
 
 /**
  * Copies MPEG-TS bytes from a direct stream URL or HLS playlist into a .ts file.
- * Avoids native FFmpeg so the app can stay on minSdk 21.
+ * Retries transient disconnects with exponential backoff and appends to the same output file.
  */
 class TsStreamRecorder(
     private val client: OkHttpClient,
-    private val outputFile: File
+    private val outputFile: File,
+    private val onHealthChanged: (RecordingHealth) -> Unit = {},
+    private val shouldPauseForStorage: () -> Boolean = { false }
 ) {
     @Volatile
     private var cancelled = false
@@ -28,9 +31,10 @@ class TsStreamRecorder(
         activeCall?.cancel()
     }
 
-    suspend fun record(streamUrl: String): Boolean {
+    suspend fun record(streamUrl: String): RecordingOutcome {
         cancelled = false
         Log.i(TAG, "record() started streamUrl=$streamUrl output=${outputFile.absolutePath}")
+        onHealthChanged(RecordingHealth.RECORDING)
         return try {
             if (streamUrl.contains(".m3u8", ignoreCase = true)) {
                 recordHls(streamUrl)
@@ -38,83 +42,153 @@ class TsStreamRecorder(
                 recordDirect(streamUrl)
             }
         } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "record() failed streamUrl=$streamUrl output=${outputFile.absolutePath}",
-                e
-            )
-            false
+            Log.e(TAG, "record() failed streamUrl=$streamUrl output=${outputFile.absolutePath}", e)
+            onHealthChanged(RecordingHealth.SIGNAL_LOST)
+            outcome(signalLost = true)
         }
     }
 
-    private fun recordDirect(url: String): Boolean {
-        val request = Request.Builder().url(url).build()
-        val call = client.newCall(request)
-        activeCall = call
-        call.execute().use { response ->
-            Log.i(TAG, "Direct stream HTTP request url=$url responseCode=${response.code}")
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Direct stream HTTP failed url=$url responseCode=${response.code}")
-                return false
-            }
-            val body = response.body ?: run {
-                Log.e(TAG, "Direct stream response body is null url=$url responseCode=${response.code}")
-                return false
-            }
-            outputFile.parentFile?.mkdirs()
-            Log.i(
-                TAG,
-                "Opening output file path=${outputFile.absolutePath} exists=${outputFile.exists()} parentExists=${outputFile.parentFile?.exists() == true}"
-            )
-            body.byteStream().use { input ->
-                FileOutputStream(outputFile).use { output ->
-                    Log.i(
-                        TAG,
-                        "Output file opened path=${outputFile.absolutePath} length=${outputFile.length()}"
-                    )
-                    val progress = ByteProgressLogger("Direct stream")
-                    val buffer = ByteArray(32 * 1024)
-                    while (!cancelled) {
-                        val read = input.read(buffer)
-                        if (read == -1) break
-                        output.write(buffer, 0, read)
-                        progress.onBytes(read)
+    private suspend fun recordDirect(url: String): RecordingOutcome {
+        outputFile.parentFile?.mkdirs()
+        if (outputFile.exists()) outputFile.delete()
+
+        var disconnectWindowStart: Long? = null
+        var backoffMs = RecordingResilienceConfig.INITIAL_BACKOFF_MS
+        var hadDropouts = false
+        var totalGapPatchedMs = 0L
+        var corruptedChunksSkipped = 0
+
+        FileOutputStream(outputFile, false).use { output ->
+            val progress = ByteProgressLogger("Direct stream")
+            while (!cancelled && currentCoroutineContext().isActive) {
+                var streamEnded = false
+                try {
+                    waitIfPaused()
+                    onHealthChanged(RecordingHealth.RECORDING)
+                    val request = Request.Builder().url(url).build()
+                    val call = client.newCall(request)
+                    activeCall = call
+                    call.execute().use { response ->
+                        Log.i(TAG, "Direct stream HTTP responseCode=${response.code}")
+                        if (!response.isSuccessful) {
+                            throw IOException("HTTP ${response.code}")
+                        }
+                        val body = response.body ?: throw IOException("Empty response body")
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(32 * 1024)
+                            while (!cancelled && currentCoroutineContext().isActive) {
+                                waitIfPaused()
+                                val read = input.read(buffer)
+                                if (read == -1) {
+                                    streamEnded = true
+                                    break
+                                }
+                                if (!isValidTsPayload(buffer, read)) {
+                                    Log.w(TAG, "Skipping malformed TS chunk ($read bytes)")
+                                    corruptedChunksSkipped++
+                                    continue
+                                }
+                                output.write(buffer, 0, read)
+                                progress.onBytes(read)
+                                disconnectWindowStart = null
+                                backoffMs = RecordingResilienceConfig.INITIAL_BACKOFF_MS
+                            }
+                        }
                     }
-                    progress.logFinal()
+                } catch (e: Exception) {
+                    if (cancelled) break
+                    Log.w(TAG, "Direct stream read error — will retry", e)
+                    streamEnded = true
                 }
+
+                if (!streamEnded || cancelled) break
+
+                hadDropouts = true
+                val windowStart = disconnectWindowStart ?: System.currentTimeMillis().also {
+                    disconnectWindowStart = it
+                }
+                if (System.currentTimeMillis() - windowStart > RecordingResilienceConfig.SIGNAL_LOST_WINDOW_MS) {
+                    onHealthChanged(RecordingHealth.SIGNAL_LOST)
+                    progress.logFinal()
+                    return outcome(hadDropouts = true, signalLost = true)
+                }
+
+                onHealthChanged(RecordingHealth.RECONNECTING)
+                patchGap(output, backoffMs)
+                totalGapPatchedMs += backoffMs
+                delay(backoffMs)
+                backoffMs = (backoffMs * 2).coerceAtMost(RecordingResilienceConfig.MAX_BACKOFF_MS)
             }
+            progress.logFinal()
         }
-        Log.i(
-            TAG,
-            "Direct stream finished path=${outputFile.absolutePath} length=${outputFile.length()} cancelled=$cancelled"
+
+        onHealthChanged(RecordingHealth.RECORDING)
+        return outcome(
+            hadDropouts = hadDropouts,
+            signalLost = false,
+            gapPatchedMs = totalGapPatchedMs,
+            corruptedChunksSkipped = corruptedChunksSkipped
         )
-        return outputFile.length() > 0
     }
 
-    private suspend fun recordHls(playlistUrl: String): Boolean {
-        Log.i(TAG, "Starting HLS recording playlistUrl=$playlistUrl output=${outputFile.absolutePath}")
-        val mediaPlaylistUrl = resolveMediaPlaylistUrl(playlistUrl) ?: run {
-            Log.e(TAG, "Failed to resolve HLS media playlist url=$playlistUrl")
-            return false
-        }
-        Log.i(TAG, "Resolved HLS media playlist url=$mediaPlaylistUrl")
+    private suspend fun recordHls(playlistUrl: String): RecordingOutcome {
+        Log.i(TAG, "Starting HLS recording playlistUrl=$playlistUrl")
+        val mediaPlaylistUrl = resolveMediaPlaylistUrl(playlistUrl) ?: return outcome(signalLost = true)
         val downloaded = mutableSetOf<String>()
         outputFile.parentFile?.mkdirs()
-        Log.i(
-            TAG,
-            "Opening HLS output file path=${outputFile.absolutePath} exists=${outputFile.exists()}"
-        )
-        FileOutputStream(outputFile).use { output ->
+        if (outputFile.exists()) outputFile.delete()
+
+        var disconnectWindowStart: Long? = null
+        var backoffMs = RecordingResilienceConfig.INITIAL_BACKOFF_MS
+        var hadDropouts = false
+        var totalGapPatchedMs = 0L
+        var corruptedChunksSkipped = 0
+
+        FileOutputStream(outputFile, false).use { output ->
             val progress = ByteProgressLogger("HLS recording")
             while (!cancelled && currentCoroutineContext().isActive) {
-                val playlist = fetchText(mediaPlaylistUrl) ?: break
+                waitIfPaused()
+                val playlist = fetchText(mediaPlaylistUrl)
+                if (playlist == null) {
+                    hadDropouts = true
+                    val windowStart = disconnectWindowStart ?: System.currentTimeMillis().also {
+                        disconnectWindowStart = it
+                    }
+                    if (System.currentTimeMillis() - windowStart > RecordingResilienceConfig.SIGNAL_LOST_WINDOW_MS) {
+                        onHealthChanged(RecordingHealth.SIGNAL_LOST)
+                        progress.logFinal()
+                        return outcome(hadDropouts = true, signalLost = true)
+                    }
+                    onHealthChanged(RecordingHealth.RECONNECTING)
+                    patchGap(output, backoffMs)
+                    totalGapPatchedMs += backoffMs
+                    delay(backoffMs)
+                    backoffMs = (backoffMs * 2).coerceAtMost(RecordingResilienceConfig.MAX_BACKOFF_MS)
+                    continue
+                }
+
+                onHealthChanged(RecordingHealth.RECORDING)
+                disconnectWindowStart = null
+                backoffMs = RecordingResilienceConfig.INITIAL_BACKOFF_MS
+
                 val segments = parseSegmentUrls(mediaPlaylistUrl, playlist)
                 var gotNewSegment = false
                 for (segmentUrl in segments) {
                     if (cancelled) break
+                    waitIfPaused()
                     if (!downloaded.add(segmentUrl)) continue
-                    if (appendSegment(output, segmentUrl, progress)) {
-                        gotNewSegment = true
+                    when (appendSegment(output, segmentUrl, progress)) {
+                        SegmentAppendResult.APPENDED -> gotNewSegment = true
+                        SegmentAppendResult.SKIPPED -> {
+                            hadDropouts = true
+                            corruptedChunksSkipped++
+                            Log.w(TAG, "Skipped corrupt HLS segment url=$segmentUrl")
+                        }
+                        SegmentAppendResult.FAILED -> {
+                            hadDropouts = true
+                            patchGap(output, backoffMs)
+                            totalGapPatchedMs += backoffMs
+                        }
                     }
                 }
                 if (playlist.contains("#EXT-X-ENDLIST")) break
@@ -124,12 +198,59 @@ class TsStreamRecorder(
             }
             progress.logFinal()
         }
-        Log.i(
-            TAG,
-            "HLS recording finished path=${outputFile.absolutePath} length=${outputFile.length()} cancelled=$cancelled"
+        return outcome(
+            hadDropouts = hadDropouts,
+            signalLost = false,
+            gapPatchedMs = totalGapPatchedMs,
+            corruptedChunksSkipped = corruptedChunksSkipped
         )
-        return outputFile.length() > 0
     }
+
+    private fun outcome(
+        hadDropouts: Boolean = false,
+        signalLost: Boolean = false,
+        gapPatchedMs: Long = 0L,
+        corruptedChunksSkipped: Int = 0
+    ): RecordingOutcome {
+        val bytes = if (outputFile.exists()) outputFile.length() else 0L
+        return RecordingOutcome(
+            bytesWritten = bytes,
+            hadDropouts = hadDropouts,
+            signalLost = signalLost,
+            gapPatchedMs = gapPatchedMs,
+            corruptedChunksSkipped = corruptedChunksSkipped
+        )
+    }
+
+    private fun patchGap(output: FileOutputStream, durationMs: Long) {
+        val packetCount = (durationMs / 40L).toInt().coerceIn(1, 512)
+        repeat(packetCount) {
+            output.write(TS_NULL_PACKET)
+        }
+    }
+
+    private suspend fun waitIfPaused() {
+        while (!cancelled && shouldPauseForStorage()) {
+            onHealthChanged(RecordingHealth.STORAGE_PAUSED)
+            delay(STORAGE_PAUSE_POLL_MS)
+        }
+    }
+
+    private fun isValidTsPayload(buffer: ByteArray, length: Int): Boolean {
+        if (length < 188) return true
+        var offset = 0
+        var validPackets = 0
+        var checkedPackets = 0
+        while (offset + 188 <= length) {
+            checkedPackets++
+            if (buffer[offset] == 0x47.toByte()) validPackets++
+            offset += 188
+        }
+        if (checkedPackets == 0) return true
+        return validPackets.toFloat() / checkedPackets.toFloat() >= 0.5f
+    }
+
+    private enum class SegmentAppendResult { APPENDED, SKIPPED, FAILED }
 
     private fun resolveMediaPlaylistUrl(playlistUrl: String): String? {
         return try {
@@ -164,35 +285,34 @@ class TsStreamRecorder(
         output: FileOutputStream,
         segmentUrl: String,
         progress: ByteProgressLogger
-    ): Boolean {
+    ): SegmentAppendResult {
         return try {
             val request = Request.Builder().url(segmentUrl).build()
             val call = client.newCall(request)
             activeCall = call
             call.execute().use { response ->
-                Log.i(TAG, "HLS segment HTTP request url=$segmentUrl responseCode=${response.code}")
                 if (!response.isSuccessful) {
                     Log.e(TAG, "HLS segment HTTP failed url=$segmentUrl responseCode=${response.code}")
-                    return false
+                    return SegmentAppendResult.FAILED
                 }
-                val body = response.body ?: run {
-                    Log.e(TAG, "HLS segment body is null url=$segmentUrl responseCode=${response.code}")
-                    return false
-                }
+                val body = response.body ?: return SegmentAppendResult.FAILED
                 body.byteStream().use { input ->
                     val buffer = ByteArray(32 * 1024)
                     while (!cancelled) {
                         val read = input.read(buffer)
                         if (read == -1) break
+                        if (!isValidTsPayload(buffer, read)) {
+                            return SegmentAppendResult.SKIPPED
+                        }
                         output.write(buffer, 0, read)
                         progress.onBytes(read)
                     }
                 }
             }
-            true
+            SegmentAppendResult.APPENDED
         } catch (e: Exception) {
             Log.e(TAG, "appendSegment failed url=$segmentUrl", e)
-            false
+            SegmentAppendResult.FAILED
         }
     }
 
@@ -202,7 +322,6 @@ class TsStreamRecorder(
             val call = client.newCall(request)
             activeCall = call
             call.execute().use { response ->
-                Log.i(TAG, "Playlist HTTP request url=$url responseCode=${response.code}")
                 if (!response.isSuccessful) {
                     Log.e(TAG, "Playlist HTTP failed url=$url responseCode=${response.code}")
                     return null
@@ -232,10 +351,7 @@ class TsStreamRecorder(
             totalBytes += count
             val now = System.currentTimeMillis()
             if (now - lastLogAt >= PROGRESS_LOG_INTERVAL_MS) {
-                Log.i(
-                    TAG,
-                    "$label: written $totalBytes bytes so far (file=${outputFile.absolutePath})"
-                )
+                Log.i(TAG, "$label: written $totalBytes bytes (file=${outputFile.absolutePath})")
                 lastLogAt = now
             }
         }
@@ -243,7 +359,7 @@ class TsStreamRecorder(
         fun logFinal() {
             Log.i(
                 TAG,
-                "$label: finished with $totalBytes bytes written (file=${outputFile.absolutePath}, length=${outputFile.length()})"
+                "$label: finished with $totalBytes bytes (file=${outputFile.absolutePath}, length=${outputFile.length()})"
             )
         }
     }
@@ -251,5 +367,16 @@ class TsStreamRecorder(
     companion object {
         private const val TAG = "TsStreamRecorder"
         private const val PROGRESS_LOG_INTERVAL_MS = 10_000L
+        private const val STORAGE_PAUSE_POLL_MS = 1_500L
+
+        private val TS_NULL_PACKET = ByteArray(188).apply {
+            this[0] = 0x47
+            this[1] = 0x1F.toByte()
+            this[2] = 0xFF.toByte()
+            this[3] = 0x10
+            for (index in 4 until size) {
+                this[index] = 0xFF.toByte()
+            }
+        }
     }
 }

@@ -71,7 +71,7 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         TitleEnrichmentEntity::class,
         ProfileTasteGenomeEntity::class
     ],
-    version = 18,
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

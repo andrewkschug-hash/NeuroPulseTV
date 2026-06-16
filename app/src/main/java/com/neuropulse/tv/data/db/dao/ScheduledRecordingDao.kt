@@ -53,4 +53,15 @@ interface ScheduledRecordingDao {
         """
     )
     suspend fun countUpcomingMatchingSeries(seriesTitle: String): Int
+
+    @Query(
+        """
+        SELECT * FROM scheduled_recordings
+        WHERE status IN ('SCHEDULED','RECORDING')
+          AND startTime < :endTime
+          AND endTime > :startTime
+        ORDER BY startTime ASC
+        """
+    )
+    suspend fun getOverlapping(startTime: Long, endTime: Long): List<ScheduledRecordingEntity>
 }

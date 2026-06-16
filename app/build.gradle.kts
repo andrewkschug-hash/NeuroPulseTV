@@ -6,6 +6,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+fun readEnvValue(key: String, default: String = ""): String {
+    val envFile = rootProject.file(".env")
+    if (!envFile.exists()) return default
+    val line = envFile.readLines()
+        .asSequence()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("$key=") } ?: return default
+    return line.substringAfter("=")
+}
+
 android {
     namespace = "com.neuropulse.tv"
     compileSdk = 34
@@ -19,6 +29,9 @@ android {
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
+        buildConfigField("String", "TMDB_API_KEY", "\"${readEnvValue("TMDB_API_KEY")}\"")
+        buildConfigField("String", "TMDB_BASE_URL", "\"${readEnvValue("TMDB_BASE_URL", "https://api.themoviedb.org/3")}\"")
+        buildConfigField("String", "TMDB_IMAGE_BASE_URL", "\"${readEnvValue("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p/")}\"")
     }
 
     flavorDimensions += "store"
@@ -73,6 +86,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
