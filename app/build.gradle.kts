@@ -17,11 +17,11 @@ fun readEnvValue(key: String, default: String = ""): String {
 }
 
 android {
-    namespace = "com.neuropulse.tv"
+    namespace = "com.grid.tv"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.neuropulse.tv"
+        applicationId = "com.grid.tv"
         minSdk = 21
         targetSdk = 34
         versionCode = 2

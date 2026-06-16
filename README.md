@@ -1,4 +1,4 @@
-# NeuroPulseTV
+# GRID
 
 Android TV IPTV player built with Kotlin, Jetpack Compose for TV, Media3 ExoPlayer, Room, Retrofit, WorkManager, MVVM, and Hilt.
 
@@ -25,7 +25,7 @@ Android TV IPTV player built with Kotlin, Jetpack Compose for TV, Media3 ExoPlay
 
 ## Project Structure
 
-- app/src/main/java/com/neuropulse/tv
+- app/src/main/java/com/grid/tv
   - data
     - db (entities, daos, database)
     - network (Retrofit API + M3U/XMLTV parsers)
@@ -42,7 +42,7 @@ Android TV IPTV player built with Kotlin, Jetpack Compose for TV, Media3 ExoPlay
 
 ## Build
 
-1. Open `NeuroPulseTV` in Android Studio (or VS Code with Android toolchain).
+1. Open `GRID` (NeuroPulseTV repo folder) in Android Studio (or VS Code with Android toolchain).
 2. Ensure Android SDK 35 is installed.
 3. Sync Gradle.
 4. Run on Android TV emulator/device (API 26+).
