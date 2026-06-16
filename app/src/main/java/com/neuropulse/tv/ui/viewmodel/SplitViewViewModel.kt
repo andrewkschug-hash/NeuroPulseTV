@@ -43,9 +43,17 @@ class SplitViewViewModel @Inject constructor(
     private val _audioPaneIndex = MutableStateFlow(0)
     val audioPaneIndex: StateFlow<Int> = _audioPaneIndex.asStateFlow()
 
+    private val _loadFailed = MutableStateFlow(false)
+    val loadFailed: StateFlow<Boolean> = _loadFailed.asStateFlow()
+
     fun loadPrimary(channelId: Long) {
         viewModelScope.launch {
-            val channel = repository.channelById(channelId) ?: return@launch
+            _loadFailed.value = false
+            val channel = repository.channelById(channelId)
+            if (channel == null) {
+                _loadFailed.value = true
+                return@launch
+            }
             _resolvedChannels.value = _resolvedChannels.value + (channelId to channel)
             _paneChannelIds.value = listOf(channelId)
             _audioPaneIndex.value = 0

@@ -81,6 +81,7 @@ fun SplitViewScreen(
     val recentChannels by viewModel.recentChannels.collectAsStateWithLifecycle()
     val paneChannels by viewModel.paneChannels.collectAsStateWithLifecycle()
     val audioPaneIndex by viewModel.audioPaneIndex.collectAsStateWithLifecycle()
+    val loadFailed by viewModel.loadFailed.collectAsStateWithLifecycle()
 
     var showPicker by remember { mutableStateOf(false) }
     var showPaneMenu by remember { mutableStateOf(false) }
@@ -105,6 +106,10 @@ fun SplitViewScreen(
 
     LaunchedEffect(primaryChannelId) {
         viewModel.loadPrimary(primaryChannelId)
+    }
+
+    LaunchedEffect(loadFailed) {
+        if (loadFailed) onBack()
     }
 
     LaunchedEffect(paneChannels.map { it?.id to it?.streamUrl }) {
@@ -440,6 +445,17 @@ private fun SplitPaneGrid(
     audioPaneIndex: Int
 ) {
     when (paneChannels.size) {
+        0 -> Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Loading…",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 16.sp
+            )
+        }
         1 -> SplitPane(
             label = paneChannels[0]?.name ?: "Channel",
             player = players[0],
@@ -496,7 +512,7 @@ private fun SplitPaneGrid(
                     .weight(1f)
             )
         }
-        else -> Column(
+        4 -> Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
