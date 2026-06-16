@@ -492,7 +492,8 @@ fun VodHubScreen(
                         embedded = true,
                         hubSearchQuery = searchQuery,
                         contentFocusRequester = contentFocusRequester,
-                        onMoveFocusUp = { moveFocusToTabs() }
+                        onMoveFocusUp = { moveFocusToTabs() },
+                        onMovieBrowse = { hubViewModel.enrichOnBrowse(it) }
                     )
                     else -> SeriesBrowserScreen(
                         initialSeriesId = initialSeriesId,

@@ -16,6 +16,9 @@ interface TitleEnrichmentDao {
     @Query("SELECT * FROM title_enrichment WHERE providerKey = :providerKey LIMIT 1")
     fun observe(providerKey: String): Flow<TitleEnrichmentEntity?>
 
+    @Query("SELECT * FROM title_enrichment WHERE providerKey IN (:providerKeys)")
+    suspend fun getByProviderKeys(providerKeys: List<String>): List<TitleEnrichmentEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: TitleEnrichmentEntity)
 }

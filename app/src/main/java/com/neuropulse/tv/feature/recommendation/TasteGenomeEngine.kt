@@ -1,7 +1,9 @@
 package com.neuropulse.tv.feature.recommendation
 
+import com.neuropulse.tv.data.db.entity.TitleEnrichmentEntity
 import com.neuropulse.tv.domain.model.ContinueWatchingItem
 import com.neuropulse.tv.domain.model.VodItem
+import com.neuropulse.tv.feature.enrichment.TitleEnrichmentRepository
 import kotlin.math.sqrt
 
 private const val VECTOR_SIZE = 68
@@ -13,18 +15,22 @@ data class ScoredVod(
     val score: Double
 )
 
+// TODO: replace with server-side equivalent when scaling
 class TasteGenomeEngine {
 
     fun topPicks(
         catalog: List<VodItem>,
         continueWatching: List<ContinueWatchingItem>,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity> = emptyMap(),
         limit: Int = 20
     ): List<VodItem> {
         if (catalog.isEmpty()) return emptyList()
-        val tasteVector = buildProfileTasteVector(continueWatching)
+        val tasteProfile = buildTasteProfile(continueWatching, enrichmentByProviderKey)
         return catalog
             .asSequence()
-            .map { item -> ScoredVod(item, score(item, tasteVector, continueWatching, exploreBoost = false)) }
+            .map { item ->
+                ScoredVod(item, score(item, tasteProfile, continueWatching, enrichmentByProviderKey, exploreBoost = false))
+            }
             .sortedByDescending { it.score }
             .take(limit)
             .map { it.item }
@@ -34,60 +40,100 @@ class TasteGenomeEngine {
     fun somethingDifferent(
         catalog: List<VodItem>,
         continueWatching: List<ContinueWatchingItem>,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity> = emptyMap(),
         limit: Int = 20
     ): List<VodItem> {
         if (catalog.isEmpty()) return emptyList()
-        val tasteVector = buildProfileTasteVector(continueWatching)
+        val tasteProfile = buildTasteProfile(continueWatching, enrichmentByProviderKey)
         return catalog
             .asSequence()
-            .map { item -> ScoredVod(item, score(item, tasteVector, continueWatching, exploreBoost = true)) }
+            .map { item ->
+                ScoredVod(item, score(item, tasteProfile, continueWatching, enrichmentByProviderKey, exploreBoost = true))
+            }
             .sortedByDescending { it.score }
             .take(limit)
             .map { it.item }
             .toList()
     }
 
+    private data class TasteProfile(
+        val genres: Set<String>,
+        val keywords: Set<String>,
+        val cast: Set<String>,
+        val directors: Set<String>
+    )
+
     private fun score(
         item: VodItem,
-        profileTaste: DoubleArray,
+        tasteProfile: TasteProfile,
         continueWatching: List<ContinueWatchingItem>,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity>,
         exploreBoost: Boolean
     ): Double {
-        val narrativeVector = buildNarrativeVector(item)
-        val tasteSimilarity = cosineSimilarity(profileTaste, narrativeVector).coerceIn(0.0, 1.0)
-        val narrativeSimilarity = keywordNarrativeSimilarity(item, continueWatching)
+        val enrichment = enrichmentForItem(item, enrichmentByProviderKey)
+        val narrativeVector = buildNarrativeVector(item, enrichment)
+        val profileVector = buildProfileVector(tasteProfile)
+        val tasteSimilarity = cosineSimilarity(profileVector, narrativeVector).coerceIn(0.0, 1.0)
+        val narrativeSimilarity = keywordNarrativeSimilarity(item, enrichment, continueWatching)
 
         val base = (tasteSimilarity * TASTE_WEIGHT) + (narrativeSimilarity * NARRATIVE_WEIGHT)
-        val directorBonus = if (matchesDirector(item, continueWatching)) 0.08 else 0.0
-        val castBonus = if (matchesCast(item, continueWatching)) 0.08 else 0.0
-        val keywordBonus = keywordBonus(item, continueWatching)
-        val subGenreBonus = if (matchesSubGenre(item, continueWatching)) 0.05 else 0.0
+        val directorBonus = if (matchesDirector(item, enrichment, tasteProfile)) 0.10 else 0.0
+        val castBonus = if (matchesCast(item, enrichment, tasteProfile)) 0.10 else 0.0
+        val genreBonus = genreOverlapBonus(item, enrichment, tasteProfile)
+        val keywordBonus = keywordBonus(item, enrichment, tasteProfile)
 
-        val affinity = base + directorBonus + castBonus + keywordBonus + subGenreBonus
+        val affinity = base + directorBonus + castBonus + genreBonus + keywordBonus
         return if (exploreBoost) {
-            // Favor adjacent but less similar items for "Something Different".
-            (1.0 - tasteSimilarity) * 0.45 + narrativeSimilarity * 0.35 + keywordBonus + subGenreBonus
+            (1.0 - tasteSimilarity) * 0.45 + narrativeSimilarity * 0.35 + genreBonus + keywordBonus
         } else {
             affinity
         }
     }
 
-    private fun buildProfileTasteVector(continueWatching: List<ContinueWatchingItem>): DoubleArray {
-        if (continueWatching.isEmpty()) return DoubleArray(VECTOR_SIZE) { 1.0 / VECTOR_SIZE }
-        val accumulator = DoubleArray(VECTOR_SIZE)
+    private fun buildTasteProfile(
+        continueWatching: List<ContinueWatchingItem>,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity>
+    ): TasteProfile {
+        val genres = linkedSetOf<String>()
+        val keywords = linkedSetOf<String>()
+        val cast = linkedSetOf<String>()
+        val directors = linkedSetOf<String>()
+
         continueWatching.forEach { item ->
-            val seed = "${item.title}|${item.contentType}|${item.subtitle ?: ""}"
-            val vector = seededVector(seed)
-            for (i in 0 until VECTOR_SIZE) {
-                accumulator[i] += vector[i]
-            }
+            val key = TitleEnrichmentRepository.continueWatchingKey(item)
+            val enrichment = enrichmentByProviderKey[key]
+            genres += tokenizeCsv(enrichment?.genres ?: "")
+            keywords += tokenizeCsv(enrichment?.keywords ?: "")
+            cast += tokenizeCsv(enrichment?.cast ?: "")
+            directors += tokenizeCsv(enrichment?.directors ?: "")
+            genres += tokenize(item.title)
         }
-        val norm = sqrt(accumulator.sumOf { it * it }).takeIf { it > 0.0 } ?: 1.0
-        return DoubleArray(VECTOR_SIZE) { idx -> accumulator[idx] / norm }
+
+        return TasteProfile(genres, keywords, cast, directors)
     }
 
-    private fun buildNarrativeVector(item: VodItem): DoubleArray =
-        seededVector("${item.title}|${item.plot ?: ""}|${item.genre ?: ""}")
+    private fun buildProfileVector(profile: TasteProfile): DoubleArray {
+        val seed = (profile.genres + profile.keywords + profile.cast + profile.directors).joinToString("|")
+        return seededVector(seed.ifBlank { "default" })
+    }
+
+    private fun buildNarrativeVector(item: VodItem, enrichment: TitleEnrichmentEntity?): DoubleArray {
+        val seed = buildString {
+            append(item.title, "|", item.plot ?: "", "|", item.genre ?: "")
+            enrichment?.genres?.let { append("|", it) }
+            enrichment?.keywords?.let { append("|", it) }
+            enrichment?.cast?.let { append("|", it) }
+        }
+        return seededVector(seed)
+    }
+
+    private fun enrichmentForItem(
+        item: VodItem,
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity>
+    ): TitleEnrichmentEntity? {
+        if (item.playlistId <= 0L) return null
+        return enrichmentByProviderKey[TitleEnrichmentRepository.xtreamVodKey(item.playlistId, item.streamId)]
+    }
 
     private fun seededVector(seed: String): DoubleArray {
         val vector = DoubleArray(VECTOR_SIZE)
@@ -113,41 +159,65 @@ class TasteGenomeEngine {
         return dot / (sqrt(aNorm) * sqrt(bNorm))
     }
 
-    private fun keywordNarrativeSimilarity(item: VodItem, continueWatching: List<ContinueWatchingItem>): Double {
-        val pool = continueWatching.joinToString(" ") { "${it.title} ${it.subtitle ?: ""}" }.lowercase()
+    private fun keywordNarrativeSimilarity(
+        item: VodItem,
+        enrichment: TitleEnrichmentEntity?,
+        continueWatching: List<ContinueWatchingItem>
+    ): Double {
+        val pool = continueWatching.joinToString(" ") { "${it.title} ${it.subtitle}" }.lowercase()
         if (pool.isBlank()) return 0.0
-        val words = tokenize("${item.title} ${item.plot ?: ""} ${item.genre ?: ""}")
+        val words = tokenize("${item.title} ${item.plot ?: ""} ${item.genre ?: ""} ${enrichment?.overview ?: ""}")
         if (words.isEmpty()) return 0.0
         val hits = words.count { pool.contains(it) }
-        return (hits.toDouble() / words.size.toDouble()).coerceIn(0.0, 1.0)
+        return (hits.toDouble() / words.size).coerceIn(0.0, 1.0)
     }
 
-    private fun matchesDirector(item: VodItem, continueWatching: List<ContinueWatchingItem>): Boolean {
-        val director = item.director?.trim()?.lowercase().orEmpty()
-        if (director.isBlank()) return false
-        return continueWatching.any { it.subtitle?.lowercase()?.contains(director) == true }
+    private fun matchesDirector(
+        item: VodItem,
+        enrichment: TitleEnrichmentEntity?,
+        profile: TasteProfile
+    ): Boolean {
+        val directors = tokenizeCsv(enrichment?.directors ?: item.director ?: return false)
+        return directors.any { it in profile.directors }
     }
 
-    private fun matchesCast(item: VodItem, continueWatching: List<ContinueWatchingItem>): Boolean {
-        val castTokens = tokenize(item.cast ?: return false)
-        if (castTokens.isEmpty()) return false
-        val pool = continueWatching.joinToString(" ") { "${it.title} ${it.subtitle ?: ""}" }.lowercase()
-        return castTokens.any { pool.contains(it) }
+    private fun matchesCast(
+        item: VodItem,
+        enrichment: TitleEnrichmentEntity?,
+        profile: TasteProfile
+    ): Boolean {
+        val cast = tokenizeCsv(enrichment?.cast ?: item.cast ?: return false)
+        return cast.any { it in profile.cast }
     }
 
-    private fun matchesSubGenre(item: VodItem, continueWatching: List<ContinueWatchingItem>): Boolean {
-        val itemGenre = item.genre?.lowercase()?.trim().orEmpty()
-        if (itemGenre.isBlank()) return false
-        return continueWatching.any { it.subtitle?.lowercase()?.contains(itemGenre) == true }
+    private fun genreOverlapBonus(
+        item: VodItem,
+        enrichment: TitleEnrichmentEntity?,
+        profile: TasteProfile
+    ): Double {
+        val genres = tokenizeCsv(enrichment?.genres ?: item.genre ?: return 0.0)
+        if (genres.isEmpty() || profile.genres.isEmpty()) return 0.0
+        val overlap = genres.count { it in profile.genres }
+        return (overlap.coerceAtMost(3) * 0.04).coerceIn(0.0, 0.12)
     }
 
-    private fun keywordBonus(item: VodItem, continueWatching: List<ContinueWatchingItem>): Double {
-        val itemKeywords = tokenize("${item.title} ${item.plot ?: ""} ${item.genre ?: ""}")
-        if (itemKeywords.isEmpty()) return 0.0
-        val pool = continueWatching.joinToString(" ") { "${it.title} ${it.subtitle ?: ""}" }.lowercase()
-        val matches = itemKeywords.count { pool.contains(it) }
+    private fun keywordBonus(
+        item: VodItem,
+        enrichment: TitleEnrichmentEntity?,
+        profile: TasteProfile
+    ): Double {
+        val keywords = tokenizeCsv(enrichment?.keywords ?: "") +
+            tokenize("${item.title} ${item.plot ?: ""}")
+        if (keywords.isEmpty()) return 0.0
+        val matches = keywords.count { it in profile.keywords }
         return (matches.coerceAtMost(4) * 0.02).coerceIn(0.0, 0.08)
     }
+
+    private fun tokenizeCsv(raw: String): Set<String> =
+        raw.split(',')
+            .map { it.trim().lowercase() }
+            .filter { it.length >= 2 }
+            .toSet()
 
     private fun tokenize(raw: String): Set<String> =
         raw.lowercase()
@@ -156,4 +226,3 @@ class TasteGenomeEngine {
             .filter { it.length >= 3 }
             .toSet()
 }
-

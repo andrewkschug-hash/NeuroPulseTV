@@ -26,7 +26,10 @@ import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
+import com.neuropulse.tv.data.db.dao.SubtitleCacheDao
 import com.neuropulse.tv.data.db.dao.TitleEnrichmentDao
+import com.neuropulse.tv.data.sync.CloudSyncClient
+import com.neuropulse.tv.data.sync.LocalOnlyCloudSyncClient
 import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
@@ -65,6 +68,7 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_17_18)
             .addMigrations(DbMigrations.MIGRATION_18_19)
             .addMigrations(DbMigrations.MIGRATION_19_20)
+            .addMigrations(DbMigrations.MIGRATION_20_21)
              .build()
 
     @Provides
@@ -129,6 +133,9 @@ object AppProvidesModule {
     fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
 
     @Provides
+    fun provideSubtitleCacheDao(db: AppDatabase): SubtitleCacheDao = db.subtitleCacheDao()
+
+    @Provides
     fun provideProfileTasteGenomeDao(db: AppDatabase): ProfileTasteGenomeDao = db.profileTasteGenomeDao()
 
     @Provides
@@ -155,4 +162,7 @@ object AppProvidesModule {
 abstract class AppBindsModule {
     @Binds
     abstract fun bindRepository(impl: IptvRepositoryImpl): IptvRepository
+
+    @Binds
+    abstract fun bindCloudSync(impl: LocalOnlyCloudSyncClient): CloudSyncClient
 }

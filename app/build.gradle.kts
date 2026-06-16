@@ -32,6 +32,7 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${readEnvValue("TMDB_API_KEY")}\"")
         buildConfigField("String", "TMDB_BASE_URL", "\"${readEnvValue("TMDB_BASE_URL", "https://api.themoviedb.org/3")}\"")
         buildConfigField("String", "TMDB_IMAGE_BASE_URL", "\"${readEnvValue("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p/")}\"")
+        buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnvValue("OPENSUBTITLES_API_KEY")}\"")
     }
 
     flavorDimensions += "store"

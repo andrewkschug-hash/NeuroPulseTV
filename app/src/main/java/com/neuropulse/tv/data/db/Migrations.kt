@@ -4,6 +4,23 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DbMigrations {
+    val MIGRATION_20_21 = object : Migration(20, 21) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS subtitle_cache (
+                    imdbId TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    filePath TEXT NOT NULL,
+                    sourceSubtitleId TEXT,
+                    downloadedAt INTEGER NOT NULL,
+                    PRIMARY KEY(imdbId, language)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
     val MIGRATION_19_20 = object : Migration(19, 20) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE title_enrichment ADD COLUMN mediaType TEXT")

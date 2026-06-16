@@ -6,6 +6,7 @@ import com.neuropulse.tv.data.db.dao.ProfileDao
 import com.neuropulse.tv.data.db.dao.RecordedMediaDao
 import com.neuropulse.tv.data.db.entity.RecordedMediaEntity
 import com.neuropulse.tv.data.repository.ContinueWatchingRepository
+import com.neuropulse.tv.feature.enrichment.TitleEnrichmentRepository
 import com.neuropulse.tv.player.PictureInPictureController
 import com.neuropulse.tv.domain.model.VodPlaybackMeta
 import com.neuropulse.tv.domain.repository.IptvRepository
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 class DirectPlayerViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val continueWatchingRepository: ContinueWatchingRepository,
+    private val titleEnrichmentRepository: TitleEnrichmentRepository,
     private val profileDao: ProfileDao,
     private val recordedDao: RecordedMediaDao,
     val pipController: PictureInPictureController
@@ -32,6 +34,9 @@ class DirectPlayerViewModel @Inject constructor(
 
     fun setVodMetadata(meta: VodPlaybackMeta) {
         vodMeta = meta
+        viewModelScope.launch {
+            titleEnrichmentRepository.enrichFromPlaybackMeta(meta)
+        }
     }
 
     fun loadRecordedMedia(recordingId: Long) {

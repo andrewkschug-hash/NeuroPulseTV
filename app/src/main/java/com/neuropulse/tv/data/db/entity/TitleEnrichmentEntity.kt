@@ -4,10 +4,8 @@ import androidx.room.Entity
 import androidx.room.Index
 
 /**
- * Enriched metadata for a provider title (VOD movie or series episode/show).
- *
- * For now this is stored locally and can be populated by an in-app enrichment step.
- * When a real backend exists, the client can treat this as a cache of server-provided results.
+ * On-device cache of TMDB metadata fetched lazily when the user browses a title.
+ * Supabase is not used for title metadata — only local Room + on-demand TMDB calls.
  */
 @Entity(
     tableName = "title_enrichment",

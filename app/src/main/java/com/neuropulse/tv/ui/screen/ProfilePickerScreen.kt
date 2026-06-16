@@ -174,6 +174,14 @@ fun ProfilePickerScreen(
         }
     }
 
+    fun continueAsGuest() {
+        scope.launch {
+            exitAlpha.animateTo(0f, tween(400))
+            delay(400)
+            onProfileSelected()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -273,6 +281,13 @@ fun ProfilePickerScreen(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            GridOutlinedButton(
+                text = "Continue as guest",
+                onClick = { continueAsGuest() }
+            )
         }
 
         if (showPinFor != null) {

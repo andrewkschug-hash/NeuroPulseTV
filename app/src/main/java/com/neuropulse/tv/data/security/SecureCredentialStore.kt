@@ -71,6 +71,29 @@ class SecureCredentialStore @Inject constructor(
         prefs.edit().clear().apply()
     }
 
+    fun saveTmdbApiKey(apiKey: String) {
+        prefs.edit().putString(KEY_TMDB_API, apiKey).apply()
+    }
+
+    fun getTmdbApiKey(): String? = prefs.getString(KEY_TMDB_API, null)
+
+    fun saveOpenSubtitlesApiKey(apiKey: String) {
+        prefs.edit().putString(KEY_OPENSUBTITLES_API, apiKey).apply()
+    }
+
+    fun getOpenSubtitlesApiKey(): String? = prefs.getString(KEY_OPENSUBTITLES_API, null)
+
+    fun saveOpenSubtitlesCredentials(username: String, password: String) {
+        prefs.edit()
+            .putString(KEY_OPENSUBTITLES_USER, username)
+            .putString(KEY_OPENSUBTITLES_PASS, password)
+            .apply()
+    }
+
+    fun getOpenSubtitlesUsername(): String? = prefs.getString(KEY_OPENSUBTITLES_USER, null)
+
+    fun getOpenSubtitlesPassword(): String? = prefs.getString(KEY_OPENSUBTITLES_PASS, null)
+
     private fun xtreamKey(playlistId: Long) = "xtream_pass_$playlistId"
     private fun m3uKey(playlistId: Long) = "m3u_url_$playlistId"
     private fun stalkerPortalKey(playlistId: Long) = "stalker_portal_$playlistId"
@@ -78,6 +101,10 @@ class SecureCredentialStore @Inject constructor(
 
     companion object {
         private const val PREFS_NAME = "grid_secure_credentials"
+        private const val KEY_TMDB_API = "tmdb_api_key"
+        private const val KEY_OPENSUBTITLES_API = "opensubtitles_api_key"
+        private const val KEY_OPENSUBTITLES_USER = "opensubtitles_username"
+        private const val KEY_OPENSUBTITLES_PASS = "opensubtitles_password"
     }
 }
 

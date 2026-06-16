@@ -21,6 +21,7 @@ import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
+import com.neuropulse.tv.data.db.dao.SubtitleCacheDao
 import com.neuropulse.tv.data.db.dao.TitleEnrichmentDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ContinueWatchingEntity
@@ -42,6 +43,7 @@ import com.neuropulse.tv.data.db.entity.ScheduledRecordingEntity
 import com.neuropulse.tv.data.db.entity.SeriesRecordingRuleEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
 import com.neuropulse.tv.data.db.entity.ProfileTasteGenomeEntity
+import com.neuropulse.tv.data.db.entity.SubtitleCacheEntity
 import com.neuropulse.tv.data.db.entity.TitleEnrichmentEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
 import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
@@ -69,9 +71,10 @@ import com.neuropulse.tv.data.db.entity.WatchHistoryEntity
         ChannelScanEntity::class,
         ContinueWatchingEntity::class,
         TitleEnrichmentEntity::class,
-        ProfileTasteGenomeEntity::class
+        ProfileTasteGenomeEntity::class,
+        SubtitleCacheEntity::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -87,6 +90,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileSettingsDao(): ProfileSettingsDao
     abstract fun profileTasteGenomeDao(): ProfileTasteGenomeDao
     abstract fun titleEnrichmentDao(): TitleEnrichmentDao
+    abstract fun subtitleCacheDao(): SubtitleCacheDao
     abstract fun streamHealthDao(): StreamHealthDao
     abstract fun scheduledRecordingDao(): ScheduledRecordingDao
     abstract fun recordedMediaDao(): RecordedMediaDao

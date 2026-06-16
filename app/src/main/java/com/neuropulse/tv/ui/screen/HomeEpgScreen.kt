@@ -983,14 +983,10 @@ fun HomeEpgScreen(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 val channel = displayChannels.getOrNull(focusChannelIndex) ?: return true
-                if (focusOnChannelColumn) {
-                    watchChannel(channel)
-                } else {
-                    selectChannelForPreview(channel)
-                    focusZone = EpgFocusZone.PREVIEW
-                    detailActionIndex = 0
-                    detailExpanded = true
-                }
+                selectChannelForPreview(channel)
+                focusZone = EpgFocusZone.PREVIEW
+                detailActionIndex = 0 // Focus "Watch" first, then D-pad Right to Favourite/Record.
+                detailExpanded = true
                 true
             }
             Key.Back, Key.Escape -> {

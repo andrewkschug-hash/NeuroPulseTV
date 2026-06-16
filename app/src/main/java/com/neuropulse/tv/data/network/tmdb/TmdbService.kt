@@ -2,6 +2,8 @@ package com.neuropulse.tv.data.network.tmdb
 
 import com.neuropulse.tv.BuildConfig
 import com.neuropulse.tv.data.network.AppHttpClient
+import com.neuropulse.tv.data.security.SecureCredentialStore
+import com.neuropulse.tv.feature.enrichment.ApiKeyBootstrap
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,23 +16,27 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
+// TODO: replace with server-side equivalent when scaling
 @Singleton
 class TmdbService @Inject constructor(
-    appHttpClient: AppHttpClient
+    appHttpClient: AppHttpClient,
+    private val secureCredentialStore: SecureCredentialStore,
+    apiKeyBootstrap: ApiKeyBootstrap
 ) {
     private val client: OkHttpClient = appHttpClient.client()
     private val rateLimitMutex = Mutex()
     private val requestTimesMs = ArrayDeque<Long>()
 
-    private val apiKey: String = BuildConfig.TMDB_API_KEY.trim()
     private val baseUrl: String = BuildConfig.TMDB_BASE_URL.trim().ifBlank { DEFAULT_BASE_URL }
     private val imageBaseUrl: String = BuildConfig.TMDB_IMAGE_BASE_URL.trim().ifBlank { DEFAULT_IMAGE_BASE_URL }
 
     init {
-        if (apiKey.isBlank()) {
-            throw IllegalStateException("TMDB API key is missing. Set TMDB_API_KEY in .env")
-        }
+        apiKeyBootstrap.ensureKeysInstalled()
     }
+
+    private fun resolveApiKey(): String =
+        secureCredentialStore.getTmdbApiKey()?.trim()?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.TMDB_API_KEY.trim()
 
     suspend fun searchMovie(title: String, year: Int? = null): JSONObject? {
         val queryParams = mutableMapOf("query" to title, "include_adult" to "false")
@@ -130,6 +136,10 @@ class TmdbService @Inject constructor(
     private suspend fun execute(path: String, query: Map<String, String>): String {
         awaitRateLimitSlot()
         val urlBuilder = "${baseUrl.trimEnd('/')}/${path.trimStart('/')}".toHttpUrl().newBuilder()
+        val apiKey = resolveApiKey()
+        if (apiKey.isBlank()) {
+            throw IllegalStateException("TMDB API key is missing. Set TMDB_API_KEY in .env or app settings")
+        }
         urlBuilder.addQueryParameter("api_key", apiKey)
         query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
         val request = Request.Builder().url(urlBuilder.build()).get().build()

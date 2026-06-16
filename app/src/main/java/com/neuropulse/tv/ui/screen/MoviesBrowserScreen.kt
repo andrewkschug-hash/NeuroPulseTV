@@ -54,6 +54,7 @@ fun MoviesBrowserScreen(
     hubSearchQuery: String = "",
     contentFocusRequester: FocusRequester? = null,
     onMoveFocusUp: (() -> Unit)? = null,
+    onMovieBrowse: (com.neuropulse.tv.domain.model.VodItem) -> Unit = {},
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
     val movies by viewModel.movies.collectAsStateWithLifecycle()
@@ -157,6 +158,7 @@ fun MoviesBrowserScreen(
                         showHdBadge = movie.showsHdBadge(),
                         onClick = {
                             scope.launch {
+                                onMovieBrowse(movie)
                                 val resume = viewModel.shouldResume(movie, progress)
                                 VodPlaybackHelper.stageMovie(movie)
                                 onPlayMovie(movie.title, movie.streamUrl, resume)

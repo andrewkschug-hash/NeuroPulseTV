@@ -49,19 +49,19 @@ fun SplitViewChannelPicker(
     favoriteChannels: List<Channel>,
     recentChannels: List<Channel>,
     allChannels: List<Channel>,
-    excludeChannelId: Long,
+    excludeChannelIds: Set<Long>,
     onSelect: (Channel) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val playableFavorites = remember(favoriteChannels, excludeChannelId) {
-        favoriteChannels.filter { it.id != excludeChannelId && it.streamUrl.isNotBlank() }
+    val playableFavorites = remember(favoriteChannels, excludeChannelIds) {
+        favoriteChannels.filter { it.id !in excludeChannelIds && it.streamUrl.isNotBlank() }
     }
-    val playableRecent = remember(recentChannels, excludeChannelId) {
-        recentChannels.filter { it.id != excludeChannelId && it.streamUrl.isNotBlank() }
+    val playableRecent = remember(recentChannels, excludeChannelIds) {
+        recentChannels.filter { it.id !in excludeChannelIds && it.streamUrl.isNotBlank() }
     }
-    val playableAll = remember(allChannels, excludeChannelId) {
+    val playableAll = remember(allChannels, excludeChannelIds) {
         allChannels
-            .filter { it.id != excludeChannelId && it.streamUrl.isNotBlank() }
+            .filter { it.id !in excludeChannelIds && it.streamUrl.isNotBlank() }
             .sortedWith(compareBy({ it.number }, { it.name }))
     }
 
@@ -97,7 +97,7 @@ fun SplitViewChannelPicker(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(
-                    text = "Open second stream",
+                    text = "Add stream",
                     color = EpgColors.TextPrimary,
                     fontFamily = DmSansFamily,
                     fontSize = 18.sp,

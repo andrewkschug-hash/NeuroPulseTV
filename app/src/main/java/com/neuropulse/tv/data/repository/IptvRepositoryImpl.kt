@@ -19,7 +19,6 @@ import com.neuropulse.tv.data.db.dao.RecordingDao
 import com.neuropulse.tv.data.db.dao.ScheduledRecordingDao
 import com.neuropulse.tv.data.db.dao.SeriesRecordingRuleDao
 import com.neuropulse.tv.data.db.dao.StreamHealthDao
-import com.neuropulse.tv.data.db.dao.TitleEnrichmentDao
 import com.neuropulse.tv.data.db.dao.WatchHistoryDao
 import com.neuropulse.tv.data.db.entity.ActiveProfileEntity
 import com.neuropulse.tv.data.db.entity.PlaylistEntity
@@ -27,7 +26,6 @@ import com.neuropulse.tv.data.db.entity.ProfileFavoriteEntity
 import com.neuropulse.tv.data.db.entity.ProfileSettingsEntity
 import com.neuropulse.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.neuropulse.tv.data.db.entity.StreamHealthEntity
-import com.neuropulse.tv.data.db.entity.TitleEnrichmentEntity
 import com.neuropulse.tv.data.db.entity.UserProfileEntity
 import com.neuropulse.tv.data.network.AppHttpClient
 import com.neuropulse.tv.data.network.RemoteTextFetcher
@@ -35,8 +33,6 @@ import com.neuropulse.tv.data.network.parser.M3uParser
 import com.neuropulse.tv.data.network.parser.XtreamParser
 import com.neuropulse.tv.data.network.parser.XmlTvParser
 import com.neuropulse.tv.data.network.stalker.StalkerPortalClient
-import com.neuropulse.tv.data.network.tmdb.TmdbEnrichment
-import com.neuropulse.tv.data.network.tmdb.TmdbService
 import com.neuropulse.tv.data.security.SecureCredentialStore
 import com.neuropulse.tv.domain.model.ConnectionFormFields
 import com.neuropulse.tv.domain.model.PlaylistConnectResult
@@ -112,7 +108,6 @@ class IptvRepositoryImpl @Inject constructor(
     private val channelScanDao: ChannelScanDao,
     private val favoriteDao: FavoriteDao,
     private val watchHistoryDao: WatchHistoryDao,
-    private val titleEnrichmentDao: TitleEnrichmentDao,
     private val epgSourceChannelDao: EpgSourceChannelDao,
     private val epgResolutionSuggestionDao: EpgResolutionSuggestionDao,
     private val remoteTextFetcher: RemoteTextFetcher,
@@ -125,8 +120,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val secureCredentialStore: SecureCredentialStore,
     private val stalkerPortalClient: StalkerPortalClient,
     private val gridBackupManager: GridBackupManager,
-    private val favoritesRepository: FavoritesRepository,
-    private val tmdbService: TmdbService
+    private val favoritesRepository: FavoritesRepository
 ) : IptvRepository {
 
     companion object {
@@ -177,105 +171,19 @@ class IptvRepositoryImpl @Inject constructor(
         seriesSeasonsCache.keys.removeAll { it.first == playlistId }
     }
 
-    private suspend fun enrichVodAndSeriesTitles(
-        playlistId: Long,
-        vodItems: List<VodItem>,
-        seriesShows: List<SeriesShow>
-    ) {
-        vodItems.forEach { vod ->
-            val providerKey = "xtream:vod:$playlistId:${vod.streamId}"
-            upsertTmdbEnrichmentIfNeeded(
-                providerKey = providerKey,
-                normalizedTitle = normalizeTitle(vod.title),
-                title = vod.title,
-                maybeYear = parseYear(vod.title),
-                isTv = false
-            )
+    /** Local deduplication when loading provider channel lists — no server-side pipeline. */
+    private fun deduplicateChannels(
+        channels: List<com.neuropulse.tv.data.db.entity.ChannelEntity>
+    ): List<com.neuropulse.tv.data.db.entity.ChannelEntity> {
+        val seenUrls = linkedSetOf<String>()
+        val seenNames = linkedSetOf<String>()
+        return channels.filter { channel ->
+            val urlKey = channel.streamUrl.trim().lowercase()
+            val nameKey = "${channel.number}:${channel.name.trim().lowercase()}"
+            val urlUnique = urlKey.isBlank() || seenUrls.add(urlKey)
+            val nameUnique = seenNames.add(nameKey)
+            urlUnique && nameUnique
         }
-        seriesShows.forEach { show ->
-            val providerKey = "xtream:series:$playlistId:${show.id}"
-            upsertTmdbEnrichmentIfNeeded(
-                providerKey = providerKey,
-                normalizedTitle = normalizeTitle(show.name),
-                title = show.name,
-                maybeYear = parseYear(show.name),
-                isTv = true
-            )
-        }
-    }
-
-    private suspend fun upsertTmdbEnrichmentIfNeeded(
-        providerKey: String,
-        normalizedTitle: String,
-        title: String,
-        maybeYear: Int?,
-        isTv: Boolean
-    ) {
-        val existing = titleEnrichmentDao.get(providerKey)
-        if (existing?.tmdbId != null) return
-        val enrichment = runCatching {
-            if (isTv) tmdbService.enrichTvFromTitle(title, maybeYear)
-            else tmdbService.enrichMovieFromTitle(title, maybeYear)
-        }.getOrNull() ?: return
-
-        titleEnrichmentDao.upsert(
-            mapEnrichmentEntity(
-                providerKey = providerKey,
-                normalizedTitle = normalizedTitle,
-                releaseYear = maybeYear,
-                enrichment = enrichment,
-                prior = existing
-            )
-        )
-    }
-
-    private fun mapEnrichmentEntity(
-        providerKey: String,
-        normalizedTitle: String,
-        releaseYear: Int?,
-        enrichment: TmdbEnrichment,
-        prior: TitleEnrichmentEntity?
-    ): TitleEnrichmentEntity {
-        return TitleEnrichmentEntity(
-            providerKey = providerKey,
-            normalizedTitle = normalizedTitle,
-            releaseYear = releaseYear,
-            tmdbId = enrichment.tmdbId,
-            imdbId = enrichment.imdbId,
-            mediaType = enrichment.mediaType,
-            title = enrichment.title,
-            overview = enrichment.overview,
-            tagline = enrichment.tagline,
-            releaseDate = enrichment.releaseDate,
-            runtimeMinutes = enrichment.runtimeMinutes,
-            cast = enrichment.cast,
-            directors = enrichment.directors,
-            writers = enrichment.writers,
-            rating = enrichment.voteAverage,
-            voteCount = enrichment.voteCount,
-            popularity = enrichment.popularity,
-            posterUrl = enrichment.posterUrl,
-            backdropUrl = enrichment.backdropUrl,
-            genres = enrichment.genres,
-            keywords = enrichment.keywords,
-            spokenLanguages = enrichment.spokenLanguages,
-            originCountry = enrichment.originCountry,
-            status = enrichment.status,
-            ageCertification = enrichment.ageCertification,
-            numberOfSeasons = enrichment.numberOfSeasons,
-            numberOfEpisodes = enrichment.numberOfEpisodes,
-            episodeRunTime = enrichment.episodeRunTime,
-            contentVector = prior?.contentVector,
-            updatedAt = System.currentTimeMillis()
-        )
-    }
-
-    private fun normalizeTitle(value: String): String =
-        value.trim().lowercase().replace(Regex("[^a-z0-9 ]"), "").replace(Regex("\\s+"), " ")
-
-    private fun parseYear(value: String): Int? {
-        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
-        return match.value.toIntOrNull()
     }
 
     private fun mapChannelsWithPlaylists(
@@ -690,7 +598,7 @@ class IptvRepositoryImpl @Inject constructor(
             throw IllegalStateException("No channels in playlist")
         }
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(parsed.channels.map { it.copy(playlistId = playlistId) })
+        channelDao.insertAll(deduplicateChannels(parsed.channels.map { it.copy(playlistId = playlistId) }))
         secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
     }
 
@@ -769,7 +677,7 @@ class IptvRepositoryImpl @Inject constructor(
         }
 
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(liveChannels)
+        channelDao.insertAll(deduplicateChannels(liveChannels))
         val parsedVod = xtreamParser.parseVod(vodRaw, username, password, normalizedServer, playlistId)
         val parsedSeries = xtreamParser.parseSeries(seriesRaw, playlistId)
         vodCacheByPlaylist.update { current ->
@@ -781,7 +689,6 @@ class IptvRepositoryImpl @Inject constructor(
         seriesCacheByPlaylist.update { current ->
             current + (playlistId to parsedSeries)
         }
-        enrichVodAndSeriesTitles(playlistId, parsedVod, parsedSeries)
         clearSeriesSeasonsForPlaylist(playlistId)
 
         val existing = playlistDao.getById(playlistId) ?: throw IllegalStateException("Playlist not found")
@@ -885,7 +792,7 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.saveStalkerCredentials(playlistId, session.portalBase, normalizedMac)
         val channels = stalkerPortalClient.fetchChannels(session, playlistId)
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(channels)
+        channelDao.insertAll(deduplicateChannels(channels))
         epgScheduler.runResolverForNewChannels(startedAt)
         return playlistId
     }
@@ -896,7 +803,7 @@ class IptvRepositoryImpl @Inject constructor(
             val playlistId = playlistDao.insert(PlaylistEntity(name = name, url = "local://$name", epgUrl = epgUrl, refreshIntervalHours = refreshHours, isLocalFile = true, type = PlaylistType.M3U.name))
             val final = m3uParser.parseAsFlow(playlistId, content).first { it.done }
             channelDao.clearByPlaylist(playlistId)
-            channelDao.insertAll(final.channels)
+            channelDao.insertAll(deduplicateChannels(final.channels))
             epgScheduler.runResolverForNewChannels(startedAt)
         }
 
@@ -1026,7 +933,6 @@ class IptvRepositoryImpl @Inject constructor(
                     seriesCacheByPlaylist.update { current ->
                         current + (playlist.id to parsedSeries)
                     }
-                    enrichVodAndSeriesTitles(playlist.id, parsedVod, parsedSeries)
                     clearSeriesSeasonsForPlaylist(playlist.id)
                 }
             }
