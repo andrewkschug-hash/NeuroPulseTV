@@ -547,9 +547,7 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         _epgLoading.value = true
-        val epgIds = withContext(Dispatchers.IO) {
-            channelDao.allDistinctEpgIds()
-        }
+        val epgIds = repository.allDistinctEpgIds()
         if (epgIds.isEmpty()) {
             _epgPrograms.value = emptyList()
             _epgLoading.value = false

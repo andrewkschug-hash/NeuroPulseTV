@@ -554,6 +554,10 @@ class IptvRepositoryImpl @Inject constructor(
             loaded
         }
 
+    override suspend fun allDistinctEpgIds(): List<String> = withContext(Dispatchers.IO) {
+        channelDao.allDistinctEpgIds()
+    }
+
     override fun epgDataRevision(): Flow<Long> = _epgDataRevision.asStateFlow()
 
     override fun profiles(): Flow<List<UserProfile>> = profileDao.observeProfiles().map { rows ->
