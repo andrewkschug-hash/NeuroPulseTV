@@ -24,7 +24,10 @@ class AppHttpClient @Inject constructor() {
     private fun buildClient(settings: AppSettings): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .dns(IptvDns)
-            .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+            .addInterceptor(
+                HttpLoggingInterceptor(createSafeHttpLogger())
+                    .apply { level = HttpLoggingInterceptor.Level.BASIC }
+            )
             .connectTimeout(settings.connectionTimeoutSeconds.toLong(), TimeUnit.SECONDS)
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)

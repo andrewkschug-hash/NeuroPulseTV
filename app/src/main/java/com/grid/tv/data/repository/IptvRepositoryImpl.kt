@@ -129,6 +129,7 @@ class IptvRepositoryImpl @Inject constructor(
     companion object {
         private const val CONNECT_ERROR = "Login or URL invalid"
         private const val IPTV_REPO_LOG_TAG = "IptvRepository"
+        private const val CHANNEL_INSERT_CHUNK = 400
     }
 
     private val recommendationEngine = RecommendationEngine()
@@ -580,25 +581,25 @@ class IptvRepositoryImpl @Inject constructor(
             if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
                 return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
             }
-            val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-            val authRaw = remoteTextFetcher.fetch(authUrl)
-            if (!xtreamParser.isAuthSuccessful(authRaw)) {
-                return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
-            }
-            val auth = xtreamParser.parseAuth(authRaw)
-            if (auth.status.equals("Expired", ignoreCase = true)) {
-                return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
-            }
             val playlistId = insertXtreamPlaylist(displayName, serverUrl, username, password, null, 24)
             val count = channelDao.countByPlaylist(playlistId)
             if (count == 0) {
                 playlistDao.delete(playlistId)
                 secureCredentialStore.removePlaylistCredentials(playlistId)
-                return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
+                return@withContext PlaylistConnectResult(
+                    false,
+                    displayName,
+                    errorMessage = "Provider returned no live channels"
+                )
             }
             PlaylistConnectResult(true, displayName, count)
-        } catch (_: Exception) {
-            PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
+        } catch (e: Exception) {
+            Log.e(IPTV_REPO_LOG_TAG, "Xtream connect failed", e)
+            PlaylistConnectResult(
+                false,
+                displayName,
+                errorMessage = e.message?.takeIf { it.isNotBlank() } ?: CONNECT_ERROR
+            )
         }
     }
 
@@ -684,35 +685,47 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun importXtreamCatalog(
         playlistId: Long,
-        serverUrl: String,
+        normalizedServer: String,
         username: String,
-        password: String
+        password: String,
+        auth: XtreamParser.AuthPayload
     ): PlaylistEntity {
-        val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-        val authRaw = remoteTextFetcher.fetch(authUrl)
-        if (!xtreamParser.isAuthSuccessful(authRaw)) {
-            throw IllegalStateException(CONNECT_ERROR)
-        }
-        val auth = xtreamParser.parseAuth(authRaw)
-        val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
-
+        Log.i(IPTV_REPO_LOG_TAG, "Fetching Xtream live catalog from $normalizedServer")
         val categoriesRaw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories")
         )
         val liveRaw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams")
         )
+        Log.i(IPTV_REPO_LOG_TAG, "Live streams payload: ${liveRaw.length} bytes")
 
-        val categories = xtreamParser.parseLiveCategories(categoriesRaw)
-        val liveChannels = xtreamParser.parseLiveChannels(
-            playlistId, liveRaw, username, password, normalizedServer, categories
-        )
-        if (liveChannels.isEmpty()) {
-            throw IllegalStateException(CONNECT_ERROR)
+        val categories = withContext(Dispatchers.Default) {
+            xtreamParser.parseLiveCategories(categoriesRaw)
+        }
+        val liveChannels = withContext(Dispatchers.Default) {
+            xtreamParser.parseLiveChannels(
+                playlistId, liveRaw, username, password, normalizedServer, categories
+            )
+        }
+        val uniqueChannels = deduplicateChannels(liveChannels)
+        Log.i(IPTV_REPO_LOG_TAG, "Parsed ${uniqueChannels.size} live channels (${categories.size} categories)")
+
+        if (uniqueChannels.isEmpty()) {
+            val preview = liveRaw.trim().take(240)
+            Log.e(IPTV_REPO_LOG_TAG, "No live channels parsed. Response preview: $preview")
+            throw IllegalStateException(
+                if (liveRaw.trimStart().startsWith("[")) {
+                    "Provider returned an empty live channel list"
+                } else {
+                    "Unexpected live streams response from provider"
+                }
+            )
         }
 
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(deduplicateChannels(liveChannels))
+        uniqueChannels.chunked(CHANNEL_INSERT_CHUNK).forEach { chunk ->
+            channelDao.insertAll(chunk)
+        }
         clearSeriesSeasonsForPlaylist(playlistId)
         vodCacheByPlaylist.update { it - playlistId }
         vodCategoriesByPlaylist.update { it - playlistId }
@@ -744,6 +757,9 @@ class IptvRepositoryImpl @Inject constructor(
             throw IllegalStateException(CONNECT_ERROR)
         }
         val auth = xtreamParser.parseAuth(authRaw)
+        if (auth.status.equals("Expired", ignoreCase = true)) {
+            throw IllegalStateException("Xtream account is expired")
+        }
         val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
 
         val playlistId = playlistDao.insert(
@@ -763,7 +779,7 @@ class IptvRepositoryImpl @Inject constructor(
         )
         secureCredentialStore.saveXtreamPassword(playlistId, password)
         try {
-            importXtreamCatalog(playlistId, serverUrl, username, password)
+            importXtreamCatalog(playlistId, normalizedServer, username, password, auth)
         } catch (e: Exception) {
             playlistDao.delete(playlistId)
             secureCredentialStore.removePlaylistCredentials(playlistId)
@@ -788,7 +804,16 @@ class IptvRepositoryImpl @Inject constructor(
         val existing = playlistDao.getById(playlistId)
             ?: throw IllegalArgumentException("Playlist not found")
         val startedAt = System.currentTimeMillis()
-        val updatedMeta = importXtreamCatalog(playlistId, serverUrl, username, password)
+        val authRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(serverUrl, username, password))
+        if (!xtreamParser.isAuthSuccessful(authRaw)) {
+            throw IllegalStateException(CONNECT_ERROR)
+        }
+        val auth = xtreamParser.parseAuth(authRaw)
+        if (auth.status.equals("Expired", ignoreCase = true)) {
+            throw IllegalStateException("Xtream account is expired")
+        }
+        val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
+        val updatedMeta = importXtreamCatalog(playlistId, normalizedServer, username, password, auth)
         secureCredentialStore.saveXtreamPassword(playlistId, password)
         playlistDao.update(
             updatedMeta.copy(
