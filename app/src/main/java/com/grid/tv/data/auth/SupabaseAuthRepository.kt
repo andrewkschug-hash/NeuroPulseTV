@@ -17,11 +17,18 @@ import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
 class SupabaseAuthRepository @Inject constructor(
-    private val supabaseClientProvider: SupabaseClientProvider
+    private val supabaseClientProvider: SupabaseClientProvider,
+    private val authPreferences: AuthPreferences
 ) : AuthRepository {
 
     private val client get() = supabaseClientProvider.client
     private val auth get() = client.auth
+
+    override fun hasSkippedSignIn(): Boolean = authPreferences.hasSkippedSignIn()
+
+    override fun setSkippedSignIn(skipped: Boolean) {
+        authPreferences.setSkippedSignIn(skipped)
+    }
 
     override val authState: Flow<Boolean> =
         auth.sessionStatus.map { status ->
@@ -62,6 +69,7 @@ class SupabaseAuthRepository @Inject constructor(
 
     override suspend fun signOut() {
         auth.signOut()
+        authPreferences.setSkippedSignIn(false)
     }
 
     private fun io.github.jan.supabase.auth.user.UserInfo.toAuthAccount(): AuthAccount {

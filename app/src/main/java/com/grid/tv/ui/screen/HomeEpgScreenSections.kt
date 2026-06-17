@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grid.tv.data.db.entity.ScheduledRecordingEntity
+import com.grid.tv.domain.epg.EpgProgramReplayState
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.feature.epg.ChannelCategoryFilter
 import com.grid.tv.domain.model.ContinueWatchingItem
@@ -46,6 +47,7 @@ import com.grid.tv.ui.component.EpgProgramCell
 import com.grid.tv.ui.component.EpgTimelineHeader
 import com.grid.tv.ui.component.formatEpgDay
 import com.grid.tv.ui.component.formatLastChecked
+import com.grid.tv.ui.platform.LocalDeviceFormFactor
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
@@ -86,6 +88,7 @@ internal fun HomeEpgPreviewSection(
     previewFocused: Boolean,
     attachSurface: Boolean,
     isFavorite: Boolean,
+    primaryActionLabel: String = "Watch Live",
     onWatch: () -> Unit,
     onFavorite: () -> Unit,
     onRecord: () -> Unit,
@@ -105,6 +108,7 @@ internal fun HomeEpgPreviewSection(
         isFavorite = isFavorite,
         previewFocused = previewFocused,
         attachSurface = attachSurface,
+        primaryActionLabel = primaryActionLabel,
         onWatch = onWatch,
         onFavorite = onFavorite,
         onRecord = onRecord,
@@ -142,8 +146,14 @@ internal fun HomeEpgChannelList(
     scheduled: List<ScheduledRecordingEntity>,
     timelineWidth: Dp,
     scrolledAwayFromLive: Boolean,
-    onJumpToLive: () -> Unit
+    onJumpToLive: () -> Unit,
+    onChannelClick: (Int, Channel) -> Unit = { _, _ -> },
+    onProgramClick: (Int, Int, Program) -> Unit = { _, _, _ -> },
+    replayStateFor: (Channel, Program) -> EpgProgramReplayState = { _, _ ->
+        EpgProgramReplayState(0, com.grid.tv.ui.component.ProgramTimeState.FUTURE, com.grid.tv.domain.epg.EpgProgramAction.NONE, false, null)
+    }
 ) {
+    val touchGesturesEnabled = LocalDeviceFormFactor.current.enableTouchGestures
     Box(
         modifier = modifier
     ) {
@@ -194,7 +204,7 @@ internal fun HomeEpgChannelList(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .horizontalScroll(hScroll, enabled = false)
+                                .horizontalScroll(hScroll, enabled = touchGesturesEnabled)
                         ) {
                             EpgTimelineHeader(
                                 windowStart = windowStart,
@@ -228,6 +238,11 @@ internal fun HomeEpgChannelList(
                                             channelScanStatuses[channel.id]?.lastCheckedAt,
                                             now
                                         ),
+                                        onClick = if (touchGesturesEnabled) {
+                                            { onChannelClick(index, channel) }
+                                        } else {
+                                            null
+                                        },
                                         modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
                                     )
                                     EpgChannelTimelineRow(
@@ -243,8 +258,14 @@ internal fun HomeEpgChannelList(
                                         isRowFocused = gridFocused && index == focusChannelIndex,
                                         confirmedProgramId = confirmedProgramId,
                                         scheduled = scheduled,
-                                        hScrollModifier = Modifier.horizontalScroll(hScroll, enabled = false),
-                                        timelineWidth = timelineWidth
+                                        hScrollModifier = Modifier.horizontalScroll(
+                                            hScroll,
+                                            enabled = touchGesturesEnabled
+                                        ),
+                                        timelineWidth = timelineWidth,
+                                        touchGesturesEnabled = touchGesturesEnabled,
+                                        onProgramClick = onProgramClick,
+                                        replayStateFor = replayStateFor
                                     )
                                 }
                             }
@@ -293,7 +314,10 @@ private fun EpgChannelTimelineRow(
     confirmedProgramId: Long?,
     scheduled: List<ScheduledRecordingEntity>,
     hScrollModifier: Modifier,
-    timelineWidth: Dp
+    timelineWidth: Dp,
+    touchGesturesEnabled: Boolean = false,
+    onProgramClick: (Int, Int, Program) -> Unit = { _, _, _ -> },
+    replayStateFor: (Channel, Program) -> EpgProgramReplayState
 ) {
     Box(
         modifier = hScrollModifier
@@ -319,9 +343,9 @@ private fun EpgChannelTimelineRow(
             }
             val title = buildString {
                 if (hasRec) append("REC ")
-                if (program.catchupUrl != null && program.endTime < now) append("⏪ ")
                 append(program.title)
             }
+            val replayState = replayStateFor(channel, program)
 
             EpgProgramCell(
                 program = program.copy(title = title),
@@ -329,6 +353,13 @@ private fun EpgChannelTimelineRow(
                 now = now,
                 isFocused = isFocused,
                 isSelected = isSelected,
+                canReplay = replayState.canReplay,
+                isFuture = replayState.timeState == com.grid.tv.ui.component.ProgramTimeState.FUTURE,
+                onClick = if (touchGesturesEnabled) {
+                    { onProgramClick(channelIndex, programIndex, program) }
+                } else {
+                    null
+                },
                 modifier = Modifier.offset(x = offset)
             )
         }

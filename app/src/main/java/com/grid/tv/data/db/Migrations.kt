@@ -4,6 +4,108 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DbMigrations {
+    val MIGRATION_23_24 = object : Migration(23, 24) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN subtitlePosition TEXT NOT NULL DEFAULT 'BOTTOM'"
+            )
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN subtitleDelayMs INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
+
+    val MIGRATION_22_23 = object : Migration(22, 23) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE channels ADD COLUMN backupStreamUrl2 TEXT")
+            db.execSQL("ALTER TABLE channels ADD COLUMN backupStreamUrl3 TEXT")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS stream_failover_stats (
+                    channelId INTEGER NOT NULL PRIMARY KEY,
+                    failoverCount INTEGER NOT NULL DEFAULT 0,
+                    successfulRecoveryCount INTEGER NOT NULL DEFAULT 0,
+                    lastFailoverAt INTEGER NOT NULL DEFAULT 0,
+                    lastRecoveryAt INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_21_22 = object : Migration(21, 22) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS canonical_channels (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    canonicalName TEXT NOT NULL,
+                    country TEXT NOT NULL,
+                    epgId TEXT NOT NULL,
+                    logoUrl TEXT,
+                    category TEXT,
+                    aliases TEXT NOT NULL,
+                    normalizedName TEXT NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_canonical_channels_normalizedName ON canonical_channels(normalizedName)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_canonical_channels_epgId ON canonical_channels(epgId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_canonical_channels_country ON canonical_channels(country)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS epg_learned_mappings (
+                    normalizedOriginalName TEXT NOT NULL PRIMARY KEY,
+                    originalNameSample TEXT NOT NULL,
+                    epgId TEXT NOT NULL,
+                    epgDisplayName TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    learnedAt INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_learned_mappings_epgId ON epg_learned_mappings(epgId)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS epg_match_analytics (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    totalAttempts INTEGER NOT NULL DEFAULT 0,
+                    autoMatched INTEGER NOT NULL DEFAULT 0,
+                    suggested INTEGER NOT NULL DEFAULT 0,
+                    manualCorrections INTEGER NOT NULL DEFAULT 0,
+                    unmatched INTEGER NOT NULL DEFAULT 0,
+                    tvgIdMatches INTEGER NOT NULL DEFAULT 0,
+                    learnedMatches INTEGER NOT NULL DEFAULT 0,
+                    canonicalMatches INTEGER NOT NULL DEFAULT 0,
+                    exactNameMatches INTEGER NOT NULL DEFAULT 0,
+                    fuzzyMatches INTEGER NOT NULL DEFAULT 0,
+                    lastUpdatedAt INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "INSERT OR IGNORE INTO epg_match_analytics (id) VALUES (1)"
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS epg_alias_hits (
+                    normalizedAlias TEXT NOT NULL PRIMARY KEY,
+                    originalNameSample TEXT NOT NULL,
+                    hitCount INTEGER NOT NULL DEFAULT 1,
+                    lastSeenAt INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                "ALTER TABLE epg_resolution_suggestions ADD COLUMN matchReason TEXT NOT NULL DEFAULT 'FUZZY'"
+            )
+        }
+    }
+
     val MIGRATION_20_21 = object : Migration(20, 21) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(

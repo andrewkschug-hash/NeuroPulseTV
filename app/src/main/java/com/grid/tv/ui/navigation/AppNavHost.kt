@@ -442,7 +442,11 @@ fun AppNavHost(
                     resume = (it.arguments?.getInt("resume") ?: 0) == 1,
                     title = android.net.Uri.decode(it.arguments?.getString("title") ?: "Video"),
                     url = android.net.Uri.decode(it.arguments?.getString("url") ?: ""),
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onJumpToLive = { channelId ->
+                        navController.popBackStack()
+                        navController.navigate(Routes.Player.build(channelId))
+                    }
                 )
             }
         }

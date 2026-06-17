@@ -16,6 +16,7 @@ import androidx.tv.material3.ClickableSurfaceScale
 import androidx.tv.material3.ClickableSurfaceShape
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
+import com.grid.tv.ui.platform.touchTarget
 import com.grid.tv.ui.theme.EpgColors
 
 object TvFocusDefaults {
@@ -60,7 +61,7 @@ fun GridFocusSurface(
 ) {
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.touchTarget(),
         enabled = enabled,
         shape = shape,
         colors = colors,

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,32 +20,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.BuildConfig
 import com.grid.tv.ui.component.GridBrandWordmark
-import com.grid.tv.ui.component.GridFocusSurface
+import com.grid.tv.ui.component.GridOutlinedButton
+import com.grid.tv.ui.component.GoogleSignInBlock
 import com.grid.tv.ui.component.ScreenBackHandler
-import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
-import com.grid.tv.ui.component.tvFocusBorder
+import com.grid.tv.ui.component.SkipSignInDialog
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthUiState
 import com.grid.tv.ui.viewmodel.AuthViewModel
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.compose.auth.composeAuth
-import io.github.jan.supabase.compose.auth.composable.NativeSignInResult
-import io.github.jan.supabase.compose.auth.composable.rememberSignInWithGoogle
 
 @Composable
 fun LoginScreen(
@@ -57,35 +49,24 @@ fun LoginScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val googleButtonFocus = remember { FocusRequester() }
     val googleConfigured = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
-
-    val googleSignIn = supabaseClient.composeAuth.rememberSignInWithGoogle(
-        onResult = { result ->
-            when (result) {
-                NativeSignInResult.ClosedByUser -> viewModel.onGoogleSignInCancelled()
-                is NativeSignInResult.Error -> viewModel.onGoogleSignInFailed(
-                    result.message ?: "Google sign-in failed. Please try again."
-                )
-                is NativeSignInResult.NetworkError -> viewModel.onGoogleSignInFailed(
-                    "Network error during sign-in. Check your connection and try again."
-                )
-                is NativeSignInResult.Success -> viewModel.onGoogleSignInSuccess()
-            }
-        }
-    )
+    var showSkipDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState) {
-        if (uiState is AuthUiState.Authenticated) {
+        if (uiState is AuthUiState.Authenticated || uiState is AuthUiState.Guest) {
             onAuthenticated()
         }
     }
 
-    LaunchedEffect(Unit) {
-        googleButtonFocus.requestFocusSafelyAfterLayout()
-    }
-
     ScreenBackHandler(
         onNavigateBack = { },
-        onBackPressed = { true }
+        onBackPressed = {
+            if (showSkipDialog) {
+                showSkipDialog = false
+                true
+            } else {
+                true
+            }
+        }
     )
 
     Box(
@@ -117,7 +98,7 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "Sign in to start watching",
+                text = "Sign in to sync across devices",
                 color = EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 18.sp,
@@ -151,8 +132,6 @@ fun LoginScreen(
                 }
 
                 is AuthUiState.Unauthenticated, is AuthUiState.Error -> {
-                    var focused by remember { mutableStateOf(false) }
-
                     if (!googleConfigured) {
                         Text(
                             text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
@@ -160,20 +139,27 @@ fun LoginScreen(
                             fontFamily = DmSansFamily,
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            modifier = Modifier
+                                .fillMaxWidth(0.7f)
+                                .padding(bottom = 16.dp)
                         )
                     }
 
-                    GoogleSignInButton(
-                        enabled = googleConfigured,
-                        focused = focused,
-                        onFocused = { focused = it },
+                    GoogleSignInBlock(
+                        supabaseClient = supabaseClient,
+                        viewModel = viewModel,
+                        fillMaxWidthFraction = 0.42f,
                         focusRequester = googleButtonFocus,
-                        onClick = {
-                            viewModel.clearError()
-                            viewModel.onGoogleSignInStarted()
-                            googleSignIn.startFlow()
-                        }
+                        requestInitialFocus = true,
+                        enabled = googleConfigured
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    GridOutlinedButton(
+                        text = "Skip for now",
+                        onClick = { showSkipDialog = true },
+                        modifier = Modifier.fillMaxWidth(0.42f)
                     )
 
                     if (state is AuthUiState.Error) {
@@ -189,47 +175,17 @@ fun LoginScreen(
                     }
                 }
 
-                is AuthUiState.Authenticated -> Unit
+                is AuthUiState.Authenticated, is AuthUiState.Guest -> Unit
             }
         }
-    }
-}
 
-@Composable
-private fun GoogleSignInButton(
-    enabled: Boolean,
-    focused: Boolean,
-    onFocused: (Boolean) -> Unit,
-    focusRequester: FocusRequester,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(10.dp)
-    GridFocusSurface(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier
-            .fillMaxWidth(0.42f)
-            .height(56.dp)
-            .focusRequester(focusRequester)
-            .onFocusChanged { onFocused(it.isFocused) }
-            .tvFocusBorder(focused = focused, shape = shape),
-        shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF1C1C28),
-            focusedContainerColor = Color(0xFF242433),
-            disabledContainerColor = Color(0xFF14141C)
-        )
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Continue with Google",
-                color = if (enabled) Color.White else EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold
+        if (showSkipDialog) {
+            SkipSignInDialog(
+                onDismiss = { showSkipDialog = false },
+                onConfirm = {
+                    showSkipDialog = false
+                    viewModel.confirmSkipForNow()
+                }
             )
         }
     }

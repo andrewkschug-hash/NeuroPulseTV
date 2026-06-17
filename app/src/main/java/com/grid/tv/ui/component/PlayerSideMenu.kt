@@ -43,39 +43,37 @@ import com.grid.tv.domain.model.Channel
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-enum class PlayerSideMenuSection { CHANNELS, FAVORITES, ACTIONS }
+enum class PlayerSideMenuSection { WATCH_HISTORY, FAVORITES, ACTIONS }
 
 sealed interface PlayerSideMenuFocusTarget {
-    data object ChannelsHeader : PlayerSideMenuFocusTarget
-    data class NearbyChannel(val index: Int) : PlayerSideMenuFocusTarget
-    data object BrowseAll : PlayerSideMenuFocusTarget
+    data object WatchHistoryHeader : PlayerSideMenuFocusTarget
+    data class RecentChannel(val index: Int) : PlayerSideMenuFocusTarget
     data object FavoritesHeader : PlayerSideMenuFocusTarget
     data class FavoriteChannel(val index: Int) : PlayerSideMenuFocusTarget
     data class Action(val index: Int) : PlayerSideMenuFocusTarget
 }
 
 data class PlayerSideMenuFocusState(
-    val channelsHeader: Boolean = false,
-    val nearbyChannelIndex: Int? = null,
-    val browseAll: Boolean = false,
+    val watchHistoryHeader: Boolean = false,
+    val recentChannelIndex: Int? = null,
     val favoritesHeader: Boolean = false,
     val favoriteChannelIndex: Int? = null,
     val actionIndex: Int? = null
 )
 
+const val PlayerSideMenuMaxWatchHistory = 5
 const val PlayerSideMenuMaxFavorites = 8
 
 fun buildPlayerSideMenuFocusOrder(
-    nearbyChannelCount: Int,
+    recentChannelCount: Int,
     favoriteChannelCount: Int,
     actionCount: Int,
-    channelsExpanded: Boolean,
+    watchHistoryExpanded: Boolean,
     favoritesExpanded: Boolean
 ): List<PlayerSideMenuFocusTarget> = buildList {
-    add(PlayerSideMenuFocusTarget.ChannelsHeader)
-    if (channelsExpanded) {
-        for (i in 0 until nearbyChannelCount) add(PlayerSideMenuFocusTarget.NearbyChannel(i))
-        add(PlayerSideMenuFocusTarget.BrowseAll)
+    add(PlayerSideMenuFocusTarget.WatchHistoryHeader)
+    if (watchHistoryExpanded) {
+        for (i in 0 until recentChannelCount) add(PlayerSideMenuFocusTarget.RecentChannel(i))
     }
     add(PlayerSideMenuFocusTarget.FavoritesHeader)
     if (favoritesExpanded) {
@@ -86,12 +84,10 @@ fun buildPlayerSideMenuFocusOrder(
 
 fun playerSideMenuFocusState(target: PlayerSideMenuFocusTarget?): PlayerSideMenuFocusState =
     when (target) {
-        PlayerSideMenuFocusTarget.ChannelsHeader ->
-            PlayerSideMenuFocusState(channelsHeader = true)
-        is PlayerSideMenuFocusTarget.NearbyChannel ->
-            PlayerSideMenuFocusState(nearbyChannelIndex = target.index)
-        PlayerSideMenuFocusTarget.BrowseAll ->
-            PlayerSideMenuFocusState(browseAll = true)
+        PlayerSideMenuFocusTarget.WatchHistoryHeader ->
+            PlayerSideMenuFocusState(watchHistoryHeader = true)
+        is PlayerSideMenuFocusTarget.RecentChannel ->
+            PlayerSideMenuFocusState(recentChannelIndex = target.index)
         PlayerSideMenuFocusTarget.FavoritesHeader ->
             PlayerSideMenuFocusState(favoritesHeader = true)
         is PlayerSideMenuFocusTarget.FavoriteChannel ->
@@ -102,9 +98,8 @@ fun playerSideMenuFocusState(target: PlayerSideMenuFocusTarget?): PlayerSideMenu
     }
 
 fun playerSideMenuFocusSection(target: PlayerSideMenuFocusTarget): PlayerSideMenuSection = when (target) {
-    PlayerSideMenuFocusTarget.ChannelsHeader,
-    is PlayerSideMenuFocusTarget.NearbyChannel,
-    PlayerSideMenuFocusTarget.BrowseAll -> PlayerSideMenuSection.CHANNELS
+    PlayerSideMenuFocusTarget.WatchHistoryHeader,
+    is PlayerSideMenuFocusTarget.RecentChannel -> PlayerSideMenuSection.WATCH_HISTORY
     PlayerSideMenuFocusTarget.FavoritesHeader, is PlayerSideMenuFocusTarget.FavoriteChannel ->
         PlayerSideMenuSection.FAVORITES
     is PlayerSideMenuFocusTarget.Action -> PlayerSideMenuSection.ACTIONS
@@ -123,46 +118,46 @@ private val PanelWidth = 320.dp
 @Composable
 fun PlayerSideMenu(
     visible: Boolean,
-    channels: List<Channel>,
+    watchHistoryChannels: List<Channel>,
     favoriteChannels: List<Channel>,
     actions: List<PlayerSideMenuAction>,
     currentChannelId: Long?,
     focusState: PlayerSideMenuFocusState,
-    channelsExpanded: Boolean,
+    watchHistoryExpanded: Boolean,
     favoritesExpanded: Boolean,
     flashingSection: PlayerSideMenuSection? = null,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     val favoritesShown = favoriteChannels.take(PlayerSideMenuMaxFavorites)
+    val historyShown = watchHistoryChannels.take(PlayerSideMenuMaxWatchHistory)
     val density = LocalDensity.current
 
     LaunchedEffect(
         focusState,
         visible,
-        channelsExpanded,
+        watchHistoryExpanded,
         favoritesExpanded,
-        channels.size,
+        historyShown.size,
         favoritesShown.size
     ) {
         if (!visible) return@LaunchedEffect
         val rowPx = with(density) { 42.dp.roundToPx() }
         val headerPx = with(density) { 36.dp.roundToPx() }
         val dividerPx = with(density) { 22.dp.roundToPx() }
-        val channelsBlockPx = headerPx + dividerPx +
-            if (channelsExpanded) channels.size * rowPx + headerPx else 0
+        val historyBlockPx = headerPx + dividerPx +
+            if (watchHistoryExpanded) historyShown.size * rowPx else 0
 
         val target = when {
             focusState.actionIndex != null -> scrollState.maxValue
             focusState.favoriteChannelIndex != null -> {
-                channelsBlockPx + headerPx + focusState.favoriteChannelIndex * rowPx
+                historyBlockPx + headerPx + focusState.favoriteChannelIndex * rowPx
             }
-            focusState.favoritesHeader -> channelsBlockPx
-            focusState.browseAll -> headerPx + channels.size * rowPx
-            focusState.nearbyChannelIndex != null -> {
-                headerPx + focusState.nearbyChannelIndex * rowPx
+            focusState.favoritesHeader -> historyBlockPx
+            focusState.recentChannelIndex != null -> {
+                headerPx + focusState.recentChannelIndex * rowPx
             }
-            focusState.channelsHeader -> 0
+            focusState.watchHistoryHeader -> 0
             else -> 0
         }.coerceIn(0, scrollState.maxValue)
         scrollState.scrollTo(target)
@@ -208,36 +203,44 @@ fun PlayerSideMenu(
                             .verticalScroll(scrollState)
                     ) {
                         CollapsibleSectionHeader(
-                            title = "Channels",
-                            icon = null,
-                            expanded = channelsExpanded,
-                            focused = focusState.channelsHeader,
-                            section = PlayerSideMenuSection.CHANNELS,
+                            title = "Watch History",
+                            icon = "🕐",
+                            expanded = watchHistoryExpanded,
+                            focused = focusState.watchHistoryHeader,
+                            section = PlayerSideMenuSection.WATCH_HISTORY,
                             flashingSection = flashingSection,
                             activeSection = when {
-                                focusState.channelsHeader ||
-                                    focusState.nearbyChannelIndex != null ||
-                                    focusState.browseAll ->
-                                    PlayerSideMenuSection.CHANNELS
+                                focusState.watchHistoryHeader ||
+                                    focusState.recentChannelIndex != null ->
+                                    PlayerSideMenuSection.WATCH_HISTORY
                                 else -> null
                             }
                         )
                         AnimatedVisibility(
-                            visible = channelsExpanded,
+                            visible = watchHistoryExpanded,
                             enter = fadeIn(tween(200)) + expandVertically(tween(200)),
                             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
                         ) {
                             Column {
-                                channels.forEachIndexed { index, channel ->
-                                    ChannelRow(
-                                        channel = channel,
-                                        focused = focusState.nearbyChannelIndex == index,
-                                        selected = channel.id == currentChannelId,
-                                        showLiveDot = false,
-                                        pinnedCurrent = channel.id == currentChannelId
+                                if (historyShown.isEmpty()) {
+                                    Text(
+                                        text = "No recent channels yet",
+                                        color = EpgColors.TextDimmed,
+                                        fontFamily = DmSansFamily,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                                     )
+                                } else {
+                                    historyShown.forEachIndexed { index, channel ->
+                                        ChannelRow(
+                                            channel = channel,
+                                            focused = focusState.recentChannelIndex == index,
+                                            selected = channel.id == currentChannelId,
+                                            showLiveDot = false,
+                                            pinnedCurrent = channel.id == currentChannelId
+                                        )
+                                    }
                                 }
-                                BrowseAllChannelsRow(focused = focusState.browseAll)
                             }
                         }
                         MenuDivider(
@@ -512,32 +515,6 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun BrowseAllChannelsRow(focused: Boolean) {
-    val bg = if (focused) Color(0xFF1A1A28) else Color.Transparent
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 1.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(bg)
-    ) {
-        Box(
-            modifier = Modifier
-                .width(if (focused) 3.dp else 0.dp)
-                .height(36.dp)
-                .background(if (focused) EpgColors.FocusBorder else Color.Transparent)
-        )
-        Text(
-            text = "↓  Browse all channels",
-            color = if (focused) EpgColors.TextPrimary else EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-        )
-    }
-}
-
-@Composable
 private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
     val stopActive = action.highlightStop
     val bg = when {
@@ -600,18 +577,18 @@ private fun ActionRow(action: PlayerSideMenuAction, focused: Boolean) {
 }
 
 fun visiblePlayerSideMenuSections(): List<PlayerSideMenuSection> = listOf(
-    PlayerSideMenuSection.CHANNELS,
+    PlayerSideMenuSection.WATCH_HISTORY,
     PlayerSideMenuSection.FAVORITES,
     PlayerSideMenuSection.ACTIONS
 )
 
 fun sectionSize(
     section: PlayerSideMenuSection,
-    channelCount: Int,
+    watchHistoryCount: Int,
     favoriteCount: Int,
     actionCount: Int,
 ): Int = when (section) {
-    PlayerSideMenuSection.CHANNELS -> channelCount + 1
+    PlayerSideMenuSection.WATCH_HISTORY -> watchHistoryCount + 1
     PlayerSideMenuSection.FAVORITES -> favoriteCount + 1
     PlayerSideMenuSection.ACTIONS -> actionCount
 }

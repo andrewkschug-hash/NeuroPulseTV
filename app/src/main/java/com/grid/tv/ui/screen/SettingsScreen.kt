@@ -51,6 +51,7 @@ import com.grid.tv.domain.model.EpgRowHeight
 import com.grid.tv.domain.model.MaxContentRating
 import com.grid.tv.domain.model.StreamQuality
 import com.grid.tv.domain.model.SubtitleFontSize
+import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistType
@@ -96,6 +97,11 @@ import com.grid.tv.ui.component.rememberSettingsFocusChain
 import com.grid.tv.ui.component.settingsVerticalFocusRows
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.di.SupabaseEntryPoint
+import dagger.hilt.android.EntryPointAccessors
+import com.grid.tv.ui.component.GoogleSignInBlock
+import com.grid.tv.ui.component.SettingsGoogleSignInButton
+import com.grid.tv.ui.viewmodel.AuthUiState
 import com.grid.tv.ui.viewmodel.AuthViewModel
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
@@ -164,6 +170,8 @@ fun SettingsScreen(
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val scannerRuntime by viewModel.scannerRuntime.collectAsStateWithLifecycle()
+    val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
+    val signedInAccount by authViewModel.signedInAccount.collectAsStateWithLifecycle()
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -720,6 +728,8 @@ fun SettingsScreen(
                             onToggleSubtitles = { viewModel.updateSubtitlesEnabled(!settings.subtitlesEnabled) },
                             onSubtitleLanguage = { viewModel.updateSubtitleLanguage(it) },
                             onSubtitleFontSize = { viewModel.updateSubtitleFontSize(it) },
+                            onSubtitlePosition = { viewModel.updateSubtitlePosition(it) },
+                            onSubtitleDelayMs = { viewModel.updateSubtitleDelayMs(it) },
                             onToggleDeinterlacing = {
                                 viewModel.updateDeinterlacingEnabled(!settings.deinterlacingEnabled)
                             },
@@ -749,10 +759,18 @@ fun SettingsScreen(
                         )
                         SettingsSection.About -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
+                            val supabaseClient = EntryPointAccessors.fromApplication(
+                                context.applicationContext,
+                                SupabaseEntryPoint::class.java
+                            ).supabaseClient()
                             AboutSettingsContent(
                                 importSummary = importSummary,
                                 cacheMessage = cacheMessage,
                                 focus = contentFocus,
+                                isSignedIn = authUiState is AuthUiState.Authenticated,
+                                signedInEmail = signedInAccount?.email ?: signedInAccount?.displayName,
+                                supabaseClient = supabaseClient,
+                                authViewModel = authViewModel,
                                 onSignOut = { authViewModel.signOut(onComplete = onSignOut) },
                                 onExportBackup = { viewModel.exportBackup(context.cacheDir) },
                                 onClearCache = { viewModel.clearCache() },
@@ -1411,7 +1429,7 @@ private fun GuideSettingsContent(
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsFocusButton(text = "Refresh EPG now", onClick = onRefreshEpg, chainIndex = 0, focus = focus)
-            SettingsFocusButton(text = "Auto-match channels", onClick = onOpenEpgResolver, chainIndex = 1, focus = focus)
+            SettingsFocusButton(text = "Fix Missing Guide Data", onClick = onOpenEpgResolver, chainIndex = 1, focus = focus)
         }
     }
     SettingsPanel(
@@ -1550,6 +1568,8 @@ private fun PlaybackSettingsContent(
     onToggleSubtitles: () -> Unit,
     onSubtitleLanguage: (String) -> Unit,
     onSubtitleFontSize: (SubtitleFontSize) -> Unit,
+    onSubtitlePosition: (SubtitlePosition) -> Unit,
+    onSubtitleDelayMs: (Long) -> Unit,
     onToggleDeinterlacing: () -> Unit,
     onAudioLanguage: (String) -> Unit,
     onSleepTimer: (Int) -> Unit,
@@ -1681,12 +1701,47 @@ private fun PlaybackSettingsContent(
             focus = focus,
             onSelect = { index -> onSubtitleFontSize(SubtitleFontSize.entries[index]) }
         )
+        Text(
+            text = "Position",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        SettingsFocusPillGroup(
+            labels = listOf("Bottom", "Middle", "Top"),
+            selectedIndex = SubtitlePosition.entries.indexOf(settings.subtitlePosition).coerceAtLeast(0),
+            startChainIndex = 19,
+            focus = focus,
+            onSelect = { index -> onSubtitlePosition(SubtitlePosition.entries[index]) }
+        )
+        Text(
+            text = "Delay: ${settings.subtitleDelayMs}ms",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SettingsFocusButton(
+                text = "-500ms",
+                onClick = { onSubtitleDelayMs(settings.subtitleDelayMs - 500L) },
+                chainIndex = 20,
+                focus = focus
+            )
+            SettingsFocusButton(
+                text = "+500ms",
+                onClick = { onSubtitleDelayMs(settings.subtitleDelayMs + 500L) },
+                chainIndex = 21,
+                focus = focus
+            )
+        }
         SettingsFocusToggleRow(
             label = "Deinterlacing",
             description = "Convert interlaced video to progressive frames",
             enabled = settings.deinterlacingEnabled,
             onToggle = onToggleDeinterlacing,
-            chainIndex = 21,
+            chainIndex = 22,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -1898,6 +1953,10 @@ private fun AboutSettingsContent(
     importSummary: String?,
     cacheMessage: String?,
     focus: SettingsContentFocus,
+    isSignedIn: Boolean,
+    signedInEmail: String?,
+    supabaseClient: io.github.jan.supabase.SupabaseClient,
+    authViewModel: AuthViewModel,
     onSignOut: () -> Unit,
     onExportBackup: () -> Unit,
     onClearCache: () -> Unit,
@@ -1905,26 +1964,54 @@ private fun AboutSettingsContent(
     onResetApp: () -> Unit
 ) {
     SettingsPanel(
-        title = "GRID",
+        title = "Account",
+        description = if (isSignedIn) {
+            "Your GRID account syncs watch progress and settings across devices."
+        } else {
+            "Sign in to sync watch progress, settings, and profiles across your devices."
+        },
         cardIndex = 0,
+        focus = focus
+    ) {
+        if (isSignedIn) {
+            signedInEmail?.let { label ->
+                Text(
+                    text = label,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+            SettingsFocusButton(
+                text = "Sign out",
+                onClick = onSignOut,
+                chainIndex = 0,
+                focus = focus,
+                destructive = true
+            )
+        } else {
+            SettingsGoogleSignInButton(
+                supabaseClient = supabaseClient,
+                viewModel = authViewModel,
+                chainIndex = 0,
+                focus = focus
+            )
+        }
+    }
+    SettingsPanel(
+        title = "GRID",
+        cardIndex = 1,
         focus = focus
     ) {
         Text("Version ${SettingsViewModel.APP_VERSION}", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
         Text("Live TV Guide for Android TV", color = EpgColors.TextDimmed, fontFamily = DmSansFamily, fontSize = 13.sp)
         SettingsFocusButton(
-            text = "Sign out",
-            onClick = onSignOut,
-            chainIndex = 0,
-            focus = focus,
-            destructive = true,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        SettingsFocusButton(
             text = "Export .grid backup",
             onClick = onExportBackup,
             chainIndex = 1,
             focus = focus,
-            modifier = Modifier.padding(top = 8.dp)
+            modifier = Modifier.padding(top = 12.dp)
         )
         SettingsFocusButton(
             text = "Clear cache",
@@ -1943,7 +2030,7 @@ private fun AboutSettingsContent(
     SettingsPanel(
         title = "Reset settings",
         description = "Restore defaults for playback, guide, interface, and parental controls. Profiles and connections are kept.",
-        cardIndex = 1,
+        cardIndex = 2,
         focus = focus
     ) {
         SettingsFocusButton(
@@ -1957,7 +2044,7 @@ private fun AboutSettingsContent(
     SettingsPanel(
         title = "Reset app",
         description = "Delete all profiles, connections, watch history, favorites, and settings. Restarts as a fresh install.",
-        cardIndex = 2,
+        cardIndex = 3,
         focus = focus
     ) {
         SettingsFocusButton(

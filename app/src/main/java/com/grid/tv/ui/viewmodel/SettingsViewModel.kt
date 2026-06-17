@@ -14,6 +14,7 @@ import com.grid.tv.domain.model.EpgRowHeight
 import com.grid.tv.domain.model.MaxContentRating
 import com.grid.tv.domain.model.StreamQuality
 import com.grid.tv.domain.model.SubtitleFontSize
+import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.XtreamAccountInfo
@@ -414,6 +415,14 @@ class SettingsViewModel @Inject constructor(
 
     fun updateSubtitleFontSize(size: SubtitleFontSize) {
         persistSettings(_settings.value.copy(subtitleFontSize = size))
+    }
+
+    fun updateSubtitlePosition(position: SubtitlePosition) {
+        persistSettings(_settings.value.copy(subtitlePosition = position))
+    }
+
+    fun updateSubtitleDelayMs(delayMs: Long) {
+        persistSettings(_settings.value.copy(subtitleDelayMs = delayMs.coerceIn(-5_000L, 5_000L)))
     }
 
     fun updateDeinterlacingEnabled(enabled: Boolean) {

@@ -43,6 +43,7 @@ import com.grid.tv.player.isHealthy
 import com.grid.tv.player.userLabel
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.component.formatEpgTime
 
 private val LiveRed = Color(0xFFEF4444)
 private val LiveGreen = Color(0xFF4ADE80)
@@ -72,17 +73,22 @@ fun EpgPreviewSection(
     isFavorite: Boolean,
     previewFocused: Boolean,
     attachSurface: Boolean = true,
+    primaryActionLabel: String = "Watch Live",
     onWatch: () -> Unit,
     onFavorite: () -> Unit,
     onRecord: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val programSubtitle = when {
-        program != null -> program.title
+        program != null -> {
+            val time = "${formatEpgTime(program.startTime)} – ${formatEpgTime(program.endTime)}"
+            "${program.title}\n$time"
+        }
         channel.currentProgram != null -> channel.currentProgram
         else -> "No EPG data available for this channel"
     }
     val isLiveNow = program?.let { now in it.startTime..it.endTime } ?: true
+    val isReplay = program != null && now > program.endTime && primaryActionLabel == "Watch Replay"
 
     Row(
         modifier = modifier
@@ -97,6 +103,8 @@ fun EpgPreviewSection(
             player = player,
             streamStatus = streamStatus,
             isLiveNow = isLiveNow,
+            isReplay = isReplay,
+            primaryActionLabel = primaryActionLabel,
             detailActionFocused = if (previewFocused) detailActionFocused else -1,
             isFavorite = isFavorite,
             attachSurface = attachSurface,
@@ -124,6 +132,8 @@ private fun EpgPreviewPlayerPane(
     player: ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
     isLiveNow: Boolean,
+    isReplay: Boolean,
+    primaryActionLabel: String,
     detailActionFocused: Int,
     isFavorite: Boolean,
     attachSurface: Boolean,
@@ -216,13 +226,28 @@ private fun EpgPreviewPlayerPane(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "●",
-                    color = LiveRed,
-                    fontSize = 10.sp
-                )
+                Text(text = "●", color = LiveRed, fontSize = 10.sp)
                 Text(
                     text = "Live",
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        } else if (isReplay) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "⏪", color = Color(0xFF60A5FA), fontSize = 12.sp)
+                Text(
+                    text = "Replay",
                     color = Color.White,
                     fontFamily = DmSansFamily,
                     fontSize = 12.sp,
@@ -258,13 +283,18 @@ private fun EpgPreviewPlayerPane(
                     color = Color(0xFF9CA3AF),
                     fontFamily = DmSansFamily,
                     fontSize = 13.sp,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val watchIcon = when (primaryActionLabel) {
+                        "Watch Replay" -> "⏪"
+                        "Reminder" -> "🔔"
+                        else -> "▶"
+                    }
                     EpgActionButton(
-                        label = "▶ Watch",
+                        label = "$watchIcon $primaryActionLabel",
                         isFocused = detailActionFocused == 0,
                         onClick = onWatch,
                         compact = true

@@ -101,6 +101,8 @@ import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.SearchOverlay
 import com.grid.tv.ui.component.StorageLocationPicker
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.domain.epg.EpgProgramAction
+import com.grid.tv.domain.epg.EpgProgramReplayState
 import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
@@ -262,6 +264,7 @@ fun HomeEpgScreen(
 
     val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
     val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
     val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
     val preferredSearchInput by searchViewModel.preferredInputMode.collectAsStateWithLifecycle()
     var showSearchOverlay by remember { mutableStateOf(false) }
@@ -456,6 +459,53 @@ fun HomeEpgScreen(
         onWatchChannel(full.id)
     }
 
+    fun selectChannelForPreview(channel: Channel) {
+        if (usePlaceholder || channel.streamUrl.isBlank()) return
+        viewModel.enableGuidePreview(channel.id)
+        val fullChannel = channels.find { it.id == channel.id } ?: channel
+        viewModel.previewChannel(context, fullChannel)
+    }
+
+    fun liveScrollTarget(): Int =
+        ((now - windowStart) * EpgLayout.dpPerMs() - 400f).coerceAtLeast(0f).toInt()
+
+    fun scrollToProgram(program: Program?) {
+        program ?: return
+        val startPx = ((program.startTime - windowStart) * EpgLayout.dpPerMs()).coerceAtLeast(0f)
+        val widthPx = (program.endTime - program.startTime) * EpgLayout.dpPerMs()
+        val centerPx = startPx + widthPx / 2f
+        val viewportHalf = 420f
+        val target = (centerPx - viewportHalf).coerceAtLeast(0f).toInt()
+        scope.launch { hScroll.animateScrollTo(target.coerceAtMost(hScroll.maxValue)) }
+    }
+
+    fun playProgram(channel: Channel, program: Program, instant: Boolean = false) {
+        val full = channels.find { it.id == channel.id } ?: channel
+        val replay = viewModel.replayState(program, full, now)
+        when (replay.action) {
+            EpgProgramAction.WATCH_REPLAY -> {
+                scope.launch {
+                    val url = viewModel.stageCatchupPlayback(program, full) ?: return@launch
+                    onPlayCatchup(program.title, url)
+                }
+            }
+            EpgProgramAction.REMINDER -> recordingViewModel.scheduleProgram(full, program)
+            else -> {
+                if (instant) watchChannel(full) else {
+                    selectChannelForPreview(full)
+                    focusZone = EpgFocusZone.PREVIEW
+                    detailActionIndex = 0
+                    detailExpanded = true
+                }
+            }
+        }
+    }
+
+    fun primaryActionLabel(channel: Channel?, program: Program?): String {
+        if (channel == null || program == null) return "Watch Live"
+        return viewModel.replayState(program, channels.find { it.id == channel.id } ?: channel, now).action.label
+    }
+
     val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
     val channelPrograms = remember(focusedChannel, displayPrograms) {
         focusedChannel?.epgId?.let { epgId ->
@@ -494,11 +544,31 @@ fun HomeEpgScreen(
         }
     }
 
-    fun selectChannelForPreview(channel: Channel) {
-        if (usePlaceholder || channel.streamUrl.isBlank()) return
-        viewModel.enableGuidePreview(channel.id)
-        val fullChannel = channels.find { it.id == channel.id } ?: channel
-        viewModel.previewChannel(context, fullChannel)
+    fun openChannelFromTouch(channelIndex: Int, channel: Channel) {
+        focusChannelIndex = channelIndex
+        focusOnChannelColumn = true
+        scope.launch { listState.animateScrollToItem(channelIndex) }
+        selectChannelForPreview(channel)
+        focusZone = EpgFocusZone.PREVIEW
+        detailActionIndex = 0
+        detailExpanded = true
+    }
+
+    fun openProgramFromTouch(channelIndex: Int, programIndex: Int, program: Program) {
+        focusChannelIndex = channelIndex
+        focusProgramIndex = programIndex
+        focusOnChannelColumn = false
+        val channel = displayChannels.getOrNull(channelIndex) ?: return
+        scrollToProgram(program)
+        val replay = viewModel.replayState(program, channels.find { it.id == channel.id } ?: channel, now)
+        if (replay.action == EpgProgramAction.WATCH_REPLAY) {
+            playProgram(channel, program, instant = true)
+            return
+        }
+        selectChannelForPreview(channel)
+        focusZone = EpgFocusZone.PREVIEW
+        detailActionIndex = 0
+        detailExpanded = true
     }
 
     val previewStreamStatus = if (previewChannelId == liveChannelId) {
@@ -542,19 +612,6 @@ fun HomeEpgScreen(
         }
     }
 
-    fun liveScrollTarget(): Int =
-        ((now - windowStart) * EpgLayout.dpPerMs() - 400f).coerceAtLeast(0f).toInt()
-
-    fun scrollToProgram(program: Program?) {
-        program ?: return
-        val startPx = ((program.startTime - windowStart) * EpgLayout.dpPerMs()).coerceAtLeast(0f)
-        val widthPx = (program.endTime - program.startTime) * EpgLayout.dpPerMs()
-        val centerPx = startPx + widthPx / 2f
-        val viewportHalf = 420f
-        val target = (centerPx - viewportHalf).coerceAtLeast(0f).toInt()
-        scope.launch { hScroll.animateScrollTo(target.coerceAtMost(hScroll.maxValue)) }
-    }
-
     fun scrollByTimeSlot(direction: Int) {
         val slotPx = (EpgLayout.ThirtyMinWidthDp * direction).toInt()
         scope.launch {
@@ -586,6 +643,22 @@ fun HomeEpgScreen(
     }
 
     fun handleSearchResult(result: SearchResultItem) {
+        when (result.type) {
+            SearchResultType.ACTOR -> {
+                val actor = result.actorName ?: return
+                searchViewModel.recordSelection(actor)
+                searchViewModel.applyTrendingOrRecent(actor)
+                return
+            }
+            SearchResultType.GENRE -> {
+                val genre = result.genreName ?: return
+                searchViewModel.recordSelection(genre)
+                searchViewModel.applyTrendingOrRecent(genre)
+                return
+            }
+            else -> Unit
+        }
+        searchViewModel.recordSelection(searchQuery)
         showSearchOverlay = false
         searchViewModel.clearQuery()
         when (result.type) {
@@ -626,25 +699,38 @@ fun HomeEpgScreen(
                 onPlayVod(item.streamUrl, item.title, resume)
             }
             SearchResultType.SERIES -> result.seriesShow?.let { onNavigateSeries(it.id) }
+            SearchResultType.EPISODE -> {
+                val show = result.seriesShow
+                val episode = result.seriesEpisode
+                if (show != null && episode != null) {
+                    VodPlaybackHelper.stageSeriesEpisode(
+                        show = show,
+                        seasonNumber = result.seriesSeasonNumber ?: 1,
+                        episodeNumber = episode.episodeNumber ?: 1,
+                        streamId = episode.id,
+                        episodeTitle = episode.title.ifBlank { show.name }
+                    )
+                    onPlayVod(episode.streamUrl, episode.title.ifBlank { show.name }, false)
+                }
+            }
+            else -> Unit
         }
     }
 
     fun executeDetailAction() {
         val ch = previewChannel ?: focusedChannel ?: return
+        val full = channels.find { it.id == ch.id } ?: ch
+        val prog = if (previewChannel?.id == focusedChannel?.id && !focusOnChannelColumn) {
+            focusedProgram
+        } else {
+            previewProgram
+        }
         when (detailActionIndex) {
             0 -> {
-                val prog = if (previewChannel?.id == focusedChannel?.id && !focusOnChannelColumn) {
-                    focusedProgram
+                if (prog != null) {
+                    playProgram(full, prog, instant = true)
                 } else {
-                    previewProgram
-                }
-                if (prog != null && prog.endTime < now && (prog.catchupUrl != null || ch.catchupDays > 0)) {
-                    scope.launch {
-                        val url = viewModel.buildCatchupUrl(prog, ch)
-                        if (url != null) onPlayCatchup(prog.title, url) else watchChannel(ch)
-                    }
-                } else {
-                    watchChannel(ch)
+                    watchChannel(full)
                 }
             }
             1 -> {
@@ -652,18 +738,13 @@ fun HomeEpgScreen(
                 viewModel.toggleFavorite(ch.id, isFav)
             }
             2 -> {
-                val prog = if (previewChannel?.id == focusedChannel?.id && !focusOnChannelColumn) {
-                    focusedProgram
-                } else {
-                    previewProgram
-                }
                 if (prog == null) {
-                    recordingViewModel.startImmediateRecording(context, ch, ch.name)
+                    recordingViewModel.startImmediateRecording(context, full, full.name)
                 } else if (prog.startTime <= now) {
                     val duration = (prog.endTime - now).coerceAtLeast(10 * 60 * 1000)
-                    recordingViewModel.startImmediateRecording(context, ch, prog.title, duration)
+                    recordingViewModel.startImmediateRecording(context, full, prog.title, duration)
                 } else {
-                    recordingViewModel.scheduleProgram(ch, prog)
+                    recordingViewModel.scheduleProgram(full, prog)
                 }
             }
         }
@@ -985,9 +1066,16 @@ fun HomeEpgScreen(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 val channel = displayChannels.getOrNull(focusChannelIndex) ?: return true
+                if (!focusOnChannelColumn) {
+                    val prog = programsForChannel(channel).getOrNull(focusProgramIndex)
+                    if (prog != null) {
+                        playProgram(channel, prog, instant = true)
+                        return true
+                    }
+                }
                 selectChannelForPreview(channel)
                 focusZone = EpgFocusZone.PREVIEW
-                detailActionIndex = 0 // Focus "Watch" first, then D-pad Right to Favourite/Record.
+                detailActionIndex = 0
                 detailExpanded = true
                 true
             }
@@ -1149,6 +1237,7 @@ fun HomeEpgScreen(
                     isFavorite = previewChannel?.let { ch ->
                         if (ch.id < 0) ch.id in demoFavoriteIds else ch.isFavorite
                     } ?: false,
+                    primaryActionLabel = primaryActionLabel(previewChannel, previewProgram),
                     onWatch = {
                         detailActionIndex = 0
                         executeDetailAction()
@@ -1216,7 +1305,12 @@ fun HomeEpgScreen(
                 scheduled = scheduled,
                 timelineWidth = timelineWidth,
                 scrolledAwayFromLive = scrolledAwayFromLive,
-                onJumpToLive = ::scrollToLive
+                onJumpToLive = ::scrollToLive,
+                onChannelClick = ::openChannelFromTouch,
+                onProgramClick = ::openProgramFromTouch,
+                replayStateFor = { channel, program ->
+                    viewModel.replayState(program, channels.find { it.id == channel.id } ?: channel, now)
+                }
             )
         }
 
@@ -1321,7 +1415,8 @@ fun HomeEpgScreen(
         if (showSearchOverlay) {
             SearchOverlay(
                 query = searchQuery,
-                results = searchResults,
+                unifiedResults = unifiedSearchResults,
+                flatResults = searchResults,
                 searchBarState = searchBarState,
                 onQueryChange = searchViewModel::updateQuery,
                 onClear = searchViewModel::clearQuery,
@@ -1337,7 +1432,10 @@ fun HomeEpgScreen(
                         requestVoiceSearch()
                     }
                 },
-                onResultSelected = { handleSearchResult(it) }
+                onResultSelected = { handleSearchResult(it) },
+                onSuggestionSelected = { term ->
+                    searchViewModel.applyTrendingOrRecent(term)
+                }
             )
         }
     }

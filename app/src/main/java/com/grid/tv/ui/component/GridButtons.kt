@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import com.grid.tv.ui.platform.touchTarget
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +52,7 @@ fun GridPrimaryButton(
         enabled = enabled,
         modifier = modifier
             .height(ButtonHeight)
+            .touchTarget()
             .onFocusChanged { focused = it.isFocused }
             .tvFocusBorder(
                 focused = focused,
@@ -100,6 +102,7 @@ fun GridOutlinedButton(
         enabled = enabled,
         modifier = modifier
             .height(ButtonHeight)
+            .touchTarget()
             .onFocusChanged { focused = it.isFocused }
             .semantics { this.contentDescription = contentDescription },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),

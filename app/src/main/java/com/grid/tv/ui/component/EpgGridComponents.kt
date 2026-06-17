@@ -2,6 +2,7 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.userLabel
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ProgramGenre
+import com.grid.tv.ui.platform.touchTarget
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
@@ -236,14 +238,20 @@ fun EpgChannelCell(
     showBottomSeparator: Boolean = true,
     scanStatus: com.grid.tv.domain.model.ChannelScanStatus? = null,
     lastCheckedLabel: String? = null,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val bgColor = if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.ChannelColumnBg
     val logoTint = if (isFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
     val nameColor = if (isFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
     val initials = channel.name.take(2).uppercase()
+    val touchModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick).touchTarget()
+    } else {
+        Modifier
+    }
 
-    Column(modifier = modifier.height(EpgLayout.RowHeight)) {
+    Column(modifier = modifier.height(EpgLayout.RowHeight).then(touchModifier)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -347,6 +355,9 @@ fun EpgProgramCell(
     now: Long,
     isFocused: Boolean,
     isSelected: Boolean,
+    canReplay: Boolean = false,
+    isFuture: Boolean = false,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val timeState = programTimeState(program, now)
@@ -358,6 +369,11 @@ fun EpgProgramCell(
         else -> bgColor
     }
     val showTime = width.value >= 100f
+    val touchModifier = if (onClick != null) {
+        Modifier.clickable(onClick = onClick).touchTarget()
+    } else {
+        Modifier
+    }
 
     Box(
         modifier = modifier
@@ -368,6 +384,7 @@ fun EpgProgramCell(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(touchModifier)
                 .then(
                     if (isFocused) {
                         Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(2.dp))
@@ -425,6 +442,24 @@ fun EpgProgramCell(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            } else if (canReplay) {
+                Text(
+                    text = "⏪",
+                    color = Color(0xFF60A5FA),
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                )
+            } else if (isFuture) {
+                Text(
+                    text = "🔔",
+                    color = EpgColors.TextDimmed,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                )
             }
         }
     }

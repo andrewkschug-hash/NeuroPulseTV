@@ -26,6 +26,8 @@ data class ChannelEntity(
     val epgId: String?,
     val streamUrl: String,
     val backupStreamUrl: String? = null,
+    val backupStreamUrl2: String? = null,
+    val backupStreamUrl3: String? = null,
     val playlistId: Long,
     val createdAt: Long = System.currentTimeMillis(),
     val catchupMode: String? = null,

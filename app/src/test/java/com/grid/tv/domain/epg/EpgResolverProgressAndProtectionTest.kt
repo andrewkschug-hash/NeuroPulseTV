@@ -5,13 +5,12 @@ import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.EpgSourceChannelDao
 import com.grid.tv.data.db.dao.ProgramDao
 import com.grid.tv.data.db.entity.ChannelEntity
-import com.grid.tv.data.db.entity.EpgSourceChannelEntity
+import com.grid.tv.data.network.AppHttpClient
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.coVerify
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
-import okhttp3.OkHttpClient
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -30,7 +29,29 @@ class EpgResolverProgressAndProtectionTest {
         programDao = mockk(relaxed = true)
         sourceDao = mockk(relaxed = true)
         suggestionDao = mockk(relaxed = true)
-        engine = EpgResolverEngine(channelDao, programDao, sourceDao, suggestionDao, OkHttpClient())
+        val normalizer = ChannelNameNormalizer()
+        val canonicalDao = mockk<com.grid.tv.data.db.dao.CanonicalChannelDao>(relaxed = true)
+        val learnedDao = mockk<com.grid.tv.data.db.dao.EpgLearnedMappingDao>(relaxed = true)
+        coEvery { canonicalDao.count() } returns 1
+        val matcher = EpgMatcher(normalizer, canonicalDao, learnedDao)
+        val seeder = CanonicalChannelSeeder(canonicalDao, normalizer)
+        val analytics = EpgMatchAnalyticsTracker(
+            analyticsDao = mockk(relaxed = true),
+            aliasHitDao = mockk(relaxed = true),
+            learnedDao = learnedDao,
+            normalizer = normalizer
+        )
+        engine = EpgResolverEngine(
+            channelDao,
+            programDao,
+            sourceDao,
+            suggestionDao,
+            mockk<AppHttpClient>(relaxed = true),
+            normalizer,
+            matcher,
+            seeder,
+            analytics
+        )
     }
 
     @Test
@@ -40,6 +61,7 @@ class EpgResolverProgressAndProtectionTest {
         coEvery { channelDao.unresolvedBatch(50, 50, any(), any()) } returns emptyList()
         coEvery { programDao.distinctChannelEpgIds() } returns listOf("cnn")
         coEvery { sourceDao.bySource(any()) } returns emptyList()
+        coEvery { sourceDao.lastCachedAt(any()) } returns System.currentTimeMillis()
 
         val items = engine.resolveAllUnmatched().toList()
         assertTrue(items.isNotEmpty())

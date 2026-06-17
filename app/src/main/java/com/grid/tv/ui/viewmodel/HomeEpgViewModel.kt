@@ -4,6 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.data.repository.FavoritesRepository
+import com.grid.tv.domain.epg.CatchupUrlFormatter
+import com.grid.tv.domain.epg.EpgProgramAction
+import com.grid.tv.domain.epg.EpgProgramReplayState
+import com.grid.tv.domain.epg.canReplayProgram
+import com.grid.tv.domain.epg.resolveProgramAction
+import com.grid.tv.domain.model.CatchupPlaybackContext
+import com.grid.tv.domain.model.CatchupPlaybackSession
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.FavoriteGroup
@@ -19,10 +26,12 @@ import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.feature.epg.ChannelCategoryFilter
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.player.LivePlayerManager
 import com.grid.tv.player.StreamPlaybackStatus
-import com.grid.tv.ui.component.EpgLayout
+import com.grid.tv.ui.component.ProgramTimeState
+import com.grid.tv.ui.component.programTimeState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -212,8 +221,54 @@ class HomeEpgViewModel @Inject constructor(
 
     private val now = MutableStateFlow(System.currentTimeMillis())
 
+    private val _replayUrlsByProgramId = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val replayUrlsByProgramId: StateFlow<Map<Long, String>> = _replayUrlsByProgramId.asStateFlow()
+
     private val _epgPrograms = MutableStateFlow<List<Program>>(emptyList())
     val epgPrograms = _epgPrograms.asStateFlow()
+
+    fun replayState(program: Program, channel: Channel, nowMs: Long): EpgProgramReplayState {
+        val replayUrl = _replayUrlsByProgramId.value[program.id]
+        val timeState = programTimeState(program, nowMs)
+        val canReplay = canReplayProgram(program, channel, nowMs, replayUrl)
+        val action = resolveProgramAction(program, channel, nowMs, replayUrl)
+        return EpgProgramReplayState(
+            programId = program.id,
+            timeState = timeState,
+            action = if (action == EpgProgramAction.WATCH_REPLAY && !canReplay) {
+                EpgProgramAction.WATCH_LIVE
+            } else {
+                action
+            },
+            canReplay = canReplay,
+            replayUrl = replayUrl?.takeIf { canReplay }
+        )
+    }
+
+    suspend fun stageCatchupPlayback(program: Program, channel: Channel): String? {
+        val url = _replayUrlsByProgramId.value[program.id] ?: buildCatchupUrl(program, channel)
+        if (url.isNullOrBlank()) return null
+        CatchupPlaybackContext.stage(
+            CatchupPlaybackSession(
+                programTitle = program.title,
+                channelName = channel.name,
+                channelId = channel.id,
+                liveStreamUrl = channel.streamUrl,
+                programStartMs = program.startTime,
+                programEndMs = program.endTime,
+                replayUrl = url
+            )
+        )
+        return url
+    }
+
+    private fun recomputeReplayUrls(programs: List<Program>) {
+        val channelsByEpg = channels.value.associateBy { it.epgId }
+        _replayUrlsByProgramId.value = programs.mapNotNull { program ->
+            val channel = channelsByEpg[program.channelEpgId] ?: return@mapNotNull null
+            CatchupUrlFormatter.build(program, channel)?.let { program.id to it }
+        }.toMap()
+    }
 
     private val _epgLoading = MutableStateFlow(false)
     val epgLoading = _epgLoading.asStateFlow()
@@ -454,6 +509,7 @@ class HomeEpgViewModel @Inject constructor(
         _epgPrograms.value = withContext(Dispatchers.IO) {
             repository.programsWindow(channelIds, start, end)
         }
+        recomputeReplayUrls(_epgPrograms.value)
         _epgLoading.value = false
     }
 }

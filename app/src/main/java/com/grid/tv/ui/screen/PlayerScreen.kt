@@ -1,6 +1,7 @@
 package com.grid.tv.ui.screen
 
 import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.platform.LocalDeviceFormFactor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +13,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +49,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -70,12 +73,14 @@ import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.PlayerSideMenu
 import com.grid.tv.ui.component.PlayerSideMenuAction
 import com.grid.tv.ui.component.PlayerSideMenuFocusTarget
+import com.grid.tv.ui.component.PlayerSideMenuMaxWatchHistory
 import com.grid.tv.ui.component.PlayerSideMenuMaxFavorites
 import com.grid.tv.ui.component.PlayerSideMenuSection
 import com.grid.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.grid.tv.ui.component.playerSideMenuFocusSection
 import com.grid.tv.ui.component.playerSideMenuFocusState
 import com.grid.tv.ui.component.RecordingPrecheckDialog
+import com.grid.tv.ui.component.StreamFailoverBanner
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.playerPlaybackStatus
@@ -108,7 +113,6 @@ fun PlayerScreen(
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
     val lastChannel by livePlayerManager.lastChannelFlow.collectAsStateWithLifecycle()
     val channel by viewModel.channel.collectAsStateWithLifecycle()
-    val channels by viewModel.channels.collectAsStateWithLifecycle()
     val favoriteChannels by viewModel.favoriteChannels.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
     val isRecordingActive by recordingViewModel.isRecording.collectAsStateWithLifecycle()
@@ -122,7 +126,7 @@ fun PlayerScreen(
 
     var showOverlay by remember { mutableStateOf(true) }
     var showSideMenu by remember { mutableStateOf(false) }
-    var channelsExpanded by remember { mutableStateOf(false) }
+    var watchHistoryExpanded by remember { mutableStateOf(false) }
     var favoritesExpanded by remember { mutableStateOf(false) }
     var focusTargetIndex by remember { mutableIntStateOf(0) }
     var flashingZone by remember { mutableStateOf<PlayerSideMenuSection?>(null) }
@@ -133,7 +137,6 @@ fun PlayerScreen(
     var videoQuality by remember { mutableStateOf("") }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayInteractionToken by remember { mutableIntStateOf(0) }
-    var failures by remember { mutableStateOf(0) }
     var showStillWatching by remember { mutableStateOf(false) }
     var showStopRecordingDialog by remember { mutableStateOf(false) }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
@@ -152,8 +155,9 @@ fun PlayerScreen(
         it.channelId == (channel?.id ?: channelId) && it.status == RecordingStatus.RECORDING.name
     }
 
-    val nearbyChannels = remember(channels, channel?.id) {
-        nearbyChannelsFor(channels, channel)
+    val recentWatchChannels by viewModel.recentWatchChannels.collectAsStateWithLifecycle()
+    val watchHistoryChannels = remember(recentWatchChannels) {
+        recentWatchChannels.take(PlayerSideMenuMaxWatchHistory)
     }
     val favoritePanelChannels = remember(favoriteChannels) {
         favoriteChannels.take(PlayerSideMenuMaxFavorites)
@@ -180,17 +184,17 @@ fun PlayerScreen(
     }
 
     val sideMenuFocusOrder = remember(
-        nearbyChannels.size,
+        watchHistoryChannels.size,
         favoritePanelChannels.size,
         sideMenuActions.size,
-        channelsExpanded,
+        watchHistoryExpanded,
         favoritesExpanded
     ) {
         buildPlayerSideMenuFocusOrder(
-            nearbyChannelCount = nearbyChannels.size,
+            recentChannelCount = watchHistoryChannels.size,
             favoriteChannelCount = favoritePanelChannels.size,
             actionCount = sideMenuActions.size,
-            channelsExpanded = channelsExpanded,
+            watchHistoryExpanded = watchHistoryExpanded,
             favoritesExpanded = favoritesExpanded
         )
     }
@@ -233,8 +237,8 @@ fun PlayerScreen(
         }
     }
 
-    fun focusChannelsHeader() {
-        val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
+    fun focusWatchHistoryHeader() {
+        val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader)
         if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
     }
 
@@ -243,10 +247,10 @@ fun PlayerScreen(
         if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
     }
 
-    fun collapseChannelsSection(): Boolean {
-        if (!channelsExpanded) return false
-        channelsExpanded = false
-        focusChannelsHeader()
+    fun collapseWatchHistorySection(): Boolean {
+        if (!watchHistoryExpanded) return false
+        watchHistoryExpanded = false
+        focusWatchHistoryHeader()
         return true
     }
 
@@ -259,18 +263,14 @@ fun PlayerScreen(
 
     fun activateSideMenuSelection() {
         when (val target = sideMenuFocusOrder.getOrNull(focusTargetIndex)) {
-            PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                channelsExpanded = !channelsExpanded
+            PlayerSideMenuFocusTarget.WatchHistoryHeader -> {
+                watchHistoryExpanded = !watchHistoryExpanded
             }
-            is PlayerSideMenuFocusTarget.NearbyChannel -> {
-                nearbyChannels.getOrNull(target.index)?.id?.let { id ->
+            is PlayerSideMenuFocusTarget.RecentChannel -> {
+                watchHistoryChannels.getOrNull(target.index)?.id?.let { id ->
                     viewModel.tuneChannel(id)
                     showSideMenu = false
                 }
-            }
-            PlayerSideMenuFocusTarget.BrowseAll -> {
-                showSideMenu = false
-                onNavigateGuide()
             }
             PlayerSideMenuFocusTarget.FavoritesHeader -> {
                 favoritesExpanded = !favoritesExpanded
@@ -299,14 +299,13 @@ fun PlayerScreen(
     fun openSideMenu() {
         showSideMenu = true
         showOverlay = false
-        val startIndex = if (!channelsExpanded) {
-            sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
+        watchHistoryExpanded = true
+        val startIndex = if (watchHistoryChannels.isNotEmpty()) {
+            sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.RecentChannel(0))
+                .takeIf { it >= 0 }
+                ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader).coerceAtLeast(0)
         } else {
-            val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
-            sideMenuFocusOrder.indexOfFirst {
-                it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
-            }.takeIf { idx -> idx >= 0 }
-                ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
+            sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader).coerceAtLeast(0)
         }
         applyFocusTargetIndex(startIndex, flash = false)
     }
@@ -314,6 +313,21 @@ fun PlayerScreen(
     fun revealOverlay() {
         showOverlay = true
         overlayInteractionToken++
+    }
+
+    val touchPlayerModifier = if (LocalDeviceFormFactor.current.enableTouchGestures) {
+        Modifier.pointerInput(showSideMenu) {
+            detectTapGestures {
+                revealOverlay()
+                if (showSideMenu) {
+                    showSideMenu = false
+                } else {
+                    openSideMenu()
+                }
+            }
+        }
+    } else {
+        Modifier
     }
 
     fun leavePlayer() {
@@ -327,8 +341,8 @@ fun PlayerScreen(
             Key.DirectionDown -> moveSideMenuVertical(1)
             Key.Enter, Key.DirectionCenter -> activateSideMenuSelection()
             Key.DirectionRight -> when (currentFocusTarget) {
-                PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                    if (!channelsExpanded) channelsExpanded = true
+                PlayerSideMenuFocusTarget.WatchHistoryHeader -> {
+                    if (!watchHistoryExpanded) watchHistoryExpanded = true
                 }
                 PlayerSideMenuFocusTarget.FavoritesHeader -> {
                     if (!favoritesExpanded) favoritesExpanded = true
@@ -336,15 +350,14 @@ fun PlayerScreen(
                 else -> return false
             }
             Key.DirectionLeft -> when (currentFocusTarget) {
-                PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                    if (collapseChannelsSection()) return true
+                PlayerSideMenuFocusTarget.WatchHistoryHeader -> {
+                    if (collapseWatchHistorySection()) return true
                 }
                 PlayerSideMenuFocusTarget.FavoritesHeader -> {
                     if (collapseFavoritesSection()) return true
                 }
-                is PlayerSideMenuFocusTarget.NearbyChannel,
-                PlayerSideMenuFocusTarget.BrowseAll -> {
-                    if (collapseChannelsSection()) return true
+                is PlayerSideMenuFocusTarget.RecentChannel -> {
+                    if (collapseWatchHistorySection()) return true
                 }
                 is PlayerSideMenuFocusTarget.FavoriteChannel -> {
                     if (collapseFavoritesSection()) return true
@@ -353,15 +366,14 @@ fun PlayerScreen(
             }
             Key.Back, Key.Escape -> {
                 when (currentFocusTarget) {
-                    PlayerSideMenuFocusTarget.ChannelsHeader -> {
-                        if (collapseChannelsSection()) return true
+                    PlayerSideMenuFocusTarget.WatchHistoryHeader -> {
+                        if (collapseWatchHistorySection()) return true
                     }
                     PlayerSideMenuFocusTarget.FavoritesHeader -> {
                         if (collapseFavoritesSection()) return true
                     }
-                    is PlayerSideMenuFocusTarget.NearbyChannel,
-                    PlayerSideMenuFocusTarget.BrowseAll -> {
-                        if (collapseChannelsSection()) return true
+                    is PlayerSideMenuFocusTarget.RecentChannel -> {
+                        if (collapseWatchHistorySection()) return true
                     }
                     is PlayerSideMenuFocusTarget.FavoriteChannel -> {
                         if (collapseFavoritesSection()) return true
@@ -413,30 +425,29 @@ fun PlayerScreen(
     LaunchedEffect(showSideMenu) {
         if (showSideMenu) {
             sideMenuFocusRequester.requestFocusSafelyAfterLayout()
-            val startIndex = if (!channelsExpanded) {
-                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader).coerceAtLeast(0)
+            watchHistoryExpanded = true
+            val startIndex = if (watchHistoryChannels.isNotEmpty()) {
+                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.RecentChannel(0))
+                    .takeIf { it >= 0 }
+                    ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader).coerceAtLeast(0)
             } else {
-                val channelIdx = nearbyChannels.indexOfFirst { it.id == channel?.id }.coerceAtLeast(0)
-                sideMenuFocusOrder.indexOfFirst {
-                    it is PlayerSideMenuFocusTarget.NearbyChannel && it.index == channelIdx
-                }.takeIf { idx -> idx >= 0 }
-                    ?: sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.BrowseAll).coerceAtLeast(0)
+                sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader).coerceAtLeast(0)
             }
             applyFocusTargetIndex(startIndex, flash = false)
         } else {
             playerFocusRequester.requestFocusSafelyAfterLayout()
-            channelsExpanded = false
+            watchHistoryExpanded = false
             favoritesExpanded = false
         }
     }
 
-    LaunchedEffect(channelsExpanded, favoritesExpanded, sideMenuFocusOrder) {
+    LaunchedEffect(watchHistoryExpanded, favoritesExpanded, sideMenuFocusOrder) {
         if (!showSideMenu) return@LaunchedEffect
         val target = sideMenuFocusOrder.getOrNull(focusTargetIndex) ?: return@LaunchedEffect
         when (target) {
-            is PlayerSideMenuFocusTarget.NearbyChannel, PlayerSideMenuFocusTarget.BrowseAll ->
-                if (!channelsExpanded) {
-                    val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.ChannelsHeader)
+            is PlayerSideMenuFocusTarget.RecentChannel ->
+                if (!watchHistoryExpanded) {
+                    val headerIndex = sideMenuFocusOrder.indexOf(PlayerSideMenuFocusTarget.WatchHistoryHeader)
                     if (headerIndex >= 0) applyFocusTargetIndex(headerIndex, flash = false)
                 }
             is PlayerSideMenuFocusTarget.FavoriteChannel ->
@@ -487,6 +498,7 @@ fun PlayerScreen(
         livePlayerManager.getOrCreatePlayer(context)
     }
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
+    val failoverUiState by livePlayerManager.failoverUiState.collectAsStateWithLifecycle()
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
     val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
@@ -515,7 +527,6 @@ fun PlayerScreen(
         if (!playbackSettingsSynced) return@LaunchedEffect
         val ch = channel ?: return@LaunchedEffect
         livePlayerManager.ensureFullscreenPlayback(context, ch)
-        failures = 0
     }
 
     LaunchedEffect(channel?.id, channel?.streamUrl, settings.sleepTimerAutoEnabled, settings.sleepTimerMinutes) {
@@ -566,21 +577,6 @@ fun PlayerScreen(
                     val loadMs = (System.currentTimeMillis() - player.currentPosition).coerceAtLeast(1)
                     scope.launch { viewModel.reportStreamHealth(loadMs, bufferEvents = 0, success = true) }
                 }
-                if (state == Player.STATE_IDLE || state == Player.STATE_ENDED) {
-                    if (failures < 3) {
-                        failures++
-                        player.prepare()
-                        player.playWhenReady = true
-                    } else {
-                        val backup = channel?.backupStreamUrl
-                        if (!backup.isNullOrBlank()) {
-                            player.setMediaItem(MediaItem.fromUri(backup))
-                            player.prepare()
-                            player.playWhenReady = true
-                        }
-                    }
-                    scope.launch { viewModel.reportStreamHealth(3000, bufferEvents = 1, success = false) }
-                }
             }
 
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -603,6 +599,7 @@ fun PlayerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(touchPlayerModifier)
             .focusRequester(playerFocusRequester)
             .focusable()
             .onPreviewKeyEvent {
@@ -690,6 +687,11 @@ fun PlayerScreen(
         if (dimAlpha > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
         }
+
+        StreamFailoverBanner(
+            state = failoverUiState,
+            modifier = Modifier.align(Alignment.Center)
+        )
 
         if (showSeekThumb && seekThumb != null) {
             Box(
@@ -820,7 +822,7 @@ fun PlayerScreen(
                                         )
                                     )
                                 }
-                            } else when (playbackStatus) {
+                            } else if (!failoverUiState.isRecovering) when (playbackStatus) {
                                 com.grid.tv.player.StreamPlaybackStatus.NO_SIGNAL,
                                 com.grid.tv.player.StreamPlaybackStatus.STALLED,
                                 com.grid.tv.player.StreamPlaybackStatus.ERROR,
@@ -886,12 +888,12 @@ fun PlayerScreen(
 
         PlayerSideMenu(
             visible = showSideMenu,
-            channels = nearbyChannels,
+            watchHistoryChannels = watchHistoryChannels,
             favoriteChannels = favoritePanelChannels,
             actions = sideMenuActions,
             currentChannelId = channel?.id,
             focusState = sideMenuFocusState,
-            channelsExpanded = channelsExpanded,
+            watchHistoryExpanded = watchHistoryExpanded,
             favoritesExpanded = favoritesExpanded,
             flashingSection = flashingZone
         )
@@ -987,17 +989,6 @@ private fun videoQualityLabel(player: Player): String {
         height > 0 -> "${height}p"
         else -> ""
     }
-}
-
-private fun nearbyChannelsFor(allChannels: List<Channel>, current: Channel?): List<Channel> {
-    if (allChannels.isEmpty()) return emptyList()
-    val sorted = allChannels.sortedBy { it.number }
-    if (current == null) return sorted.take(5)
-    val index = sorted.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
-    return sorted.subList(
-        maxOf(0, index - 2),
-        minOf(sorted.size, index + 3)
-    )
 }
 
 private fun formatTopBarChannel(number: Int, name: String, quality: String): String {

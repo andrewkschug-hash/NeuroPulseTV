@@ -53,6 +53,7 @@ import com.grid.tv.domain.model.DpadSensitivity
 import com.grid.tv.domain.model.MaxContentRating
 import com.grid.tv.domain.model.StreamQuality
 import com.grid.tv.domain.model.SubtitleFontSize
+import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.domain.model.Program
@@ -211,12 +212,15 @@ class IptvRepositoryImpl @Inject constructor(
             epgId = entity.epgId,
             streamUrl = entity.streamUrl,
             backupStreamUrl = entity.backupStreamUrl,
+            backupStreamUrl2 = entity.backupStreamUrl2,
+            backupStreamUrl3 = entity.backupStreamUrl3,
             playlistId = entity.playlistId,
             playlistName = playlistName,
             isFavorite = false,
             reliabilityScore = 50,
             catchupDays = entity.catchupDays,
             catchupSource = entity.catchupSource,
+            catchupMode = entity.catchupMode,
             epgResolutionStatus = runCatching { EpgResolutionStatus.valueOf(entity.epgResolutionStatus) }.getOrDefault(EpgResolutionStatus.UNRESOLVED),
             epgResolutionConfidence = entity.epgResolutionConfidence,
             epgResolutionSource = entity.epgResolutionSource
@@ -1084,6 +1088,8 @@ class IptvRepositoryImpl @Inject constructor(
             subtitlesEnabled = db.subtitlesEnabled,
             subtitleLanguage = db.subtitleLanguage,
             subtitleFontSize = enumValueOrDefault(db.subtitleFontSize, SubtitleFontSize.MEDIUM),
+            subtitlePosition = enumValueOrDefault(db.subtitlePosition, SubtitlePosition.BOTTOM),
+            subtitleDelayMs = db.subtitleDelayMs,
             deinterlacingEnabled = db.deinterlacingEnabled,
             miniPlayerEnabled = db.miniPlayerEnabled,
             sidebarAutoHideSeconds = db.sidebarAutoHideSeconds,
@@ -1142,6 +1148,8 @@ class IptvRepositoryImpl @Inject constructor(
                 subtitlesEnabled = settings.subtitlesEnabled,
                 subtitleLanguage = settings.subtitleLanguage,
                 subtitleFontSize = settings.subtitleFontSize.name,
+                subtitlePosition = settings.subtitlePosition.name,
+                subtitleDelayMs = settings.subtitleDelayMs,
                 deinterlacingEnabled = settings.deinterlacingEnabled,
                 miniPlayerEnabled = settings.miniPlayerEnabled,
                 sidebarAutoHideSeconds = settings.sidebarAutoHideSeconds,
@@ -1182,14 +1190,8 @@ class IptvRepositoryImpl @Inject constructor(
         profileSettingsDao.upsert(old.copy(lastFullScanAt = timestamp))
     }
 
-    override fun buildCatchupUrl(program: Program, channel: Channel): String? {
-        program.catchupUrl?.takeIf { it.isNotBlank() }?.let { return it }
-        val template = channel.catchupSource ?: return null
-        if (channel.catchupDays <= 0) return null
-        return template.replace("{start}", program.startTime.toString())
-            .replace("{end}", program.endTime.toString())
-            .replace("{duration}", ((program.endTime - program.startTime) / 1000).toString())
-    }
+    override fun buildCatchupUrl(program: Program, channel: Channel): String? =
+        com.grid.tv.domain.epg.CatchupUrlFormatter.build(program, channel)
 
     override suspend fun shouldShowWhatsNew(currentVersion: String): Boolean {
         ensureDefaultProfile()

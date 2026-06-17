@@ -39,12 +39,15 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
+import com.grid.tv.ui.component.CatchupPlayerControlsOverlay
+import com.grid.tv.ui.component.VodSubtitleControls
 import com.grid.tv.ui.component.RecordedPlayerControlsOverlay
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.RecordedPlayerFocusZone
 import com.grid.tv.ui.component.RecordingDeleteDialog
 import com.grid.tv.ui.component.formatPlayerTime
 import com.grid.tv.ui.component.formatRecordedPlayerOverlayDate
+import com.grid.tv.domain.model.CatchupPlaybackContext
 import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
@@ -59,9 +62,12 @@ fun DirectPlayerScreen(
     recordedAt: Long = 0L,
     resume: Boolean = false,
     onBack: () -> Unit,
+    onJumpToLive: (Long) -> Unit = {},
     viewModel: DirectPlayerViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val catchupSession = remember { CatchupPlaybackContext.consume() }
+    val isCatchupPlayback = catchupSession != null && recordingId <= 0L
     val isRecordedPlayback = recordingId > 0L
     val streamId = remember(url) {
         if (isRecordedPlayback) null
@@ -72,6 +78,9 @@ fun DirectPlayerScreen(
         if (recordingId > 0L) viewModel.loadRecordedMedia(recordingId)
     }
     val recordedMedia by viewModel.recordedMedia.collectAsStateWithLifecycle()
+    val subtitleSettings by viewModel.settings.collectAsStateWithLifecycle()
+    val activeSubtitle by viewModel.activeSubtitle.collectAsStateWithLifecycle()
+    var subtitlesAttached by remember(url) { mutableStateOf(false) }
 
     var durationMs by remember(url) { mutableLongStateOf(0L) }
     var positionMs by remember(url) { mutableLongStateOf(0L) }
@@ -102,21 +111,33 @@ fun DirectPlayerScreen(
     }
 
     LaunchedEffect(url) {
-        if (!isRecordedPlayback) {
+        if (!isRecordedPlayback && !isCatchupPlayback) {
             viewModel.setVodMetadata(VodPlaybackContext.consume())
         }
     }
 
-    LaunchedEffect(url, resume, isRecordedPlayback, streamId, player.playbackState) {
-        if (isRecordedPlayback || hasSeekedToResume) return@LaunchedEffect
+    LaunchedEffect(player.playbackState, url, isRecordedPlayback, isCatchupPlayback, subtitlesAttached) {
+        if (isRecordedPlayback || isCatchupPlayback || subtitlesAttached) return@LaunchedEffect
+        if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
+        viewModel.attachAutoSubtitles(player, playerViewRef[0], url, title)
+        subtitlesAttached = true
+    }
+
+    LaunchedEffect(subtitleSettings, playerViewRef[0]) {
+        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
+        viewModel.applySubtitleStyle(playerViewRef[0], subtitleSettings)
+    }
+
+    LaunchedEffect(url, resume, isRecordedPlayback, isCatchupPlayback, streamId, player.playbackState) {
+        if (isRecordedPlayback || isCatchupPlayback || hasSeekedToResume) return@LaunchedEffect
         if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
         val startMs = viewModel.resumePositionMs(streamId, url, resume)
         if (startMs > 0L) player.seekTo(startMs)
         hasSeekedToResume = true
     }
 
-    LaunchedEffect(isRecordedPlayback) {
-        if (isRecordedPlayback) return@LaunchedEffect
+    LaunchedEffect(isRecordedPlayback, isCatchupPlayback) {
+        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
         viewModel.pipController.setPlaybackActive(true)
     }
 
@@ -148,8 +169,8 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(isRecordedPlayback) {
-        if (!isRecordedPlayback) return@LaunchedEffect
+    LaunchedEffect(isRecordedPlayback, isCatchupPlayback) {
+        if (!isRecordedPlayback && !isCatchupPlayback) return@LaunchedEffect
         while (true) {
             delay(500)
             positionMs = player.currentPosition
@@ -157,8 +178,8 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(isRecordedPlayback, url, streamId, title) {
-        if (isRecordedPlayback) return@LaunchedEffect
+    LaunchedEffect(isRecordedPlayback, isCatchupPlayback, url, streamId, title) {
+        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
         while (true) {
             delay(10_000)
             val pos = player.currentPosition
@@ -201,8 +222,8 @@ fun DirectPlayerScreen(
         overlayToken++
     }
 
-    LaunchedEffect(showOverlay, overlayToken) {
-        if (showOverlay && isRecordedPlayback) {
+    LaunchedEffect(showOverlay, overlayToken, isRecordedPlayback, isCatchupPlayback) {
+        if (showOverlay && (isRecordedPlayback || isCatchupPlayback)) {
             delay(4_000)
             showOverlay = false
             seekTooltip = null
@@ -235,7 +256,9 @@ fun DirectPlayerScreen(
         onBackPressed = ::consumeDirectPlayerLocalBack
     )
 
-    fun handleRecordedKey(key: Key): Boolean {
+    var jumpToLiveFocused by remember { mutableStateOf(false) }
+
+    fun handlePlaybackKey(key: Key): Boolean {
         when (key) {
             Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
             Key.Enter, Key.DirectionCenter -> {
@@ -252,22 +275,27 @@ fun DirectPlayerScreen(
                         4 -> seekBy(10_000)
                     }
                     RecordedPlayerFocusZone.SEEK -> seekBy(-30_000)
-                    RecordedPlayerFocusZone.BOTTOM -> when (bottomFocusIndex) {
-                        0 -> showDeleteDialog = true
-                        1 -> {
-                            playbackSpeed = 1f
-                            player.setPlaybackSpeed(1f)
-                            viewModel.updatePlaybackSpeed(1f)
-                        }
-                        2 -> {
-                            playbackSpeed = 1.5f
-                            player.setPlaybackSpeed(1.5f)
-                            viewModel.updatePlaybackSpeed(1.5f)
-                        }
-                        3 -> {
-                            playbackSpeed = 2f
-                            player.setPlaybackSpeed(2f)
-                            viewModel.updatePlaybackSpeed(2f)
+                    RecordedPlayerFocusZone.BOTTOM -> {
+                        if (isCatchupPlayback && catchupSession != null) {
+                            playerViewRef[0]?.player = null
+                            onJumpToLive(catchupSession.channelId)
+                        } else when (bottomFocusIndex) {
+                            0 -> showDeleteDialog = true
+                            1 -> {
+                                playbackSpeed = 1f
+                                player.setPlaybackSpeed(1f)
+                                viewModel.updatePlaybackSpeed(1f)
+                            }
+                            2 -> {
+                                playbackSpeed = 1.5f
+                                player.setPlaybackSpeed(1.5f)
+                                viewModel.updatePlaybackSpeed(1.5f)
+                            }
+                            3 -> {
+                                playbackSpeed = 2f
+                                player.setPlaybackSpeed(2f)
+                                viewModel.updatePlaybackSpeed(2f)
+                            }
                         }
                     }
                 }
@@ -276,6 +304,7 @@ fun DirectPlayerScreen(
             Key.DirectionUp -> {
                 revealOverlay()
                 seekRepeatCount = 0
+                jumpToLiveFocused = false
                 focusZone = when (focusZone) {
                     RecordedPlayerFocusZone.BOTTOM -> RecordedPlayerFocusZone.TRANSPORT
                     RecordedPlayerFocusZone.TRANSPORT -> RecordedPlayerFocusZone.SEEK
@@ -285,6 +314,7 @@ fun DirectPlayerScreen(
             }
             Key.DirectionDown -> {
                 revealOverlay()
+                jumpToLiveFocused = isCatchupPlayback
                 focusZone = when (focusZone) {
                     RecordedPlayerFocusZone.SEEK -> RecordedPlayerFocusZone.TRANSPORT
                     RecordedPlayerFocusZone.TRANSPORT -> RecordedPlayerFocusZone.BOTTOM
@@ -334,7 +364,7 @@ fun DirectPlayerScreen(
             .focusable()
             .onPreviewKeyEvent {
                 if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (isRecordedPlayback) handleRecordedKey(it.key)
+                if (isRecordedPlayback || isCatchupPlayback) handlePlaybackKey(it.key)
                 else when (it.key) {
                     Key.Back, Key.Escape -> consumeDirectPlayerLocalBack()
                     Key.Enter, Key.DirectionCenter -> {
@@ -381,6 +411,30 @@ fun DirectPlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        } else if (isCatchupPlayback && catchupSession != null) {
+            AnimatedVisibility(
+                visible = showOverlay,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                CatchupPlayerControlsOverlay(
+                    programTitle = catchupSession.programTitle,
+                    channelName = catchupSession.channelName,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    isPlaying = isPlaying,
+                    focusZone = focusZone,
+                    transportFocusIndex = transportFocusIndex,
+                    jumpToLiveFocused = jumpToLiveFocused && focusZone == RecordedPlayerFocusZone.BOTTOM,
+                    seekTooltip = seekTooltip,
+                    onJumpToLive = {
+                        playerViewRef[0]?.player = null
+                        onJumpToLive(catchupSession.channelId)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         } else if (showOverlay) {
             Column(
                 modifier = Modifier
@@ -389,6 +443,49 @@ fun DirectPlayerScreen(
                     .padding(16.dp)
             ) {
                 Text(title, color = Color.White)
+                VodSubtitleControls(
+                    settings = subtitleSettings,
+                    activeSubtitle = activeSubtitle,
+                    onToggle = {
+                        viewModel.updateSubtitleSettings(
+                            enabled = !subtitleSettings.subtitlesEnabled,
+                            player = player,
+                            playerView = playerViewRef[0],
+                            url = url,
+                            title = title
+                        )
+                    },
+                    onLanguage = { lang ->
+                        viewModel.updateSubtitleSettings(
+                            language = lang,
+                            player = player,
+                            playerView = playerViewRef[0],
+                            url = url,
+                            title = title
+                        )
+                    },
+                    onFontSize = { size ->
+                        viewModel.updateSubtitleSettings(
+                            fontSize = size,
+                            playerView = playerViewRef[0]
+                        )
+                    },
+                    onPosition = { position ->
+                        viewModel.updateSubtitleSettings(
+                            position = position,
+                            playerView = playerViewRef[0]
+                        )
+                    },
+                    onDelayAdjust = { delay ->
+                        viewModel.updateSubtitleSettings(
+                            delayMs = delay.coerceIn(-5_000L, 5_000L),
+                            player = player,
+                            playerView = playerViewRef[0],
+                            url = url,
+                            title = title
+                        )
+                    }
+                )
                 GlowFocusButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("Back") }
             }
         }

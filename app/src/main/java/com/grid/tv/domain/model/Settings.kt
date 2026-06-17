@@ -12,6 +12,8 @@ enum class AspectRatioSetting { AUTO, RATIO_16_9, RATIO_4_3, STRETCH }
 
 enum class SubtitleFontSize { SMALL, MEDIUM, LARGE }
 
+enum class SubtitlePosition { BOTTOM, MIDDLE, TOP }
+
 enum class DpadSensitivity { INSTANT, NORMAL, SLOW }
 
 enum class ClockDisplay { OFF, HOUR_12, HOUR_24 }
@@ -44,9 +46,11 @@ data class AppSettings(
     val autoReconnectOnDrop: Boolean = true,
     val preferHardwareDecoding: Boolean = true,
     val aspectRatio: AspectRatioSetting = AspectRatioSetting.AUTO,
-    val subtitlesEnabled: Boolean = false,
+    val subtitlesEnabled: Boolean = true,
     val subtitleLanguage: String = "en",
     val subtitleFontSize: SubtitleFontSize = SubtitleFontSize.MEDIUM,
+    val subtitlePosition: SubtitlePosition = SubtitlePosition.BOTTOM,
+    val subtitleDelayMs: Long = 0L,
     val deinterlacingEnabled: Boolean = false,
     val miniPlayerEnabled: Boolean = true,
     val sidebarAutoHideSeconds: Int = 5,

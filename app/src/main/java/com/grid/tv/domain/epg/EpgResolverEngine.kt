@@ -22,8 +22,22 @@ import java.io.ByteArrayInputStream
 import java.util.zip.GZIPInputStream
 
 sealed class EpgResolutionResult {
-    data class AutoMatched(val epgId: String, val epgName: String, val confidence: Int, val source: String) : EpgResolutionResult()
-    data class SuggestedMatch(val epgId: String, val epgName: String, val confidence: Int, val source: String) : EpgResolutionResult()
+    data class AutoMatched(
+        val epgId: String,
+        val epgName: String,
+        val confidence: Int,
+        val source: String,
+        val reason: EpgMatchReason
+    ) : EpgResolutionResult()
+
+    data class SuggestedMatch(
+        val epgId: String,
+        val epgName: String,
+        val confidence: Int,
+        val source: String,
+        val reason: EpgMatchReason
+    ) : EpgResolutionResult()
+
     object NoMatch : EpgResolutionResult()
 }
 
@@ -42,98 +56,117 @@ class EpgResolverEngine @Inject constructor(
     private val programDao: ProgramDao,
     private val sourceDao: EpgSourceChannelDao,
     private val suggestionDao: EpgResolutionSuggestionDao,
-    private val appHttpClient: AppHttpClient
+    private val appHttpClient: AppHttpClient,
+    private val normalizer: ChannelNameNormalizer,
+    private val matcher: EpgMatcher,
+    private val canonicalSeeder: CanonicalChannelSeeder,
+    private val analyticsTracker: EpgMatchAnalyticsTracker
 ) {
     private val lastExternalRequestAt = AtomicLong(0)
 
-    fun normalizeChannelName(name: String): String {
-        var s = name.lowercase(Locale.getDefault())
-        s = s.replace(Regex("\\b(uk|us|ca|au|nz|za|ie|fr)\\b"), " ")
-        s = s.replace(Regex("\\[(uk|us|ca|au|nz|za|ie|fr)]"), " ")
-        s = s.replace(Regex("\\((uk|us|ca|au|nz|za|ie|fr)\\)"), " ")
-        s = s.replace(Regex("\\b(hd|fhd|uhd|4k|sd|lq|hq)\\b"), " ")
-        s = s.replace(Regex("\\b(1080p|720p|480p|4320p)\\b"), " ")
-        s = s.replace(Regex("\\+[0-9]{1,2}\\b"), " ")
-        s = s.replace(Regex("\\b(tv|channel|network|broadcasting)\\b"), " ")
-        s = s.replace(Regex("[|\\[\\]()._:\\-+]"), " ")
-        s = s.replace(Regex("\\s+"), " ")
-        return s.trim()
-    }
+    fun normalizeChannelName(name: String): String = normalizer.normalize(name)
 
-    fun calculateConfidence(channelName: String, epgName: String): Int {
-        val c = normalizeChannelName(channelName)
-        val e = normalizeChannelName(epgName)
-        if (c.isBlank() || e.isBlank()) return 0
-        if (c == e) return 100
-        if (c.contains(e) || e.contains(c)) return 90
-        val dist = levenshtein(c, e)
-        if (dist == 1) return 85
-        if (dist == 2) return 75
-
-        val cWords = c.split(" ").filter { it.isNotBlank() }
-        val eWords = e.split(" ").filter { it.isNotBlank() }.toSet()
-        val matchCount = cWords.count { eWords.contains(it) }
-        if (cWords.isNotEmpty() && matchCount == cWords.size) return 70
-        if (cWords.isNotEmpty() && matchCount * 2 > cWords.size) return 55
-        return 0
-    }
+    fun calculateConfidence(channelName: String, epgName: String): Int =
+        normalizer.calculateConfidence(channelName, epgName)
 
     suspend fun resolveChannel(channel: Channel): EpgResolutionResult {
-        val local = localCandidates()
-        pickBest(channel.name, local)?.let { best ->
-            if (best.third >= 85) return EpgResolutionResult.AutoMatched(best.first, best.second, best.third, "local")
-        }
+        canonicalSeeder.ensureSeeded()
+        val candidates = gatherCandidates(channel.name)
+        val outcome = matcher.match(channel.name, channel.epgId, candidates)
+        val best = outcome.best ?: return EpgResolutionResult.NoMatch
 
-        refreshSourceIfStale("epg.best", "https://epg.best/epg.xml.gz")
-        val bestGlobal = pickBest(channel.name, sourceDao.bySource("epg.best"))
-        if (bestGlobal != null && bestGlobal.third >= 85) {
-            return EpgResolutionResult.AutoMatched(bestGlobal.first, bestGlobal.second, bestGlobal.third, "epg.best")
-        }
-
-        val regions = detectRegions(channel.name)
-        for (region in regions) {
-            val source = "i.mjh.nz/$region"
-            refreshSourceIfStale(source, "https://i.mjh.nz/$region/epg.xml.gz")
-            val bestRegion = pickBest(channel.name, sourceDao.bySource(source))
-            if (bestRegion != null && bestRegion.third >= 85) {
-                return EpgResolutionResult.AutoMatched(bestRegion.first, bestRegion.second, bestRegion.third, source)
-            }
-        }
-
-        val suggestedCandidates = mutableListOf<Triple<String, String, Int>>()
-        bestGlobal?.let { suggestedCandidates += Triple(it.first, it.second, it.third) }
-        for (region in regions) {
-            val source = "i.mjh.nz/$region"
-            pickBest(channel.name, sourceDao.bySource(source))?.let { suggestedCandidates += Triple(it.first, it.second, it.third) }
-        }
-        pickBest(channel.name, local)?.let { suggestedCandidates += Triple(it.first, it.second, it.third) }
-
-        val top = suggestedCandidates.maxByOrNull { it.third }
-        return if (top != null && top.third in 55..84) {
-            val source = when {
-                local.any { it.epgId == top.first } -> "local"
-                else -> "epg.best"
-            }
-            EpgResolutionResult.SuggestedMatch(top.first, top.second, top.third, source)
+        return if (best.confidence >= 85) {
+            EpgResolutionResult.AutoMatched(
+                epgId = best.epgId,
+                epgName = best.epgName,
+                confidence = best.confidence,
+                source = best.source,
+                reason = best.reason
+            )
+        } else if (best.confidence in 55..84) {
+            EpgResolutionResult.SuggestedMatch(
+                epgId = best.epgId,
+                epgName = best.epgName,
+                confidence = best.confidence,
+                source = best.source,
+                reason = best.reason
+            )
         } else {
             EpgResolutionResult.NoMatch
         }
     }
 
-    fun resolveAllUnmatched(createdAfter: Long = 0L): Flow<EpgResolutionProgress> = flow {
-        val rerunMonthlyBefore = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
-        val allCandidates = mutableListOf<ChannelEntity>()
-        var offset = 0
-        val batchSize = 50
-        while (true) {
-            val page = channelDao.unresolvedBatch(batchSize, offset, createdAfter, rerunMonthlyBefore)
-            if (page.isEmpty()) break
-            allCandidates += page.filter {
-                shouldProcessStatus(it.epgResolutionStatus, it.epgLastAttemptAt, rerunMonthlyBefore)
-            }
-            offset += batchSize
-        }
+    suspend fun previewGuideFixes(createdAfter: Long = 0L): List<EpgFixProposal> {
+        canonicalSeeder.ensureSeeded()
+        val channels = loadUnresolvedChannels(createdAfter)
+        return channels.mapNotNull { entity ->
+            val channel = entity.toDomain()
+            when (val result = resolveChannel(channel)) {
+                is EpgResolutionResult.AutoMatched -> EpgFixProposal(
+                    channelId = entity.id,
+                    channelName = entity.name,
+                    proposedEpgId = result.epgId,
+                    proposedEpgName = result.epgName,
+                    confidence = result.confidence,
+                    reason = result.reason,
+                    source = result.source
+                )
 
+                is EpgResolutionResult.SuggestedMatch -> EpgFixProposal(
+                    channelId = entity.id,
+                    channelName = entity.name,
+                    proposedEpgId = result.epgId,
+                    proposedEpgName = result.epgName,
+                    confidence = result.confidence,
+                    reason = result.reason,
+                    source = result.source
+                )
+
+                EpgResolutionResult.NoMatch -> null
+            }
+        }
+    }
+
+    suspend fun applyGuideFixes(proposals: List<EpgFixProposal>) {
+        proposals.forEach { proposal ->
+            if (proposal.confidence >= 85) {
+                channelDao.applyResolution(
+                    channelId = proposal.channelId,
+                    epgId = proposal.proposedEpgId,
+                    status = EpgResolutionStatus.AUTO_MATCHED.name,
+                    confidence = proposal.confidence,
+                    source = proposal.source,
+                    attemptAt = System.currentTimeMillis()
+                )
+                suggestionDao.clearForChannel(proposal.channelId.toString())
+                analyticsTracker.recordAutoMatch(proposal.reason)
+            } else {
+                channelDao.applyResolution(
+                    channelId = proposal.channelId,
+                    epgId = null,
+                    status = EpgResolutionStatus.SUGGESTED.name,
+                    confidence = proposal.confidence,
+                    source = proposal.source,
+                    attemptAt = System.currentTimeMillis()
+                )
+                suggestionDao.upsert(
+                    EpgResolutionSuggestionEntity(
+                        channelId = proposal.channelId.toString(),
+                        suggestedEpgId = proposal.proposedEpgId,
+                        suggestedEpgName = proposal.proposedEpgName,
+                        confidence = proposal.confidence,
+                        source = proposal.source,
+                        matchReason = proposal.reason.name
+                    )
+                )
+                analyticsTracker.recordSuggested(proposal.reason)
+            }
+        }
+    }
+
+    fun resolveAllUnmatched(createdAfter: Long = 0L): Flow<EpgResolutionProgress> = flow {
+        canonicalSeeder.ensureSeeded()
+        val allCandidates = loadUnresolvedChannels(createdAfter)
         val total = allCandidates.size
         var completed = 0
         var auto = 0
@@ -143,40 +176,55 @@ class EpgResolverEngine @Inject constructor(
 
         allCandidates.chunked(50).forEach { chunk ->
             for (entity in chunk) {
-                val channel = Channel(
-                    id = entity.id,
-                    number = entity.number,
-                    name = entity.name,
-                    group = entity.groupName,
-                    logoUrl = entity.logoUrl,
-                    epgId = entity.epgId,
-                    streamUrl = entity.streamUrl,
-                    playlistId = entity.playlistId,
-                    isFavorite = false
-                )
+                val channel = entity.toDomain()
                 when (val result = resolveChannel(channel)) {
                     is EpgResolutionResult.AutoMatched -> {
-                        channelDao.applyResolution(entity.id, result.epgId, EpgResolutionStatus.AUTO_MATCHED.name, result.confidence, result.source, System.currentTimeMillis())
+                        channelDao.applyResolution(
+                            entity.id,
+                            result.epgId,
+                            EpgResolutionStatus.AUTO_MATCHED.name,
+                            result.confidence,
+                            result.source,
+                            System.currentTimeMillis()
+                        )
                         suggestionDao.clearForChannel(entity.id.toString())
+                        analyticsTracker.recordAutoMatch(result.reason)
                         auto++
                     }
 
                     is EpgResolutionResult.SuggestedMatch -> {
-                        channelDao.applyResolution(entity.id, entity.epgId, EpgResolutionStatus.SUGGESTED.name, result.confidence, result.source, System.currentTimeMillis())
+                        channelDao.applyResolution(
+                            entity.id,
+                            entity.epgId,
+                            EpgResolutionStatus.SUGGESTED.name,
+                            result.confidence,
+                            result.source,
+                            System.currentTimeMillis()
+                        )
                         suggestionDao.upsert(
                             EpgResolutionSuggestionEntity(
                                 channelId = entity.id.toString(),
                                 suggestedEpgId = result.epgId,
                                 suggestedEpgName = result.epgName,
                                 confidence = result.confidence,
-                                source = result.source
+                                source = result.source,
+                                matchReason = result.reason.name
                             )
                         )
+                        analyticsTracker.recordSuggested(result.reason)
                         sugg++
                     }
 
                     EpgResolutionResult.NoMatch -> {
-                        channelDao.applyResolution(entity.id, entity.epgId, EpgResolutionStatus.UNRESOLVABLE.name, 0, null, System.currentTimeMillis())
+                        channelDao.applyResolution(
+                            entity.id,
+                            entity.epgId,
+                            EpgResolutionStatus.UNRESOLVABLE.name,
+                            0,
+                            null,
+                            System.currentTimeMillis()
+                        )
+                        analyticsTracker.recordUnmatched()
                         failed++
                     }
                 }
@@ -192,28 +240,49 @@ class EpgResolverEngine @Inject constructor(
         return true
     }
 
+    private suspend fun loadUnresolvedChannels(createdAfter: Long): List<ChannelEntity> {
+        val rerunMonthlyBefore = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+        val allCandidates = mutableListOf<ChannelEntity>()
+        var offset = 0
+        val batchSize = 50
+        while (true) {
+            val page = channelDao.unresolvedBatch(batchSize, offset, createdAfter, rerunMonthlyBefore)
+            if (page.isEmpty()) break
+            allCandidates += page.filter {
+                shouldProcessStatus(it.epgResolutionStatus, it.epgLastAttemptAt, rerunMonthlyBefore)
+            }
+            offset += batchSize
+        }
+        return allCandidates
+    }
+
+    private suspend fun gatherCandidates(channelName: String): List<EpgSourceChannelEntity> {
+        val pool = linkedMapOf<String, EpgSourceChannelEntity>()
+        localCandidates().forEach { pool[it.epgId] = it }
+
+        refreshSourceIfStale("epg.best", "https://epg.best/epg.xml.gz")
+        sourceDao.bySource("epg.best").forEach { pool[it.epgId] = it }
+
+        detectRegions(channelName).forEach { region ->
+            val source = "i.mjh.nz/$region"
+            refreshSourceIfStale(source, "https://i.mjh.nz/$region/epg.xml.gz")
+            sourceDao.bySource(source).forEach { pool[it.epgId] = it }
+        }
+
+        return pool.values.toList()
+    }
+
     private suspend fun localCandidates(): List<EpgSourceChannelEntity> {
         return programDao.distinctChannelEpgIds().map {
             EpgSourceChannelEntity(
                 epgId = it,
                 displayName = it,
-                normalizedName = normalizeChannelName(it),
+                normalizedName = normalizer.normalize(it),
                 source = "local",
                 logoUrl = null,
                 cachedAt = System.currentTimeMillis()
             )
         }
-    }
-
-    private fun pickBest(channelName: String, source: List<EpgSourceChannelEntity>): Triple<String, String, Int>? {
-        var best: Triple<String, String, Int>? = null
-        source.forEach { candidate ->
-            val confidence = calculateConfidence(channelName, candidate.displayName)
-            if (best == null || confidence > best!!.third) {
-                best = Triple(candidate.epgId, candidate.displayName, confidence)
-            }
-        }
-        return best
     }
 
     private suspend fun refreshSourceIfStale(source: String, url: String) {
@@ -259,7 +328,7 @@ class EpgResolverEngine @Inject constructor(
             EpgSourceChannelEntity(
                 epgId = id,
                 displayName = name,
-                normalizedName = normalizeChannelName(name),
+                normalizedName = normalizer.normalize(name),
                 source = source,
                 logoUrl = icon,
                 cachedAt = now
@@ -269,8 +338,8 @@ class EpgResolverEngine @Inject constructor(
 
     private fun detectRegions(name: String): List<String> {
         val original = name.lowercase(Locale.getDefault())
-        val regions = mutableListOf<String>()
         fun has(token: String): Boolean = Regex("\\b$token\\b").containsMatchIn(original)
+        val regions = mutableListOf<String>()
         if (has("ca")) regions += "ca"
         if (has("us")) regions += "us"
         if (has("uk")) regions += "uk"
@@ -280,25 +349,15 @@ class EpgResolverEngine @Inject constructor(
         return regions
     }
 
-    private fun levenshtein(a: String, b: String): Int {
-        if (a == b) return 0
-        if (a.isEmpty()) return b.length
-        if (b.isEmpty()) return a.length
-
-        val dp = Array(a.length + 1) { IntArray(b.length + 1) }
-        for (i in 0..a.length) dp[i][0] = i
-        for (j in 0..b.length) dp[0][j] = j
-
-        for (i in 1..a.length) {
-            for (j in 1..b.length) {
-                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
-                dp[i][j] = minOf(
-                    dp[i - 1][j] + 1,
-                    dp[i][j - 1] + 1,
-                    dp[i - 1][j - 1] + cost
-                )
-            }
-        }
-        return dp[a.length][b.length]
-    }
+    private fun ChannelEntity.toDomain(): Channel = Channel(
+        id = id,
+        number = number,
+        name = name,
+        group = groupName,
+        logoUrl = logoUrl,
+        epgId = epgId,
+        streamUrl = streamUrl,
+        playlistId = playlistId,
+        isFavorite = false
+    )
 }

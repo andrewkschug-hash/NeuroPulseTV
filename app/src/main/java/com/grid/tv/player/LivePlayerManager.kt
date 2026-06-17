@@ -16,6 +16,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -38,7 +40,8 @@ data class TimeshiftUiState(
 
 @Singleton
 class LivePlayerManager @Inject constructor(
-    private val playerFactory: PlayerFactory
+    private val playerFactory: PlayerFactory,
+    private val streamFailover: StreamFailoverController
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -76,12 +79,43 @@ class LivePlayerManager @Inject constructor(
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
     val playbackStatus: StateFlow<StreamPlaybackStatus> = playbackMonitor.status
+    val failoverUiState: StateFlow<StreamFailoverUiState> = streamFailover.uiState
+
+    private val failoverActions = object : StreamFailoverPlaybackActions {
+        override fun reconnectSameStream() {
+            val exo = player ?: return
+            val url = currentStreamUrl ?: return
+            playbackMonitor.onTuneStarted(url)
+            if (exo.mediaItemCount > 0) {
+                exo.prepare()
+            } else if (url.isNotBlank()) {
+                exo.setMediaItem(buildLiveMediaItem(url))
+                exo.prepare()
+            }
+            exo.playWhenReady = mode != Mode.IDLE
+            applyVolume()
+        }
+
+        override fun switchToStream(url: String) {
+            val contextChannel = currentChannel ?: return
+            val context = lastContext ?: return
+            switchToStreamUrl(context, contextChannel.id, url, contextChannel.catchupDays, contextChannel)
+        }
+    }
+
+    private var lastContext: Context? = null
 
     var mode: Mode = Mode.IDLE
         private set
 
     private var fullscreenSessions: Int = 0
     private var volumeFadeMultiplier: Float = 1f
+
+    init {
+        playbackMonitor.status.onEach { status ->
+            streamFailover.onPlaybackStatus(status)
+        }.launchIn(monitorScope)
+    }
 
     fun isFullscreenActive(): Boolean = fullscreenSessions > 0
 
@@ -149,6 +183,7 @@ class LivePlayerManager @Inject constructor(
         val currentMode = mode
         val audio = miniAudioEnabled
         playbackMonitor.detach()
+        streamFailover.detach()
         player?.removeListener(timeshiftListener)
         player?.release()
         player = null
@@ -183,8 +218,24 @@ class LivePlayerManager @Inject constructor(
         catchupDays: Int = 0,
         channelSnapshot: Channel? = null
     ) {
+        lastContext = context.applicationContext
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
+        streamFailover.attach(exo, failoverActions)
+        val failoverChannel = channelSnapshot
+            ?: currentChannel?.takeIf { it.id == channelId }
+            ?: Channel(
+                id = channelId,
+                number = 0,
+                name = "",
+                group = "",
+                logoUrl = null,
+                epgId = null,
+                streamUrl = streamUrl,
+                playlistId = 0,
+                isFavorite = false
+            )
+        streamFailover.configure(failoverChannel, streamUrl)
 
         if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
             channelSnapshot?.let { currentChannel = it }
@@ -230,6 +281,33 @@ class LivePlayerManager @Inject constructor(
         exo.prepare()
         exo.playWhenReady = true
         applyVolume()
+        streamFailover.onStreamSwitched(streamUrl)
+    }
+
+    fun switchToStreamUrl(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int = 0,
+        channelSnapshot: Channel? = null
+    ) {
+        lastContext = context.applicationContext
+        val exo = getOrCreatePlayer(context)
+        playbackMonitor.attach(exo)
+        streamFailover.attach(exo, failoverActions)
+
+        playbackMonitor.onTuneStarted(streamUrl)
+        this.catchupDays = catchupDays
+        currentChannelId = channelId
+        currentStreamUrl = streamUrl
+        channelSnapshot?.let { currentChannel = it }
+        _activeChannelId.value = channelId
+        pendingJumpToLive = true
+        exo.setMediaItem(buildLiveMediaItem(streamUrl))
+        exo.prepare()
+        exo.playWhenReady = mode != Mode.IDLE
+        applyVolume()
+        streamFailover.onStreamSwitched(streamUrl)
     }
 
     private fun buildLiveMediaItem(streamUrl: String): MediaItem {
@@ -399,6 +477,7 @@ class LivePlayerManager @Inject constructor(
     fun stopGuidePreview() {
         mode = Mode.IDLE
         playbackMonitor.onPlaybackPaused()
+        streamFailover.onPlaybackPaused()
         player?.playWhenReady = false
         player?.pause()
         applyVolume()
@@ -419,6 +498,7 @@ class LivePlayerManager @Inject constructor(
             return
         }
         playbackMonitor.onPreviewResumed()
+        streamFailover.onPlaybackResumed()
         exo.playWhenReady = true
         when (exo.playbackState) {
             Player.STATE_IDLE, Player.STATE_ENDED -> {
@@ -439,12 +519,14 @@ class LivePlayerManager @Inject constructor(
 
     fun release(context: Context? = null) {
         playbackMonitor.detach()
+        streamFailover.detach()
         player?.removeListener(timeshiftListener)
         player?.release()
         player = null
         currentChannelId = null
         currentStreamUrl = null
         currentChannel = null
+        lastContext = null
         _lastChannel.value = null
         catchupDays = 0
         _activeChannelId.value = null

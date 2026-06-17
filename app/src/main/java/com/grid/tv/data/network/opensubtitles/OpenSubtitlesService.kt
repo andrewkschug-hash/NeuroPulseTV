@@ -31,11 +31,20 @@ class OpenSubtitlesService @Inject constructor(
         secureCredentialStore.getOpenSubtitlesApiKey()?.trim()?.takeIf { it.isNotBlank() }
             ?: BuildConfig.OPENSUBTITLES_API_KEY.trim()
 
-    suspend fun searchByImdbId(imdbId: String, language: String = "en"): List<OpenSubtitleMatch> {
+    suspend fun searchByImdbId(imdbId: String, language: String = "en"): List<OpenSubtitleMatch> =
+        search("$BASE_URL/subtitles?imdb_id=$imdbId&languages=$language")
+
+    suspend fun searchByQuery(query: String, language: String = "en", year: Int? = null): List<OpenSubtitleMatch> {
+        val encodedQuery = java.net.URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
+        val yearParam = year?.let { "&year=$it" }.orEmpty()
+        return search("$BASE_URL/subtitles?query=$encodedQuery&languages=$language$yearParam")
+    }
+
+    private suspend fun search(url: String): List<OpenSubtitleMatch> {
         val apiKey = resolveApiKey()
         if (apiKey.isBlank()) return emptyList()
         val request = Request.Builder()
-            .url("$BASE_URL/subtitles?imdb_id=$imdbId&languages=$language")
+            .url(url)
             .header("Api-Key", apiKey)
             .header("User-Agent", USER_AGENT)
             .header("Accept", "application/json")

@@ -18,6 +18,8 @@ class M3uParser {
         var logo: String? = null
         var epgId: String? = null
         var backupUrl: String? = null
+        var backupUrl2: String? = null
+        var backupUrl3: String? = null
         var catchup: String? = null
         var catchupSource: String? = null
         var catchupDays = 0
@@ -31,10 +33,13 @@ class M3uParser {
                 logo = attr(line, "tvg-logo")
                 epgId = attr(line, "tvg-id")
                 backupUrl = attr(line, "backup-url")
+                backupUrl2 = attr(line, "backup-url-2")
+                backupUrl3 = attr(line, "backup-url-3")
                 catchup = attr(line, "catchup")
                 catchupSource = attr(line, "catchup-source")
                 catchupDays = attr(line, "catchup-days")?.toIntOrNull() ?: 0
             } else if (line.isNotBlank() && !line.startsWith("#")) {
+                val pipeBackups = backupUrl?.split('|')?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
                 val channel = ChannelEntity(
                     number = channels.size + 1,
                     name = (tvgName ?: name).ifBlank { "Channel ${channels.size + 1}" },
@@ -42,7 +47,9 @@ class M3uParser {
                     logoUrl = logo,
                     epgId = epgId,
                     streamUrl = line,
-                    backupStreamUrl = backupUrl,
+                    backupStreamUrl = pipeBackups.getOrNull(0) ?: backupUrl?.substringBefore('|')?.trim()?.takeIf { it.isNotBlank() },
+                    backupStreamUrl2 = pipeBackups.getOrNull(1) ?: backupUrl2,
+                    backupStreamUrl3 = pipeBackups.getOrNull(2) ?: backupUrl3,
                     playlistId = playlistId,
                     catchupMode = catchup,
                     catchupSource = catchupSource,

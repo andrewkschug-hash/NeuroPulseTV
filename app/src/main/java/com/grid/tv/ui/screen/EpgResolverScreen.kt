@@ -24,9 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.tv.material3.Text
 import com.grid.tv.data.db.entity.EpgResolutionSuggestionEntity
 import com.grid.tv.data.db.entity.EpgSourceChannelEntity
+import com.grid.tv.domain.epg.EpgFixProposal
+import com.grid.tv.domain.epg.EpgMatchReason
 import com.grid.tv.ui.viewmodel.EpgResolverViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -35,11 +38,15 @@ import java.util.Locale
 @Composable
 fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
     val summary by viewModel.summary.collectAsStateWithLifecycle()
+    val analytics by viewModel.analytics.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val running by viewModel.running.collectAsStateWithLifecycle()
     val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val unresolved by viewModel.unresolved.collectAsStateWithLifecycle()
     val manualCandidates by viewModel.manualCandidates.collectAsStateWithLifecycle()
+    val fixProposals by viewModel.fixProposals.collectAsStateWithLifecycle()
+    val fixScanning by viewModel.fixScanning.collectAsStateWithLifecycle()
+    val channelNames by viewModel.channelNames.collectAsStateWithLifecycle()
 
     var manualTargetChannelId by remember { mutableLongStateOf(-1L) }
     var manualQuery by remember { mutableStateOf("") }
@@ -48,11 +55,14 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
         modifier = Modifier.fillMaxSize().padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { Text("EPG Auto-Resolve Channels") }
+        item { Text("EPG Matching & Repair") }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Total channels: ${summary.totalChannels}")
-                Text("EPG matched: ${summary.matched}", color = Color(0xFF30C85A))
+                Text(
+                    "EPG matched: ${summary.matched} (${"%.1f".format(summary.matchRatePercent)}%)",
+                    color = Color(0xFF30C85A)
+                )
                 Text("Awaiting confirmation: ${summary.awaitingConfirmation}", color = Color(0xFFF3BF2D))
                 Text("Unresolved: ${summary.unresolved}", color = Color(0xFFE84C4C))
                 val last = if (summary.lastResolvedAt > 0) {
@@ -64,9 +74,48 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
             }
         }
 
+        item { Text("Fix Missing Guide Data") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GlowFocusButton(onClick = { viewModel.runResolver() }, enabled = !running) { Text("Run Auto-Resolver") }
+                GlowFocusButton(
+                    onClick = { viewModel.scanForGuideFixes() },
+                    enabled = !running && !fixScanning
+                ) {
+                    Text("Scan for Fixes")
+                }
+                GlowFocusButton(
+                    onClick = { viewModel.applyAllGuideFixes() },
+                    enabled = fixProposals.isNotEmpty() && !running
+                ) {
+                    Text("Apply All (${fixProposals.size})")
+                }
+                GlowFocusButton(
+                    onClick = { viewModel.clearGuideFixes() },
+                    enabled = fixProposals.isNotEmpty()
+                ) {
+                    Text("Clear")
+                }
+            }
+        }
+
+        if (fixScanning) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator()
+                    Text("Scanning channels for missing guide data…")
+                }
+            }
+        }
+
+        items(fixProposals) { proposal ->
+            FixProposalRow(proposal)
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GlowFocusButton(onClick = { viewModel.runResolver() }, enabled = !running) {
+                    Text("Run Full Auto-Match")
+                }
                 GlowFocusButton(onClick = { viewModel.cancelResolver() }, enabled = running) { Text("Cancel") }
             }
         }
@@ -83,16 +132,33 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
             }
         }
 
+        item { Text("Match Analytics") }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Auto match rate: ${"%.1f".format(analytics.matchRatePercent)}%")
+                Text("Unmatched rate: ${"%.1f".format(analytics.unmatchedRatePercent)}%")
+                Text("Manual correction rate: ${"%.1f".format(analytics.manualCorrectionRatePercent)}%")
+                Text("TVG-ID: ${analytics.tvgIdMatches} · Learned: ${analytics.learnedMatches} · Canonical: ${analytics.canonicalMatches}")
+                Text("Exact name: ${analytics.exactNameMatches} · Fuzzy: ${analytics.fuzzyMatches}")
+                if (analytics.topAliases.isNotEmpty()) {
+                    Text("Common aliases: ${analytics.topAliases.take(5).joinToString { it.first }}")
+                }
+            }
+        }
+
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Needs Your Confirmation")
-                GlowFocusButton(onClick = { viewModel.acceptAll() }, enabled = suggestions.isNotEmpty()) { Text("Accept All") }
+                GlowFocusButton(onClick = { viewModel.acceptAll() }, enabled = suggestions.isNotEmpty()) {
+                    Text("Accept All")
+                }
             }
         }
 
         items(suggestions) { s ->
             SuggestionRow(
                 item = s,
+                channelName = channelNames[s.channelId.toLongOrNull() ?: -1L],
                 onAccept = { viewModel.acceptSuggestion(s) },
                 onDismiss = { viewModel.dismissSuggestion(s) }
             )
@@ -132,7 +198,12 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(manualCandidates) { candidate ->
                             GlowFocusButton(onClick = {
-                                viewModel.applyManual(manualTargetChannelId, candidate.epgId, candidate.source)
+                                viewModel.applyManual(
+                                    manualTargetChannelId,
+                                    candidate.epgId,
+                                    candidate.displayName,
+                                    candidate.source
+                                )
                                 manualTargetChannelId = -1L
                             }) {
                                 Text("${candidate.displayName} (${candidate.source})")
@@ -147,8 +218,23 @@ fun EpgResolverScreen(viewModel: EpgResolverViewModel = hiltViewModel()) {
 }
 
 @Composable
+private fun FixProposalRow(proposal: EpgFixProposal) {
+    Row(
+        modifier = Modifier.fillMaxWidth().background(Color(0xFF243024)).padding(10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column {
+            Text(proposal.channelName)
+            Text("→ ${proposal.proposedEpgName}", color = Color(0xFF30C85A))
+            Text("${proposal.confidence}% · ${reasonLabel(proposal.reason)}", color = Color(0xFFF3BF2D))
+        }
+    }
+}
+
+@Composable
 private fun SuggestionRow(
     item: EpgResolutionSuggestionEntity,
+    channelName: String?,
     onAccept: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -157,9 +243,10 @@ private fun SuggestionRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
-            Text("Channel ${item.channelId} -> ${item.suggestedEpgName}")
-            Text("${item.confidence}% match", color = Color(0xFFF3BF2D))
-            Text(item.source)
+            Text(channelName ?: "Channel ${item.channelId}")
+            Text("→ ${item.suggestedEpgName}", color = Color(0xFF30C85A))
+            Text("${item.confidence}% · ${safeReasonLabel(item.matchReason)}")
+            Text(item.source, color = Color(0xFFAAAAAA))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GlowFocusButton(onClick = onAccept) { Text("Accept") }
@@ -167,3 +254,8 @@ private fun SuggestionRow(
         }
     }
 }
+
+private fun reasonLabel(reason: EpgMatchReason): String = reason.label
+
+private fun safeReasonLabel(raw: String): String =
+    runCatching { reasonLabel(EpgMatchReason.valueOf(raw)) }.getOrDefault(raw)

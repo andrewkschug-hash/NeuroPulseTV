@@ -1,6 +1,7 @@
 package com.grid.tv
 
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
@@ -13,6 +14,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.grid.tv.di.SupabaseEntryPoint
 import com.grid.tv.domain.repository.IptvRepository
+import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
 import com.grid.tv.feature.search.MicSearchTrigger
@@ -22,7 +24,7 @@ import com.grid.tv.ui.navigation.AppRoot
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
-import dagger.hilt.android.AndroidEntryPoint
+import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import javax.inject.Inject
@@ -55,6 +57,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestedOrientation = if (isTelevision()) {
+            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
         setTitle(getString(R.string.app_name))
 
         lifecycleScope.launch {

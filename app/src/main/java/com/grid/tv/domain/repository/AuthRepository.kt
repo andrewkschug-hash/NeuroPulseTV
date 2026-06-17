@@ -7,6 +7,10 @@ import kotlinx.coroutines.flow.Flow
 interface AuthRepository {
     val authState: Flow<Boolean>
 
+    fun hasSkippedSignIn(): Boolean
+
+    fun setSkippedSignIn(skipped: Boolean)
+
     suspend fun getCurrentAccount(): AuthAccount?
 
     suspend fun ensureCloudProfile()

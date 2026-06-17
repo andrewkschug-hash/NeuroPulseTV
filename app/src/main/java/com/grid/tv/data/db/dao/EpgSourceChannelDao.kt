@@ -32,4 +32,7 @@ interface EpgSourceChannelDao {
         """
     )
     suspend fun searchNormalized(normalized: String): List<EpgSourceChannelEntity>
+
+    @Query("SELECT * FROM epg_source_channels WHERE epgId = :epgId LIMIT 1")
+    suspend fun findByEpgId(epgId: String): EpgSourceChannelEntity?
 }

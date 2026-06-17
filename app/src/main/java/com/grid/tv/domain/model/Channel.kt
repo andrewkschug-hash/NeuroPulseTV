@@ -9,6 +9,8 @@ data class Channel(
     val epgId: String?,
     val streamUrl: String,
     val backupStreamUrl: String? = null,
+    val backupStreamUrl2: String? = null,
+    val backupStreamUrl3: String? = null,
     val playlistId: Long,
     val playlistName: String? = null,
     val isFavorite: Boolean,
@@ -16,6 +18,7 @@ data class Channel(
     val currentProgram: String? = null,
     val catchupDays: Int = 0,
     val catchupSource: String? = null,
+    val catchupMode: String? = null,
     val epgResolutionStatus: EpgResolutionStatus = EpgResolutionStatus.UNRESOLVED,
     val epgResolutionConfidence: Int = 0,
     val epgResolutionSource: String? = null

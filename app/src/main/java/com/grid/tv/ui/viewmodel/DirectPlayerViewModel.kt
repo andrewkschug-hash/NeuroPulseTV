@@ -7,11 +7,19 @@ import com.grid.tv.data.db.dao.RecordedMediaDao
 import com.grid.tv.data.db.entity.RecordedMediaEntity
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.subtitles.ActiveSubtitle
+import com.grid.tv.feature.subtitles.SubtitleManager
+import com.grid.tv.feature.subtitles.SubtitleRequest
 import com.grid.tv.player.PictureInPictureController
+import com.grid.tv.domain.model.AppSettings
+import com.grid.tv.domain.model.SubtitleFontSize
+import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.domain.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +32,15 @@ class DirectPlayerViewModel @Inject constructor(
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
     private val profileDao: ProfileDao,
     private val recordedDao: RecordedMediaDao,
+    private val subtitleManager: SubtitleManager,
     val pipController: PictureInPictureController
 ) : ViewModel() {
+
+    private val _settings = MutableStateFlow(AppSettings())
+    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+
+    private val _activeSubtitle = MutableStateFlow<ActiveSubtitle?>(null)
+    val activeSubtitle: StateFlow<ActiveSubtitle?> = _activeSubtitle.asStateFlow()
 
     private val _recordedMedia = MutableStateFlow<RecordedMediaEntity?>(null)
     val recordedMedia: StateFlow<RecordedMediaEntity?> = _recordedMedia.asStateFlow()
@@ -36,7 +51,80 @@ class DirectPlayerViewModel @Inject constructor(
         vodMeta = meta
         viewModelScope.launch {
             titleEnrichmentRepository.enrichFromPlaybackMeta(meta)
+            _settings.value = repository.loadSettings()
         }
+    }
+
+    fun attachAutoSubtitles(player: ExoPlayer, playerView: PlayerView?, url: String, title: String) {
+        viewModelScope.launch {
+            val settings = repository.loadSettings()
+            _settings.value = settings
+            val meta = vodMeta
+            val request = SubtitleRequest(
+                mediaUrl = url,
+                title = title,
+                providerKey = meta.providerKey(),
+                isTv = meta.isTv,
+                releaseYear = parseYear(title)
+            )
+            _activeSubtitle.value = subtitleManager.attachAutoSubtitles(
+                player = player,
+                playerView = playerView,
+                request = request,
+                settings = settings
+            )
+        }
+    }
+
+    fun applySubtitleStyle(playerView: PlayerView?, settings: AppSettings) {
+        subtitleManager.applyStyle(playerView, settings)
+    }
+
+    fun updateSubtitleSettings(
+        enabled: Boolean? = null,
+        language: String? = null,
+        fontSize: SubtitleFontSize? = null,
+        position: SubtitlePosition? = null,
+        delayMs: Long? = null,
+        player: ExoPlayer? = null,
+        playerView: PlayerView? = null,
+        url: String? = null,
+        title: String? = null
+    ) {
+        viewModelScope.launch {
+            val current = repository.loadSettings()
+            val updated = current.copy(
+                subtitlesEnabled = enabled ?: current.subtitlesEnabled,
+                subtitleLanguage = language ?: current.subtitleLanguage,
+                subtitleFontSize = fontSize ?: current.subtitleFontSize,
+                subtitlePosition = position ?: current.subtitlePosition,
+                subtitleDelayMs = delayMs ?: current.subtitleDelayMs
+            )
+            repository.saveSettings(updated)
+            _settings.value = updated
+            subtitleManager.applyStyle(playerView, updated)
+            player?.let { exo ->
+                if (!updated.subtitlesEnabled) {
+                    subtitleManager.setEnabled(exo, false)
+                } else if (url != null && title != null) {
+                    attachAutoSubtitles(exo, playerView, url, title)
+                }
+            }
+        }
+    }
+
+    private fun VodPlaybackMeta.providerKey(): String? {
+        val playlist = playlistId ?: return null
+        return when {
+            isSeries && seriesId != null -> TitleEnrichmentRepository.xtreamSeriesKey(playlist, seriesId)
+            streamId != null -> TitleEnrichmentRepository.xtreamVodKey(playlist, streamId)
+            else -> null
+        }
+    }
+
+    private fun parseYear(title: String): Int? {
+        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(title) ?: return null
+        return match.value.toIntOrNull()
     }
 
     fun loadRecordedMedia(recordingId: Long) {

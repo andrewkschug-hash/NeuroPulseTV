@@ -44,14 +44,15 @@ fun AuthGate(
     }
 
     LaunchedEffect(uiState) {
-        if (uiState is AuthUiState.Authenticated) {
+        if (uiState is AuthUiState.Authenticated || uiState is AuthUiState.Guest) {
             onAuthenticated()
         }
     }
 
     when (uiState) {
-        AuthUiState.Checking -> AuthLoadingScreen()
-        is AuthUiState.Authenticated -> AuthLoadingScreen()
+        AuthUiState.Checking,
+        is AuthUiState.Authenticated,
+        is AuthUiState.Guest -> AuthLoadingScreen()
         else -> LoginScreen(
             supabaseClient = supabaseClient,
             onAuthenticated = onAuthenticated,

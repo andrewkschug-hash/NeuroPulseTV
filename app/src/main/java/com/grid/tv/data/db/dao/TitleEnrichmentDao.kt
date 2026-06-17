@@ -19,6 +19,9 @@ interface TitleEnrichmentDao {
     @Query("SELECT * FROM title_enrichment WHERE providerKey IN (:providerKeys)")
     suspend fun getByProviderKeys(providerKeys: List<String>): List<TitleEnrichmentEntity>
 
+    @Query("SELECT * FROM title_enrichment ORDER BY popularity DESC LIMIT :limit")
+    suspend fun topByPopularity(limit: Int): List<TitleEnrichmentEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: TitleEnrichmentEntity)
 }

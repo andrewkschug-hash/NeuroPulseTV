@@ -12,5 +12,6 @@ data class EpgResolutionSuggestionEntity(
     val suggestedEpgName: String,
     val confidence: Int,
     val source: String,
+    val matchReason: String = "FUZZY",
     val isDismissed: Boolean = false
 )

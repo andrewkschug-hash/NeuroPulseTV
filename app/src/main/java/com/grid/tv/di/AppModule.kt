@@ -9,6 +9,10 @@ import com.grid.tv.data.db.DbMigrations
 import com.grid.tv.data.db.dao.ContinueWatchingDao
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
+import com.grid.tv.data.db.dao.CanonicalChannelDao
+import com.grid.tv.data.db.dao.EpgAliasHitDao
+import com.grid.tv.data.db.dao.EpgLearnedMappingDao
+import com.grid.tv.data.db.dao.EpgMatchAnalyticsDao
 import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.FavoriteDao
 import com.grid.tv.data.db.dao.FavoriteGroupDao
@@ -24,6 +28,7 @@ import com.grid.tv.data.db.dao.RecordedMediaDao
 import com.grid.tv.data.db.dao.RecordingDao
 import com.grid.tv.data.db.dao.ScheduledRecordingDao
 import com.grid.tv.data.db.dao.SeriesRecordingRuleDao
+import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
@@ -69,6 +74,9 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_18_19)
             .addMigrations(DbMigrations.MIGRATION_19_20)
             .addMigrations(DbMigrations.MIGRATION_20_21)
+            .addMigrations(DbMigrations.MIGRATION_21_22)
+            .addMigrations(DbMigrations.MIGRATION_22_23)
+            .addMigrations(DbMigrations.MIGRATION_23_24)
              .build()
 
     @Provides
@@ -130,6 +138,10 @@ object AppProvidesModule {
     fun provideStreamHealthDao(db: AppDatabase): StreamHealthDao = db.streamHealthDao()
 
     @Provides
+    @Singleton
+    fun provideStreamFailoverStatsDao(db: AppDatabase): StreamFailoverStatsDao = db.streamFailoverStatsDao()
+
+    @Provides
     fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
 
     @Provides
@@ -155,6 +167,18 @@ object AppProvidesModule {
 
     @Provides
     fun provideContinueWatchingDao(db: AppDatabase): ContinueWatchingDao = db.continueWatchingDao()
+
+    @Provides
+    fun provideCanonicalChannelDao(db: AppDatabase): CanonicalChannelDao = db.canonicalChannelDao()
+
+    @Provides
+    fun provideEpgLearnedMappingDao(db: AppDatabase): EpgLearnedMappingDao = db.epgLearnedMappingDao()
+
+    @Provides
+    fun provideEpgMatchAnalyticsDao(db: AppDatabase): EpgMatchAnalyticsDao = db.epgMatchAnalyticsDao()
+
+    @Provides
+    fun provideEpgAliasHitDao(db: AppDatabase): EpgAliasHitDao = db.epgAliasHitDao()
 }
 
 @Module

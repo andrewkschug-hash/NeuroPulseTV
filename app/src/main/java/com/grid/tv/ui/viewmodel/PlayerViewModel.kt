@@ -39,6 +39,9 @@ class PlayerViewModel @Inject constructor(
         .map { list -> list.filter { it.isFavorite }.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val recentWatchChannels: StateFlow<List<Channel>> = repository.recentChannels(limit = 5)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun load(channelId: Long) {
         viewModelScope.launch {
             applyChannel(channelId, recordWatchHistory = true)
