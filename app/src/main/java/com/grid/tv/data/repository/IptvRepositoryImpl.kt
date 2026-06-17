@@ -1328,18 +1328,19 @@ class IptvRepositoryImpl @Inject constructor(
             rows.associate { (-it.channelId) to it.lastPosition }
         }
 
+    private suspend fun mapChannelEntity(entity: com.grid.tv.data.db.entity.ChannelEntity): Channel? =
+        mapChannelEntities(listOf(entity)).firstOrNull()
+
     override suspend fun channelById(channelId: Long): Channel? = withContext(Dispatchers.IO) {
+        if (channelId <= 0L) return@withContext null
         val entity = channelDao.getById(channelId) ?: return@withContext null
-        val playlist = playlistDao.getById(entity.playlistId)
-        val resolved = resolveXtreamPlaybackEntity(entity, playlist)
-        channelFromEntity(resolved, playlist?.name)
+        mapChannelEntity(entity)
     }
 
     override suspend fun channelByNumber(number: Int): Channel? = withContext(Dispatchers.IO) {
+        if (number <= 0) return@withContext null
         val entity = channelDao.getByNumber(number) ?: return@withContext null
-        val playlist = playlistDao.getById(entity.playlistId)
-        val resolved = resolveXtreamPlaybackEntity(entity, playlist)
-        channelFromEntity(resolved, playlist?.name)
+        mapChannelEntity(entity)
     }
 
     override suspend fun loadSettings(): AppSettings {

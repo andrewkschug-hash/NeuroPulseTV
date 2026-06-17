@@ -521,7 +521,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(channelId) {
-        viewModel.load(channelId)
+        viewModel.loadChannel(channelId, livePlayerManager.activeChannel())
     }
 
     LaunchedEffect(channel?.id, channel?.streamUrl, playbackSettingsSynced) {

@@ -680,12 +680,12 @@ fun HomeEpgScreen(
                         focusOnChannelColumn = true
                         focusZone = EpgFocusZone.GRID
                     }
-                    if (ch.streamUrl.isNotBlank()) {
-                        viewModel.setLastPlayedChannel(ch)
-                        viewModel.enableGuidePreview(ch.id)
-                        onWatchChannel(ch.id)
-                    }
+                    viewModel.setLastPlayedChannel(ch)
+                    viewModel.enableGuidePreview(ch.id)
+                } else {
+                    viewModel.enableGuidePreview(chId)
                 }
+                onWatchChannel(chId)
             }
             SearchResultType.PROGRAM -> {
                 val chId = result.channelId

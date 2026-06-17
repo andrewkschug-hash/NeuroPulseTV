@@ -49,13 +49,25 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun load(channelId: Long) {
-        viewModelScope.launch {
-            applyChannel(channelId, recordWatchHistory = true)
-        }
+        viewModelScope.launch { loadChannel(channelId) }
+    }
+
+    fun load(channel: Channel) {
+        viewModelScope.launch { applyChannel(channel) }
+    }
+
+    suspend fun loadChannel(channelId: Long, fallback: Channel? = null) {
+        val resolved = repository.channelById(channelId)
+            ?: fallback?.takeIf { it.id == channelId }
+        applyChannel(resolved, channelId, recordWatchHistory = true)
     }
 
     fun tuneChannel(channelId: Long) {
         viewModelScope.launch { applyChannel(channelId) }
+    }
+
+    fun tuneChannel(channel: Channel) {
+        viewModelScope.launch { applyChannel(channel) }
     }
 
     fun switchToPreviousChannel() {
@@ -78,14 +90,26 @@ class PlayerViewModel @Inject constructor(
     }
 
     private suspend fun applyChannel(channelId: Long, recordWatchHistory: Boolean = true) {
+        val ch = repository.channelById(channelId)
+        applyChannel(ch, channelId, recordWatchHistory)
+    }
+
+    private suspend fun applyChannel(channel: Channel, recordWatchHistory: Boolean = true) {
+        applyChannel(channel, channel.id, recordWatchHistory)
+    }
+
+    private suspend fun applyChannel(
+        ch: Channel?,
+        channelId: Long,
+        recordWatchHistory: Boolean = true
+    ) {
         val current = _channel.value
         if (current != null && current.id != channelId) {
             previousChannelId = current.id
             _lastWatchedChannel.value = current
         }
-        val ch = repository.channelById(channelId)
         if (ch == null) {
-            Log.w(LOG_TAG, "load channelId=$channelId: channel not found")
+            Log.w(LOG_TAG, "load channelId=$channelId: channel not found (direct DB lookup)")
         } else {
             Log.i(
                 LOG_TAG,

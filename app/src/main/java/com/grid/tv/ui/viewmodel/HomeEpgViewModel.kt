@@ -113,6 +113,8 @@ class HomeEpgViewModel @Inject constructor(
         _lastPlayedChannel.value = channel
     }
 
+    suspend fun lookupChannel(channelId: Long): Channel? = repository.channelById(channelId)
+
     fun enableGuidePreview(channelId: Long) {
         _guidePreviewEnabled.value = true
         _guidePreviewChannelId.value = channelId

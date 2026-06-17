@@ -59,7 +59,7 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE number = :number LIMIT 1")
     suspend fun getByNumber(number: Int): ChannelEntity?
 
-    @Query("SELECT * FROM channels WHERE id = :channelId")
+    @Query("SELECT * FROM channels WHERE id = :channelId LIMIT 1")
     suspend fun getById(channelId: Long): ChannelEntity?
 
     @Query("SELECT * FROM channels WHERE id IN (:ids)")

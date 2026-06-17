@@ -457,6 +457,8 @@ class LivePlayerManager @Inject constructor(
 
     fun activeChannelId(): Long? = currentChannelId
 
+    fun activeChannel(): Channel? = currentChannel
+
     fun activePlayer(): ExoPlayer? = player
 
     /** Clears the video surface. Call only after every [PlayerView] has set `player = null`. */
