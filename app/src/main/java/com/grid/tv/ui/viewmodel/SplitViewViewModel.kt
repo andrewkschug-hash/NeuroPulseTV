@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
+import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.player.PlayerFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
