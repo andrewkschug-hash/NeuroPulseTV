@@ -51,29 +51,35 @@ class XtreamParser {
         return AuthPayload(status, exp, maxConn, serverUrl)
     }
 
-    fun resolveServerUrl(userEntered: String, auth: AuthPayload): String {
-        val entered = normalizeServerUrl(userEntered)
-        if (auth.serverUrl.isBlank()) return entered
-        val authBase = auth.serverUrl.trimEnd('/')
-        val pathSuffix = runCatching {
-            URI(entered).path?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
-        }.getOrDefault("")
-        return when {
-            pathSuffix.isBlank() -> authBase
-            authBase.endsWith(pathSuffix) -> authBase
-            else -> "$authBase$pathSuffix"
-        }
-    }
-
     fun normalizeServerUrl(raw: String): String {
-        val trimmed = raw.trim().removeSuffix("/")
+        val trimmed = raw.trim()
+            .replace("\u200B", "")
+            .replace(Regex("""\s+"""), "")
         return if (trimmed.startsWith("http://", ignoreCase = true) ||
             trimmed.startsWith("https://", ignoreCase = true)
         ) {
-            trimmed
+            trimmed.removeSuffix("/")
         } else {
-            "http://$trimmed"
+            "http://${trimmed.removeSuffix("/")}"
         }
+    }
+
+    fun resolveServerUrl(userEntered: String, auth: AuthPayload): String {
+        val entered = normalizeServerUrl(userEntered)
+        val enteredUri = runCatching { URI(entered) }.getOrNull()
+        val authUri = auth.serverUrl.takeIf { it.isNotBlank() }?.let {
+            runCatching { URI(normalizeServerUrl(it)) }.getOrNull()
+        }
+        val host = enteredUri?.host ?: authUri?.host ?: return entered
+        val protocol = enteredUri?.scheme ?: authUri?.scheme ?: "http"
+        val port = when {
+            enteredUri?.port != null && enteredUri.port > 0 -> enteredUri.port
+            authUri?.port != null && authUri.port > 0 -> authUri.port
+            else -> -1
+        }
+        val portPart = if (port > 0) ":$port" else ""
+        val pathSuffix = enteredUri?.path?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
+        return "$protocol://$host$portPart$pathSuffix".trimEnd('/')
     }
 
     fun buildLiveStreamUrl(

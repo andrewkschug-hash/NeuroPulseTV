@@ -23,6 +23,8 @@ class RemoteTextFetcher @Inject constructor(
 
     fun normalizeRemoteUrl(raw: String): String {
         val trimmed = raw.trim()
+            .replace("\u200B", "")
+            .replace(Regex("""\s+"""), "")
         require(trimmed.isNotBlank()) { "URL is blank" }
         return when {
             trimmed.startsWith("http://", ignoreCase = true) -> trimmed

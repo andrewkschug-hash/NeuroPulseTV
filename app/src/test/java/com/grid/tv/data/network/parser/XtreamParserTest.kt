@@ -35,10 +35,22 @@ class XtreamParserTest {
             status = "Active",
             expiryDateEpochSec = null,
             maxConnections = null,
-            serverUrl = "http://example.com:8080"
+            serverUrl = "http://cdn.internal:8080"
         )
         val resolved = parser.resolveServerUrl("http://example.com:8080/c/", auth)
         assertEquals("http://example.com:8080/c", resolved)
+    }
+
+    @Test
+    fun resolveServerUrlKeepsUserHostWhenAuthReturnsDifferentHost() {
+        val auth = XtreamParser.AuthPayload(
+            status = "Active",
+            expiryDateEpochSec = null,
+            maxConnections = null,
+            serverUrl = "http://unreachable.panel.host:8080"
+        )
+        val resolved = parser.resolveServerUrl("http://52123328.97qaz.com", auth)
+        assertEquals("http://52123328.97qaz.com:8080", resolved)
     }
 
     @Test
