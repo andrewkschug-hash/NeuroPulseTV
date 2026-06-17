@@ -4,8 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.player.PlayerFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import android.content.Context
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +20,8 @@ import kotlinx.coroutines.launch
 
 @HiltViewModel
 class SplitViewViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val playerFactory: PlayerFactory
 ) : ViewModel() {
 
     companion object {
@@ -101,4 +106,8 @@ class SplitViewViewModel @Inject constructor(
             _audioPaneIndex.value = index
         }
     }
+
+    @UnstableApi
+    fun createPanePlayer(context: Context): ExoPlayer =
+        playerFactory.create(context.applicationContext)
 }

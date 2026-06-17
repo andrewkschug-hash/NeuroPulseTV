@@ -28,6 +28,14 @@ import com.grid.tv.data.db.dao.RecordedMediaDao
 import com.grid.tv.data.db.dao.RecordingDao
 import com.grid.tv.data.db.dao.ScheduledRecordingDao
 import com.grid.tv.data.db.dao.SeriesRecordingRuleDao
+import com.grid.tv.data.db.dao.PlaybackSessionTelemetryDao
+import com.grid.tv.data.db.dao.StreamSourceHealthDao
+import com.grid.tv.data.db.dao.ChannelHealthAggregateDao
+import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
+import com.grid.tv.data.db.dao.VodWatchEventDao
+import com.grid.tv.data.db.dao.SeriesFollowDao
+import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
@@ -77,6 +85,7 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_21_22)
             .addMigrations(DbMigrations.MIGRATION_22_23)
             .addMigrations(DbMigrations.MIGRATION_23_24)
+            .addMigrations(DbMigrations.MIGRATION_24_25)
              .build()
 
     @Provides
@@ -179,6 +188,33 @@ object AppProvidesModule {
 
     @Provides
     fun provideEpgAliasHitDao(db: AppDatabase): EpgAliasHitDao = db.epgAliasHitDao()
+
+    @Provides
+    fun providePlaybackSessionTelemetryDao(db: AppDatabase): PlaybackSessionTelemetryDao =
+        db.playbackSessionTelemetryDao()
+
+    @Provides
+    fun provideStreamSourceHealthDao(db: AppDatabase): StreamSourceHealthDao = db.streamSourceHealthDao()
+
+    @Provides
+    fun provideChannelHealthAggregateDao(db: AppDatabase): ChannelHealthAggregateDao =
+        db.channelHealthAggregateDao()
+
+    @Provides
+    fun provideProviderHealthAggregateDao(db: AppDatabase): ProviderHealthAggregateDao =
+        db.providerHealthAggregateDao()
+
+    @Provides
+    fun provideVodWatchEventDao(db: AppDatabase): VodWatchEventDao = db.vodWatchEventDao()
+
+    @Provides
+    fun provideSeriesFollowDao(db: AppDatabase): SeriesFollowDao = db.seriesFollowDao()
+
+    @Provides
+    fun provideVodCatalogEpisodeDao(db: AppDatabase): VodCatalogEpisodeDao = db.vodCatalogEpisodeDao()
+
+    @Provides
+    fun provideVodUserNotificationDao(db: AppDatabase): VodUserNotificationDao = db.vodUserNotificationDao()
 }
 
 @Module

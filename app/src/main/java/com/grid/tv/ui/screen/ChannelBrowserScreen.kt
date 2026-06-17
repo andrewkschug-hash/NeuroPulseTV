@@ -26,7 +26,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
-import com.grid.tv.feature.preview.PreviewPlayerManager
 import com.grid.tv.ui.component.FocusCard
 import com.grid.tv.ui.viewmodel.BrowserViewModel
 import kotlinx.coroutines.delay
@@ -35,10 +34,10 @@ import kotlinx.coroutines.delay
 fun ChannelBrowserScreen(
     onPlayChannel: (Long) -> Unit,
     onMultiview: () -> Unit,
-    viewModel: BrowserViewModel = hiltViewModel(),
-    previewManager: PreviewPlayerManager = PreviewPlayerManager()
+    viewModel: BrowserViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val previewManager = viewModel.previewManager
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
     var focusedChannel by remember { mutableStateOf<Long?>(null) }

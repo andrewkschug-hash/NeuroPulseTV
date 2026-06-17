@@ -301,9 +301,7 @@ class HomeEpgViewModel @Inject constructor(
             _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
             _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
-        }
-        viewModelScope.launch {
-            runCatching { repository.refreshVodSeriesCatalog() }
+            livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         }
         viewModelScope.launch {
             repository.playlists().collect { list ->
@@ -433,6 +431,7 @@ class HomeEpgViewModel @Inject constructor(
             _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
             _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+            livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
             livePlayerManager.syncPlaybackSettings(
                 context.applicationContext,
                 settings.bufferSize,

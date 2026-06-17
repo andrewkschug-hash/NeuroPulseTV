@@ -1,6 +1,5 @@
 package com.grid.tv.ui.component
 
-import android.content.pm.PackageManager
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
@@ -29,6 +28,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import com.grid.tv.util.isTelevision
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.Dp
@@ -199,11 +199,7 @@ fun rememberTvFocusScrollState(): TvFocusScrollState {
 @Composable
 fun isTvDevice(): Boolean {
     val context = LocalContext.current
-    return remember(context) {
-        val pm = context.packageManager
-        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-            pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION)
-    }
+    return remember(context) { context.isTelevision() }
 }
 
 /**

@@ -4,6 +4,153 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 object DbMigrations {
+    val MIGRATION_24_25 = object : Migration(24, 25) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS playback_session_telemetry (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    channelId INTEGER NOT NULL,
+                    streamId TEXT NOT NULL,
+                    providerId INTEGER NOT NULL,
+                    sessionStart INTEGER NOT NULL,
+                    sessionEnd INTEGER NOT NULL,
+                    watchDurationMs INTEGER NOT NULL,
+                    startupTimeMs INTEGER NOT NULL,
+                    bufferingEventCount INTEGER NOT NULL,
+                    bufferingDurationMs INTEGER NOT NULL,
+                    playbackErrorCount INTEGER NOT NULL,
+                    streamSwitchCount INTEGER NOT NULL,
+                    reconnectAttempts INTEGER NOT NULL,
+                    playbackSuccess INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_session_telemetry_channelId ON playback_session_telemetry(channelId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_session_telemetry_streamId ON playback_session_telemetry(streamId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_session_telemetry_providerId ON playback_session_telemetry(providerId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_session_telemetry_sessionStart ON playback_session_telemetry(sessionStart)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS stream_source_health (
+                    channelId INTEGER NOT NULL,
+                    streamId TEXT NOT NULL,
+                    healthScore INTEGER NOT NULL,
+                    healthTier TEXT NOT NULL,
+                    sessionCount INTEGER NOT NULL,
+                    avgStartupTimeMs REAL NOT NULL,
+                    avgBufferingDurationMs REAL NOT NULL,
+                    failureRate REAL NOT NULL,
+                    lastUpdated INTEGER NOT NULL,
+                    PRIMARY KEY(channelId, streamId)
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS channel_health_aggregate (
+                    channelId INTEGER NOT NULL PRIMARY KEY,
+                    healthScore INTEGER NOT NULL,
+                    healthTier TEXT NOT NULL,
+                    sessionCount INTEGER NOT NULL,
+                    streamCount INTEGER NOT NULL,
+                    lastUpdated INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS provider_health_aggregate (
+                    providerId INTEGER NOT NULL PRIMARY KEY,
+                    healthScore INTEGER NOT NULL,
+                    healthTier TEXT NOT NULL,
+                    sessionCount INTEGER NOT NULL,
+                    channelCount INTEGER NOT NULL,
+                    lastUpdated INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_watch_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    profileId INTEGER NOT NULL,
+                    contentId TEXT NOT NULL,
+                    contentType TEXT NOT NULL,
+                    seriesId INTEGER,
+                    seasonNumber INTEGER,
+                    episodeNumber INTEGER,
+                    progressPercent REAL NOT NULL,
+                    positionMs INTEGER NOT NULL,
+                    durationMs INTEGER NOT NULL,
+                    lastWatched INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_watch_events_profileId ON vod_watch_events(profileId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_watch_events_seriesId ON vod_watch_events(seriesId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_watch_events_profileId_seriesId ON vod_watch_events(profileId, seriesId)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_follows (
+                    profileId INTEGER NOT NULL,
+                    seriesId INTEGER NOT NULL,
+                    seriesTitle TEXT NOT NULL,
+                    playlistId INTEGER NOT NULL,
+                    following INTEGER NOT NULL,
+                    autoFollowed INTEGER NOT NULL,
+                    followedAt INTEGER NOT NULL,
+                    PRIMARY KEY(profileId, seriesId)
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_catalog_episodes (
+                    playlistId INTEGER NOT NULL,
+                    seriesId INTEGER NOT NULL,
+                    seriesTitle TEXT NOT NULL,
+                    seasonNumber INTEGER NOT NULL,
+                    episodeNumber INTEGER NOT NULL,
+                    episodeId INTEGER NOT NULL,
+                    episodeTitle TEXT NOT NULL,
+                    addedAt INTEGER NOT NULL,
+                    PRIMARY KEY(playlistId, seriesId, seasonNumber, episodeNumber)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_episodes_seriesId ON vod_catalog_episodes(seriesId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_catalog_episodes_addedAt ON vod_catalog_episodes(addedAt)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_user_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    profileId INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    seriesId INTEGER,
+                    seasonNumber INTEGER,
+                    episodeNumber INTEGER,
+                    seriesTitle TEXT NOT NULL,
+                    episodeTitle TEXT,
+                    contentKey TEXT,
+                    createdAt INTEGER NOT NULL,
+                    readAt INTEGER,
+                    pushPending INTEGER NOT NULL DEFAULT 1
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_user_notifications_profileId ON vod_user_notifications(profileId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_user_notifications_profileId_readAt ON vod_user_notifications(profileId, readAt)")
+        }
+    }
+
     val MIGRATION_23_24 = object : Migration(23, 24) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(

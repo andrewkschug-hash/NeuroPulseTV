@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.preview.PreviewPlayerManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,7 +18,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class BrowserViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    val previewManager: PreviewPlayerManager
 ) : ViewModel() {
 
     private val selectedCategory = MutableStateFlow<String?>(null)

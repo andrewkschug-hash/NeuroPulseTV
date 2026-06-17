@@ -474,8 +474,9 @@ fun PlayerScreen(
 
     var playbackSettingsSynced by remember { mutableStateOf(false) }
 
-    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding, settingsReady) {
+    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding, settings.autoReconnectOnDrop, settingsReady) {
         if (!settingsReady) return@LaunchedEffect
+        livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         livePlayerManager.syncPlaybackSettings(
             context,
             settings.bufferSize,

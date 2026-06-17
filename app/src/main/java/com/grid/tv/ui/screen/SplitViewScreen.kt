@@ -91,7 +91,7 @@ fun SplitViewScreen(
         MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
     }
     val players = remember(playbackContext) {
-        List(SplitViewViewModel.MAX_PANES) { ExoPlayer.Builder(playbackContext).build() }
+        List(SplitViewViewModel.MAX_PANES) { viewModel.createPanePlayer(playbackContext) }
     }
 
     var showControls by remember { mutableStateOf(true) }

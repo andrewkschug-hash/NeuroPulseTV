@@ -22,6 +22,16 @@ interface ContinueWatchingDao {
     )
     fun observeForProfile(profileId: Long, limit: Int): Flow<List<ContinueWatchingEntity>>
 
+    @Query(
+        """
+        SELECT * FROM continue_watching
+        WHERE profileId = :profileId
+        ORDER BY lastWatchedAt DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getForProfile(profileId: Long, limit: Int): List<ContinueWatchingEntity>
+
     @Query("SELECT * FROM continue_watching WHERE profileId = :profileId AND contentKey = :contentKey")
     suspend fun get(profileId: Long, contentKey: String): ContinueWatchingEntity?
 

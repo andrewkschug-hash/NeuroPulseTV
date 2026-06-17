@@ -53,12 +53,22 @@ class StreamFailoverController @Inject constructor(
     private var bufferingSinceMs: Long = 0L
     private var unhealthySinceMs: Long = 0L
     private var tuneStartedAtMs: Long = 0L
+    private var autoReconnectEnabled: Boolean = true
     private var intentionalIdle = false
+
+    fun setAutoReconnectEnabled(enabled: Boolean) {
+        autoReconnectEnabled = enabled
+        if (!enabled) {
+            cancelRecovery()
+            _uiState.value = StreamFailoverUiState()
+        }
+    }
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
             when (playbackState) {
                 Player.STATE_IDLE, Player.STATE_ENDED -> {
+                    if (!autoReconnectEnabled) return
                     if (!intentionalIdle && !recoveryJob.isActive()) {
                         requestRecovery(FailoverTrigger.PLAYBACK_IDLE)
                     }
@@ -71,6 +81,7 @@ class StreamFailoverController @Inject constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            if (!autoReconnectEnabled) return
             requestRecovery(FailoverTrigger.PLAYBACK_ERROR)
         }
     }
@@ -153,6 +164,7 @@ class StreamFailoverController @Inject constructor(
     }
 
     private fun evaluateLoadingTimeout() {
+        if (!autoReconnectEnabled) return
         val elapsed = System.currentTimeMillis() - tuneStartedAtMs
         if (elapsed >= TUNE_TIMEOUT_MS) {
             requestRecovery(FailoverTrigger.TUNE_TIMEOUT)
@@ -160,6 +172,7 @@ class StreamFailoverController @Inject constructor(
     }
 
     private fun evaluateExcessiveBuffering() {
+        if (!autoReconnectEnabled) return
         val exo = player ?: return
         if (exo.playbackState != Player.STATE_BUFFERING) {
             bufferingSinceMs = 0L
@@ -172,6 +185,7 @@ class StreamFailoverController @Inject constructor(
     }
 
     private fun evaluateUnhealthyStatus(status: StreamPlaybackStatus) {
+        if (!autoReconnectEnabled) return
         if (unhealthySinceMs == 0L) unhealthySinceMs = System.currentTimeMillis()
         val threshold = when (status) {
             StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> 0L
@@ -205,6 +219,7 @@ class StreamFailoverController @Inject constructor(
     }
 
     private fun requestRecovery(trigger: FailoverTrigger) {
+        if (!autoReconnectEnabled) return
         if (recoveryJob.isActive()) return
         if (channel == null || streamUrls.isEmpty()) return
         if (intentionalIdle) return

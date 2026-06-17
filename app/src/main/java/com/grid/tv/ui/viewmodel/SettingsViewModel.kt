@@ -19,6 +19,7 @@ import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.XtreamAccountInfo
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.player.LivePlayerManager
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.feature.dashboard.DashboardController
@@ -57,7 +58,8 @@ class SettingsViewModel @Inject constructor(
     private val channelScanner: ChannelScanner,
     private val seriesRuleScheduler: SeriesRuleScheduler,
     private val themeManager: ThemeManager,
-    private val pipController: PictureInPictureController
+    private val pipController: PictureInPictureController,
+    private val livePlayerManager: LivePlayerManager
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
@@ -395,6 +397,7 @@ class SettingsViewModel @Inject constructor(
 
     fun updateAutoReconnectOnDrop(enabled: Boolean) {
         persistSettings(_settings.value.copy(autoReconnectOnDrop = enabled))
+        livePlayerManager.setAutoReconnectOnDrop(enabled)
     }
 
     fun updatePreferHardwareDecoding(enabled: Boolean) {

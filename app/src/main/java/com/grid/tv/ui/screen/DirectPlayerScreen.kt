@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -51,9 +52,10 @@ import com.grid.tv.domain.model.CatchupPlaybackContext
 import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
-import com.grid.tv.util.MediaAttribution
 import kotlinx.coroutines.delay
+import androidx.media3.common.util.UnstableApi
 
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun DirectPlayerScreen(
     url: String,
@@ -87,12 +89,11 @@ fun DirectPlayerScreen(
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume) { mutableStateOf(false) }
+    val playbackRetryCount = remember(url) { intArrayOf(0) }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
 
     val player = remember(url) {
-        ExoPlayer.Builder(
-            MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
-        ).build().apply {
+        viewModel.createPlayer(context).apply {
             setMediaItem(MediaItem.fromUri(url))
             prepare()
             playWhenReady = true
@@ -105,6 +106,14 @@ fun DirectPlayerScreen(
 
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    if (playbackRetryCount[0] < 2) {
+                        playbackRetryCount[0] += 1
+                        prepare()
+                        playWhenReady = true
+                    }
                 }
             })
         }

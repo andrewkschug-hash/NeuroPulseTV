@@ -24,6 +24,14 @@ import com.grid.tv.data.db.dao.EpgSourceChannelDao
 import com.grid.tv.data.db.dao.RecordingDao
 import com.grid.tv.data.db.dao.ScheduledRecordingDao
 import com.grid.tv.data.db.dao.SeriesRecordingRuleDao
+import com.grid.tv.data.db.dao.PlaybackSessionTelemetryDao
+import com.grid.tv.data.db.dao.StreamSourceHealthDao
+import com.grid.tv.data.db.dao.ChannelHealthAggregateDao
+import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
+import com.grid.tv.data.db.dao.VodWatchEventDao
+import com.grid.tv.data.db.dao.SeriesFollowDao
+import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
@@ -50,6 +58,14 @@ import com.grid.tv.data.db.entity.EpgResolutionSuggestionEntity
 import com.grid.tv.data.db.entity.RecordingEntity
 import com.grid.tv.data.db.entity.ScheduledRecordingEntity
 import com.grid.tv.data.db.entity.SeriesRecordingRuleEntity
+import com.grid.tv.data.db.entity.PlaybackSessionTelemetryEntity
+import com.grid.tv.data.db.entity.StreamSourceHealthEntity
+import com.grid.tv.data.db.entity.ChannelHealthAggregateEntity
+import com.grid.tv.data.db.entity.ProviderHealthAggregateEntity
+import com.grid.tv.data.db.entity.VodWatchEventEntity
+import com.grid.tv.data.db.entity.SeriesFollowEntity
+import com.grid.tv.data.db.entity.VodCatalogEpisodeEntity
+import com.grid.tv.data.db.entity.VodUserNotificationEntity
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.ProfileTasteGenomeEntity
@@ -87,9 +103,17 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         CanonicalChannelEntity::class,
         EpgLearnedMappingEntity::class,
         EpgMatchAnalyticsEntity::class,
-        EpgAliasHitEntity::class
+        EpgAliasHitEntity::class,
+        PlaybackSessionTelemetryEntity::class,
+        StreamSourceHealthEntity::class,
+        ChannelHealthAggregateEntity::class,
+        ProviderHealthAggregateEntity::class,
+        VodWatchEventEntity::class,
+        SeriesFollowEntity::class,
+        VodCatalogEpisodeEntity::class,
+        VodUserNotificationEntity::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -120,4 +144,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun epgLearnedMappingDao(): EpgLearnedMappingDao
     abstract fun epgMatchAnalyticsDao(): EpgMatchAnalyticsDao
     abstract fun epgAliasHitDao(): EpgAliasHitDao
+    abstract fun playbackSessionTelemetryDao(): PlaybackSessionTelemetryDao
+    abstract fun streamSourceHealthDao(): StreamSourceHealthDao
+    abstract fun channelHealthAggregateDao(): ChannelHealthAggregateDao
+    abstract fun providerHealthAggregateDao(): ProviderHealthAggregateDao
+    abstract fun vodWatchEventDao(): VodWatchEventDao
+    abstract fun seriesFollowDao(): SeriesFollowDao
+    abstract fun vodCatalogEpisodeDao(): VodCatalogEpisodeDao
+    abstract fun vodUserNotificationDao(): VodUserNotificationDao
 }

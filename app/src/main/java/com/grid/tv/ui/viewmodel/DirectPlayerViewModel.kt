@@ -11,6 +11,10 @@ import com.grid.tv.feature.subtitles.ActiveSubtitle
 import com.grid.tv.feature.subtitles.SubtitleManager
 import com.grid.tv.feature.subtitles.SubtitleRequest
 import com.grid.tv.player.PictureInPictureController
+import com.grid.tv.player.PlaybackStartupPriority
+import com.grid.tv.player.PlayerFactory
+import android.content.Context
+import androidx.media3.common.util.UnstableApi
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.SubtitleFontSize
 import com.grid.tv.domain.model.SubtitlePosition
@@ -33,7 +37,8 @@ class DirectPlayerViewModel @Inject constructor(
     private val profileDao: ProfileDao,
     private val recordedDao: RecordedMediaDao,
     private val subtitleManager: SubtitleManager,
-    val pipController: PictureInPictureController
+    val pipController: PictureInPictureController,
+    private val playerFactory: PlayerFactory
 ) : ViewModel() {
 
     private val _settings = MutableStateFlow(AppSettings())
@@ -53,6 +58,17 @@ class DirectPlayerViewModel @Inject constructor(
             titleEnrichmentRepository.enrichFromPlaybackMeta(meta)
             _settings.value = repository.loadSettings()
         }
+    }
+
+    @UnstableApi
+    fun createPlayer(context: Context): ExoPlayer {
+        val settings = _settings.value
+        return playerFactory.create(
+            context = context,
+            bufferSize = settings.bufferSize,
+            preferHardwareDecoding = settings.preferHardwareDecoding,
+            startupPriority = PlaybackStartupPriority.FAST
+        )
     }
 
     fun attachAutoSubtitles(player: ExoPlayer, playerView: PlayerView?, url: String, title: String) {

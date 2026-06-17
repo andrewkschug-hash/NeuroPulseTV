@@ -13,6 +13,7 @@ import com.grid.tv.domain.model.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,6 +78,7 @@ class LivePlayerManager @Inject constructor(
     val timeshiftStateFlow: StateFlow<TimeshiftUiState> = _timeshiftState.asStateFlow()
 
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
     val playbackStatus: StateFlow<StreamPlaybackStatus> = playbackMonitor.status
     val failoverUiState: StateFlow<StreamFailoverUiState> = streamFailover.uiState
@@ -205,6 +207,10 @@ class LivePlayerManager @Inject constructor(
     fun setMiniAudioEnabled(enabled: Boolean) {
         miniAudioEnabled = enabled
         if (mode == Mode.MINI) applyVolume()
+    }
+
+    fun setAutoReconnectOnDrop(enabled: Boolean) {
+        streamFailover.setAutoReconnectEnabled(enabled)
     }
 
     fun tuneChannel(context: Context, channel: Channel) {
@@ -540,12 +546,15 @@ class LivePlayerManager @Inject constructor(
     }
 
     private fun clearStreamCache(context: Context) {
-        runCatching {
-            context.applicationContext.cacheDir.listFiles()
-                ?.filter { it.name.startsWith("exo") }
-                ?.forEach { file ->
-                    if (file.isDirectory) file.deleteRecursively() else file.delete()
-                }
+        val appContext = context.applicationContext
+        ioScope.launch {
+            runCatching {
+                appContext.cacheDir.listFiles()
+                    ?.filter { it.name.startsWith("exo") }
+                    ?.forEach { file ->
+                        if (file.isDirectory) file.deleteRecursively() else file.delete()
+                    }
+            }
         }
     }
 
