@@ -28,9 +28,9 @@ class AppHttpClient @Inject constructor() {
                 HttpLoggingInterceptor(createSafeHttpLogger())
                     .apply { level = HttpLoggingInterceptor.Level.BASIC }
             )
-            .connectTimeout(settings.connectionTimeoutSeconds.toLong(), TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .callTimeout(180, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
 
