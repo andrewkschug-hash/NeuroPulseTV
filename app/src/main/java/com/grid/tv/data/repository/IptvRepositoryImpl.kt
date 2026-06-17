@@ -2,6 +2,7 @@ package com.grid.tv.data.repository
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.util.Log
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
 import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
@@ -126,6 +127,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     companion object {
         private const val CONNECT_ERROR = "Login or URL invalid"
+        private const val IPTV_REPO_LOG_TAG = "IptvRepository"
     }
 
     private val recommendationEngine = RecommendationEngine()
@@ -137,6 +139,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodCacheByPlaylist = MutableStateFlow<Map<Long, List<VodItem>>>(emptyMap())
     private val vodCategoriesByPlaylist = MutableStateFlow<Map<Long, List<VodCategory>>>(emptyMap())
     private val seriesCacheByPlaylist = MutableStateFlow<Map<Long, List<SeriesShow>>>(emptyMap())
+    private val vodCatalogLoading = MutableStateFlow(false)
     private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
 
     private fun encode(v: String): String = URLEncoder.encode(v, Charsets.UTF_8.name())
@@ -150,6 +153,11 @@ class IptvRepositoryImpl @Inject constructor(
         val base = "${normalizeServerUrl(serverUrl)}/player_api.php?username=${encode(username)}&password=${encode(password)}"
         val withAction = if (action != null) "$base&action=$action" else base
         return if (!extra.isNullOrBlank()) "$withAction&$extra" else withAction
+    }
+
+    private fun buildXtreamXmlTvUrl(serverUrl: String, username: String, password: String): String {
+        val base = normalizeServerUrl(serverUrl).trimEnd('/')
+        return "$base/xmltv.php?username=${encode(username)}&password=${encode(password)}"
     }
 
     private suspend fun ensureDefaultProfile() {
@@ -857,9 +865,19 @@ class IptvRepositoryImpl @Inject constructor(
         val threshold = now - 24L * 60 * 60 * 1000
         programDao.purgeOlderThan(threshold)
         playlistDao.all().forEach { playlist ->
-            val epgUrl = playlist.epgUrl ?: return@forEach
+            val epgUrl = playlist.epgUrl
+            val resolvedEpgUrl = when {
+                !epgUrl.isNullOrBlank() -> epgUrl
+                playlist.type == PlaylistType.XTREAM.name -> {
+                    val server = playlist.xtreamServerUrl ?: playlist.url
+                    val user = playlist.xtreamUsername ?: return@forEach
+                    val pass = resolveXtreamPassword(playlist) ?: return@forEach
+                    buildXtreamXmlTvUrl(server, user, pass)
+                }
+                else -> return@forEach
+            }
             runCatching {
-                val xml = remoteTextFetcher.fetch(epgUrl)
+                val xml = remoteTextFetcher.fetch(resolvedEpgUrl)
                 val parsed = xmlTvParser.parse(xml)
                 programDao.insertAll(parsed.programs)
                 playlistDao.update(playlist.copy(lastRefreshed = now))
@@ -905,37 +923,79 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshVodSeriesCatalog() = withContext(Dispatchers.IO) {
-        playlistDao.all()
-            .filter { it.type == PlaylistType.XTREAM.name }
-            .forEach { playlist ->
-                val server = playlist.xtreamServerUrl ?: return@forEach
-                val user = playlist.xtreamUsername ?: return@forEach
-                val pass = resolveXtreamPassword(playlist) ?: return@forEach
-                runCatching {
-                    val vodRaw = remoteTextFetcher.fetch(
-                        buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
-                    )
-                    val vodCategoriesRaw = remoteTextFetcher.fetch(
-                        buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
-                    )
-                    val seriesRaw = remoteTextFetcher.fetch(
-                        buildXtreamApiUrl(server, user, pass, action = "get_series")
-                    )
-                    val parsedVod = xtreamParser.parseVod(vodRaw, user, pass, server, playlist.id)
-                    val parsedSeries = xtreamParser.parseSeries(seriesRaw, playlist.id)
-                    vodCacheByPlaylist.update { current ->
-                        current + (playlist.id to parsedVod)
-                    }
-                    vodCategoriesByPlaylist.update { current ->
-                        current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
-                    }
-                    seriesCacheByPlaylist.update { current ->
-                        current + (playlist.id to parsedSeries)
-                    }
-                    clearSeriesSeasonsForPlaylist(playlist.id)
-                }
+        val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
+        if (playlists.isEmpty()) return@withContext
+        vodCatalogLoading.value = true
+        try {
+            playlists.forEach { playlist ->
+                refreshVodCatalogForPlaylist(playlist)
             }
+            playlists.forEach { playlist ->
+                refreshSeriesCatalogForPlaylist(playlist)
+            }
+        } finally {
+            vodCatalogLoading.value = false
+        }
     }
+
+    private suspend fun refreshVodCatalogForPlaylist(playlist: PlaylistEntity) {
+        val server = playlist.xtreamServerUrl ?: playlist.url
+        val user = playlist.xtreamUsername ?: return
+        val pass = resolveXtreamPassword(playlist) ?: return
+        runCatching {
+            val vodRaw = remoteTextFetcher.fetch(
+                buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
+            )
+            val vodCategoriesRaw = remoteTextFetcher.fetch(
+                buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
+            )
+            val parsedVod = xtreamParser.parseVod(vodRaw, user, pass, server, playlist.id)
+            vodCacheByPlaylist.update { current ->
+                current + (playlist.id to parsedVod)
+            }
+            vodCategoriesByPlaylist.update { current ->
+                current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
+            }
+            Log.i(
+                IPTV_REPO_LOG_TAG,
+                "Loaded ${parsedVod.size} VOD titles for playlist ${playlist.id} (${playlist.name})"
+            )
+        }.onFailure { error ->
+            Log.w(
+                IPTV_REPO_LOG_TAG,
+                "VOD catalog refresh failed for playlist ${playlist.id} (${playlist.name})",
+                error
+            )
+        }
+    }
+
+    private suspend fun refreshSeriesCatalogForPlaylist(playlist: PlaylistEntity) {
+        val server = playlist.xtreamServerUrl ?: playlist.url
+        val user = playlist.xtreamUsername ?: return
+        val pass = resolveXtreamPassword(playlist) ?: return
+        runCatching {
+            val seriesRaw = remoteTextFetcher.fetch(
+                buildXtreamApiUrl(server, user, pass, action = "get_series")
+            )
+            val parsedSeries = xtreamParser.parseSeries(seriesRaw, playlist.id)
+            seriesCacheByPlaylist.update { current ->
+                current + (playlist.id to parsedSeries)
+            }
+            clearSeriesSeasonsForPlaylist(playlist.id)
+            Log.i(
+                IPTV_REPO_LOG_TAG,
+                "Loaded ${parsedSeries.size} series for playlist ${playlist.id} (${playlist.name})"
+            )
+        }.onFailure { error ->
+            Log.w(
+                IPTV_REPO_LOG_TAG,
+                "Series catalog refresh failed for playlist ${playlist.id} (${playlist.name})",
+                error
+            )
+        }
+    }
+
+    override fun vodCatalogLoading(): Flow<Boolean> = vodCatalogLoading
 
     override fun vodStreams(): Flow<List<VodItem>> =
         vodCacheByPlaylist.map { cache -> cache.values.flatten() }

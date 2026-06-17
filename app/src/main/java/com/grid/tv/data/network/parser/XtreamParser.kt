@@ -87,6 +87,20 @@ class XtreamParser {
         return "$base/live/$username/$password/$streamId.m3u8"
     }
 
+    fun buildLiveStreamUrlTs(
+        serverUrl: String,
+        username: String,
+        password: String,
+        streamId: String,
+        directSource: String? = null
+    ): String {
+        // Some providers only serve stable transport streams from the /live endpoint.
+        // Keep `direct_source` as highest priority when present.
+        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        val base = serverUrl.trimEnd('/')
+        return "$base/live/$username/$password/$streamId.ts"
+    }
+
     fun buildMovieStreamUrl(
         serverUrl: String,
         username: String,
@@ -135,6 +149,7 @@ class XtreamParser {
             val number = item.optString("num").toIntOrNull() ?: (i + 1)
             val directSource = item.optString("direct_source").ifBlank { null }
             val streamUrl = buildLiveStreamUrl(serverUrl, username, password, streamId, directSource)
+            val backupTsUrl = buildLiveStreamUrlTs(serverUrl, username, password, streamId, directSource)
             out += ChannelEntity(
                 number = number,
                 name = name,
@@ -142,6 +157,7 @@ class XtreamParser {
                 logoUrl = logo,
                 epgId = epgId,
                 streamUrl = streamUrl,
+                backupStreamUrl = backupTsUrl.takeIf { it != streamUrl },
                 playlistId = playlistId,
                 epgResolutionStatus = if (!epgId.isNullOrBlank()) EpgResolutionStatus.CONFIRMED.name else EpgResolutionStatus.UNRESOLVED.name,
                 epgResolutionConfidence = if (!epgId.isNullOrBlank()) 100 else 0,

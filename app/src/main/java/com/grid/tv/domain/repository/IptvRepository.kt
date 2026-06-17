@@ -80,6 +80,7 @@ interface IptvRepository {
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
     fun vodStreams(): Flow<List<VodItem>>
     fun vodCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
+    fun vodCatalogLoading(): Flow<Boolean>
     fun seriesShows(): Flow<List<SeriesShow>>
     suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
     fun vodWatchProgress(): Flow<Map<Long, Long>>

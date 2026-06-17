@@ -59,6 +59,7 @@ fun MoviesBrowserScreen(
 ) {
     val movies by viewModel.movies.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
     val progress by viewModel.vodProgress.collectAsStateWithLifecycle()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
     var search by remember { mutableStateOf("") }
@@ -137,10 +138,15 @@ fun MoviesBrowserScreen(
             }
         }
 
-        if (movies.isEmpty()) {
+        if (catalogLoading) {
+            VodEmptyState(
+                title = "Loading movies…",
+                message = "Fetching your provider's movie catalog. Large libraries can take a minute."
+            )
+        } else if (movies.isEmpty()) {
             VodEmptyState(
                 title = "No movies available",
-                message = "Add an Xtream playlist with VOD in Settings, or try another category."
+                message = "Open VOD again after connecting Xtream in Settings, or try another category."
             )
         } else {
             LazyVerticalGrid(

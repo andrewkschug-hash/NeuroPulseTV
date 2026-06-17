@@ -82,6 +82,7 @@ fun SeriesBrowserScreen(
     val shows by viewModel.filteredShows.collectAsStateWithLifecycle()
     val allShows by viewModel.shows.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
@@ -259,10 +260,15 @@ fun SeriesBrowserScreen(
                     )
                 }
             }
+        } else if (catalogLoading) {
+            VodEmptyState(
+                title = "Loading series…",
+                message = "Fetching your provider's series catalog. Large libraries can take a minute."
+            )
         } else if (shows.isEmpty()) {
             VodEmptyState(
                 title = "No series available",
-                message = "Add an Xtream playlist with series in Settings, or try another category."
+                message = "Open VOD again after connecting Xtream in Settings, or try another category."
             )
         } else {
             LazyVerticalGrid(

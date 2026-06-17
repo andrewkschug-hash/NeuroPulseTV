@@ -11,8 +11,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -63,7 +62,7 @@ import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-private enum class SearchFocusZone { FIELD, MIC, RESULTS }
+private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
 
 private sealed class SearchListRow {
     data class Header(val title: String) : SearchListRow()
@@ -71,7 +70,6 @@ private sealed class SearchListRow {
     data class Result(val item: SearchResultItem, val flatIndex: Int) : SearchListRow()
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchOverlay(
     query: String,
@@ -91,6 +89,10 @@ fun SearchOverlay(
     val resultsFocusRequester = remember { FocusRequester() }
     var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
     var focusedIndex by remember { mutableIntStateOf(0) }
+    var recentChipIndex by remember { mutableIntStateOf(0) }
+
+    val recentSearches = unifiedResults.recentSearches
+    val showRecentChips = query.isBlank() && recentSearches.isNotEmpty()
 
     val rows = remember(unifiedResults, query) {
         buildSearchRows(unifiedResults, query)
@@ -113,10 +115,12 @@ fun SearchOverlay(
 
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
     LaunchedEffect(selectableRows) { focusedIndex = if (selectableRows.isNotEmpty()) 0 else -1 }
+    LaunchedEffect(recentSearches) { recentChipIndex = 0 }
     LaunchedEffect(focusZone) {
         when (focusZone) {
             SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
             SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RECENT -> resultsFocusRequester.requestFocusSafelyAfterLayout()
             SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
@@ -131,33 +135,62 @@ fun SearchOverlay(
             Key.Back, Key.Escape -> { onDismiss(); true }
             Key.DirectionDown -> {
                 when (focusZone) {
-                    SearchFocusZone.FIELD -> focusZone = SearchFocusZone.MIC
+                    SearchFocusZone.FIELD -> focusZone = when {
+                        showRecentChips -> SearchFocusZone.RECENT
+                        else -> SearchFocusZone.MIC
+                    }
+                    SearchFocusZone.RECENT -> focusZone = SearchFocusZone.MIC
                     SearchFocusZone.MIC -> if (selectableRows.isNotEmpty()) {
                         focusZone = SearchFocusZone.RESULTS
                         if (focusedIndex < 0) focusedIndex = 0
                     }
-                    SearchFocusZone.RESULTS -> Unit
+                    SearchFocusZone.RESULTS -> if (focusedIndex < selectableRows.lastIndex) {
+                        focusedIndex += 1
+                    }
                 }
                 true
             }
             Key.DirectionUp -> {
                 when (focusZone) {
                     SearchFocusZone.RESULTS -> {
-                        if (focusedIndex <= 0) focusZone = SearchFocusZone.MIC else focusedIndex -= 1
+                        if (focusedIndex <= 0) {
+                            focusZone = when {
+                                showRecentChips -> SearchFocusZone.RECENT
+                                else -> SearchFocusZone.MIC
+                            }
+                        } else {
+                            focusedIndex -= 1
+                        }
                     }
-                    SearchFocusZone.MIC -> focusZone = SearchFocusZone.FIELD
+                    SearchFocusZone.MIC -> focusZone = when {
+                        showRecentChips -> SearchFocusZone.RECENT
+                        else -> SearchFocusZone.FIELD
+                    }
+                    SearchFocusZone.RECENT -> focusZone = SearchFocusZone.FIELD
                     SearchFocusZone.FIELD -> Unit
                 }
                 true
             }
-            Key.DirectionRight -> if (focusZone == SearchFocusZone.FIELD) {
-                focusZone = SearchFocusZone.MIC; true
-            } else false
-            Key.DirectionLeft -> if (focusZone == SearchFocusZone.MIC) {
-                focusZone = SearchFocusZone.FIELD; true
-            } else false
+            Key.DirectionRight -> when (focusZone) {
+                SearchFocusZone.FIELD -> { focusZone = SearchFocusZone.MIC; true }
+                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.lastIndex) {
+                    recentChipIndex += 1; true
+                } else false
+                else -> false
+            }
+            Key.DirectionLeft -> when (focusZone) {
+                SearchFocusZone.MIC -> { focusZone = SearchFocusZone.FIELD; true }
+                SearchFocusZone.RECENT -> if (recentChipIndex > 0) {
+                    recentChipIndex -= 1; true
+                } else false
+                else -> false
+            }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> when (focusZone) {
                 SearchFocusZone.MIC -> { onMicClick(); true }
+                SearchFocusZone.RECENT -> {
+                    recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
+                    true
+                }
                 SearchFocusZone.RESULTS -> if (selectableRows.isNotEmpty()) {
                     selectAt(focusedIndex.coerceAtLeast(0)); true
                 } else false
@@ -200,37 +233,24 @@ fun SearchOverlay(
                 handleKey = ::handleKey
             )
 
-            if (query.isBlank()) {
-                if (unifiedResults.recentSearches.isNotEmpty()) {
-                    Text(
-                        text = "Recent searches",
-                        color = EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
-                    )
-                    FlowRow(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        unifiedResults.recentSearches.forEach { term ->
-                            SearchChip(label = term, onClick = { onSuggestionSelected(term) })
-                        }
-                    }
-                }
+            if (showRecentChips) {
                 Text(
-                    text = "Trending",
+                    text = "Recent searches",
                     color = EpgColors.TextDimmed,
                     fontFamily = DmSansFamily,
                     fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
                 )
-                FlowRow(
+                LazyRow(
                     modifier = Modifier.padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    unifiedResults.trendingSearches.forEach { term ->
-                        SearchChip(label = term, onClick = { onSuggestionSelected(term) })
+                    itemsIndexed(recentSearches) { index, term ->
+                        SearchChip(
+                            label = term,
+                            focused = focusZone == SearchFocusZone.RECENT && recentChipIndex == index,
+                            onClick = { onSuggestionSelected(term) }
+                        )
                     }
                 }
             }
@@ -285,18 +305,20 @@ private fun SearchSectionHeader(title: String) {
 }
 
 @Composable
-private fun SearchChip(label: String, onClick: () -> Unit) {
+private fun SearchChip(label: String, focused: Boolean, onClick: () -> Unit) {
+    val borderColor = if (focused) EpgColors.FocusBorder else Color(0xFF2A2A38)
     GridFocusSurface(
         onClick = onClick,
+        modifier = Modifier.border(1.5.dp, borderColor, RoundedCornerShape(16.dp)),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF1A1A24),
+            containerColor = if (focused) Color(0xFF252535) else Color(0xFF1A1A24),
             focusedContainerColor = Color(0xFF252535)
         )
     ) {
         Text(
             text = label,
-            color = EpgColors.TextSecondary,
+            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
             fontSize = 12.sp,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)

@@ -816,7 +816,7 @@ fun HomeEpgScreen(
 
     fun handleCategoryFilterMenuKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        val menuCount = categoryFilterMenuItemCount(channelGroups)
+        val menuCount = categoryFilterMenuItemCount()
         return when (event.key) {
             Key.DirectionUp -> {
                 categoryMenuFocusIndex = (categoryMenuFocusIndex - 1).coerceAtLeast(0)
@@ -832,7 +832,7 @@ fun HomeEpgScreen(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 viewModel.setCategoryFilter(
-                    categoryFilterForMenuIndex(categoryMenuFocusIndex, channelGroups)
+                    categoryFilterForMenuIndex(categoryMenuFocusIndex)
                 )
                 showCategoryFilterMenu = false
                 true
@@ -854,7 +854,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter, channelGroups)
+                categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter)
                 showCategoryFilterMenu = true
                 true
             }
@@ -1300,7 +1300,7 @@ fun HomeEpgScreen(
                 gridFilterFocusRequester = gridFilterFocusRequester,
                 onOpenCategoryFilter = {
                     focusZone = EpgFocusZone.GRID_FILTER
-                    categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter, channelGroups)
+                    categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter)
                     showCategoryFilterMenu = true
                 },
                 onGridFilterKey = ::handleGridFilterKey,
@@ -1327,10 +1327,9 @@ fun HomeEpgScreen(
         CategoryFilterMenu(
             expanded = showCategoryFilterMenu,
             focusedIndex = categoryMenuFocusIndex,
-            playlistGroups = channelGroups,
             onDismiss = { showCategoryFilterMenu = false },
             onSelect = { index ->
-                viewModel.setCategoryFilter(categoryFilterForMenuIndex(index, channelGroups))
+                viewModel.setCategoryFilter(categoryFilterForMenuIndex(index))
                 showCategoryFilterMenu = false
             }
         )

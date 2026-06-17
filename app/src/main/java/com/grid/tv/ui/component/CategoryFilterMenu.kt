@@ -2,14 +2,15 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -18,43 +19,60 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
-import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
+import com.grid.tv.feature.epg.ChannelCategoryFilter
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-data class CategoryFilterMenuItem(
+private data class CategoryFilterMenuItem(
     val label: String,
+    val menuIndex: Int,
     val section: String? = null
 )
+
+private val regionPresetIds = setOf("usa", "canada", "uk")
+
+private fun buildCategoryFilterMenuItems(): List<CategoryFilterMenuItem> = buildList {
+    add(CategoryFilterMenuItem("All channels", menuIndex = 0, section = "Filter by"))
+    val regions = ChannelCategoryPresets.presets.filter { it.id in regionPresetIds }
+    val categories = ChannelCategoryPresets.presets.filter { it.id !in regionPresetIds }
+    regions.forEachIndexed { index, preset ->
+        add(
+            CategoryFilterMenuItem(
+                label = preset.label,
+                menuIndex = 1 + ChannelCategoryPresets.presets.indexOf(preset),
+                section = if (index == 0) "Regions" else null
+            )
+        )
+    }
+    categories.forEachIndexed { index, preset ->
+        add(
+            CategoryFilterMenuItem(
+                label = preset.label,
+                menuIndex = 1 + ChannelCategoryPresets.presets.indexOf(preset),
+                section = if (index == 0) "Categories" else null
+            )
+        )
+    }
+}
 
 @Composable
 fun CategoryFilterMenu(
     expanded: Boolean,
     focusedIndex: Int,
-    playlistGroups: List<String>,
     onDismiss: () -> Unit,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (!expanded) return
 
-    val items = buildList {
-        add(CategoryFilterMenuItem("All channels", section = "Filter by"))
-        ChannelCategoryPresets.presets.forEach { preset ->
-            add(CategoryFilterMenuItem(preset.label))
-        }
-        if (playlistGroups.isNotEmpty()) {
-            playlistGroups.forEach { group ->
-                add(
-                    CategoryFilterMenuItem(
-                        label = group,
-                        section = if (group == playlistGroups.first()) "Playlist groups" else null
-                    )
-                )
-            }
-        }
+    val items = buildCategoryFilterMenuItems()
+    val listState = rememberLazyListState()
+    val focusedLazyIndex = items.indexOfFirst { it.menuIndex == focusedIndex }.coerceAtLeast(0)
+
+    LaunchedEffect(focusedIndex) {
+        listState.animateScrollToItem(focusedLazyIndex)
     }
 
     Popup(
@@ -62,16 +80,16 @@ fun CategoryFilterMenu(
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)
     ) {
-        Column(
+        LazyColumn(
+            state = listState,
             modifier = modifier
                 .padding(top = 108.dp, end = 24.dp)
                 .background(EpgColors.DetailPanelBg, RoundedCornerShape(8.dp))
                 .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
                 .padding(vertical = 8.dp)
                 .heightIn(max = 420.dp)
-                .verticalScroll(rememberScrollState())
         ) {
-            items.forEachIndexed { index, item ->
+            itemsIndexed(items, key = { _, item -> item.menuIndex }) { _, item ->
                 if (item.section != null) {
                     Text(
                         text = item.section,
@@ -82,10 +100,19 @@ fun CategoryFilterMenu(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
-                val focused = index == focusedIndex
+                val focused = item.menuIndex == focusedIndex
                 GridFocusSurface(
-                    onClick = { onSelect(index) },
-                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { onSelect(item.menuIndex) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .then(
+                            if (focused) {
+                                Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
@@ -100,13 +127,6 @@ fun CategoryFilterMenu(
                         fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (focused) {
-                                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
-                                } else {
-                                    Modifier
-                                }
-                            )
                             .padding(horizontal = 20.dp, vertical = 12.dp)
                     )
                 }
@@ -115,31 +135,28 @@ fun CategoryFilterMenu(
     }
 }
 
-fun categoryFilterMenuItemCount(playlistGroups: List<String>): Int =
-    1 + ChannelCategoryPresets.presets.size + playlistGroups.size
+fun categoryFilterMenuItemCount(): Int = 1 + ChannelCategoryPresets.presets.size
 
-fun categoryFilterForMenuIndex(index: Int, playlistGroups: List<String>): com.grid.tv.feature.epg.ChannelCategoryFilter {
-    if (index == 0) return com.grid.tv.feature.epg.ChannelCategoryFilter.All
+fun categoryFilterForMenuIndex(index: Int): ChannelCategoryFilter {
+    if (index == 0) return ChannelCategoryFilter.All
     val presetCount = ChannelCategoryPresets.presets.size
-    if (index <= presetCount) {
+    if (index in 1..presetCount) {
         return ChannelCategoryPresets.fromPreset(ChannelCategoryPresets.presets[index - 1].id)
     }
-    val groupIndex = index - 1 - presetCount
-    return ChannelCategoryPresets.fromGroup(playlistGroups[groupIndex])
+    return ChannelCategoryFilter.All
 }
 
-fun currentCategoryMenuIndex(
-    filter: com.grid.tv.feature.epg.ChannelCategoryFilter,
-    playlistGroups: List<String>
-): Int {
+fun currentCategoryMenuIndex(filter: ChannelCategoryFilter): Int {
     if (!filter.isActive) return 0
     filter.presetId?.let { presetId ->
         val presetIndex = ChannelCategoryPresets.presets.indexOfFirst { it.id == presetId }
         return if (presetIndex >= 0) presetIndex + 1 else 0
     }
     filter.groupName?.let { groupName ->
-        val groupIndex = playlistGroups.indexOfFirst { it.equals(groupName, ignoreCase = true) }
-        return if (groupIndex >= 0) 1 + ChannelCategoryPresets.presets.size + groupIndex else 0
+        val presetIndex = ChannelCategoryPresets.presets.indexOfFirst { preset ->
+            ChannelCategoryPresets.matches(preset.id, groupName)
+        }
+        return if (presetIndex >= 0) presetIndex + 1 else 0
     }
     return 0
 }

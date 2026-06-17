@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class MoviesViewModel @Inject constructor(
@@ -24,6 +25,10 @@ class MoviesViewModel @Inject constructor(
         const val COMPLETION_THRESHOLD = 0.95
     }
 
+    init {
+        refreshCatalog()
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -32,6 +37,9 @@ class MoviesViewModel @Inject constructor(
 
     val categories: StateFlow<List<VodCategory>> = repository.vodCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
@@ -58,6 +66,12 @@ class MoviesViewModel @Inject constructor(
 
     fun setCategory(categoryId: String?) {
         _selectedCategoryId.value = categoryId
+    }
+
+    fun refreshCatalog() {
+        viewModelScope.launch {
+            runCatching { repository.refreshVodSeriesCatalog() }
+        }
     }
 
     fun progressFraction(item: VodItem, progressByStreamId: Map<Long, Long>): Float? {

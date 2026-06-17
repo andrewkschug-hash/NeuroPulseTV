@@ -29,10 +29,17 @@ class SeriesViewModel @Inject constructor(
     private val profileDao: ProfileDao
 ) : ViewModel() {
 
+    init {
+        refreshCatalog()
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     val shows = repository.seriesShows().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val categories: StateFlow<List<String>> = shows.map { all ->
         listOf("All") + all.mapNotNull { show ->
@@ -85,6 +92,12 @@ class SeriesViewModel @Inject constructor(
 
     fun setCategory(category: String) {
         _selectedCategory.value = category
+    }
+
+    fun refreshCatalog() {
+        viewModelScope.launch {
+            runCatching { repository.refreshVodSeriesCatalog() }
+        }
     }
 
     fun selectShow(showId: Long, preferredSeason: Int? = null) {
