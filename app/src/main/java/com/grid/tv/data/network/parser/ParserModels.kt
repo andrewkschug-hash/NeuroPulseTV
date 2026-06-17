@@ -8,7 +8,7 @@ data class M3uParseProgress(
     val totalKnown: Int,
     val latest: ChannelEntity? = null,
     val done: Boolean = false,
-    val channels: List<ChannelEntity> = emptyList()
+    val batch: List<ChannelEntity> = emptyList()
 )
 
 data class ParsedXmlTv(

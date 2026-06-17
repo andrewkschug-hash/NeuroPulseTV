@@ -217,7 +217,8 @@ fun MultiViewScreen(
             MultiViewChannelPicker(
                 channels = channels,
                 onSelect = { channel -> viewModel.replacePanel(context, channel) },
-                onDismiss = { viewModel.cancelReplacePanel() }
+                onDismiss = { viewModel.cancelReplacePanel() },
+                onNearEnd = { viewModel.loadMoreChannels() }
             )
         }
     }
@@ -283,8 +284,10 @@ private fun MultiViewPanel(
 private fun MultiViewChannelPicker(
     channels: List<Channel>,
     onSelect: (Channel) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onNearEnd: () -> Unit = {}
 ) {
+    val playable = remember(channels) { channels.filter { it.streamUrl.isNotBlank() } }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -294,7 +297,11 @@ private fun MultiViewChannelPicker(
         Column {
             Text("Replace channel", color = EpgColors.TextPrimary, modifier = Modifier.padding(bottom = 12.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(channels.filter { it.streamUrl.isNotBlank() }, key = { it.id }) { channel ->
+                items(playable.size, key = { playable[it].id }) { index ->
+                    if (index >= playable.size - 10) {
+                        onNearEnd()
+                    }
+                    val channel = playable[index]
                     GlowFocusButton(onClick = { onSelect(channel) }) {
                         Text(channel.name)
                     }

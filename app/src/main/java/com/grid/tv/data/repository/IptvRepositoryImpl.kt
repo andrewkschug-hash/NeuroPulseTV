@@ -83,6 +83,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -130,6 +131,7 @@ class IptvRepositoryImpl @Inject constructor(
         private const val CONNECT_ERROR = "Login or URL invalid"
         private const val IPTV_REPO_LOG_TAG = "IptvRepository"
         private const val CHANNEL_INSERT_CHUNK = 400
+        const val CHANNEL_PAGE_SIZE = 200
     }
 
     private val recommendationEngine = RecommendationEngine()
@@ -189,13 +191,44 @@ class IptvRepositoryImpl @Inject constructor(
     ): List<com.grid.tv.data.db.entity.ChannelEntity> {
         val seenUrls = linkedSetOf<String>()
         val seenNames = linkedSetOf<String>()
-        return channels.filter { channel ->
+        return deduplicateChannelBatch(channels, seenUrls, seenNames)
+    }
+
+    private fun deduplicateChannelBatch(
+        channels: List<com.grid.tv.data.db.entity.ChannelEntity>,
+        seenUrls: MutableSet<String>,
+        seenNames: MutableSet<String>
+    ): List<com.grid.tv.data.db.entity.ChannelEntity> =
+        channels.filter { channel ->
             val urlKey = channel.streamUrl.trim().lowercase()
             val nameKey = "${channel.number}:${channel.name.trim().lowercase()}"
             val urlUnique = urlKey.isBlank() || seenUrls.add(urlKey)
             val nameUnique = seenNames.add(nameKey)
             urlUnique && nameUnique
         }
+
+    private suspend fun insertParsedChannelBatches(
+        playlistId: Long,
+        seenUrls: MutableSet<String>,
+        seenNames: MutableSet<String>,
+        batches: List<com.grid.tv.data.db.entity.ChannelEntity>
+    ): Int {
+        if (batches.isEmpty()) return 0
+        val unique = deduplicateChannelBatch(
+            batches.map { it.copy(playlistId = playlistId) },
+            seenUrls,
+            seenNames
+        )
+        unique.chunked(CHANNEL_INSERT_CHUNK).forEach { channelDao.insertAll(it) }
+        return unique.size
+    }
+
+    private suspend fun mapChannelEntities(entities: List<com.grid.tv.data.db.entity.ChannelEntity>): List<Channel> {
+        if (entities.isEmpty()) return emptyList()
+        val playlistNames = playlistNameMap()
+        val health = streamHealthDao.observeAll().first().associateBy { it.channelId }
+        val favIds = profileFavoriteDao.observeForProfile(activeProfileId).first().map { it.channelId }.toSet()
+        return mapChannelsWithPlaylists(entities, playlistNames, health, favIds)
     }
 
     private fun mapChannelsWithPlaylists(
@@ -286,6 +319,36 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun channelsPage(
+        group: String?,
+        search: String,
+        favoritesOnly: Boolean,
+        favoriteGroupId: Long?,
+        limit: Int,
+        offset: Int
+    ): List<Channel> = withContext(Dispatchers.IO) {
+        val groupFilter = favoriteGroupId ?: -1L
+        val rows = channelDao.channelsPage(
+            groupName = group,
+            search = search,
+            onlyFavorites = favoritesOnly,
+            profileId = activeProfileId,
+            favoriteGroupId = groupFilter,
+            limit = limit,
+            offset = offset
+        )
+        mapChannelEntities(rows)
+    }
+
+    override fun hasChannels(): Flow<Boolean> =
+        channelDao.observeTotalCount().map { it > 0 }
+
+    override suspend fun searchChannels(query: String, limit: Int): List<Channel> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return@withContext emptyList()
+        mapChannelEntities(channelDao.channelsPage(null, trimmed, false, activeProfileId, -1L, limit, 0))
+    }
+
     override fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>> =
         programDao.observeGrid(epgIds, fromTime).map { rows ->
             rows.map {
@@ -323,11 +386,20 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun recommendedChannels(limit: Int): Flow<List<Recommendation>> {
-        return combine(channels(null, "", false), profileWatchHistoryDao.observeTop(activeProfileId, 500)) { allChannels, hist ->
+        return combine(
+            profileWatchHistoryDao.observeTop(activeProfileId, 500),
+            playlistDao.observeAll()
+        ) { hist, playlists ->
             val stats = hist.groupBy { it.channelId }.mapValues { (_, items) ->
                 WatchStat(items.size, items.map { it.hourBucket }.average().toInt(), items.firstOrNull()?.genreHint)
             }
-            recommendationEngine.score(allChannels, stats, Calendar.getInstance().get(Calendar.HOUR_OF_DAY), null).take(limit)
+            val channelIds = stats.keys.toList()
+            val channels = if (channelIds.isEmpty()) {
+                emptyList()
+            } else {
+                channelDao.getByIds(channelIds).map { channelFromEntity(it, playlists.associate { p -> p.id to p.name }[it.playlistId]) }
+            }
+            recommendationEngine.score(channels, stats, Calendar.getInstance().get(Calendar.HOUR_OF_DAY), null).take(limit)
         }
     }
 
@@ -340,9 +412,11 @@ class IptvRepositoryImpl @Inject constructor(
             profileWatchHistoryDao.observeTop(activeProfileId, limit),
             playlistDao.observeAll()
         ) { rows, playlists ->
-            val all = channelDao.all().associateBy { it.id }
+            val ids = rows.map { it.channelId }
+            if (ids.isEmpty()) return@combine emptyList()
+            val channels = channelDao.getByIds(ids).associateBy { it.id }
             val names = playlists.associate { it.id to it.name }
-            rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
+            rows.mapNotNull { channels[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
         }
 
     override fun recentChannels(limit: Int): Flow<List<Channel>> =
@@ -350,9 +424,11 @@ class IptvRepositoryImpl @Inject constructor(
             profileWatchHistoryDao.observeRecent(activeProfileId, limit),
             playlistDao.observeAll()
         ) { rows, playlists ->
-            val all = channelDao.all().associateBy { it.id }
+            val ids = rows.map { it.channelId }
+            if (ids.isEmpty()) return@combine emptyList()
+            val channels = channelDao.getByIds(ids).associateBy { it.id }
             val names = playlists.associate { it.id to it.name }
-            rows.mapNotNull { all[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
+            rows.mapNotNull { channels[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
         }
 
     override fun recentlyAdded(limit: Int): Flow<List<Channel>> =
@@ -628,13 +704,16 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun importM3uChannels(playlistId: Long, url: String) {
         val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
-        val raw = remoteTextFetcher.fetch(normalizedUrl)
-        val parsed = m3uParser.parseAsFlow(playlistId, raw).first { it.done }
-        if (parsed.channels.isEmpty()) {
-            throw IllegalStateException("No channels in playlist")
-        }
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(deduplicateChannels(parsed.channels.map { it.copy(playlistId = playlistId) }))
+        val seenUrls = linkedSetOf<String>()
+        val seenNames = linkedSetOf<String>()
+        var totalInserted = 0
+        m3uParser.parseAsFlow(playlistId, remoteTextFetcher.fetch(normalizedUrl)).collect { progress ->
+            totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, progress.batch)
+            if (progress.done && totalInserted == 0) {
+                throw IllegalStateException("No channels in playlist")
+            }
+        }
         secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
     }
 
@@ -707,10 +786,17 @@ class IptvRepositoryImpl @Inject constructor(
                 playlistId, liveRaw, username, password, normalizedServer, categories
             )
         }
-        val uniqueChannels = deduplicateChannels(liveChannels)
-        Log.i(IPTV_REPO_LOG_TAG, "Parsed ${uniqueChannels.size} live channels (${categories.size} categories)")
+        Log.i(IPTV_REPO_LOG_TAG, "Parsed ${liveChannels.size} live channels (${categories.size} categories)")
 
-        if (uniqueChannels.isEmpty()) {
+        channelDao.clearByPlaylist(playlistId)
+        val seenUrls = linkedSetOf<String>()
+        val seenNames = linkedSetOf<String>()
+        var inserted = 0
+        liveChannels.chunked(CHANNEL_INSERT_CHUNK).forEach { chunk ->
+            inserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, chunk)
+        }
+
+        if (inserted == 0) {
             val preview = liveRaw.trim().take(240)
             Log.e(IPTV_REPO_LOG_TAG, "No live channels parsed. Response preview: $preview")
             throw IllegalStateException(
@@ -721,11 +807,7 @@ class IptvRepositoryImpl @Inject constructor(
                 }
             )
         }
-
-        channelDao.clearByPlaylist(playlistId)
-        uniqueChannels.chunked(CHANNEL_INSERT_CHUNK).forEach { chunk ->
-            channelDao.insertAll(chunk)
-        }
+        Log.i(IPTV_REPO_LOG_TAG, "Inserted $inserted live channels into database")
         clearSeriesSeasonsForPlaylist(playlistId)
         vodCacheByPlaylist.update { it - playlistId }
         vodCategoriesByPlaylist.update { it - playlistId }
@@ -848,7 +930,15 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.saveStalkerCredentials(playlistId, session.portalBase, normalizedMac)
         val channels = stalkerPortalClient.fetchChannels(session, playlistId)
         channelDao.clearByPlaylist(playlistId)
-        channelDao.insertAll(deduplicateChannels(channels))
+        val seenUrls = linkedSetOf<String>()
+        val seenNames = linkedSetOf<String>()
+        var totalInserted = 0
+        channels.chunked(CHANNEL_INSERT_CHUNK).forEach { chunk ->
+            totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, chunk)
+        }
+        if (totalInserted == 0) {
+            throw IllegalStateException("No channels in playlist")
+        }
         scheduleEpgImportWork(startedAt)
         return playlistId
     }
@@ -857,9 +947,16 @@ class IptvRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
             val playlistId = playlistDao.insert(PlaylistEntity(name = name, url = "local://$name", epgUrl = epgUrl, refreshIntervalHours = refreshHours, isLocalFile = true, type = PlaylistType.M3U.name))
-            val final = m3uParser.parseAsFlow(playlistId, content).first { it.done }
             channelDao.clearByPlaylist(playlistId)
-            channelDao.insertAll(deduplicateChannels(final.channels))
+            val seenUrls = linkedSetOf<String>()
+            val seenNames = linkedSetOf<String>()
+            var totalInserted = 0
+            m3uParser.parseAsFlow(playlistId, content).collect { progress ->
+                totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, progress.batch)
+                if (progress.done && totalInserted == 0) {
+                    throw IllegalStateException("No channels in playlist")
+                }
+            }
             scheduleEpgImportWork(startedAt)
         }
 

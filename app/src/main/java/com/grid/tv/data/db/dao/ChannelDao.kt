@@ -62,6 +62,52 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE id = :channelId")
     suspend fun getById(channelId: Long): ChannelEntity?
 
+    @Query("SELECT * FROM channels WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<ChannelEntity>
+
+    @Query("SELECT COUNT(*) FROM channels")
+    fun observeTotalCount(): Flow<Int>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+        """
+    )
+    suspend fun countChannels(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long
+    ): Int
+
+    @Query(
+        """
+        SELECT c.* FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+        ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun channelsPage(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        limit: Int,
+        offset: Int
+    ): List<ChannelEntity>
+
     @Query("SELECT * FROM channels ORDER BY number")
     suspend fun all(): List<ChannelEntity>
 

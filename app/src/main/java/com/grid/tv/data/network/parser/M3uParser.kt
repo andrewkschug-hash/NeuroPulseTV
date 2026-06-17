@@ -10,7 +10,8 @@ class M3uParser {
     fun parseAsFlow(playlistId: Long, content: String): Flow<M3uParseProgress> = flow {
         val lines = content.lineSequence().toList()
         val extinfLines = lines.count { it.trim().startsWith("#EXTINF", ignoreCase = true) }
-        val channels = mutableListOf<ChannelEntity>()
+        val batch = mutableListOf<ChannelEntity>()
+        var parsedCount = 0
 
         var name = "Unknown"
         var tvgName: String? = null
@@ -24,7 +25,7 @@ class M3uParser {
         var catchupSource: String? = null
         var catchupDays = 0
 
-        lines.forEach { raw ->
+        for (raw in lines) {
             val line = raw.trim()
             if (line.startsWith("#EXTINF", ignoreCase = true)) {
                 name = line.substringAfterLast(",", "Unknown").trim().ifBlank { "Unknown" }
@@ -41,8 +42,8 @@ class M3uParser {
             } else if (line.isNotBlank() && !line.startsWith("#")) {
                 val pipeBackups = backupUrl?.split('|')?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
                 val channel = ChannelEntity(
-                    number = channels.size + 1,
-                    name = (tvgName ?: name).ifBlank { "Channel ${channels.size + 1}" },
+                    number = parsedCount + 1,
+                    name = (tvgName ?: name).ifBlank { "Channel ${parsedCount + 1}" },
                     groupName = group.ifBlank { "General" },
                     logoUrl = logo,
                     epgId = epgId,
@@ -58,18 +59,40 @@ class M3uParser {
                     epgResolutionConfidence = if (!epgId.isNullOrBlank()) 100 else 0,
                     epgResolutionSource = if (!epgId.isNullOrBlank()) "m3u" else null
                 )
-                channels += channel
-                emit(
-                    M3uParseProgress(
-                        parsedCount = channels.size,
-                        totalKnown = extinfLines,
-                        latest = channel
+                batch += channel
+                parsedCount++
+                if (batch.size >= PARSE_BATCH_SIZE) {
+                    emit(
+                        M3uParseProgress(
+                            parsedCount = parsedCount,
+                            totalKnown = extinfLines,
+                            batch = batch.toList()
+                        )
                     )
-                )
+                    batch.clear()
+                } else {
+                    emit(
+                        M3uParseProgress(
+                            parsedCount = parsedCount,
+                            totalKnown = extinfLines,
+                            latest = channel
+                        )
+                    )
+                }
             }
         }
 
-        emit(M3uParseProgress(parsedCount = channels.size, totalKnown = extinfLines, done = true, channels = channels))
+        if (batch.isNotEmpty()) {
+            emit(
+                M3uParseProgress(
+                    parsedCount = parsedCount,
+                    totalKnown = extinfLines,
+                    batch = batch.toList()
+                )
+            )
+            batch.clear()
+        }
+        emit(M3uParseProgress(parsedCount = parsedCount, totalKnown = extinfLines, done = true))
     }
 
     private fun attr(line: String, key: String): String? {
@@ -80,5 +103,9 @@ class M3uParser {
         val end = line.indexOf('"', from)
         if (end == -1) return null
         return line.substring(from, end).takeIf { it.isNotBlank() }
+    }
+
+    private companion object {
+        const val PARSE_BATCH_SIZE = 400
     }
 }

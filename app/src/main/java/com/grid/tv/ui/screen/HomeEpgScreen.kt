@@ -379,6 +379,10 @@ fun HomeEpgScreen(
 
     LaunchedEffect(focusChannelIndex, displayChannels, listState.layoutInfo.visibleItemsInfo) {
         if (displayChannels.isEmpty()) return@LaunchedEffect
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        if (lastVisible >= displayChannels.size - 20) {
+            viewModel.loadMoreChannels()
+        }
         val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
             displayChannels.getOrNull(info.index)?.id
         }.toSet()

@@ -50,7 +50,8 @@ fun SplitViewChannelPicker(
     allChannels: List<Channel>,
     excludeChannelIds: Set<Long>,
     onSelect: (Channel) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onNearEnd: () -> Unit = {}
 ) {
     val playableFavorites = remember(favoriteChannels, excludeChannelIds) {
         favoriteChannels.filter { it.id !in excludeChannelIds && it.streamUrl.isNotBlank() }
@@ -169,7 +170,10 @@ fun SplitViewChannelPicker(
                                     .heightIn(max = 320.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                itemsIndexed(playableAll, key = { _, channel -> channel.id }) { _, channel ->
+                                itemsIndexed(playableAll, key = { _, channel -> channel.id }) { index, channel ->
+                                    if (index >= playableAll.size - 10) {
+                                        onNearEnd()
+                                    }
                                     SplitPickerChannelRow(
                                         channel = channel,
                                         onClick = { onSelect(channel) }

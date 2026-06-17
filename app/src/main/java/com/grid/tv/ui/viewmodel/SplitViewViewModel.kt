@@ -3,7 +3,7 @@ package com.grid.tv.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
-import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.player.PlayerFactory
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -28,14 +28,44 @@ class SplitViewViewModel @Inject constructor(
         const val MAX_PANES = 4
     }
 
-    val channels: StateFlow<List<Channel>> = repository.channels(null, "", false, null)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _channels = MutableStateFlow<List<Channel>>(emptyList())
+    val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
+
+    private var channelOffset = 0
+    private var hasMoreChannels = true
+    private var loadingChannels = false
 
     val favoriteChannels: StateFlow<List<Channel>> = repository.channels(null, "", favoritesOnly = true, null)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentChannels: StateFlow<List<Channel>> = repository.recentChannels(limit = 20)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        loadMoreChannels()
+    }
+
+    fun loadMoreChannels() {
+        if (loadingChannels || !hasMoreChannels) return
+        viewModelScope.launch {
+            loadingChannels = true
+            try {
+                val page = repository.channelsPage(
+                    group = null,
+                    search = "",
+                    favoritesOnly = false,
+                    favoriteGroupId = null,
+                    limit = CHANNEL_PAGE_SIZE,
+                    offset = channelOffset
+                )
+                channelOffset += page.size
+                hasMoreChannels = page.size >= CHANNEL_PAGE_SIZE
+                _channels.value = _channels.value + page
+            } finally {
+                loadingChannels = false
+            }
+        }
+    }
 
     private val _paneChannelIds = MutableStateFlow<List<Long>>(emptyList())
     val paneChannelIds: StateFlow<List<Long>> = _paneChannelIds.asStateFlow()

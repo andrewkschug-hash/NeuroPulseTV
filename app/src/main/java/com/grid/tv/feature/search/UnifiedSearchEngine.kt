@@ -2,8 +2,8 @@ package com.grid.tv.feature.search
 
 import com.grid.tv.data.db.dao.ProfileWatchHistoryDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
-import com.grid.tv.domain.model.Channel
-import com.grid.tv.domain.model.Program
+import com.grid.tv.domain.model.SearchResultItem
+import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.domain.model.VodItem
@@ -41,14 +41,13 @@ class UnifiedSearchEngine @Inject constructor(
     init {
         scope.launch {
             combine(
-                repository.channels(group = null, search = "", favoritesOnly = false),
                 repository.vodStreams(),
                 repository.seriesShows(),
                 repository.playlists()
-            ) { channels, vod, series, playlists ->
-                Triple(channels, vod, series) to playlists
-            }.collect { (catalog, playlists) ->
-                rebuildIndex(catalog.first, catalog.second, catalog.third, playlists.isNotEmpty())
+            ) { vod, series, playlists ->
+                Triple(vod, series, playlists.isNotEmpty())
+            }.collect { (vod, series, hasPlaylists) ->
+                rebuildIndex(emptyList(), vod, series, hasPlaylists)
             }
         }
     }
@@ -56,30 +55,50 @@ class UnifiedSearchEngine @Inject constructor(
     suspend fun search(query: String): UnifiedSearchResults = withContext(Dispatchers.Default) {
         val recent = historyStore.recentSearches()
         val trending = buildTrending()
-        index.search(
+        val base = index.search(
             query = query,
             limitPerSection = 5,
             recentSearches = recent,
             trendingSearches = trending
         )
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return@withContext base
+        val channelMatches = repository.searchChannels(trimmed, limit = 20).map(::channelSearchResult)
+        base.copy(
+            channels = (channelMatches + base.channels).distinctBy { it.id }.take(5)
+        )
     }
+
+    private fun channelSearchResult(channel: com.grid.tv.domain.model.Channel): SearchResultItem =
+        SearchResultItem(
+            id = "ch-${channel.id}",
+            primaryTitle = channel.name,
+            secondaryLine = "Channel ${channel.number}${channel.group.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}",
+            imageUrl = channel.logoUrl,
+            type = SearchResultType.CHANNEL,
+            channelId = channel.id,
+            isLive = true
+        )
 
     fun recordSearch(query: String) {
         historyStore.recordSearch(query)
     }
 
     private suspend fun rebuildIndex(
-        channels: List<Channel>,
+        channels: List<com.grid.tv.domain.model.Channel>,
         vod: List<VodItem>,
         series: List<SeriesShow>,
         hasPlaylists: Boolean
     ) {
         activeProfileId = repository.activeProfileId()
-        val usePlaceholder = channels.isEmpty() && hasPlaylists
+        val hasChannelsInDb = repository.hasChannels().first()
+        val usePlaceholder = !hasChannelsInDb && hasPlaylists
         val resolvedChannels = if (usePlaceholder) EpgPlaceholderData.channels() else channels
         val now = System.currentTimeMillis()
         val programs = if (usePlaceholder) {
             EpgPlaceholderData.programs(now - 4 * 60 * 60 * 1000, now + 4 * 60 * 60 * 1000)
+        } else if (resolvedChannels.isEmpty()) {
+            emptyList()
         } else {
             repository.programs(
                 resolvedChannels.mapNotNull { it.epgId },
@@ -153,7 +172,7 @@ class UnifiedSearchEngine @Inject constructor(
     private fun buildGenres(
         movies: List<VodItem>,
         series: List<SeriesShow>,
-        channels: List<Channel>
+        channels: List<com.grid.tv.domain.model.Channel>
     ): List<UnifiedSearchIndex.IndexedGenre> {
         val genres = linkedMapOf<String, Pair<String, String>>()
         movies.mapNotNull { it.genre }.flatMap { it.split(",") }.forEach { g ->

@@ -31,12 +31,13 @@ class PlayerViewModel @Inject constructor(
     private val _lastWatchedChannel = MutableStateFlow<Channel?>(null)
     val lastWatchedChannel: StateFlow<Channel?> = _lastWatchedChannel.asStateFlow()
 
-    val channels: StateFlow<List<Channel>> = repository.channels(group = null, search = "", favoritesOnly = false)
+    val favoriteChannels: StateFlow<List<Channel>> = repository.channels(
+        group = null,
+        search = "",
+        favoritesOnly = true,
+        favoriteGroupId = null
+    )
         .map { list -> list.distinctBy { it.id } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val favoriteChannels: StateFlow<List<Channel>> = channels
-        .map { list -> list.filter { it.isFavorite }.distinctBy { it.id } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recentWatchChannels: StateFlow<List<Channel>> = repository.recentChannels(limit = 5)

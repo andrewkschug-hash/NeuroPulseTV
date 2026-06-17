@@ -1,6 +1,6 @@
 package com.grid.tv.data.network.parser
 
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -14,7 +14,8 @@ class M3uParserTest {
             https://main.test/1.m3u8
         """.trimIndent()
 
-        val final = M3uParser().parseAsFlow(1, text).first { it.done }
-        assertEquals("https://backup.test/1.m3u8", final.channels.first().backupStreamUrl)
+        val channels = M3uParser().parseAsFlow(1, text).toList()
+            .flatMap { it.batch }
+        assertEquals("https://backup.test/1.m3u8", channels.first().backupStreamUrl)
     }
 }

@@ -345,7 +345,8 @@ fun SplitViewScreen(
                 showPicker = false
                 paneIndex = newPaneIndex.coerceAtMost(SplitViewViewModel.MAX_PANES - 1)
             },
-            onDismiss = { showPicker = false }
+            onDismiss = { showPicker = false },
+            onNearEnd = { viewModel.loadMoreChannels() }
         )
     }
 }

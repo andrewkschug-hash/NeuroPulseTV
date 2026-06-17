@@ -2,6 +2,7 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.player.multiview.MultiViewLayout
@@ -25,8 +26,38 @@ class MultiViewViewModel @Inject constructor(
     private val _state = MutableStateFlow(MultiViewState.initial(MultiViewLayout.FOUR, null))
     val state: StateFlow<MultiViewState> = _state.asStateFlow()
 
-    val channels: StateFlow<List<Channel>> = repository.channels(null, "", false)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _channels = MutableStateFlow<List<Channel>>(emptyList())
+    val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
+
+    private var channelOffset = 0
+    private var hasMoreChannels = true
+    private var loadingChannels = false
+
+    init {
+        loadMoreChannels()
+    }
+
+    fun loadMoreChannels() {
+        if (loadingChannels || !hasMoreChannels) return
+        viewModelScope.launch {
+            loadingChannels = true
+            try {
+                val page = repository.channelsPage(
+                    group = null,
+                    search = "",
+                    favoritesOnly = false,
+                    favoriteGroupId = null,
+                    limit = CHANNEL_PAGE_SIZE,
+                    offset = channelOffset
+                )
+                channelOffset += page.size
+                hasMoreChannels = page.size >= CHANNEL_PAGE_SIZE
+                _channels.value = _channels.value + page
+            } finally {
+                loadingChannels = false
+            }
+        }
+    }
 
     fun initialize(seedChannelId: Long) {
         viewModelScope.launch {
