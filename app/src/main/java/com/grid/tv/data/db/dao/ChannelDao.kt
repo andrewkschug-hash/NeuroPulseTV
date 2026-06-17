@@ -150,4 +150,7 @@ interface ChannelDao {
 
     @Query("SELECT * FROM channels WHERE epgResolutionStatus IN ('UNRESOLVED', 'UNRESOLVABLE') ORDER BY name")
     suspend fun unresolvedForManual(): List<ChannelEntity>
+
+    @Query("SELECT DISTINCT epgId FROM channels WHERE epgId IS NOT NULL AND epgId != ''")
+    suspend fun allDistinctEpgIds(): List<String>
 }

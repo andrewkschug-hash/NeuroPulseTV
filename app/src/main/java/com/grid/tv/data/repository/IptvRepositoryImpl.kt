@@ -89,6 +89,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.net.URLEncoder
+import java.net.URI
 import java.io.File
 import java.util.Calendar
 import javax.inject.Inject
@@ -226,9 +227,55 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun mapChannelEntities(entities: List<com.grid.tv.data.db.entity.ChannelEntity>): List<Channel> {
         if (entities.isEmpty()) return emptyList()
         val playlistNames = playlistNameMap()
+        val playlists = playlistDao.all().associateBy { it.id }
         val health = streamHealthDao.observeAll().first().associateBy { it.channelId }
         val favIds = profileFavoriteDao.observeForProfile(activeProfileId).first().map { it.channelId }.toSet()
-        return mapChannelsWithPlaylists(entities, playlistNames, health, favIds)
+        val resolved = entities.map { entity ->
+            resolveXtreamPlaybackEntity(entity, playlists[entity.playlistId])
+        }
+        return mapChannelsWithPlaylists(resolved, playlistNames, health, favIds)
+    }
+
+    private fun resolveXtreamPlaybackEntity(
+        entity: com.grid.tv.data.db.entity.ChannelEntity,
+        playlist: PlaylistEntity?
+    ): com.grid.tv.data.db.entity.ChannelEntity {
+        if (playlist?.type != PlaylistType.XTREAM.name) return entity
+        val server = playlist.xtreamServerUrl ?: playlist.url
+        val username = playlist.xtreamUsername ?: return entity
+        val password = resolveXtreamPassword(playlist) ?: return entity
+        val streamId = extractXtreamStreamId(entity.streamUrl) ?: return entity
+        val extension = entity.streamUrl.substringAfterLast('.', "m3u8").substringBefore('?')
+        val streamUrl = xtreamParser.buildLiveStreamUrl(
+            serverUrl = server,
+            username = username,
+            password = password,
+            streamId = streamId,
+            extension = extension
+        )
+        val backupExt = if (extension.equals("ts", ignoreCase = true)) "m3u8" else "ts"
+        val backupStreamUrl = xtreamParser.buildLiveStreamUrl(
+            serverUrl = server,
+            username = username,
+            password = password,
+            streamId = streamId,
+            extension = backupExt
+        ).takeIf { it != streamUrl }
+        return entity.copy(
+            streamUrl = streamUrl,
+            backupStreamUrl = backupStreamUrl
+        )
+    }
+
+    private fun extractXtreamStreamId(streamUrl: String): String? {
+        val trimmed = streamUrl.trim()
+        if (trimmed.isBlank()) return null
+        val segment = runCatching { URI(trimmed).path }.getOrNull()
+            ?.trim('/')
+            ?.substringAfterLast('/')
+            ?: trimmed.substringAfterLast('/')
+        val match = Regex("""^(\d+)\.[\w]+$""").matchEntire(segment) ?: return null
+        return match.groupValues[1]
     }
 
     private fun mapChannelsWithPlaylists(
@@ -313,9 +360,13 @@ class IptvRepositoryImpl @Inject constructor(
             profileFavoriteDao.observeForProfile(activeProfileId)
         ) { rows, playlists, healthRows, favs ->
             val playlistNames = playlists.associate { it.id to it.name }
+            val playlistById = playlists.associateBy { it.id }
             val health = healthRows.associateBy { it.channelId }
             val favIds = favs.map { it.channelId }.toSet()
-            mapChannelsWithPlaylists(rows, playlistNames, health, favIds)
+            val resolved = rows.map { entity ->
+                resolveXtreamPlaybackEntity(entity, playlistById[entity.playlistId])
+            }
+            mapChannelsWithPlaylists(resolved, playlistNames, health, favIds)
         }
     }
 
@@ -414,9 +465,15 @@ class IptvRepositoryImpl @Inject constructor(
         ) { rows, playlists ->
             val ids = rows.map { it.channelId }
             if (ids.isEmpty()) return@combine emptyList()
+            val playlistById = playlists.associateBy { it.id }
             val channels = channelDao.getByIds(ids).associateBy { it.id }
             val names = playlists.associate { it.id to it.name }
-            rows.mapNotNull { channels[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
+            rows.mapNotNull { channels[it.channelId] }.map { entity ->
+                channelFromEntity(
+                    resolveXtreamPlaybackEntity(entity, playlistById[entity.playlistId]),
+                    names[entity.playlistId]
+                )
+            }
         }
 
     override fun recentChannels(limit: Int): Flow<List<Channel>> =
@@ -426,15 +483,27 @@ class IptvRepositoryImpl @Inject constructor(
         ) { rows, playlists ->
             val ids = rows.map { it.channelId }
             if (ids.isEmpty()) return@combine emptyList()
+            val playlistById = playlists.associateBy { it.id }
             val channels = channelDao.getByIds(ids).associateBy { it.id }
             val names = playlists.associate { it.id to it.name }
-            rows.mapNotNull { channels[it.channelId] }.map { channelFromEntity(it, names[it.playlistId]) }
+            rows.mapNotNull { channels[it.channelId] }.map { entity ->
+                channelFromEntity(
+                    resolveXtreamPlaybackEntity(entity, playlistById[entity.playlistId]),
+                    names[entity.playlistId]
+                )
+            }
         }
 
     override fun recentlyAdded(limit: Int): Flow<List<Channel>> =
         combine(channelDao.observeRecentlyAdded(limit), playlistDao.observeAll()) { rows, playlists ->
             val names = playlists.associate { it.id to it.name }
-            rows.map { channelFromEntity(it, names[it.playlistId]) }
+            val playlistById = playlists.associateBy { it.id }
+            rows.map { entity ->
+                channelFromEntity(
+                    resolveXtreamPlaybackEntity(entity, playlistById[entity.playlistId]),
+                    names[entity.playlistId]
+                )
+            }
         }
 
     override fun liveSportsNow(): Flow<List<Program>> =
@@ -1257,14 +1326,16 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun channelById(channelId: Long): Channel? = withContext(Dispatchers.IO) {
         val entity = channelDao.getById(channelId) ?: return@withContext null
-        val playlistName = playlistDao.getById(entity.playlistId)?.name
-        channelFromEntity(entity, playlistName)
+        val playlist = playlistDao.getById(entity.playlistId)
+        val resolved = resolveXtreamPlaybackEntity(entity, playlist)
+        channelFromEntity(resolved, playlist?.name)
     }
 
     override suspend fun channelByNumber(number: Int): Channel? = withContext(Dispatchers.IO) {
         val entity = channelDao.getByNumber(number) ?: return@withContext null
-        val playlistName = playlistDao.getById(entity.playlistId)?.name
-        channelFromEntity(entity, playlistName)
+        val playlist = playlistDao.getById(entity.playlistId)
+        val resolved = resolveXtreamPlaybackEntity(entity, playlist)
+        channelFromEntity(resolved, playlist?.name)
     }
 
     override suspend fun loadSettings(): AppSettings {

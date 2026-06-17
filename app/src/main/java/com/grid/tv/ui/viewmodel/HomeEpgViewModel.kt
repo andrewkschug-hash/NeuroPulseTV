@@ -282,7 +282,11 @@ class HomeEpgViewModel @Inject constructor(
             _activeProfile.value = repository.activeProfile()
         }
         viewModelScope.launch {
-            _channels.collectLatest { loadWindow() }
+            loadWindow()
+        }
+        viewModelScope.launch {
+            combine(_windowStart, _windowDurationMs) { _, _ -> }
+                .collectLatest { loadWindow() }
         }
         viewModelScope.launch {
             combine(_favoriteGroupFilter, _categoryFilter, _hideAdultContent) { _, _, _ -> }
@@ -543,8 +547,10 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         _epgLoading.value = true
-        val channelIds = _channels.value.mapNotNull { it.epgId }
-        if (channelIds.isEmpty()) {
+        val epgIds = withContext(Dispatchers.IO) {
+            channelDao.allDistinctEpgIds()
+        }
+        if (epgIds.isEmpty()) {
             _epgPrograms.value = emptyList()
             _epgLoading.value = false
             return
@@ -552,7 +558,7 @@ class HomeEpgViewModel @Inject constructor(
         val start = _windowStart.value
         val end = start + _windowDurationMs.value
         _epgPrograms.value = withContext(Dispatchers.IO) {
-            repository.programsWindow(channelIds, start, end)
+            repository.programsWindow(epgIds, start, end)
         }
         recomputeReplayUrls(_epgPrograms.value)
         _epgLoading.value = false
