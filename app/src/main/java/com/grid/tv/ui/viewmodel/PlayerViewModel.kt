@@ -1,5 +1,6 @@
 package com.grid.tv.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
@@ -20,6 +21,10 @@ class PlayerViewModel @Inject constructor(
     private val repository: IptvRepository,
     val pipController: PictureInPictureController
 ) : ViewModel() {
+
+    companion object {
+        private const val LOG_TAG = "PlayerViewModel"
+    }
 
     private val _channel = MutableStateFlow<Channel?>(null)
     val channel: StateFlow<Channel?> = _channel.asStateFlow()
@@ -79,6 +84,15 @@ class PlayerViewModel @Inject constructor(
             _lastWatchedChannel.value = current
         }
         val ch = repository.channelById(channelId)
+        if (ch == null) {
+            Log.w(LOG_TAG, "load channelId=$channelId: channel not found")
+        } else {
+            Log.i(
+                LOG_TAG,
+                "load channelId=${ch.id} name=${ch.name} streamUrl=${ch.streamUrl}" +
+                    (ch.backupStreamUrl?.let { " backupStreamUrl=$it" }.orEmpty())
+            )
+        }
         _channel.value = ch
         if (recordWatchHistory && ch != null) {
             val history = repository.watchHistory(ch.id)
