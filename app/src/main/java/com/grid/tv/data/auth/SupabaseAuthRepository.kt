@@ -36,11 +36,13 @@ class SupabaseAuthRepository @Inject constructor(
         }
 
     override suspend fun getCurrentAccount(): AuthAccount? {
+        if (!supabaseClientProvider.isConfigured) return null
         val user = auth.currentUserOrNull() ?: return null
         return user.toAuthAccount()
     }
 
     override suspend fun ensureCloudProfile() {
+        if (!supabaseClientProvider.isConfigured) return
         val user = auth.currentUserOrNull() ?: return
         val account = user.toAuthAccount()
         client.postgrest["profiles"].upsert(

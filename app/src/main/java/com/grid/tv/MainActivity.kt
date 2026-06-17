@@ -105,11 +105,14 @@ class MainActivity : ComponentActivity() {
     private fun handleAuthDeepLink(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "com.grid.tv" || data.host != "auth") return
-        val supabaseClient = EntryPointAccessors.fromApplication(
+        val entryPoint = EntryPointAccessors.fromApplication(
             applicationContext,
             SupabaseEntryPoint::class.java
-        ).supabaseClient()
-        supabaseClient.handleDeeplinks(intent)
+        )
+        if (!entryPoint.supabaseClientProvider().isConfigured) return
+        runCatching {
+            entryPoint.supabaseClient().handleDeeplinks(intent)
+        }
         authDeepLinkHandler?.invoke(data.toString())
     }
 

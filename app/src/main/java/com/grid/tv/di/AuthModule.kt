@@ -22,6 +22,7 @@ interface AuthEntryPoint {
 @InstallIn(SingletonComponent::class)
 interface SupabaseEntryPoint {
     fun supabaseClient(): SupabaseClient
+    fun supabaseClientProvider(): SupabaseClientProvider
 }
 
 @Module

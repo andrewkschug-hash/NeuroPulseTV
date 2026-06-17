@@ -1,27 +1,34 @@
 package com.grid.tv.ui.navigation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.grid.tv.MainActivity
 import com.grid.tv.di.SupabaseEntryPoint
+import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.screen.LoginScreen
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthUiState
 import com.grid.tv.ui.viewmodel.AuthViewModel
 import dagger.hilt.android.EntryPointAccessors
+import io.github.jan.supabase.SupabaseClient
 
 @Composable
 fun AuthGate(
@@ -30,11 +37,23 @@ fun AuthGate(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val supabaseClient = EntryPointAccessors.fromApplication(
-        context.applicationContext,
-        SupabaseEntryPoint::class.java
-    ).supabaseClient()
+    val supabaseProvider = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            SupabaseEntryPoint::class.java
+        ).supabaseClientProvider()
+    }
     val activity = context as? MainActivity
+
+    LaunchedEffect(supabaseProvider.isConfigured) {
+        if (!supabaseProvider.isConfigured) {
+            viewModel.confirmSkipForNow()
+        }
+    }
+
+    val supabaseClient: SupabaseClient? = remember(supabaseProvider) {
+        supabaseProvider.clientOrNull()
+    }
 
     DisposableEffect(activity) {
         activity?.registerAuthDeepLinkHandler {
@@ -53,11 +72,19 @@ fun AuthGate(
         AuthUiState.Checking,
         is AuthUiState.Authenticated,
         is AuthUiState.Guest -> AuthLoadingScreen()
-        else -> LoginScreen(
-            supabaseClient = supabaseClient,
-            onAuthenticated = onAuthenticated,
-            viewModel = viewModel
-        )
+        else -> {
+            if (supabaseClient != null) {
+                LoginScreen(
+                    supabaseClient = supabaseClient,
+                    onAuthenticated = onAuthenticated,
+                    viewModel = viewModel
+                )
+            } else {
+                LocalOnlyAuthScreen(
+                    onContinue = { viewModel.confirmSkipForNow() }
+                )
+            }
+        }
     }
 }
 
@@ -75,5 +102,37 @@ private fun AuthLoadingScreen() {
             fontFamily = DmSansFamily,
             fontSize = 16.sp
         )
+    }
+}
+
+@Composable
+private fun LocalOnlyAuthScreen(onContinue: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(EpgColors.Background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.padding(32.dp)
+        ) {
+            Text(
+                text = "GRID",
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 28.sp
+            )
+            Text(
+                text = "Cloud sign-in is not configured.\nContinuing in local mode.",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            GlowFocusButton(onClick = onContinue) {
+                Text("Continue")
+            }
+        }
     }
 }

@@ -13,14 +13,29 @@ import javax.inject.Singleton
 
 @Singleton
 class SupabaseClientProvider @Inject constructor() {
-    val client: SupabaseClient by lazy { buildClient() }
+
+    private val configuredClient: SupabaseClient? by lazy {
+        if (!isConfigured) null else buildClient()
+    }
+
+    /** True when SUPABASE_URL and SUPABASE_ANON_KEY are present in .env at build time. */
+    val isConfigured: Boolean
+        get() = BuildConfig.SUPABASE_URL.trim().isNotBlank() &&
+            BuildConfig.SUPABASE_ANON_KEY.trim().isNotBlank()
+
+    val client: SupabaseClient
+        get() = configuredClient
+            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env")
+
+    fun clientOrNull(): SupabaseClient? = if (isConfigured) {
+        runCatching { configuredClient }.getOrNull()
+    } else {
+        null
+    }
 
     private fun buildClient(): SupabaseClient {
         val url = BuildConfig.SUPABASE_URL.trim()
         val key = BuildConfig.SUPABASE_ANON_KEY.trim()
-        require(url.isNotBlank() && key.isNotBlank()) {
-            "Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env"
-        }
 
         return createSupabaseClient(supabaseUrl = url, supabaseKey = key) {
             install(Auth) {
@@ -30,12 +45,10 @@ class SupabaseClientProvider @Inject constructor() {
             }
             install(Postgrest)
             install(ComposeAuth) {
-                // Web OAuth client ID from Google Cloud Console — not the Android client ID.
                 val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID.trim()
-                require(webClientId.isNotBlank()) {
-                    "Add GOOGLE_WEB_CLIENT_ID (Web client ID) to .env and rebuild."
+                if (webClientId.isNotBlank()) {
+                    googleNativeLogin(serverClientId = webClientId)
                 }
-                googleNativeLogin(serverClientId = webClientId)
             }
         }
     }

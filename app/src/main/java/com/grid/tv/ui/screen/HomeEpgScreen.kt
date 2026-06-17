@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.tv.material3.Text
 import com.grid.tv.data.db.entity.ScheduledRecordingEntity
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
@@ -100,6 +101,7 @@ import com.grid.tv.ui.component.RecordingPrecheckDialog
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.SearchOverlay
 import com.grid.tv.ui.component.StorageLocationPicker
+import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.domain.epg.EpgProgramAction
 import com.grid.tv.domain.epg.EpgProgramReplayState
@@ -1108,8 +1110,16 @@ fun HomeEpgScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(EpgColors.Background)
-            )
+                    .background(EpgColors.Background),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Loading guide…",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 16.sp
+                )
+            }
             return
         }
         showEmptyState -> {
