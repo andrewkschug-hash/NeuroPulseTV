@@ -21,7 +21,6 @@ interface AuthEntryPoint {
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface SupabaseEntryPoint {
-    fun supabaseClient(): SupabaseClient
     fun supabaseClientProvider(): SupabaseClientProvider
 }
 
@@ -30,7 +29,9 @@ interface SupabaseEntryPoint {
 object SupabaseModule {
     @Provides
     @Singleton
-    fun provideSupabaseClient(provider: SupabaseClientProvider): SupabaseClient = provider.client
+    fun provideSupabaseClient(provider: SupabaseClientProvider): SupabaseClient =
+        provider.clientOrNull()
+            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env")
 }
 
 @Module

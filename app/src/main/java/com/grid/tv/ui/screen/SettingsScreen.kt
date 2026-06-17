@@ -762,7 +762,7 @@ fun SettingsScreen(
                             val supabaseClient = EntryPointAccessors.fromApplication(
                                 context.applicationContext,
                                 SupabaseEntryPoint::class.java
-                            ).supabaseClient()
+                            ).supabaseClientProvider().clientOrNull()
                             AboutSettingsContent(
                                 importSummary = importSummary,
                                 cacheMessage = cacheMessage,
@@ -1955,7 +1955,7 @@ private fun AboutSettingsContent(
     focus: SettingsContentFocus,
     isSignedIn: Boolean,
     signedInEmail: String?,
-    supabaseClient: io.github.jan.supabase.SupabaseClient,
+    supabaseClient: io.github.jan.supabase.SupabaseClient?,
     authViewModel: AuthViewModel,
     onSignOut: () -> Unit,
     onExportBackup: () -> Unit,
@@ -1990,12 +1990,19 @@ private fun AboutSettingsContent(
                 focus = focus,
                 destructive = true
             )
-        } else {
+        } else if (supabaseClient != null) {
             SettingsGoogleSignInButton(
                 supabaseClient = supabaseClient,
                 viewModel = authViewModel,
                 chainIndex = 0,
                 focus = focus
+            )
+        } else {
+            Text(
+                text = "Cloud sync is not configured for this build.",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
             )
         }
     }

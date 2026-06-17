@@ -10,6 +10,7 @@ import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -21,29 +22,29 @@ class SupabaseAuthRepository @Inject constructor(
     private val authPreferences: AuthPreferences
 ) : AuthRepository {
 
-    private val client get() = supabaseClientProvider.client
-    private val auth get() = client.auth
-
     override fun hasSkippedSignIn(): Boolean = authPreferences.hasSkippedSignIn()
 
     override fun setSkippedSignIn(skipped: Boolean) {
         authPreferences.setSkippedSignIn(skipped)
     }
 
-    override val authState: Flow<Boolean> =
-        auth.sessionStatus.map { status ->
-            status is SessionStatus.Authenticated
+    override val authState: Flow<Boolean>
+        get() {
+            val client = supabaseClientProvider.clientOrNull() ?: return flowOf(false)
+            return client.auth.sessionStatus.map { status ->
+                status is SessionStatus.Authenticated
+            }
         }
 
     override suspend fun getCurrentAccount(): AuthAccount? {
-        if (!supabaseClientProvider.isConfigured) return null
+        val auth = supabaseClientProvider.clientOrNull()?.auth ?: return null
         val user = auth.currentUserOrNull() ?: return null
         return user.toAuthAccount()
     }
 
     override suspend fun ensureCloudProfile() {
-        if (!supabaseClientProvider.isConfigured) return
-        val user = auth.currentUserOrNull() ?: return
+        val client = supabaseClientProvider.clientOrNull() ?: return
+        val user = client.auth.currentUserOrNull() ?: return
         val account = user.toAuthAccount()
         client.postgrest["profiles"].upsert(
             mapOf(
@@ -56,6 +57,8 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun signInWithOAuth(provider: OAuthProviderId) {
+        val auth = supabaseClientProvider.clientOrNull()?.auth
+            ?: error("Supabase is not configured")
         when (provider) {
             OAuthProviderId.Google -> auth.signInWith(
                 Google,
@@ -65,12 +68,11 @@ class SupabaseAuthRepository @Inject constructor(
     }
 
     override suspend fun handleOAuthCallback(url: String): Boolean {
-        // MainActivity already calls supabaseClient.handleDeeplinks(intent).
-        return auth.currentUserOrNull() != null
+        return supabaseClientProvider.clientOrNull()?.auth?.currentUserOrNull() != null
     }
 
     override suspend fun signOut() {
-        auth.signOut()
+        supabaseClientProvider.clientOrNull()?.auth?.signOut()
         authPreferences.setSkippedSignIn(false)
     }
 

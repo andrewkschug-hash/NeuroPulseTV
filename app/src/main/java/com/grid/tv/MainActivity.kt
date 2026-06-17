@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
         )
         if (!entryPoint.supabaseClientProvider().isConfigured) return
         runCatching {
-            entryPoint.supabaseClient().handleDeeplinks(intent)
+            entryPoint.supabaseClientProvider().clientOrNull()?.handleDeeplinks(intent)
         }
         authDeepLinkHandler?.invoke(data.toString())
     }
