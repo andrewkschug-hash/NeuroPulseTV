@@ -31,7 +31,7 @@ class RemoteTextFetcher @Inject constructor(
             requestBuilder.header("Accept-Encoding", "identity")
         }
         val request = requestBuilder.build()
-        appHttpClient.client().newCall(request).execute().use { response ->
+        return appHttpClient.client().newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP request failed (${response.code}) for $url")
             }
