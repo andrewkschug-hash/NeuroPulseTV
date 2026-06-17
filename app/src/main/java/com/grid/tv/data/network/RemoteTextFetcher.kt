@@ -1,5 +1,6 @@
 package com.grid.tv.data.network
 
+import java.io.EOFException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +13,24 @@ class RemoteTextFetcher @Inject constructor(
 ) {
     suspend fun fetch(rawUrl: String): String = withContext(Dispatchers.IO) {
         val url = normalizeRemoteUrl(rawUrl)
-        val request = Request.Builder().url(url).get().build()
+        var lastEof: EOFException? = null
+        repeat(MAX_FETCH_ATTEMPTS) { attempt ->
+            try {
+                return@withContext executeFetch(url)
+            } catch (e: EOFException) {
+                lastEof = e
+                if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
+            }
+        }
+        throw lastEof ?: IllegalStateException("Fetch failed for $url")
+    }
+
+    private fun executeFetch(url: String): String {
+        val requestBuilder = Request.Builder().url(url).get()
+        if (isXtreamApiUrl(url)) {
+            requestBuilder.header("Accept-Encoding", "identity")
+        }
+        val request = requestBuilder.build()
         appHttpClient.client().newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP request failed (${response.code}) for $url")
@@ -20,6 +38,9 @@ class RemoteTextFetcher @Inject constructor(
             response.body?.string().orEmpty()
         }
     }
+
+    private fun isXtreamApiUrl(url: String): Boolean =
+        url.contains("player_api.php", ignoreCase = true)
 
     fun normalizeRemoteUrl(raw: String): String {
         val trimmed = raw.trim()
@@ -34,5 +55,9 @@ class RemoteTextFetcher @Inject constructor(
             )
             else -> "http://$trimmed"
         }
+    }
+
+    private companion object {
+        const val MAX_FETCH_ATTEMPTS = 3
     }
 }
