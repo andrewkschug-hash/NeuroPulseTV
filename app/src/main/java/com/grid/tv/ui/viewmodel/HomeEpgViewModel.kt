@@ -143,6 +143,12 @@ class HomeEpgViewModel @Inject constructor(
     val channelGroups: StateFlow<List<String>> = repository.groups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
+    val hasCatalogChannels: StateFlow<Boolean> = repository
+        .channels(group = null, search = "", favoritesOnly = false)
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _hideAdultContent = MutableStateFlow(true)
     val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
@@ -295,6 +301,11 @@ class HomeEpgViewModel @Inject constructor(
         }
         viewModelScope.launch {
             channels.collectLatest { loadWindow() }
+        }
+        viewModelScope.launch {
+            repository.epgDataRevision().collect {
+                if (it > 0L) loadWindow()
+            }
         }
         viewModelScope.launch {
             val settings = repository.loadSettings()

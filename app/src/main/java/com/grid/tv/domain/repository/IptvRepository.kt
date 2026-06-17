@@ -76,6 +76,7 @@ interface IptvRepository {
     suspend fun deletePlaylist(playlistId: Long)
     suspend fun refreshEpgNow()
     suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>>
+    fun epgDataRevision(): Flow<Long>
 
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
     fun vodStreams(): Flow<List<VodItem>>

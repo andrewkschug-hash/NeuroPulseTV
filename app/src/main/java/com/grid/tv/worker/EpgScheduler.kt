@@ -37,6 +37,17 @@ class EpgScheduler @Inject constructor(
         )
     }
 
+    fun runEpgRefreshNow() {
+        val request = OneTimeWorkRequestBuilder<EpgRefreshWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        workManager.enqueueUniqueWork(
+            "epg_refresh_now",
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
     fun runResolverForNewChannels(createdAfter: Long) {
         val request = OneTimeWorkRequestBuilder<EpgResolverWorker>()
             .setInputData(workDataOf(EpgResolverWorker.KEY_CREATED_AFTER to createdAfter))

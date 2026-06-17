@@ -7,6 +7,7 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
 import java.net.URI
+import java.net.URLEncoder
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -80,11 +81,13 @@ class XtreamParser {
         username: String,
         password: String,
         streamId: String,
+        extension: String = "m3u8",
         directSource: String? = null
     ): String {
-        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        sanitizeDirectSource(directSource)?.let { return it }
         val base = serverUrl.trimEnd('/')
-        return "$base/live/$username/$password/$streamId.m3u8"
+        val ext = extension.trim().removePrefix(".").ifBlank { "m3u8" }
+        return "$base/live/${encodePath(username)}/${encodePath(password)}/$streamId.$ext"
     }
 
     fun buildLiveStreamUrlTs(
@@ -93,13 +96,28 @@ class XtreamParser {
         password: String,
         streamId: String,
         directSource: String? = null
-    ): String {
-        // Some providers only serve stable transport streams from the /live endpoint.
-        // Keep `direct_source` as highest priority when present.
-        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
-        val base = serverUrl.trimEnd('/')
-        return "$base/live/$username/$password/$streamId.ts"
+    ): String = buildLiveStreamUrl(
+        serverUrl = serverUrl,
+        username = username,
+        password = password,
+        streamId = streamId,
+        extension = "ts",
+        directSource = directSource
+    )
+
+    fun sanitizeDirectSource(raw: String?): String? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank() || trimmed == "0" || trimmed.equals("null", ignoreCase = true)) return null
+        if (!trimmed.startsWith("http://", ignoreCase = true) &&
+            !trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            return null
+        }
+        return trimmed
     }
+
+    private fun encodePath(value: String): String =
+        URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
 
     fun buildMovieStreamUrl(
         serverUrl: String,
@@ -109,10 +127,10 @@ class XtreamParser {
         extension: String,
         directSource: String? = null
     ): String {
-        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        sanitizeDirectSource(directSource)?.let { return it }
         val base = serverUrl.trimEnd('/')
         val ext = extension.ifBlank { "mp4" }
-        return "$base/movie/$username/$password/$streamId.$ext"
+        return "$base/movie/${encodePath(username)}/${encodePath(password)}/$streamId.$ext"
     }
 
     fun parseLiveCategories(raw: String): Map<String, String> {
@@ -147,9 +165,17 @@ class XtreamParser {
             val catId = item.optString("category_id")
             val group = categories[catId] ?: item.optString("category_name").ifBlank { "Live" }
             val number = item.optString("num").toIntOrNull() ?: (i + 1)
-            val directSource = item.optString("direct_source").ifBlank { null }
-            val streamUrl = buildLiveStreamUrl(serverUrl, username, password, streamId, directSource)
-            val backupTsUrl = buildLiveStreamUrlTs(serverUrl, username, password, streamId, directSource)
+            val directSource = sanitizeDirectSource(item.optString("direct_source"))
+            val containerExt = item.optString("container_extension").ifBlank { "m3u8" }
+            val streamUrl = buildLiveStreamUrl(
+                serverUrl, username, password, streamId, containerExt, directSource
+            )
+            val backupExt = if (containerExt.equals("ts", ignoreCase = true)) "m3u8" else "ts"
+            val backupUrl = if (directSource == null) {
+                buildLiveStreamUrl(serverUrl, username, password, streamId, backupExt, null)
+            } else {
+                null
+            }
             out += ChannelEntity(
                 number = number,
                 name = name,
@@ -157,7 +183,7 @@ class XtreamParser {
                 logoUrl = logo,
                 epgId = epgId,
                 streamUrl = streamUrl,
-                backupStreamUrl = backupTsUrl.takeIf { it != streamUrl },
+                backupStreamUrl = backupUrl?.takeIf { it != streamUrl },
                 playlistId = playlistId,
                 epgResolutionStatus = if (!epgId.isNullOrBlank()) EpgResolutionStatus.CONFIRMED.name else EpgResolutionStatus.UNRESOLVED.name,
                 epgResolutionConfidence = if (!epgId.isNullOrBlank()) 100 else 0,
@@ -242,7 +268,7 @@ class XtreamParser {
                 val info = item.optJSONObject("info")
                 val ext = item.optString("container_extension").ifBlank { "mp4" }
                 val title = item.optString("title").ifBlank { "Episode $id" }
-                val url = "$serverUrl/series/$username/$password/$id.$ext"
+                val url = "$serverUrl/series/${encodePath(username)}/${encodePath(password)}/$id.$ext"
                 val episodeNumber = item.optInt("episode_num", -1).takeIf { it > 0 }
                     ?: info?.optInt("episode_num", -1)?.takeIf { it > 0 }
                     ?: (i + 1)

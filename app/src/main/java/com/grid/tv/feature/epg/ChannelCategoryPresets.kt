@@ -18,27 +18,38 @@ object ChannelCategoryPresets {
 
     data class Preset(val id: String, val label: String, val matcher: (String) -> Boolean)
 
+    private val usWord = Regex("""\bus\b""")
+    private val ukWord = Regex("""\buk\b""")
+    private val caWord = Regex("""\bca\b""")
+
     val presets: List<Preset> = listOf(
         Preset("usa", "USA") { group ->
             val g = group.lowercase()
-            g.contains("usa") || g.contains("united states") || g.startsWith("us|") ||
-                g.contains("|us|") || g.endsWith("|us") || g == "us"
+            g.contains("usa") || g.contains("united states") || g.contains("u.s.a") ||
+                g.contains("american") || usWord.containsMatchIn(g) ||
+                g.startsWith("us|") || g.startsWith("us ") || g.startsWith("us:") ||
+                g.startsWith("us-") || g.startsWith("us★") || g.startsWith("usa★") ||
+                g.contains("|us|") || g.contains("| us") || g.endsWith("|us") ||
+                g == "us" || g == "usa"
         },
         Preset("canada", "Canada") { group ->
             val g = group.lowercase()
-            g.contains("canada") || g.contains("|ca|") || g.startsWith("ca|") || g == "ca"
+            g.contains("canada") || caWord.containsMatchIn(g) ||
+                g.startsWith("ca|") || g.startsWith("ca ") || g.startsWith("ca★") ||
+                g.contains("|ca|") || g == "ca"
         },
         Preset("uk", "UK") { group ->
             val g = group.lowercase()
-            g.contains("uk") || g.contains("united kingdom") || g.contains("|gb|") || g.startsWith("gb|")
+            g.contains("united kingdom") || ukWord.containsMatchIn(g) ||
+                g.contains("|gb|") || g.startsWith("gb|") || g.startsWith("gb ") ||
+                g.startsWith("uk|") || g.startsWith("uk ") || g.startsWith("uk★") ||
+                g.contains("|uk|") || g == "uk" || g == "gb"
         },
         Preset("news", "News") { group ->
-            val g = group.lowercase()
-            g.contains("news")
+            group.lowercase().contains("news")
         },
         Preset("sports", "Sports") { group ->
-            val g = group.lowercase()
-            g.contains("sport")
+            group.lowercase().contains("sport")
         },
         Preset("entertainment", "Entertainment") { group ->
             val g = group.lowercase()

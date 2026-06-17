@@ -137,6 +137,7 @@ internal fun HomeEpgChannelList(
     onGridFilterKey: (KeyEvent) -> Boolean,
     listState: LazyListState,
     displayChannels: List<Channel>,
+    filteredEmptyMessage: String? = null,
     programsForChannel: (Channel) -> List<Program>,
     channelScanStatuses: Map<Long, ChannelScanSnapshot>,
     focusChannelIndex: Int,
@@ -268,6 +269,20 @@ internal fun HomeEpgChannelList(
                                         replayStateFor = replayStateFor
                                     )
                                 }
+                            }
+                        }
+
+                        if (displayChannels.isEmpty() && filteredEmptyMessage != null) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.tv.material3.Text(
+                                    text = filteredEmptyMessage,
+                                    color = EpgColors.TextSecondary,
+                                    fontFamily = DmSansFamily,
+                                    fontSize = 14.sp
+                                )
                             }
                         }
 

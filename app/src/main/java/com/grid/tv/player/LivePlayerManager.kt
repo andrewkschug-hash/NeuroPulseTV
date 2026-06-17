@@ -245,14 +245,14 @@ class LivePlayerManager @Inject constructor(
 
         if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
             channelSnapshot?.let { currentChannel = it }
-            if (exo.playbackState == Player.STATE_IDLE && exo.mediaItemCount > 0) {
-                exo.prepare()
+            val state = exo.playbackState
+            if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
+                exo.playWhenReady = true
+                applyVolume()
+                refreshTimeshiftWindow(exo)
+                playbackMonitor.onStreamContinued(exo)
+                return
             }
-            exo.playWhenReady = true
-            applyVolume()
-            refreshTimeshiftWindow(exo)
-            playbackMonitor.onStreamContinued(exo)
-            return
         }
 
         playbackMonitor.onTuneStarted(streamUrl)
@@ -317,16 +317,17 @@ class LivePlayerManager @Inject constructor(
     }
 
     private fun buildLiveMediaItem(streamUrl: String): MediaItem {
-        return MediaItem.Builder()
-            .setUri(streamUrl)
-            .setLiveConfiguration(
+        val builder = MediaItem.Builder().setUri(streamUrl)
+        if (streamUrl.contains(".m3u8", ignoreCase = true)) {
+            builder.setLiveConfiguration(
                 MediaItem.LiveConfiguration.Builder()
                     .setTargetOffsetMs(5_000L)
                     .setMinOffsetMs(3_000L)
                     .setMaxOffsetMs(15_000L)
                     .build()
             )
-            .build()
+        }
+        return builder.build()
     }
 
     fun lastChannel(): Channel? = _lastChannel.value

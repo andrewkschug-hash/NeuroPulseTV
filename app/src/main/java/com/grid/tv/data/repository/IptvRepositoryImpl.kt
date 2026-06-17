@@ -81,6 +81,7 @@ import com.grid.tv.feature.tivimate.TiviMateImporter
 import com.grid.tv.worker.EpgScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -133,6 +134,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val recommendationEngine = RecommendationEngine()
     private val healthEngine = StreamHealthEngine()
     private val epgCache = EpgBlockCache(maxBlocks = 6)
+    private val _epgDataRevision = MutableStateFlow(0L)
 
     private var cachedSettings = AppSettings()
     private var activeProfileId = 1L
@@ -373,23 +375,40 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program> =
         withContext(Dispatchers.IO) {
-            val key = "${start / 1000}-${end / 1000}"
+            if (epgIds.isEmpty()) return@withContext emptyList()
+            val key = "${start / 1000}-${end / 1000}-${epgIds.size}-${epgIds.hashCode()}"
             epgCache.get(key)?.let { return@withContext it }
-            val loaded = programDao.loadWindow(epgIds, start, end).map {
-                Program(
-                    id = it.id,
-                    channelEpgId = it.channelEpgId,
-                    title = it.title,
-                    description = it.description,
-                    startTime = it.startTime,
-                    endTime = it.endTime,
-                    genre = runCatching { ProgramGenre.valueOf(it.genre) }.getOrDefault(ProgramGenre.GENERAL),
-                    catchupUrl = it.catchupUrl
-                )
+            val entities = epgIds.chunked(400).flatMap { chunk ->
+                programDao.loadWindow(chunk, start, end)
             }
+            val foundLower = entities.map { it.channelEpgId.lowercase() }.toSet()
+            val missingLower = epgIds.map { it.lowercase() }.filter { it !in foundLower }.distinct()
+            val caseInsensitive = if (missingLower.isEmpty()) {
+                emptyList()
+            } else {
+                missingLower.chunked(400).flatMap { chunk ->
+                    programDao.loadWindowIgnoreCase(chunk, start, end)
+                }
+            }
+            val loaded = (entities + caseInsensitive)
+                .distinctBy { it.id }
+                .map { row ->
+                    Program(
+                        id = row.id,
+                        channelEpgId = row.channelEpgId,
+                        title = row.title,
+                        description = row.description,
+                        startTime = row.startTime,
+                        endTime = row.endTime,
+                        genre = runCatching { ProgramGenre.valueOf(row.genre) }.getOrDefault(ProgramGenre.GENERAL),
+                        catchupUrl = row.catchupUrl
+                    )
+                }
             epgCache.put(key, loaded)
             loaded
         }
+
+    override fun epgDataRevision(): Flow<Long> = _epgDataRevision.asStateFlow()
 
     override fun profiles(): Flow<List<UserProfile>> = profileDao.observeProfiles().map { rows ->
         rows
@@ -618,6 +637,11 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.saveM3uUrl(playlistId, normalizedUrl)
     }
 
+    private fun scheduleEpgImportWork(startedAt: Long) {
+        scheduleEpgImportWork(startedAt)
+        epgScheduler.runEpgRefreshNow()
+    }
+
     private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
         val startedAt = System.currentTimeMillis()
         val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
@@ -631,7 +655,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
         )
         importM3uChannels(playlistId, url)
-        epgScheduler.runResolverForNewChannels(startedAt)
+        scheduleEpgImportWork(startedAt)
         return playlistId
     }
 
@@ -655,7 +679,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
         )
         importM3uChannels(playlistId, url)
-        epgScheduler.runResolverForNewChannels(startedAt)
+        scheduleEpgImportWork(startedAt)
     }
 
     private suspend fun importXtreamCatalog(
@@ -748,7 +772,7 @@ class IptvRepositoryImpl @Inject constructor(
             seriesCacheByPlaylist.update { it - playlistId }
             throw e
         }
-        epgScheduler.runResolverForNewChannels(startedAt)
+        scheduleEpgImportWork(startedAt)
         return playlistId
     }
 
@@ -774,7 +798,7 @@ class IptvRepositoryImpl @Inject constructor(
                 type = PlaylistType.XTREAM.name
             )
         )
-        epgScheduler.runResolverForNewChannels(startedAt)
+        scheduleEpgImportWork(startedAt)
     }
 
     private suspend fun insertStalkerPlaylist(
@@ -800,7 +824,7 @@ class IptvRepositoryImpl @Inject constructor(
         val channels = stalkerPortalClient.fetchChannels(session, playlistId)
         channelDao.clearByPlaylist(playlistId)
         channelDao.insertAll(deduplicateChannels(channels))
-        epgScheduler.runResolverForNewChannels(startedAt)
+        scheduleEpgImportWork(startedAt)
         return playlistId
     }
 
@@ -811,7 +835,7 @@ class IptvRepositoryImpl @Inject constructor(
             val final = m3uParser.parseAsFlow(playlistId, content).first { it.done }
             channelDao.clearByPlaylist(playlistId)
             channelDao.insertAll(deduplicateChannels(final.channels))
-            epgScheduler.runResolverForNewChannels(startedAt)
+            scheduleEpgImportWork(startedAt)
         }
 
     override suspend fun connectionFormForPlaylist(playlist: Playlist): ConnectionFormFields =
@@ -861,6 +885,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshEpgNow() = withContext(Dispatchers.IO) {
+        epgCache.clear()
         val now = System.currentTimeMillis()
         val threshold = now - 24L * 60 * 60 * 1000
         programDao.purgeOlderThan(threshold)
@@ -879,10 +904,21 @@ class IptvRepositoryImpl @Inject constructor(
             runCatching {
                 val xml = remoteTextFetcher.fetch(resolvedEpgUrl)
                 val parsed = xmlTvParser.parse(xml)
-                programDao.insertAll(parsed.programs)
-                playlistDao.update(playlist.copy(lastRefreshed = now))
+                if (parsed.programs.isNotEmpty()) {
+                    programDao.insertAll(parsed.programs)
+                    playlistDao.update(playlist.copy(lastRefreshed = now))
+                    Log.i(
+                        IPTV_REPO_LOG_TAG,
+                        "EPG refresh: ${parsed.programs.size} programmes for ${playlist.name}"
+                    )
+                } else {
+                    Log.w(IPTV_REPO_LOG_TAG, "EPG refresh: no programmes parsed from $resolvedEpgUrl")
+                }
+            }.onFailure { error ->
+                Log.e(IPTV_REPO_LOG_TAG, "EPG refresh failed for ${playlist.name}", error)
             }
         }
+        _epgDataRevision.update { it + 1 }
     }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {

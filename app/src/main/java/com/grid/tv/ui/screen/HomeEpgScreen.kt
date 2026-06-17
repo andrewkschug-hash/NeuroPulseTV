@@ -155,6 +155,7 @@ fun HomeEpgScreen(
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
     val categoryFilter by viewModel.categoryFilter.collectAsStateWithLifecycle()
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
+    val hasCatalogChannels by viewModel.hasCatalogChannels.collectAsStateWithLifecycle()
     val demoFavoriteIds by viewModel.demoFavoriteIds.collectAsStateWithLifecycle()
     val favoriteSavedMessage by viewModel.favoriteSavedMessage.collectAsStateWithLifecycle()
     val profileAccessMessage = viewModel.profileAccessMessage()
@@ -214,7 +215,7 @@ fun HomeEpgScreen(
     }
 
     val showEmptyState = !isInitializing && !hasConnection
-    val usePlaceholder = !isInitializing && hasConnection && channels.isEmpty()
+    val usePlaceholder = !isInitializing && hasConnection && !hasCatalogChannels
     val displayChannels = remember(
         channels,
         usePlaceholder,
@@ -236,6 +237,8 @@ fun HomeEpgScreen(
             else -> channels
         }
     }
+    val showFilteredEmptyState = !usePlaceholder && !showEmptyState &&
+        displayChannels.isEmpty() && (categoryFilter.isActive || favoriteGroupFilter != null)
     val displayPrograms = remember(displayChannels, epgWindow, windowStart, windowDurationMs, usePlaceholder, showEmptyState) {
         when {
             showEmptyState -> emptyList()
@@ -595,7 +598,7 @@ fun HomeEpgScreen(
 
     fun programsForChannel(channel: Channel): List<Program> =
         channel.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
         } ?: emptyList()
 
     fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
@@ -1306,6 +1309,11 @@ fun HomeEpgScreen(
                 onGridFilterKey = ::handleGridFilterKey,
                 listState = listState,
                 displayChannels = displayChannels,
+                filteredEmptyMessage = when {
+                    !showFilteredEmptyState -> null
+                    categoryFilter.isActive -> "No channels match \"${categoryFilter.label}\""
+                    else -> "No channels in this favorites group"
+                },
                 programsForChannel = ::programsForChannel,
                 channelScanStatuses = channelScanStatuses,
                 focusChannelIndex = focusChannelIndex,

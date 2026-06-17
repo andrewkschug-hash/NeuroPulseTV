@@ -2,9 +2,11 @@ package com.grid.tv.player
 
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.util.MediaAttribution
@@ -13,6 +15,12 @@ import javax.inject.Singleton
 
 @Singleton
 class PlayerFactory @Inject constructor() {
+
+    companion object {
+        private const val STREAM_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 GridTV/1.0"
+    }
+
     @UnstableApi
     fun create(
         context: Context,
@@ -61,7 +69,14 @@ class PlayerFactory @Inject constructor() {
                 .build()
         }
 
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent(STREAM_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+
         return ExoPlayer.Builder(appContext, renderersFactory)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
             .build()

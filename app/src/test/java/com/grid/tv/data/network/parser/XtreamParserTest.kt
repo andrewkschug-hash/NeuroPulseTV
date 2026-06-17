@@ -52,4 +52,27 @@ class XtreamParserTest {
         )
         assertEquals("http://cdn.example.com/live/news.m3u8", url)
     }
+
+    @Test
+    fun buildLiveStreamUrlIgnoresInvalidDirectSource() {
+        val url = parser.buildLiveStreamUrl(
+            serverUrl = "http://example.com:8080",
+            username = "user",
+            password = "pass",
+            streamId = "1",
+            directSource = "0"
+        )
+        assertEquals("http://example.com:8080/live/user/pass/1.m3u8", url)
+    }
+
+    @Test
+    fun buildLiveStreamUrlEncodesSpecialCharactersInCredentials() {
+        val url = parser.buildLiveStreamUrl(
+            serverUrl = "http://example.com:8080",
+            username = "user",
+            password = "p@ss/word",
+            streamId = "99"
+        )
+        assertEquals("http://example.com:8080/live/user/p%40ss%2Fword/99.m3u8", url)
+    }
 }
