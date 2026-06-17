@@ -149,7 +149,8 @@ fun rememberSettingsFocusChain(
 data class SettingsContentFocus(
     val chain: SettingsFocusChain,
     val sectionCards: List<SettingsSectionCard> = emptyList(),
-    val contentActive: Boolean = true
+    val contentActive: Boolean = true,
+    val onContentControlFocused: (() -> Unit)? = null
 ) {
     fun isFocused(index: Int): Boolean = contentActive && chain.focusedIndex == index
 
@@ -198,6 +199,7 @@ fun settingsFocusModifier(
         .onFocusChanged { state ->
             if (state.isFocused) {
                 focus.chain.onItemFocused(chainIndex)
+                focus.onContentControlFocused?.invoke()
             }
         }
 }
@@ -546,6 +548,34 @@ fun playbackFocusCount(): Int = PLAYBACK_FOCUS_COUNT
 fun interfaceFocusCount(): Int = INTERFACE_FOCUS_COUNT
 
 fun aboutFocusCount(): Int = ABOUT_FOCUS_COUNT
+
+/** First pill row (or first horizontal group) when entering a section from the sidebar. */
+fun initialSettingsContentFocusIndex(
+    kind: SettingsSectionKind,
+    sectionCards: List<SettingsSectionCard>,
+    connectionsFormStart: Int = 0,
+    connectionsPlaylistType: PlaylistType = PlaylistType.M3U,
+    connectionsShowForm: Boolean = false,
+    playlistCount: Int = 0,
+    parentalStart: Int = 0
+): Int {
+    val groups = settingsHorizontalFocusGroups(
+        kind = kind,
+        connectionsFormStart = connectionsFormStart,
+        connectionsPlaylistType = connectionsPlaylistType,
+        connectionsShowForm = connectionsShowForm,
+        playlistCount = playlistCount,
+        parentalStart = parentalStart
+    )
+    val preferredGroup = when (kind) {
+        // Guide card 0 is action buttons; first pill row is the second horizontal group.
+        SettingsSectionKind.Guide -> groups.getOrNull(1) ?: groups.firstOrNull()
+        else -> groups.firstOrNull()
+    }
+    return preferredGroup?.first
+        ?: sectionCards.firstOrNull { it.hasFocusableItems }?.firstFocusIndex
+        ?: 0
+}
 
 /** Horizontal groups: LEFT/RIGHT move within the range; UP/DOWN move between rows. */
 fun settingsHorizontalFocusGroups(

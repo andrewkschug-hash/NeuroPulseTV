@@ -90,6 +90,7 @@ import com.grid.tv.ui.component.guideFocusCount
 import com.grid.tv.ui.component.interfaceFocusCount
 import com.grid.tv.ui.component.playbackFocusCount
 import com.grid.tv.ui.component.handleSettingsHorizontalKey
+import com.grid.tv.ui.component.initialSettingsContentFocusIndex
 import com.grid.tv.ui.component.buildSettingsSectionCards
 import com.grid.tv.ui.component.SettingsSectionCard
 import com.grid.tv.ui.component.moveProfileSwatchFocus
@@ -199,6 +200,7 @@ fun SettingsScreen(
     var selectedSection by rememberSaveable { mutableIntStateOf(0) }
     var focusPanel by rememberSaveable { mutableStateOf(SettingsFocusPanel.LEFT) }
     var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(0) }
+    var sidebarHoldsFocus by remember { mutableStateOf(true) }
     var topBarFocusIndex by remember { mutableIntStateOf(3) }
 
     var name by remember { mutableStateOf("") }
@@ -286,7 +288,8 @@ fun SettingsScreen(
     val contentFocus = SettingsContentFocus(
         chain = contentChain,
         sectionCards = sectionCards,
-        contentActive = focusPanel == SettingsFocusPanel.RIGHT
+        contentActive = focusPanel == SettingsFocusPanel.RIGHT,
+        onContentControlFocused = { sidebarHoldsFocus = false }
     )
     val profileListStart = 1 + if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
     val profileListCount = profiles.size
@@ -364,8 +367,20 @@ fun SettingsScreen(
         selectedSection = clamped
         sidebarFocusIndex = clamped
         if (sectionCards.none { it.hasFocusableItems }) return
+        val kind = sections[selectedSection].toKind()
+        val initialIndex = initialSettingsContentFocusIndex(
+            kind = kind,
+            sectionCards = sectionCards,
+            connectionsFormStart = connectionsFormStart,
+            connectionsPlaylistType = playlistType,
+            connectionsShowForm = showConnectionForm &&
+                sections[selectedSection] == SettingsSection.Connections,
+            playlistCount = playlists.size,
+            parentalStart = profileParentalStart
+        )
         focusPanel = SettingsFocusPanel.RIGHT
-        contentChain.moveTo(0)
+        sidebarHoldsFocus = false
+        contentChain.moveTo(initialIndex)
         contentFocusScope.launch {
             withFrameMillis { }
             contentChain.requestFocusAtCurrentIndex()
@@ -387,8 +402,8 @@ fun SettingsScreen(
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
             focusPanel == SettingsFocusPanel.RIGHT -> {
-                // Back from any control returns to the sidebar category it belongs to.
                 sidebarFocusIndex = selectedSection
+                sidebarHoldsFocus = true
                 focusPanel = SettingsFocusPanel.LEFT
             }
             else -> return false
@@ -546,7 +561,11 @@ fun SettingsScreen(
                         .background(EpgColors.ChannelColumnBg)
                         .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.LEFT }
                         .onPreviewKeyEvent {
-                            if (focusPanel == SettingsFocusPanel.LEFT) handleSidebarKey(it) else false
+                            if (focusPanel == SettingsFocusPanel.LEFT || sidebarHoldsFocus) {
+                                handleSidebarKey(it)
+                            } else {
+                                false
+                            }
                         }
                 ) {
                     SettingsSidebar(
@@ -556,14 +575,11 @@ fun SettingsScreen(
                         sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
                         itemFocusRequesters = sidebarItemFocusRequesters,
                         onItemFocused = { index ->
-                            // Keep the highlight in sync with the natively-focused item.
-                            // (Section selection is driven by D-pad in handleSidebarKey so
-                            // returning from content via Left doesn't switch sections.)
                             sidebarFocusIndex = index
+                            sidebarHoldsFocus = true
                         },
                         onSectionSelected = { index ->
                             selectSidebarSection(index)
-                            focusPanel = SettingsFocusPanel.LEFT
                         }
                     )
                 }

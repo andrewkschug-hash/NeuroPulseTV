@@ -639,7 +639,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private fun scheduleEpgImportWork(startedAt: Long) {
-        scheduleEpgImportWork(startedAt)
+        epgScheduler.runResolverForNewChannels(startedAt)
         epgScheduler.runEpgRefreshNow()
     }
 
