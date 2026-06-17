@@ -6,6 +6,7 @@ import com.grid.tv.domain.model.AuthAccount
 import com.grid.tv.domain.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,30 +37,66 @@ class AuthViewModel @Inject constructor(
         get() = _uiState.value is AuthUiState.Authenticated
 
     init {
+        observeAuthState()
         refreshSession()
+    }
+
+    private fun observeAuthState() {
+        viewModelScope.launch {
+            authRepository.authState.collect { isAuthenticated ->
+                if (isAuthenticated && shouldCompleteSignIn()) {
+                    completeSignIn()
+                }
+            }
+        }
+    }
+
+    private fun shouldCompleteSignIn(): Boolean {
+        return when (_uiState.value) {
+            is AuthUiState.SigningIn,
+            is AuthUiState.Error,
+            AuthUiState.Unauthenticated -> true
+            else -> false
+        }
     }
 
     fun refreshSession() {
         viewModelScope.launch {
-            _uiState.value = AuthUiState.Checking
+            if (_uiState.value !is AuthUiState.SigningIn) {
+                _uiState.value = AuthUiState.Checking
+            }
             runCatching {
                 val account = authRepository.getCurrentAccount()
                 if (account != null) {
                     authRepository.setSkippedSignIn(false)
-                    authRepository.ensureCloudProfile()
+                    runCatching { authRepository.ensureCloudProfile() }
                     _signedInAccount.value = account
                     _uiState.value = AuthUiState.Authenticated(account.userId)
                 } else if (authRepository.hasSkippedSignIn()) {
                     _signedInAccount.value = null
                     _uiState.value = AuthUiState.Guest
-                } else {
+                } else if (_uiState.value !is AuthUiState.SigningIn) {
                     _signedInAccount.value = null
                     _uiState.value = AuthUiState.Unauthenticated
                 }
             }.onFailure { error ->
-                _uiState.value = AuthUiState.Error(
-                    error.message ?: "We couldn't verify your session. Please try again."
-                )
+                if (_uiState.value !is AuthUiState.SigningIn) {
+                    _uiState.value = AuthUiState.Error(
+                        error.message ?: "We couldn't verify your session. Please try again."
+                    )
+                }
+            }
+        }
+    }
+
+    fun onOAuthSessionEstablished() {
+        viewModelScope.launch {
+            repeat(15) {
+                if (completeSignIn()) return@launch
+                delay(200)
+            }
+            if (_uiState.value is AuthUiState.SigningIn) {
+                _uiState.value = AuthUiState.Error("Sign-in was interrupted. Please try again.")
             }
         }
     }
@@ -76,21 +113,27 @@ class AuthViewModel @Inject constructor(
 
     fun onGoogleSignInSuccess() {
         viewModelScope.launch {
-            runCatching {
-                authRepository.setSkippedSignIn(false)
-                authRepository.ensureCloudProfile()
-                val account = authRepository.getCurrentAccount()
-                if (account != null) {
-                    _signedInAccount.value = account
-                    _uiState.value = AuthUiState.Authenticated(account.userId)
-                } else {
-                    _uiState.value = AuthUiState.Error("Sign-in succeeded but no session was found.")
-                }
-            }.onFailure { error ->
-                _uiState.value = AuthUiState.Error(
-                    error.message ?: "We couldn't finish signing you in. Please try again."
-                )
+            if (!completeSignIn()) {
+                onOAuthSessionEstablished()
             }
+        }
+    }
+
+    private suspend fun completeSignIn(): Boolean {
+        if (_uiState.value is AuthUiState.Authenticated) return true
+        return runCatching {
+            authRepository.setSkippedSignIn(false)
+            val account = authRepository.getCurrentAccount()
+                ?: return false
+            runCatching { authRepository.ensureCloudProfile() }
+            _signedInAccount.value = account
+            _uiState.value = AuthUiState.Authenticated(account.userId)
+            true
+        }.getOrElse { error ->
+            _uiState.value = AuthUiState.Error(
+                error.message ?: "We couldn't finish signing you in. Please try again."
+            )
+            false
         }
     }
 
@@ -125,17 +168,8 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun handleOAuthCallback(url: String) {
-        viewModelScope.launch {
-            _uiState.value = AuthUiState.SigningIn("Google")
-            val success = runCatching { authRepository.handleOAuthCallback(url) }
-                .getOrDefault(false)
-            if (success) {
-                onGoogleSignInSuccess()
-            } else {
-                _uiState.value = AuthUiState.Error("Sign-in was interrupted. Please try again.")
-            }
-        }
+    fun handleOAuthCallback(@Suppress("UNUSED_PARAMETER") url: String) {
+        onOAuthSessionEstablished()
     }
 
     fun startOAuthFallback() {

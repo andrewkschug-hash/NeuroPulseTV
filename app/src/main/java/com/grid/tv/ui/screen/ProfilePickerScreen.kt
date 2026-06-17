@@ -97,7 +97,7 @@ val ProfileAvatarColors = listOf(
     Color(0xFF2A1A3D),
     Color(0xFF1A4D5C),
     Color(0xFF4D3A1A),
-    Color(0xFF3B8FFF),
+    Color(0xFFC45C7A),
     Color(0xFF8B3BFF)
 )
 
@@ -647,9 +647,9 @@ private fun ProfileNameDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var fieldFocused by remember { mutableStateOf(false) }
-    var avatarFocused by remember { mutableStateOf(false) }
     val fieldFocusRequester = remember { FocusRequester() }
+    val cancelFocusRequester = remember { FocusRequester() }
+    val confirmFocusRequester = remember { FocusRequester() }
     val initials = profileInitials(name.ifBlank { "?" })
 
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
@@ -660,13 +660,7 @@ private fun ProfileNameDialog(
                 .size(56.dp)
                 .clip(CircleShape)
                 .background(ProfileAvatarColors.first())
-                .tvFocusBorder(
-                    focused = fieldFocused || avatarFocused,
-                    shape = CircleShape,
-                    unfocusedColor = Color.Transparent
-                )
-                .align(Alignment.CenterHorizontally)
-                .onFocusChanged { avatarFocused = it.isFocused },
+                .align(Alignment.CenterHorizontally),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -700,17 +694,23 @@ private fun ProfileNameDialog(
             focusRequester = fieldFocusRequester,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp),
-            onHighlightChanged = { fieldFocused = it }
+                .padding(top = 16.dp)
         )
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            GridOutlinedButton(text = "Cancel", onClick = onDismiss)
-            Spacer(modifier = Modifier.width(12.dp))
-            GridPrimaryButton(text = confirmLabel, onClick = onConfirm)
+            GridOutlinedButton(
+                text = "Cancel",
+                onClick = onDismiss,
+                modifier = Modifier.focusRequester(cancelFocusRequester)
+            )
+            GridPrimaryButton(
+                text = confirmLabel,
+                onClick = onConfirm,
+                modifier = Modifier.focusRequester(confirmFocusRequester)
+            )
         }
     }
 }

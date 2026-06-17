@@ -34,6 +34,7 @@ import com.grid.tv.ui.component.GridOutlinedButton
 import com.grid.tv.ui.component.GoogleSignInBlock
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.SkipSignInDialog
+import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthUiState
@@ -54,6 +55,12 @@ fun LoginScreen(
     LaunchedEffect(uiState) {
         if (uiState is AuthUiState.Authenticated || uiState is AuthUiState.Guest) {
             onAuthenticated()
+        }
+    }
+
+    LaunchedEffect(showSkipDialog) {
+        if (!showSkipDialog && (uiState is AuthUiState.Unauthenticated || uiState is AuthUiState.Error)) {
+            googleButtonFocus.requestFocusSafelyAfterLayout()
         }
     }
 
@@ -132,46 +139,53 @@ fun LoginScreen(
                 }
 
                 is AuthUiState.Unauthenticated, is AuthUiState.Error -> {
-                    if (!googleConfigured) {
-                        Text(
-                            text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
-                            color = Color(0xFFFFB020),
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth(0.7f)
-                                .padding(bottom = 16.dp)
-                        )
-                    }
+                    if (!showSkipDialog) {
+                        if (!googleConfigured) {
+                            Text(
+                                text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
+                                color = Color(0xFFFFB020),
+                                fontFamily = DmSansFamily,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier
+                                    .fillMaxWidth(0.7f)
+                                    .padding(bottom = 16.dp)
+                            )
+                        }
 
-                    GoogleSignInBlock(
-                        supabaseClient = supabaseClient,
-                        viewModel = viewModel,
-                        fillMaxWidthFraction = 0.42f,
-                        focusRequester = googleButtonFocus,
-                        requestInitialFocus = true,
-                        enabled = googleConfigured
-                    )
+                        Column(
+                            modifier = Modifier.fillMaxWidth(0.42f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            GoogleSignInBlock(
+                                supabaseClient = supabaseClient,
+                                viewModel = viewModel,
+                                fillMaxWidthFraction = 1f,
+                                focusRequester = googleButtonFocus,
+                                requestInitialFocus = true,
+                                enabled = googleConfigured
+                            )
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
-                    GridOutlinedButton(
-                        text = "Skip for now",
-                        onClick = { showSkipDialog = true },
-                        modifier = Modifier.fillMaxWidth(0.42f)
-                    )
+                            GridOutlinedButton(
+                                text = "Skip for now",
+                                onClick = { showSkipDialog = true },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
 
-                    if (state is AuthUiState.Error) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = state.message,
-                            color = Color(0xFFFF8A80),
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth(0.7f)
-                        )
+                        if (state is AuthUiState.Error) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = state.message,
+                                color = Color(0xFFFF8A80),
+                                fontFamily = DmSansFamily,
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth(0.7f)
+                            )
+                        }
                     }
                 }
 

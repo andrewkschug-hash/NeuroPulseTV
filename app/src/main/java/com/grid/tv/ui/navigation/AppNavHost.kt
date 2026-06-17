@@ -43,7 +43,6 @@ import com.grid.tv.ui.screen.HomeEpgScreen
 import com.grid.tv.ui.screen.MultiViewScreen
 import com.grid.tv.ui.screen.PlayerScreen
 import com.grid.tv.ui.screen.SplitViewScreen
-import com.grid.tv.ui.screen.WhatsNewScreen
 import com.grid.tv.ui.screen.RecordingsScreen
 import com.grid.tv.ui.screen.SettingsScreen
 import com.grid.tv.ui.screen.VodHubScreen
@@ -52,7 +51,6 @@ import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
-import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 import com.grid.tv.util.profileInitials
 
@@ -70,8 +68,6 @@ fun AppNavHost(
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val profileInitials = activeProfile?.let { profileInitials(it.name) } ?: "?"
     val profileAvatarColor = activeProfile?.avatarColor ?: DEFAULT_PROFILE_AVATAR_COLOR
-    val settingsViewModel: SettingsViewModel = hiltViewModel()
-    var showWhatsNew by remember { mutableStateOf(false) }
 
     fun navigateToFavorites() {
         val homeRoute = Routes.Home.route
@@ -124,21 +120,6 @@ fun AppNavHost(
             onNavigateProfile = onSwitchProfile,
             onBack = onBack
         )
-    }
-
-    LaunchedEffect(Unit) {
-        showWhatsNew = settingsViewModel.shouldShowWhatsNew()
-    }
-
-    if (showWhatsNew) {
-        WhatsNewScreen(
-            version = "2.1.0",
-            onDismiss = {
-                settingsViewModel.markWhatsNewSeen()
-                showWhatsNew = false
-            }
-        )
-        return
     }
 
     val hasEmbeddedTopBar = current?.startsWith("home") == true ||

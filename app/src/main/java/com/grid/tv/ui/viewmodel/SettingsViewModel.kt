@@ -213,7 +213,8 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val isUpdate = editingPlaylistId != null
             val label = if (isUpdate) "Updating..." else "Connecting..."
-            runConnectionJob(progressLabel = label) {
+            val isXtream = playlistType == com.grid.tv.domain.model.PlaylistType.XTREAM
+            val connected = runConnectionJob(progressLabel = label) {
                 if (isUpdate) {
                     when (playlistType) {
                         com.grid.tv.domain.model.PlaylistType.XTREAM ->
@@ -251,6 +252,11 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
             }
+            if (connected && isXtream) {
+                viewModelScope.launch {
+                    runCatching { repository.refreshVodSeriesCatalog() }
+                }
+            }
         }
     }
 
@@ -261,18 +267,21 @@ class SettingsViewModel @Inject constructor(
     suspend fun connectionFormFor(playlist: Playlist): ConnectionFormFields =
         repository.connectionFormForPlaylist(playlist)
 
-    private suspend fun runConnectionJob(progressLabel: String, block: suspend () -> Unit) {
+    private suspend fun runConnectionJob(progressLabel: String, block: suspend () -> Unit): Boolean {
         _isConnecting.value = true
         _m3uProgress.value = progressLabel
-        try {
+        return try {
             withTimeout(CONNECTION_TIMEOUT_MS) { block() }
             _connectionDialog.value = ConnectionDialogState.Success
+            true
         } catch (_: TimeoutCancellationException) {
             _connectionDialog.value = ConnectionDialogState.Failure(CONNECTION_TIMEOUT_ERROR)
+            false
         } catch (e: Exception) {
             _connectionDialog.value = ConnectionDialogState.Failure(
                 e.message?.takeIf { it.isNotBlank() } ?: CONNECTION_FAILED_ERROR
             )
+            false
         } finally {
             _isConnecting.value = false
             _m3uProgress.value = "Idle"

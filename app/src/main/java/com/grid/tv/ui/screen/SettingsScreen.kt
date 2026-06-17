@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -71,6 +72,7 @@ import com.grid.tv.ui.component.TvScrollContainer
 import com.grid.tv.ui.component.SettingsChip
 import com.grid.tv.ui.component.SettingsContentFocus
 import com.grid.tv.ui.component.SettingsFocusButton
+import com.grid.tv.ui.component.SettingsFocusProfileRow
 import com.grid.tv.ui.component.SettingsFocusPanel
 import com.grid.tv.ui.component.SettingsFocusToggleRow
 import com.grid.tv.ui.component.SettingsListRow
@@ -283,10 +285,11 @@ fun SettingsScreen(
     val contentChain = rememberSettingsFocusChain(contentFocusCount, selectedSection, 0)
     val contentFocus = SettingsContentFocus(
         chain = contentChain,
-        sectionCards = sectionCards
+        sectionCards = sectionCards,
+        contentActive = focusPanel == SettingsFocusPanel.RIGHT
     )
-    val profileUseButtonStart = 1 + if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
-    val profileUseButtonCount = profiles.count { it.id != activeProfile?.id }
+    val profileListStart = 1 + if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
+    val profileListCount = profiles.size
     val profileParentalStart = (contentFocusCount - 7).coerceAtLeast(0)
     val verticalFocusRows = remember(
         selectedSection,
@@ -311,9 +314,9 @@ fun SettingsScreen(
             profileHasSwatches = activeProfile != null &&
                 sections[selectedSection] == SettingsSection.Profile,
             profileSwatchStart = PROFILE_SWATCH_START,
-            profileUseButtonStart = profileUseButtonStart,
-            profileUseButtonCount = if (sections[selectedSection] == SettingsSection.Profile) {
-                profileUseButtonCount
+            profileListStart = profileListStart,
+            profileListCount = if (sections[selectedSection] == SettingsSection.Profile) {
+                profileListCount
             } else {
                 0
             },
@@ -580,6 +583,34 @@ fun SettingsScreen(
                             }
                             up = topNavFocusRequester
                         }
+                        .onPreviewKeyEvent { event ->
+                            if (focusPanel != SettingsFocusPanel.RIGHT) return@onPreviewKeyEvent false
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionLeft, Key.DirectionRight -> {
+                                    val handled = handleSettingsHorizontalKey(
+                                        kind = sections[selectedSection].toKind(),
+                                        currentIndex = contentChain.focusedIndex,
+                                        key = event.key,
+                                        chain = contentChain,
+                                        connectionsFormStart = connectionsFormStart,
+                                        connectionsPlaylistType = playlistType,
+                                        connectionsShowForm = showConnectionForm &&
+                                            sections[selectedSection] == SettingsSection.Connections,
+                                        playlistCount = playlists.size,
+                                        parentalStart = profileParentalStart
+                                    )
+                                    if (handled) {
+                                        contentFocusScope.launch {
+                                            withFrameMillis { }
+                                            contentChain.requestFocusAtCurrentIndex()
+                                        }
+                                    }
+                                    handled
+                                }
+                                else -> false
+                            }
+                        }
                         .focusGroup()
                 ) {
                     TvScrollContainer(
@@ -746,10 +777,7 @@ fun SettingsScreen(
                             },
                             onDpadSensitivity = { viewModel.updateDpadSidebarSensitivity(it) },
                             onClockDisplay = { viewModel.updateClockDisplay(it) },
-                            onTheme = { viewModel.updateTheme(it) },
-                            onTogglePictureInPicture = {
-                                viewModel.updatePictureInPictureEnabled(!settings.pictureInPictureEnabled)
-                            }
+                            onTheme = { viewModel.updateTheme(it) }
                         )
                         SettingsSection.Recordings -> RecordingsSettingsContent(
                             currentStorageLabel = currentStorageLabel,
@@ -912,8 +940,8 @@ private fun ProfileSettingsContent(
     onAvatarColorChange: (String) -> Unit
 ) {
     val swatchCount = if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
+    val profileListStart = 1 + swatchCount
     val parentalStart = focus.chain.lastIndex - 6
-    var useButtonIndex = 1 + swatchCount
     var cardIdx = 0
     SettingsPanel(
         title = "Active profile",
@@ -978,30 +1006,21 @@ private fun ProfileSettingsContent(
         cardIndex = cardIdx++,
         focus = focus
     ) {
-        profiles.forEach { profile ->
+        profiles.forEachIndexed { index, profile ->
             val isActive = profile.id == activeProfile?.id
-            val rowFocusIndex = if (!isActive) useButtonIndex++ else -1
-            SettingsListRow(
+            val rowFocusIndex = profileListStart + index
+            SettingsFocusProfileRow(
                 title = profile.name,
                 subtitle = buildString {
                     if (profile.isParental) append("Parental · ")
                     if (profile.hasPin) append("PIN protected · ")
-                    append(if (isActive) "Active" else "Tap to switch")
+                    append(if (isActive) "Current device profile" else "Press OK to switch")
                 },
-                isFocused = rowFocusIndex >= 0 && focus.isFocused(rowFocusIndex),
-                modifier = Modifier.padding(vertical = 4.dp),
-                trailing = {
-                    if (isActive) {
-                        Text("●", color = EpgColors.Accent, fontSize = 12.sp)
-                    } else {
-                        SettingsFocusButton(
-                            text = "Use",
-                            onClick = { onSelectProfile(profile.id) },
-                            chainIndex = rowFocusIndex,
-                            focus = focus
-                        )
-                    }
-                }
+                isActive = isActive,
+                chainIndex = rowFocusIndex,
+                focus = focus,
+                onSelect = { onSelectProfile(profile.id) },
+                modifier = Modifier.padding(vertical = 4.dp)
             )
         }
         if (profiles.isEmpty()) {
@@ -1800,35 +1819,26 @@ private fun InterfaceSettingsContent(
     onToggleShowChannelNumbers: () -> Unit,
     onDpadSensitivity: (DpadSensitivity) -> Unit,
     onClockDisplay: (ClockDisplay) -> Unit,
-    onTheme: (AppThemeId) -> Unit,
-    onTogglePictureInPicture: () -> Unit
+    onTheme: (AppThemeId) -> Unit
 ) {
     SettingsPanel(
-        title = "Picture-in-Picture & sidebar",
-        description = "System PiP and guide sidebar behavior.",
+        title = "Sidebar",
+        description = "Guide sidebar behavior.",
         cardIndex = 0,
         focus = focus
     ) {
-        SettingsFocusToggleRow(
-            label = "Android TV Picture-in-Picture",
-            enabled = settings.pictureInPictureEnabled,
-            onToggle = onTogglePictureInPicture,
-            chainIndex = 0,
-            focus = focus
-        )
         Text(
             text = "Sidebar auto-hide timeout",
             color = EpgColors.TextSecondary,
             fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 12.dp)
+            fontSize = 14.sp
         )
         val hideOptions = listOf(3, 5, 10, -1)
         val hideLabels = listOf("3s", "5s", "10s", "Never")
         SettingsFocusPillGroup(
             labels = hideLabels,
             selectedIndex = hideOptions.indexOf(settings.sidebarAutoHideSeconds).coerceAtLeast(0),
-            startChainIndex = 1,
+            startChainIndex = 0,
             focus = focus,
             onSelect = { index -> onSidebarAutoHide(hideOptions[index]) }
         )
@@ -1842,7 +1852,7 @@ private fun InterfaceSettingsContent(
             label = "Show channel numbers",
             enabled = settings.showChannelNumbers,
             onToggle = onToggleShowChannelNumbers,
-            chainIndex = 5,
+            chainIndex = 4,
             focus = focus
         )
     }
@@ -1860,7 +1870,7 @@ private fun InterfaceSettingsContent(
         SettingsFocusPillGroup(
             labels = listOf("Instant", "Normal", "Slow"),
             selectedIndex = DpadSensitivity.entries.indexOf(settings.dpadSidebarSensitivity).coerceAtLeast(0),
-            startChainIndex = 6,
+            startChainIndex = 5,
             focus = focus,
             onSelect = { index -> onDpadSensitivity(DpadSensitivity.entries[index]) }
         )
@@ -1874,7 +1884,7 @@ private fun InterfaceSettingsContent(
         SettingsFocusPillGroup(
             labels = listOf("Off", "12-hour", "24-hour"),
             selectedIndex = ClockDisplay.entries.indexOf(settings.clockDisplay).coerceAtLeast(0),
-            startChainIndex = 9,
+            startChainIndex = 8,
             focus = focus,
             onSelect = { index -> onClockDisplay(ClockDisplay.entries[index]) }
         )
@@ -1888,7 +1898,7 @@ private fun InterfaceSettingsContent(
         SettingsFocusPillGroup(
             labels = AppThemeId.entries.map { it.displayName },
             selectedIndex = AppThemeId.entries.indexOf(settings.themeId).coerceAtLeast(0),
-            startChainIndex = 12,
+            startChainIndex = 11,
             focus = focus,
             onSelect = { index -> onTheme(AppThemeId.entries[index]) }
         )

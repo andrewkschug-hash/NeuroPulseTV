@@ -128,6 +128,9 @@ class OnboardingViewModel @Inject constructor(
         if (result.success) {
             _connectState.value = OnboardingConnectState.Success
             _errorMessage.value = null
+            viewModelScope.launch {
+                runCatching { repository.refreshVodSeriesCatalog() }
+            }
         } else {
             _connectState.value = OnboardingConnectState.Error
             _errorMessage.value = result.errorMessage

@@ -34,6 +34,8 @@ private val ButtonHorizontalPadding = 12.dp
 private val PrimaryBlue = Color(0xFF3B8FFF)
 private val PrimaryBlueFocus = Color(0xFF5AA3FF)
 private val OutlinedBorder = Color(0xFF4B5563)
+private val OutlinedButtonBg = Color(0xFF2E2E3E)
+private val OutlinedButtonBgFocused = Color(0xFF343446)
 
 @Composable
 fun GridPrimaryButton(
@@ -94,8 +96,8 @@ fun GridOutlinedButton(
     contentDescription: String = text
 ) {
     var focused by remember { mutableStateOf(false) }
-    val borderColor = if (focused) EpgColors.FocusBorder else OutlinedBorder
-    val textColor = if (focused) Color.White else Color(0xFF9CA3AF)
+    val textColor = if (enabled) Color.White else EpgColors.TextDimmed
+    val bg = if (focused) OutlinedButtonBgFocused else OutlinedButtonBg
 
     GridFocusSurface(
         onClick = onClick,
@@ -107,15 +109,17 @@ fun GridOutlinedButton(
             .semantics { this.contentDescription = contentDescription },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color(0xFF1E1E2E)
+            containerColor = bg,
+            focusedContainerColor = bg,
+            pressedContainerColor = bg.copy(alpha = 0.85f),
+            disabledContainerColor = Color(0xFF1E1E28)
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(8.dp))
-                .tvFocusBorder(focused = focused, shape = RoundedCornerShape(8.dp))
+                .tvFocusBorder(focused = focused, shape = RoundedCornerShape(8.dp), unfocusedColor = Color.Transparent)
                 .padding(horizontal = ButtonHorizontalPadding),
             contentAlignment = Alignment.Center
         ) {

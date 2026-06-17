@@ -13,13 +13,11 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.grid.tv.di.SupabaseEntryPoint
-import com.grid.tv.domain.repository.IptvRepository
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
-import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.navigation.AppRoot
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
@@ -34,13 +32,12 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
-    @Inject lateinit var pipController: PictureInPictureController
-    @Inject lateinit var repository: IptvRepository
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
 
-    private var authDeepLinkHandler: ((String) -> Unit)? = null
+    private var authDeepLinkHandler: (() -> Unit)? = null
+    private var pendingOAuthSession = false
 
     private val pickM3u = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@registerForActivityResult
@@ -66,7 +63,6 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             themeManager.loadFromSettings()
-            pipController.pictureInPictureEnabled = repository.loadSettings().pictureInPictureEnabled
         }
 
         handleAuthDeepLink(intent)
@@ -94,12 +90,25 @@ class MainActivity : ComponentActivity() {
         handleAuthDeepLink(intent)
     }
 
-    fun registerAuthDeepLinkHandler(handler: (String) -> Unit) {
+    fun registerAuthDeepLinkHandler(handler: () -> Unit) {
         authDeepLinkHandler = handler
+        if (pendingOAuthSession) {
+            pendingOAuthSession = false
+            handler()
+        }
     }
 
     fun clearAuthDeepLinkHandler() {
         authDeepLinkHandler = null
+    }
+
+    private fun notifyAuthSessionEstablished() {
+        val handler = authDeepLinkHandler
+        if (handler != null) {
+            handler()
+        } else {
+            pendingOAuthSession = true
+        }
     }
 
     private fun handleAuthDeepLink(intent: Intent?) {
@@ -110,10 +119,14 @@ class MainActivity : ComponentActivity() {
             SupabaseEntryPoint::class.java
         )
         if (!entryPoint.supabaseClientProvider().isConfigured) return
+        val client = entryPoint.supabaseClientProvider().clientOrNull() ?: return
         runCatching {
-            entryPoint.supabaseClientProvider().clientOrNull()?.handleDeeplinks(intent)
+            client.handleDeeplinks(intent) {
+                notifyAuthSessionEstablished()
+            }
         }
-        authDeepLinkHandler?.invoke(data.toString())
+        intent.data = null
+        setIntent(intent)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -122,20 +135,6 @@ class MainActivity : ComponentActivity() {
             return true
         }
         return super.dispatchKeyEvent(event)
-    }
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        if (isInPictureInPictureMode.not()) {
-            pipController.enterPictureInPicture(this)
-        }
-    }
-
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        if (!isInPictureInPictureMode) {
-            pipController.setPlaybackActive(pipController.playbackActive)
-        }
     }
 
     private fun readText(uri: Uri): String {

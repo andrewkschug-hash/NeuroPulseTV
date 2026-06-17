@@ -141,10 +141,10 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun encode(v: String): String = URLEncoder.encode(v, Charsets.UTF_8.name())
 
-    private fun normalizeServerUrl(raw: String): String {
-        val t = raw.trim().removeSuffix("/")
-        return if (t.startsWith("http://") || t.startsWith("https://")) t else "http://$t"
-    }
+    private fun normalizeServerUrl(raw: String): String = xtreamParser.normalizeServerUrl(raw)
+
+    private fun resolveXtreamServerUrl(userEntered: String, auth: XtreamParser.AuthPayload): String =
+        xtreamParser.resolveServerUrl(userEntered, auth)
 
     private fun buildXtreamApiUrl(serverUrl: String, username: String, password: String, action: String? = null, extra: String? = null): String {
         val base = "${normalizeServerUrl(serverUrl)}/player_api.php?username=${encode(username)}&password=${encode(password)}"
@@ -554,7 +554,11 @@ class IptvRepositoryImpl @Inject constructor(
                 return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
             }
             val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-            val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
+            val authRaw = remoteTextFetcher.fetch(authUrl)
+            if (!xtreamParser.isAuthSuccessful(authRaw)) {
+                return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
+            }
+            val auth = xtreamParser.parseAuth(authRaw)
             if (auth.status.equals("Expired", ignoreCase = true)) {
                 return@withContext PlaylistConnectResult(false, displayName, errorMessage = CONNECT_ERROR)
             }
@@ -653,23 +657,18 @@ class IptvRepositoryImpl @Inject constructor(
         password: String
     ): PlaylistEntity {
         val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-        val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
-        val normalizedServer = if (auth.serverUrl.isNotBlank()) auth.serverUrl else normalizeServerUrl(serverUrl)
+        val authRaw = remoteTextFetcher.fetch(authUrl)
+        if (!xtreamParser.isAuthSuccessful(authRaw)) {
+            throw IllegalStateException(CONNECT_ERROR)
+        }
+        val auth = xtreamParser.parseAuth(authRaw)
+        val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
 
         val categoriesRaw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_categories")
         )
         val liveRaw = remoteTextFetcher.fetch(
             buildXtreamApiUrl(normalizedServer, username, password, action = "get_live_streams")
-        )
-        val vodRaw = remoteTextFetcher.fetch(
-            buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_streams")
-        )
-        val vodCategoriesRaw = remoteTextFetcher.fetch(
-            buildXtreamApiUrl(normalizedServer, username, password, action = "get_vod_categories")
-        )
-        val seriesRaw = remoteTextFetcher.fetch(
-            buildXtreamApiUrl(normalizedServer, username, password, action = "get_series")
         )
 
         val categories = xtreamParser.parseLiveCategories(categoriesRaw)
@@ -682,18 +681,10 @@ class IptvRepositoryImpl @Inject constructor(
 
         channelDao.clearByPlaylist(playlistId)
         channelDao.insertAll(deduplicateChannels(liveChannels))
-        val parsedVod = xtreamParser.parseVod(vodRaw, username, password, normalizedServer, playlistId)
-        val parsedSeries = xtreamParser.parseSeries(seriesRaw, playlistId)
-        vodCacheByPlaylist.update { current ->
-            current + (playlistId to parsedVod)
-        }
-        vodCategoriesByPlaylist.update { current ->
-            current + (playlistId to xtreamParser.parseVodCategories(vodCategoriesRaw, playlistId))
-        }
-        seriesCacheByPlaylist.update { current ->
-            current + (playlistId to parsedSeries)
-        }
         clearSeriesSeasonsForPlaylist(playlistId)
+        vodCacheByPlaylist.update { it - playlistId }
+        vodCategoriesByPlaylist.update { it - playlistId }
+        seriesCacheByPlaylist.update { it - playlistId }
 
         val existing = playlistDao.getById(playlistId) ?: throw IllegalStateException("Playlist not found")
         return existing.copy(
@@ -716,8 +707,12 @@ class IptvRepositoryImpl @Inject constructor(
     ): Long {
         val startedAt = System.currentTimeMillis()
         val authUrl = buildXtreamApiUrl(serverUrl, username, password)
-        val auth = xtreamParser.parseAuth(remoteTextFetcher.fetch(authUrl))
-        val normalizedServer = if (auth.serverUrl.isNotBlank()) auth.serverUrl else normalizeServerUrl(serverUrl)
+        val authRaw = remoteTextFetcher.fetch(authUrl)
+        if (!xtreamParser.isAuthSuccessful(authRaw)) {
+            throw IllegalStateException(CONNECT_ERROR)
+        }
+        val auth = xtreamParser.parseAuth(authRaw)
+        val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
 
         val playlistId = playlistDao.insert(
             PlaylistEntity(

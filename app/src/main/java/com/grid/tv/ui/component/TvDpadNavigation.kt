@@ -49,10 +49,10 @@ import com.grid.tv.ui.theme.EpgColors
 
 /** Shared accent for TV focus rings across the app. */
 val TvFocusAccent = EpgColors.FocusBorder
-private val TvInputBg = Color(0xFF1E1E2E)
-private val TvInputBorder = Color(0xFF3A3A3A)
+private val TvInputBg = Color(0xFF252836)
+private val TvInputBorder = Color.Transparent
 private val TvInputFocusBorder = EpgColors.FocusBorder
-private val TvTextMuted = Color(0xFF9CA3AF)
+private val TvTextMuted = Color(0xFFB8BEC8)
 
 fun Modifier.tvFocusRing(
     focused: Boolean,
@@ -226,7 +226,7 @@ fun TvTextField(
         showFocusBorder -> TvInputFocusBorder
         else -> TvInputBorder
     }
-    val borderWidth = if (showFocusBorder) 2.dp else 1.dp
+    val borderWidth = if (showFocusBorder) 2.dp else 0.dp
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Box(

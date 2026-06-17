@@ -8,6 +8,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -19,8 +20,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -37,6 +41,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.ui.theme.DmSansFamily
@@ -143,9 +148,10 @@ fun rememberSettingsFocusChain(
  */
 data class SettingsContentFocus(
     val chain: SettingsFocusChain,
-    val sectionCards: List<SettingsSectionCard> = emptyList()
+    val sectionCards: List<SettingsSectionCard> = emptyList(),
+    val contentActive: Boolean = true
 ) {
-    fun isFocused(index: Int): Boolean = chain.focusedIndex == index
+    fun isFocused(index: Int): Boolean = contentActive && chain.focusedIndex == index
 
     /** Every in-range control is focusable now; cards are visual-only. */
     fun isIndexInActiveCard(index: Int): Boolean = index in 0 until chain.itemCount
@@ -157,7 +163,8 @@ data class SettingsContentFocus(
     }
 
     /** A card is highlighted when one of its controls currently holds focus. */
-    fun isSectionHighlighted(cardIndex: Int): Boolean = cardContainsFocus(cardIndex)
+    fun isSectionHighlighted(cardIndex: Int): Boolean =
+        contentActive && cardContainsFocus(cardIndex)
 
     fun isInsideSection(cardIndex: Int): Boolean = cardContainsFocus(cardIndex)
 
@@ -237,7 +244,7 @@ fun SettingsFocusTextField(
 }
 
 private val PillShape = RoundedCornerShape(6.dp)
-private val PillDefaultBorder = Color(0xFF3A3A4A)
+private val PillBackground = Color(0xFF2E2E3E)
 
 @Composable
 fun SettingsFocusPill(
@@ -246,40 +253,66 @@ fun SettingsFocusPill(
     chainIndex: Int,
     focus: SettingsContentFocus,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    leftNeighborIndex: Int? = null,
+    rightNeighborIndex: Int? = null
 ) {
     val highlighted = focus.isFocused(chainIndex)
     val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
-    val borderWidth = if (highlighted || selected) 2.dp else 1.dp
-    val backgroundColor = if (selected) {
-        EpgColors.Accent.copy(alpha = 0.15f)
-    } else {
-        Color.Transparent
+    val borderWidth = when {
+        highlighted -> 2.dp
+        selected -> 2.dp
+        else -> 0.dp
+    }
+    val backgroundColor = when {
+        selected -> EpgColors.Accent.copy(alpha = 0.22f)
+        else -> PillBackground
     }
     val borderColor = when {
-        highlighted -> Color.White
+        highlighted -> EpgColors.FocusBorder
         selected -> EpgColors.Accent
-        else -> PillDefaultBorder
+        else -> Color.Transparent
     }
-    Text(
-        text = label,
-        color = when {
-            selected -> Color.White
-            highlighted -> EpgColors.TextPrimary
-            else -> EpgColors.TextSecondary
-        },
-        fontFamily = DmSansFamily,
-        fontSize = 13.sp,
-        fontWeight = if (selected || highlighted) FontWeight.SemiBold else FontWeight.Normal,
+    GridFocusSurface(
+        onClick = onClick,
+        enabled = canReceiveFocus,
         modifier = modifier
-            .then(settingsFocusModifier(chainIndex, focus))
-            .focusable(enabled = canReceiveFocus)
-            .background(backgroundColor, PillShape)
+            .then(settingsFocusModifier(chainIndex, focus, canReceiveFocus))
+            .focusProperties {
+                leftNeighborIndex?.takeIf { it in focus.chain.requesters.indices }?.let {
+                    left = focus.chain.requesters[it]
+                }
+                rightNeighborIndex?.takeIf { it in focus.chain.requesters.indices }?.let {
+                    right = focus.chain.requesters[it]
+                }
+            }
+            .tvFocusBorder(
+                focused = highlighted,
+                shape = PillShape,
+                unfocusedColor = Color.Transparent
+            )
             .border(borderWidth, borderColor, PillShape)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
+                    Key.DirectionLeft -> {
+                        if (highlighted && leftNeighborIndex != null) {
+                            focus.chain.moveTo(leftNeighborIndex)
+                            focus.chain.requestFocusAtCurrentIndex()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.DirectionRight -> {
+                        if (highlighted && rightNeighborIndex != null) {
+                            focus.chain.moveTo(rightNeighborIndex)
+                            focus.chain.requestFocusAtCurrentIndex()
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                         if (highlighted) {
                             onClick()
@@ -290,8 +323,25 @@ fun SettingsFocusPill(
                     }
                     else -> false
                 }
-            }
-    )
+            },
+        shape = ClickableSurfaceDefaults.shape(PillShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = backgroundColor,
+            focusedContainerColor = backgroundColor,
+            pressedContainerColor = backgroundColor.copy(alpha = 0.85f),
+            disabledContainerColor = backgroundColor.copy(alpha = 0.5f)
+        )
+    ) {
+        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(
+                text = label,
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = if (selected || highlighted) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
 }
 
 @Composable
@@ -308,12 +358,15 @@ fun SettingsFocusPillGroup(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         labels.forEachIndexed { index, label ->
+            val chainIndex = startChainIndex + index
             SettingsFocusPill(
                 label = label,
                 selected = index == selectedIndex,
-                chainIndex = startChainIndex + index,
+                chainIndex = chainIndex,
                 focus = focus,
-                onClick = { onSelect(index) }
+                onClick = { onSelect(index) },
+                leftNeighborIndex = if (index > 0) startChainIndex + index - 1 else null,
+                rightNeighborIndex = if (index < labels.lastIndex) startChainIndex + index + 1 else null
             )
         }
     }
@@ -331,21 +384,11 @@ fun SettingsFocusButton(
     loadingLabel: String = "Connecting...",
     destructive: Boolean = false
 ) {
-    val highlighted = focus.isFocused(chainIndex)
     GlowFocusButton(
         onClick = onClick,
         enabled = enabled && !isLoading,
         modifier = modifier
             .then(settingsFocusModifier(chainIndex, focus, enabled && !isLoading))
-            .border(
-                width = if (highlighted) 2.dp else 0.dp,
-                color = when {
-                    highlighted && destructive -> Color(0xFFE53935)
-                    highlighted -> EpgColors.Accent
-                    else -> Color.Transparent
-                },
-                shape = RoundedCornerShape(8.dp)
-            )
     ) {
         if (isLoading) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -355,15 +398,72 @@ fun SettingsFocusButton(
                     strokeWidth = 2.dp
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(loadingLabel)
+                Text(
+                    loadingLabel,
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp
+                )
             }
         } else {
             Text(
                 text = text,
-                color = if (destructive) Color(0xFFE53935) else Color.Unspecified
+                color = if (destructive) Color(0xFFE53935) else Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
             )
         }
     }
+}
+
+@Composable
+fun SettingsFocusProfileRow(
+    title: String,
+    subtitle: String,
+    isActive: Boolean,
+    chainIndex: Int,
+    focus: SettingsContentFocus,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
+
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        isFocused = isFocused,
+        modifier = modifier
+            .then(settingsFocusModifier(chainIndex, focus))
+            .focusable(enabled = canReceiveFocus)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                        if (isFocused && !isActive) {
+                            onSelect()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    else -> false
+                }
+            },
+        trailing = {
+            if (isActive) {
+                Text(
+                    text = "Active",
+                    color = EpgColors.Accent,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    )
 }
 
 @Composable
@@ -431,8 +531,8 @@ private const val PLAYBACK_CARD2_COUNT = 6
 private const val PLAYBACK_CARD3_COUNT =
     PLAYBACK_FOCUS_COUNT - PLAYBACK_CARD0_COUNT - PLAYBACK_CARD1_COUNT - PLAYBACK_CARD2_COUNT
 
-/** InterfaceSettingsContent chain indices 0..16. */
-const val INTERFACE_FOCUS_COUNT = 17
+/** InterfaceSettingsContent chain indices 0..15. */
+const val INTERFACE_FOCUS_COUNT = 16
 
 /** AboutSettingsContent chain indices 0..4. */
 const val ABOUT_FOCUS_COUNT = 5
@@ -456,7 +556,11 @@ fun settingsHorizontalFocusGroups(
     playlistCount: Int = 0,
     parentalStart: Int = 0
 ): List<IntRange> = when (kind) {
-    SettingsSectionKind.Profile -> listOf((parentalStart + 2)..(parentalStart + 5))
+    SettingsSectionKind.Profile -> buildList {
+        add(1..4)
+        add(5..8)
+        add((parentalStart + 2)..(parentalStart + 5))
+    }
     SettingsSectionKind.Connections -> if (connectionsShowForm) {
         val timeoutStart = if (connectionsPlaylistType == PlaylistType.M3U) {
             connectionsFormStart + 6
@@ -479,7 +583,12 @@ fun settingsHorizontalFocusGroups(
     }
     SettingsSectionKind.Guide -> listOf(0..1, 2..4, 5..6, 7..11, 12..15)
     SettingsSectionKind.Playback -> listOf(0..2, 3..6, 7..9, 12..15, 18..20, 24..28)
-    SettingsSectionKind.Interface -> listOf(1..4, 6..8, 9..11, 12..16)
+    SettingsSectionKind.Interface -> listOf(
+        0..3,
+        5..7,
+        8..10,
+        11..15
+    )
     else -> emptyList()
 }
 
@@ -503,8 +612,8 @@ fun settingsVerticalFocusRows(
     playlistCount: Int = 0,
     profileHasSwatches: Boolean = false,
     profileSwatchStart: Int = 1,
-    profileUseButtonStart: Int = 1,
-    profileUseButtonCount: Int = 0,
+    profileListStart: Int = 1,
+    profileListCount: Int = 0,
     parentalStart: Int = 0,
     storageOptionCount: Int = 0
 ): List<IntRange> = when (kind) {
@@ -514,8 +623,8 @@ fun settingsVerticalFocusRows(
             add(profileSwatchStart..(profileSwatchStart + 3))
             add((profileSwatchStart + 4)..(profileSwatchStart + 7))
         }
-        repeat(profileUseButtonCount) { offset ->
-            val index = profileUseButtonStart + offset
+        repeat(profileListCount) { offset ->
+            val index = profileListStart + offset
             add(index..index)
         }
         add(parentalStart..parentalStart)
@@ -565,12 +674,11 @@ fun settingsVerticalFocusRows(
         24..28
     )
     SettingsSectionKind.Interface -> listOf(
-        0..0,
-        1..4,
-        5..5,
-        6..8,
-        9..11,
-        12..16
+        0..3,
+        4..4,
+        5..7,
+        8..10,
+        11..15
     )
     SettingsSectionKind.Recordings -> List(storageOptionCount) { index -> index..index }
     SettingsSectionKind.About -> listOf(
@@ -752,8 +860,7 @@ fun profileContentFocusCount(
     hasActiveProfile: Boolean
 ): Int {
     val swatchCount = if (hasActiveProfile) 8 else 0
-    val useButtons = profileCount - if (activeProfileId != null) 1 else 0
-    return 1 + swatchCount + useButtons.coerceAtLeast(0) + 7
+    return 1 + swatchCount + profileCount.coerceAtLeast(0) + 7
 }
 
 fun buildProfileSectionCards(
@@ -765,7 +872,6 @@ fun buildProfileSectionCards(
     swatchCount: Int = 8
 ): List<SettingsSectionCard> {
     val swatches = if (hasActiveProfile) swatchCount else 0
-    val useButtons = (profileCount - if (activeProfileId != null) 1 else 0).coerceAtLeast(0)
     val parentalStart = (contentFocusCount - 7).coerceAtLeast(0)
     return buildList {
         add(SettingsSectionCard(firstFocusIndex = 0, focusCount = 1))
@@ -773,8 +879,8 @@ fun buildProfileSectionCards(
             add(SettingsSectionCard(firstFocusIndex = swatchStart, focusCount = swatches))
         }
         add(
-            if (useButtons > 0) {
-                SettingsSectionCard(firstFocusIndex = 1 + swatches, focusCount = useButtons)
+            if (profileCount > 0) {
+                SettingsSectionCard(firstFocusIndex = 1 + swatches, focusCount = profileCount)
             } else {
                 SettingsSectionCard(firstFocusIndex = -1, focusCount = 0)
             }
@@ -843,10 +949,10 @@ fun buildSettingsSectionCards(
         )
     )
     SettingsSectionKind.Interface -> listOf(
-        SettingsSectionCard(firstFocusIndex = 0, focusCount = 5),
-        SettingsSectionCard(firstFocusIndex = 5, focusCount = 1),
-        SettingsSectionCard(firstFocusIndex = 6, focusCount = 6),
-        SettingsSectionCard(firstFocusIndex = 12, focusCount = 5)
+        SettingsSectionCard(firstFocusIndex = 0, focusCount = 4),
+        SettingsSectionCard(firstFocusIndex = 4, focusCount = 1),
+        SettingsSectionCard(firstFocusIndex = 5, focusCount = 6),
+        SettingsSectionCard(firstFocusIndex = 11, focusCount = 5)
     )
     SettingsSectionKind.Recordings -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = storageOptionCount)

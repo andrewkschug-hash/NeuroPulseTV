@@ -30,6 +30,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,11 +44,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material3.TextButton as M3TextButton
 import androidx.compose.ui.text.TextStyle
@@ -170,13 +170,9 @@ fun SettingsPanel(
     // is handled natively by `focusable()` inside the vertical scroll container, so the card
     // itself no longer drives scrolling (which used to fight the focused control's own scroll).
     val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
-    val borderWidth = if (sectionHighlighted) 2.dp else 1.dp
-    val borderColor = if (sectionHighlighted) EpgColors.Accent else EpgColors.BorderSubtle
-    val backgroundColor = if (sectionHighlighted) {
-        EpgColors.DetailPanelBg.copy(alpha = 0.58f)
-    } else {
-        EpgColors.DetailPanelBg.copy(alpha = 0.45f)
-    }
+    val borderWidth = if (sectionHighlighted) 2.dp else 0.dp
+    val borderColor = if (sectionHighlighted) EpgColors.Accent else Color.Transparent
+    val backgroundColor = EpgColors.DetailPanelBg.copy(alpha = if (sectionHighlighted) 0.58f else 0.38f)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -236,12 +232,12 @@ fun SettingsTextField(
             cursorBrush = SolidColor(EpgColors.Accent),
             modifier = Modifier
                 .fillMaxWidth()
-                .background(EpgColors.GridBg, RoundedCornerShape(8.dp))
+                .background(Color(0xFF252836), RoundedCornerShape(8.dp))
                 .then(
                     if (focused) {
                         Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
                     } else {
-                        Modifier.border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
+                        Modifier
                     }
                 )
                 .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -250,7 +246,7 @@ fun SettingsTextField(
                     if (value.isEmpty() && placeholder.isNotEmpty()) {
                         Text(
                             text = placeholder,
-                            color = EpgColors.TextDimmed,
+                            color = Color(0xFFB8BEC8),
                             fontFamily = DmSansFamily,
                             fontSize = 14.sp
                         )
@@ -317,7 +313,13 @@ fun SettingsToggleRow(
                 onClick = onToggle,
                 modifier = Modifier.focusProperties { canFocus = false }
             ) {
-                Text(if (enabled) "Turn off" else "Turn on")
+                Text(
+                    text = if (enabled) "Turn off" else "Turn on",
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
@@ -330,24 +332,22 @@ fun SettingsChip(
     focused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val borderWidth = if (focused || selected) 2.dp else 1.dp
-    val backgroundColor = if (selected) {
-        EpgColors.Accent.copy(alpha = 0.15f)
-    } else {
-        Color.Transparent
+    val borderWidth = when {
+        focused || selected -> 2.dp
+        else -> 0.dp
+    }
+    val backgroundColor = when {
+        selected -> EpgColors.Accent.copy(alpha = 0.22f)
+        else -> Color(0xFF2E2E3E)
     }
     val borderColor = when {
         focused -> EpgColors.FocusBorder
         selected -> EpgColors.Accent
-        else -> Color(0xFF3A3A4A)
+        else -> Color.Transparent
     }
     Text(
         text = label,
-        color = when {
-            selected -> Color.White
-            focused -> EpgColors.TextPrimary
-            else -> EpgColors.TextSecondary
-        },
+        color = Color.White,
         fontFamily = DmSansFamily,
         fontSize = 13.sp,
         fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -370,14 +370,14 @@ fun SettingsListRow(
         modifier = modifier
             .fillMaxWidth()
             .background(
-                if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
+                if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF252836),
                 RoundedCornerShape(8.dp)
             )
             .then(
                 if (isFocused) {
                     Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
                 } else {
-                    Modifier.border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
+                    Modifier
                 }
             )
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -453,15 +453,9 @@ fun ProfileColorPicker(
                     ProfileColorSwatch(
                         color = color,
                         selected = hex.uppercase() == normalizedSelected,
-                        highlighted = focus.isFocused(chainIndex),
-                        onClick = { onColorSelected(hex) },
-                        focusRequester = focus.chain.requesters.getOrNull(chainIndex),
-                        focusable = focus.isIndexInActiveCard(chainIndex),
-                        onFocused = {
-                            if (focus.isIndexInActiveCard(chainIndex)) {
-                                focus.chain.onItemFocused(chainIndex)
-                            }
-                        }
+                        chainIndex = chainIndex,
+                        focus = focus,
+                        onClick = { onColorSelected(hex) }
                     )
                 }
             }
@@ -473,28 +467,45 @@ fun ProfileColorPicker(
 private fun ProfileColorSwatch(
     color: Color,
     selected: Boolean,
-    highlighted: Boolean,
+    chainIndex: Int,
+    focus: SettingsContentFocus,
     onClick: () -> Unit,
-    focusRequester: FocusRequester? = null,
-    focusable: Boolean = true,
-    onFocused: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     val ringColor = when {
-        highlighted -> EpgColors.Accent
-        selected -> EpgColors.Accent.copy(alpha = 0.7f)
+        isFocused -> Color.White
+        selected -> Color.White.copy(alpha = 0.6f)
         else -> Color.Transparent
     }
-    val ringWidth = if (highlighted || selected) 2.dp else 0.dp
+    val ringWidth = when {
+        isFocused -> 3.dp
+        selected -> 2.dp
+        else -> 0.dp
+    }
 
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier
-            .size(44.dp)
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .focusProperties { canFocus = focusable }
-            .focusable(focusable)
-            .onFocusChanged { if (it.isFocused) onFocused() },
+            .size(52.dp)
+            .then(settingsFocusModifier(chainIndex, focus, enabled = canReceiveFocus))
+            .focusable(enabled = canReceiveFocus)
+            .onFocusChanged { isFocused = it.isFocused }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                        if (isFocused) {
+                            onClick()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    else -> false
+                }
+            },
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
@@ -506,7 +517,7 @@ private fun ProfileColorSwatch(
             modifier = Modifier
                 .fillMaxSize()
                 .border(ringWidth, ringColor, CircleShape)
-                .padding(4.dp),
+                .padding(5.dp),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -516,7 +527,12 @@ private fun ProfileColorSwatch(
                     .background(color)
             )
             if (selected) {
-                Text(text = "✓", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "✓",
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
@@ -564,7 +580,12 @@ fun ConnectionResultDialog(
                         onClick = onGoToGuide,
                         modifier = Modifier.focusRequester(confirmFocusRequester)
                     ) {
-                        Text("Go to Guide")
+                        Text(
+                            "Go to Guide",
+                            color = Color.White,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             )
@@ -596,7 +617,12 @@ fun ConnectionResultDialog(
                         onClick = onDismiss,
                         modifier = Modifier.focusRequester(confirmFocusRequester)
                     ) {
-                        Text("Try again")
+                        Text(
+                            "Try again",
+                            color = Color.White,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             )

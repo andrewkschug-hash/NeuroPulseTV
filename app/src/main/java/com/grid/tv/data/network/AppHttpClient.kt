@@ -25,9 +25,9 @@ class AppHttpClient @Inject constructor() {
         val builder = OkHttpClient.Builder()
             .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
             .connectTimeout(settings.connectionTimeoutSeconds.toLong(), TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
 
         if (settings.useProxy && settings.proxyUrl.isNotBlank()) {

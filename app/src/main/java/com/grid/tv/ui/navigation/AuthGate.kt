@@ -57,7 +57,7 @@ fun AuthGate(
 
     DisposableEffect(activity) {
         activity?.registerAuthDeepLinkHandler {
-            viewModel.refreshSession()
+            viewModel.onOAuthSessionEstablished()
         }
         onDispose { activity?.clearAuthDeepLinkHandler() }
     }

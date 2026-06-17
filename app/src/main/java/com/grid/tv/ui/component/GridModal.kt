@@ -35,9 +35,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
+import com.grid.tv.ui.theme.EpgColors
 
 private val ModalBg = Color(0xFF14141E)
 private val ModalBorder = Color.White.copy(alpha = 0.08f)
@@ -48,11 +50,14 @@ fun GridModal(
     modifier: Modifier = Modifier,
     width: Dp = 480.dp,
     showCloseButton: Boolean = true,
+    focusCloseButtonOnOpen: Boolean = false,
     closeFocusRequester: FocusRequester = remember { FocusRequester() },
     content: @Composable ColumnScope.() -> Unit
 ) {
-    LaunchedEffect(Unit) {
-        if (showCloseButton) closeFocusRequester.requestFocusSafelyAfterLayout()
+    LaunchedEffect(showCloseButton, focusCloseButtonOnOpen) {
+        if (showCloseButton && focusCloseButtonOnOpen) {
+            closeFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     Box(
@@ -115,7 +120,18 @@ private fun GridModalCloseButton(
         modifier = modifier
             .size(36.dp)
             .onFocusChanged { focused = it.isFocused }
-            .semantics { contentDescription = "Close" }
+            .tvFocusBorder(
+                focused = focused,
+                shape = RoundedCornerShape(8.dp),
+                unfocusedColor = Color.Transparent
+            )
+            .semantics { contentDescription = "Close" },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
+            pressedContainerColor = Color(0xFF2A2A3A)
+        )
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -123,7 +139,7 @@ private fun GridModalCloseButton(
         ) {
             Text(
                 text = "×",
-                color = if (focused) Color.White else Color(0xFF9CA3AF),
+                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 22.sp
             )

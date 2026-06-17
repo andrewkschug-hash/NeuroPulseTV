@@ -6,6 +6,7 @@ import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
+import java.net.URI
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,6 +18,23 @@ class XtreamParser {
         val maxConnections: Int?,
         val serverUrl: String
     )
+
+    fun isAuthSuccessful(raw: String): Boolean {
+        if (raw.isBlank()) return false
+        return try {
+            val root = JSONObject(raw)
+            val user = root.optJSONObject("user_info") ?: return false
+            if (user.has("auth")) {
+                when (user.optInt("auth", -1)) {
+                    1 -> return true
+                    0 -> return false
+                }
+            }
+            user.optString("status").equals("Active", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun parseAuth(raw: String): AuthPayload {
         val root = JSONObject(raw)
@@ -32,8 +50,59 @@ class XtreamParser {
         return AuthPayload(status, exp, maxConn, serverUrl)
     }
 
+    fun resolveServerUrl(userEntered: String, auth: AuthPayload): String {
+        val entered = normalizeServerUrl(userEntered)
+        if (auth.serverUrl.isBlank()) return entered
+        val authBase = auth.serverUrl.trimEnd('/')
+        val pathSuffix = runCatching {
+            URI(entered).path?.takeIf { it.isNotBlank() && it != "/" }.orEmpty()
+        }.getOrDefault("")
+        return when {
+            pathSuffix.isBlank() -> authBase
+            authBase.endsWith(pathSuffix) -> authBase
+            else -> "$authBase$pathSuffix"
+        }
+    }
+
+    fun normalizeServerUrl(raw: String): String {
+        val trimmed = raw.trim().removeSuffix("/")
+        return if (trimmed.startsWith("http://", ignoreCase = true) ||
+            trimmed.startsWith("https://", ignoreCase = true)
+        ) {
+            trimmed
+        } else {
+            "http://$trimmed"
+        }
+    }
+
+    fun buildLiveStreamUrl(
+        serverUrl: String,
+        username: String,
+        password: String,
+        streamId: String,
+        directSource: String? = null
+    ): String {
+        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        val base = serverUrl.trimEnd('/')
+        return "$base/live/$username/$password/$streamId.m3u8"
+    }
+
+    fun buildMovieStreamUrl(
+        serverUrl: String,
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String,
+        directSource: String? = null
+    ): String {
+        directSource?.trim()?.takeIf { it.isNotBlank() }?.let { return it }
+        val base = serverUrl.trimEnd('/')
+        val ext = extension.ifBlank { "mp4" }
+        return "$base/movie/$username/$password/$streamId.$ext"
+    }
+
     fun parseLiveCategories(raw: String): Map<String, String> {
-        val arr = JSONArray(raw)
+        val arr = parseJsonArray(raw) ?: return emptyMap()
         val out = linkedMapOf<String, String>()
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
@@ -52,7 +121,7 @@ class XtreamParser {
         serverUrl: String,
         categories: Map<String, String>
     ): List<ChannelEntity> {
-        val arr = JSONArray(raw)
+        val arr = parseJsonArray(raw) ?: return emptyList()
         val out = ArrayList<ChannelEntity>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
@@ -64,7 +133,8 @@ class XtreamParser {
             val catId = item.optString("category_id")
             val group = categories[catId] ?: item.optString("category_name").ifBlank { "Live" }
             val number = item.optString("num").toIntOrNull() ?: (i + 1)
-            val streamUrl = "$serverUrl/$username/$password/$streamId"
+            val directSource = item.optString("direct_source").ifBlank { null }
+            val streamUrl = buildLiveStreamUrl(serverUrl, username, password, streamId, directSource)
             out += ChannelEntity(
                 number = number,
                 name = name,
@@ -82,7 +152,7 @@ class XtreamParser {
     }
 
     fun parseVodCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
-        val arr = JSONArray(raw)
+        val arr = parseJsonArray(raw) ?: return emptyList()
         val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
@@ -94,13 +164,14 @@ class XtreamParser {
     }
 
     fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
-        val arr = JSONArray(raw)
+        val arr = parseJsonArray(raw) ?: return emptyList()
         val out = ArrayList<VodItem>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val id = item.optString("stream_id").toLongOrNull() ?: continue
             val ext = item.optString("container_extension").ifBlank { "mp4" }
-            val url = "$serverUrl/$username/$password/$id.$ext"
+            val directSource = item.optString("direct_source").ifBlank { null }
+            val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), ext, directSource)
             val title = item.optString("name").ifBlank { "VOD $id" }
             out += VodItem(
                 id = id,
@@ -123,7 +194,7 @@ class XtreamParser {
     }
 
     fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
-        val arr = JSONArray(raw)
+        val arr = parseJsonArray(raw) ?: return emptyList()
         val out = ArrayList<SeriesShow>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
@@ -186,5 +257,14 @@ class XtreamParser {
             out += start * 1000L to end * 1000L
         }
         return out
+    }
+
+    private fun parseJsonArray(raw: String): JSONArray? {
+        if (raw.isBlank()) return null
+        return try {
+            JSONArray(raw)
+        } catch (_: Exception) {
+            null
+        }
     }
 }
