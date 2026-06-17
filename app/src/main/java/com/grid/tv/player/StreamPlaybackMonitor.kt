@@ -1,5 +1,6 @@
 package com.grid.tv.player
 
+import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -73,6 +74,7 @@ class StreamPlaybackMonitor(
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             tuning = false
             intentionalPause = false
+            Log.w("StreamPlaybackMonitor", "playback error code=${error.errorCode}", error)
             _status.value = StreamPlaybackStatus.ERROR
         }
     }

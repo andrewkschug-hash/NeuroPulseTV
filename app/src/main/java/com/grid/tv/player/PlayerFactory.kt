@@ -1,18 +1,23 @@
 package com.grid.tv.player
 
 import android.content.Context
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.util.MediaAttribution
 import javax.inject.Inject
 import javax.inject.Singleton
-
 @Singleton
 class PlayerFactory @Inject constructor() {
 
@@ -72,13 +77,56 @@ class PlayerFactory @Inject constructor() {
         val dataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(STREAM_USER_AGENT)
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
+            .setConnectTimeoutMs(60_000)
+            .setReadTimeoutMs(60_000)
+
+        val hlsMediaSourceFactory = HlsMediaSource.Factory(dataSourceFactory)
+            .setAllowChunklessPreparation(true)
+
+        val mediaSourceFactory = IptvMediaSourceFactory(dataSourceFactory, hlsMediaSourceFactory)
 
         return ExoPlayer.Builder(appContext, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
             .build()
+    }
+
+    /**
+     * Routes .m3u8 URLs through a tuned HLS factory; everything else uses the default factory.
+     */
+    @UnstableApi
+    private class IptvMediaSourceFactory(
+        dataSourceFactory: DataSource.Factory,
+        private val hlsFactory: HlsMediaSource.Factory
+    ) : MediaSource.Factory {
+        private val defaultFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        override fun createMediaSource(mediaItem: MediaItem): MediaSource {
+            val uri = mediaItem.localConfiguration?.uri?.toString().orEmpty()
+            return if (uri.contains(".m3u8", ignoreCase = true)) {
+                hlsFactory.createMediaSource(mediaItem)
+            } else {
+                defaultFactory.createMediaSource(mediaItem)
+            }
+        }
+
+        override fun setDrmSessionManagerProvider(
+            drmSessionManagerProvider: DrmSessionManagerProvider
+        ): MediaSource.Factory {
+            defaultFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            hlsFactory.setDrmSessionManagerProvider(drmSessionManagerProvider)
+            return this
+        }
+
+        override fun setLoadErrorHandlingPolicy(
+            loadErrorHandlingPolicy: LoadErrorHandlingPolicy
+        ): MediaSource.Factory {
+            defaultFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            hlsFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            return this
+        }
+
+        override fun getSupportedTypes(): IntArray = defaultFactory.supportedTypes
     }
 }

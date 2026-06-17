@@ -88,9 +88,9 @@ class LivePlayerManager @Inject constructor(
             val exo = player ?: return
             val url = currentStreamUrl ?: return
             playbackMonitor.onTuneStarted(url)
-            if (exo.mediaItemCount > 0) {
-                exo.prepare()
-            } else if (url.isNotBlank()) {
+            exo.stop()
+            exo.clearMediaItems()
+            if (url.isNotBlank()) {
                 exo.setMediaItem(buildLiveMediaItem(url))
                 exo.prepare()
             }
@@ -246,7 +246,7 @@ class LivePlayerManager @Inject constructor(
         if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
             channelSnapshot?.let { currentChannel = it }
             val state = exo.playbackState
-            if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) {
+            if (state == Player.STATE_READY) {
                 exo.playWhenReady = true
                 applyVolume()
                 refreshTimeshiftWindow(exo)
@@ -283,6 +283,9 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
         pendingJumpToLive = true
+        Log.i(TAG, "tuneChannel id=$channelId url=$streamUrl")
+        exo.stop()
+        exo.clearMediaItems()
         exo.setMediaItem(buildLiveMediaItem(streamUrl))
         exo.prepare()
         exo.playWhenReady = true
@@ -309,6 +312,9 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
         pendingJumpToLive = true
+        Log.i(TAG, "switchToStreamUrl id=$channelId url=$streamUrl")
+        exo.stop()
+        exo.clearMediaItems()
         exo.setMediaItem(buildLiveMediaItem(streamUrl))
         exo.prepare()
         exo.playWhenReady = mode != Mode.IDLE
@@ -316,18 +322,11 @@ class LivePlayerManager @Inject constructor(
         streamFailover.onStreamSwitched(streamUrl)
     }
 
-    private fun buildLiveMediaItem(streamUrl: String): MediaItem {
-        val builder = MediaItem.Builder().setUri(streamUrl)
-        if (streamUrl.contains(".m3u8", ignoreCase = true)) {
-            builder.setLiveConfiguration(
-                MediaItem.LiveConfiguration.Builder()
-                    .setTargetOffsetMs(5_000L)
-                    .setMinOffsetMs(3_000L)
-                    .setMaxOffsetMs(15_000L)
-                    .build()
-            )
-        }
-        return builder.build()
+    private fun buildLiveMediaItem(streamUrl: String): MediaItem =
+        MediaItem.Builder().setUri(streamUrl).build()
+
+    companion object {
+        private const val TAG = "LivePlayerManager"
     }
 
     fun lastChannel(): Channel? = _lastChannel.value

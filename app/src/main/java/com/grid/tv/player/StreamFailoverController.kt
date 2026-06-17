@@ -1,5 +1,6 @@
 package com.grid.tv.player
 
+import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.grid.tv.domain.model.Channel
@@ -82,6 +83,7 @@ class StreamFailoverController @Inject constructor(
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             if (!autoReconnectEnabled) return
+            Log.w(LOG_TAG, "playback error code=${error.errorCode} url=$activeUrl", error)
             requestRecovery(FailoverTrigger.PLAYBACK_ERROR)
         }
     }
@@ -93,6 +95,7 @@ class StreamFailoverController @Inject constructor(
         tuneStartedAtMs = System.currentTimeMillis()
         bufferingSinceMs = 0L
         unhealthySinceMs = 0L
+        intentionalIdle = false
         cancelRecovery()
         clearRestoredBanner()
         _uiState.value = StreamFailoverUiState()
@@ -102,6 +105,7 @@ class StreamFailoverController @Inject constructor(
         detach()
         player = exoPlayer
         actions = playbackActions
+        intentionalIdle = false
         exoPlayer.addListener(playerListener)
         startMonitoring()
     }
@@ -277,9 +281,12 @@ class StreamFailoverController @Inject constructor(
         val urls = streamUrls
         if (urls.isEmpty()) return emptyList()
         val steps = mutableListOf<RecoveryStep>(RecoveryStep.Reconnect)
-        steps += RecoveryStep.SwitchUrl(urls.first())
-        urls.drop(1).forEach { backup ->
-            steps += RecoveryStep.SwitchUrl(backup)
+        val tried = mutableSetOf<String>()
+        activeUrl?.let { tried.add(it) }
+        urls.forEach { url ->
+            if (tried.add(url)) {
+                steps += RecoveryStep.SwitchUrl(url)
+            }
         }
         return steps
     }
@@ -322,6 +329,7 @@ class StreamFailoverController @Inject constructor(
     private fun Job?.isActive(): Boolean = this?.isActive == true
 
     companion object {
+        private const val LOG_TAG = "StreamFailover"
         const val RECOVERING_MESSAGE = "Recovering stream..."
         const val RESTORED_MESSAGE = "Stream restored"
 
