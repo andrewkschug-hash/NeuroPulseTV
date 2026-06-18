@@ -116,8 +116,10 @@ fun handleTvFocusChainKey(
     onDismissEditing: () -> Unit
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-    if (isEditing()) return false
+    if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
+    if (isEditing()) {
+        return event.key != Key.Back && event.key != Key.Escape
+    }
     return when (event.key) {
         Key.DirectionDown -> {
             when (chain.focusedIndex) {
@@ -274,11 +276,12 @@ fun TvTextField(
     fun handleFieldKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (inputActive) {
-            return when (event.key) {
-                Key.Back, Key.Escape -> {
+            return when {
+                event.key == Key.Back || event.key == Key.Escape -> {
                     dismissInput()
                     true
                 }
+                TvTextInputSession.consumesImeNavigationKeys(event) -> true
                 else -> false
             }
         }

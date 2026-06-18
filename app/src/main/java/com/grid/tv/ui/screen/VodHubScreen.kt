@@ -37,6 +37,7 @@ import com.grid.tv.ui.component.showTextFieldKeyboard
 import com.grid.tv.ui.component.TvTextInputActivationEffect
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
+import com.grid.tv.util.consumeImeNavigationKeysWhenTyping
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -197,7 +198,7 @@ fun VodHubScreen(
 
     fun handleTabsKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
         return when (event.key) {
             Key.DirectionLeft -> {
                 tabFocusIndex = (tabFocusIndex - 1).coerceAtLeast(0)
@@ -234,7 +235,7 @@ fun VodHubScreen(
 
     fun handleContinueKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown || continueWatchingItems.isEmpty()) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
         return when (event.key) {
             Key.DirectionLeft -> {
                 continueFocusIndex = (continueFocusIndex - 1).coerceAtLeast(0)
@@ -263,7 +264,7 @@ fun VodHubScreen(
 
     fun handleTopBarKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
         if (profileMenuOpen) {
             return when (event.key) {
                 Key.Back, Key.Escape -> {
@@ -377,12 +378,13 @@ fun VodHubScreen(
             .background(EpgColors.Background)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
+                if (TvTextInputSession.consumesImeNavigationKeys(event)) return@onPreviewKeyEvent true
                 when (event.key) {
                     Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> false
                 }
             }
+            .consumeImeNavigationKeysWhenTyping()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
@@ -633,11 +635,12 @@ private fun VodHubSearchField(
     fun handleFieldKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (inputActive) {
-            return when (event.key) {
-                Key.Back, Key.Escape -> {
+            return when {
+                event.key == Key.Back || event.key == Key.Escape -> {
                     dismissInput()
                     true
                 }
+                TvTextInputSession.consumesImeNavigationKeys(event) -> true
                 else -> false
             }
         }

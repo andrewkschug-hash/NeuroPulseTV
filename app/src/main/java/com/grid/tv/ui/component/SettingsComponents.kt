@@ -493,7 +493,7 @@ private fun ProfileColorSwatch(
             .then(settingsFocusModifier(chainIndex, focus, enabled = canReceiveFocus))
             .focusable(enabled = canReceiveFocus)
             .onPreviewKeyEvent { event ->
-                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
+                if (TvTextInputSession.consumesImeNavigationKeys(event)) return@onPreviewKeyEvent true
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {

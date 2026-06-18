@@ -44,6 +44,7 @@ import com.grid.tv.ui.component.TvTextLink
 import com.grid.tv.ui.component.rememberTvFocusChain
 import com.grid.tv.ui.component.tvFocusChainNavigation
 import com.grid.tv.ui.component.tvVerticalDpadNavigation
+import com.grid.tv.util.consumeImeNavigationKeysWhenTyping
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.viewmodel.OnboardingConnectState
 import com.grid.tv.ui.viewmodel.OnboardingViewModel
@@ -577,6 +578,7 @@ private fun EntryScaffold(
                 isEditing = { isEditing },
                 onDismissEditing = onDismissEditing
             )
+            .consumeImeNavigationKeysWhenTyping()
     ) {
         TvScrollContainer(
             modifier = Modifier
