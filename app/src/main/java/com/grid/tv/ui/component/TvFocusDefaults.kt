@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Border
@@ -18,6 +20,7 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import com.grid.tv.ui.platform.touchTarget
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvRemoteKeyboard
 
 object TvFocusDefaults {
     val NoScale: ClickableSurfaceScale = ClickableSurfaceScale.None
@@ -59,8 +62,14 @@ fun GridFocusSurface(
     colors: ClickableSurfaceColors = ClickableSurfaceDefaults.colors(),
     content: @Composable BoxScope.() -> Unit
 ) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
     Surface(
-        onClick = onClick,
+        onClick = {
+            keyboard?.hide()
+            TvRemoteKeyboard.dismissKeyboard(view)
+            onClick()
+        },
         modifier = modifier.touchTarget(),
         enabled = enabled,
         shape = shape,

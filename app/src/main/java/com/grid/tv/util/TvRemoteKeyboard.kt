@@ -6,8 +6,8 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 
 /**
- * TV remotes often need an explicit [View.performClick] on the focused editor — focus alone
- * does not open the IME on Android TV / Fire TV / Chromecast.
+ * TV remotes often need an explicit IME request on the focused editor — focus alone
+ * does not open the keyboard on Android TV / Fire TV / Chromecast.
  */
 object TvRemoteKeyboard {
     fun isActivateKey(keyCode: Int): Boolean =
@@ -26,12 +26,12 @@ object TvRemoteKeyboard {
             requestIme(rootView, focused)
             return true
         }
-        if (focused.isFocusable) {
-            focused.performClick()
-            requestIme(rootView, focused)
-            return true
-        }
         return false
+    }
+
+    fun dismissKeyboard(rootView: View) {
+        val imm = rootView.context.getSystemService(InputMethodManager::class.java)
+        imm?.hideSoftInputFromWindow(rootView.windowToken, 0)
     }
 
     internal fun requestIme(rootView: View, target: View = rootView.findFocus() ?: rootView) {
