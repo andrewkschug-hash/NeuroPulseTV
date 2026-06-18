@@ -15,13 +15,34 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var client: OkHttpClient = buildClient(AppSettings())
 
+    /** Long-running client for large XMLTV downloads (100MB+). */
+    @Volatile
+    private var epgClient: OkHttpClient = buildEpgClient(AppSettings())
+
     fun client(): OkHttpClient = client
+
+    fun epgClient(): OkHttpClient = epgClient
 
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
+        epgClient = buildEpgClient(settings)
     }
 
-    private fun buildClient(settings: AppSettings): OkHttpClient {
+    private fun buildClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(180, TimeUnit.SECONDS)
+            .build()
+
+    private fun buildEpgClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings)
+            .readTimeout(EPG_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(EPG_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .build()
+
+    private fun baseBuilder(settings: AppSettings): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()
             .dns(IptvDns)
             .addInterceptor(
@@ -29,16 +50,18 @@ class AppHttpClient @Inject constructor() {
                     .apply { level = HttpLoggingInterceptor.Level.BASIC }
             )
             .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(180, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
 
         if (settings.useProxy && settings.proxyUrl.isNotBlank()) {
             parseProxy(settings.proxyUrl.trim())?.let { builder.proxy(it) }
         }
 
-        return builder.build()
+        return builder
+    }
+
+    private companion object {
+        const val EPG_CALL_TIMEOUT_MINUTES = 5L
+        const val EPG_READ_TIMEOUT_MINUTES = 5L
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {

@@ -3,6 +3,7 @@ package com.grid.tv.data.network.parser
 import android.util.Xml
 import com.grid.tv.data.db.entity.ProgramEntity
 import org.xmlpull.v1.XmlPullParser
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -14,12 +15,19 @@ class XmlTvParser {
         timeZone = TimeZone.getDefault()
     }
 
-    fun parse(xml: String): ParsedXmlTv {
+    fun parse(xml: String): ParsedXmlTv =
+        parse(xml.byteInputStream(Charsets.UTF_8), Charsets.UTF_8.name())
+
+    /** Incrementally parses XMLTV from a live HTTP response stream. */
+    fun parse(input: InputStream, encoding: String = Charsets.UTF_8.name()): ParsedXmlTv {
         val parser = Xml.newPullParser().apply {
             setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-            setInput(xml.reader())
+            setInput(input, encoding)
         }
+        return parseDocument(parser)
+    }
 
+    private fun parseDocument(parser: XmlPullParser): ParsedXmlTv {
         val channelMap = mutableMapOf<String, String>()
         val programs = mutableListOf<ProgramEntity>()
 
@@ -67,7 +75,9 @@ class XmlTvParser {
 
                 XmlPullParser.END_TAG -> {
                     when (parser.name) {
-                        "channel" -> if (channelId.isNotBlank()) channelMap[channelId] = channelDisplay.ifBlank { channelId }
+                        "channel" -> if (channelId.isNotBlank()) {
+                            channelMap[channelId] = channelDisplay.ifBlank { channelId }
+                        }
                         "programme" -> {
                             if (pChannel.isNotBlank() && pEnd > pStart) {
                                 programs += ProgramEntity(
@@ -115,20 +125,20 @@ class XmlTvParser {
         }
     }
 
-    /**
-     * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`, `...Z`.
-     */
-    internal fun normalizeXmlTvTimestamp(raw: String): String {
-        if (raw.endsWith('Z', ignoreCase = true) && raw.length >= 15) {
-            return raw.dropLast(1).trimEnd() + " +0000"
-        }
-        Regex("""^(\d{14})([\+\-]\d{4})$""").matchEntire(raw)?.let { match ->
-            return "${match.groupValues[1]} ${match.groupValues[2]}"
-        }
-        return raw
-    }
-
     companion object {
+        /**
+         * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`, `...Z`.
+         */
+        internal fun normalizeXmlTvTimestamp(raw: String): String {
+            if (raw.endsWith('Z', ignoreCase = true) && raw.length >= 15) {
+                return raw.dropLast(1).trimEnd() + " +0000"
+            }
+            Regex("""^(\d{14})([\+\-]\d{4})$""").matchEntire(raw)?.let { match ->
+                return "${match.groupValues[1]} ${match.groupValues[2]}"
+            }
+            return raw
+        }
+
         /** Stable primary key so EPG refresh upserts instead of duplicating rows. */
         fun stableProgramId(channelEpgId: String, startTime: Long): Long {
             var hash = channelEpgId.lowercase().hashCode().toLong()

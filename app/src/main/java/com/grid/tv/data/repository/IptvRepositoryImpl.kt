@@ -1373,17 +1373,17 @@ class IptvRepositoryImpl @Inject constructor(
                 url = resolvedEpgUrl
             )
             try {
-                val fetchResult = remoteTextFetcher.fetchDetailed(resolvedEpgUrl)
+                val fetchResult = remoteTextFetcher.fetchEpgXmlTv(resolvedEpgUrl, xmlTvParser)
                 attempt = attempt.copy(
                     httpCode = fetchResult.httpCode,
-                    bytesReceived = fetchResult.rawBytes
+                    bytesReceived = fetchResult.rawBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 )
                 Log.i(
                     EPG_FLOW_TAG,
                     "EPG fetch OK for ${playlist.name}: HTTP ${fetchResult.httpCode}, " +
-                        "${fetchResult.rawBytes} bytes"
+                        "${fetchResult.rawBytes} bytes streamed"
                 )
-                val parsed = xmlTvParser.parse(fetchResult.body)
+                val parsed = fetchResult.parsed
                 attempt = attempt.copy(
                     channelsParsed = parsed.channelsById.size,
                     programmesParsed = parsed.programs.size

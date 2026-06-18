@@ -57,6 +57,25 @@ class XmlTvParserTest {
     }
 
     @Test
+    fun parse_inputStreamMatchesStringParse() {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tv>
+              <channel id="stream.ch"><display-name>Stream</display-name></channel>
+              <programme channel="stream.ch" start="20240616120000+0000" stop="20240616130000+0000">
+                <title>Streamed</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+
+        val fromString = parser.parse(xml)
+        val fromStream = parser.parse(xml.byteInputStream())
+
+        assertEquals(fromString.channelsById, fromStream.channelsById)
+        assertEquals(fromString.programs.single().title, fromStream.programs.single().title)
+    }
+
+    @Test
     fun parse_zuluSuffixTimestamp() {
         val normalized = XmlTvParser.normalizeXmlTvTimestamp("20240616120000Z")
         assertEquals("20240616120000 +0000", normalized)
