@@ -150,6 +150,9 @@ class HomeEpgViewModel @Inject constructor(
     private val _guideFiltersConfigured = MutableStateFlow(false)
     val guideFiltersConfigured: StateFlow<Boolean> = _guideFiltersConfigured.asStateFlow()
 
+    private val _guideSettingsLoaded = MutableStateFlow(false)
+    val guideSettingsLoaded: StateFlow<Boolean> = _guideSettingsLoaded.asStateFlow()
+
     val channelGroups: StateFlow<List<String>> = repository.groups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -312,6 +315,7 @@ class HomeEpgViewModel @Inject constructor(
             _hideAdultContent.value = settings.hideAdultContent
             _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
+            _guideSettingsLoaded.value = true
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         }
@@ -357,6 +361,7 @@ class HomeEpgViewModel @Inject constructor(
             val settings = repository.loadSettings()
             _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
+            _guideSettingsLoaded.value = true
         }
     }
 

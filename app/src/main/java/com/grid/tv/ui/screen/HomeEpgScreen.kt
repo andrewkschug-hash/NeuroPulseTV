@@ -206,6 +206,7 @@ fun HomeEpgScreen(
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
     val guideFilter by viewModel.guideFilter.collectAsStateWithLifecycle()
     val guideFiltersConfigured by viewModel.guideFiltersConfigured.collectAsStateWithLifecycle()
+    val guideSettingsLoaded by viewModel.guideSettingsLoaded.collectAsStateWithLifecycle()
     val isReloadingChannels by viewModel.isReloadingChannels.collectAsStateWithLifecycle()
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val hasCatalogChannels by viewModel.hasCatalogChannels.collectAsStateWithLifecycle()
@@ -411,6 +412,7 @@ fun HomeEpgScreen(
     var showCreateGroup by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var showGuideGroupPicker by remember { mutableStateOf(false) }
+    var initialGuidePickerDismissed by remember { mutableStateOf(false) }
     var showCategoryFilterMenu by remember { mutableStateOf(false) }
     var categoryMenuFocusIndex by remember { mutableIntStateOf(0) }
     var categoryMenuExpandedCategories by remember { mutableStateOf(setOf<Int>()) }
@@ -663,10 +665,15 @@ fun HomeEpgScreen(
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
     }
 
-    LaunchedEffect(hasCatalogChannels, guideFiltersConfigured, channelGroups) {
-        if (hasCatalogChannels && !guideFiltersConfigured && channelGroups.isNotEmpty()) {
-            showGuideGroupPicker = true
+    LaunchedEffect(hasCatalogChannels, guideFiltersConfigured, channelGroups, guideSettingsLoaded) {
+        if (!guideSettingsLoaded) return@LaunchedEffect
+        if (guideFiltersConfigured) {
+            showGuideGroupPicker = false
+            return@LaunchedEffect
         }
+        showGuideGroupPicker = hasCatalogChannels &&
+            channelGroups.isNotEmpty() &&
+            !initialGuidePickerDismissed
     }
 
     LaunchedEffect(displayChannels.size, isReloadingChannels) {
@@ -1465,17 +1472,18 @@ fun HomeEpgScreen(
         if (showGuideGroupPicker && channelGroups.isNotEmpty()) {
             BackHandler {
                 showGuideGroupPicker = false
-                viewModel.saveGuideChannelGroups(emptySet(), markConfigured = true)
+                initialGuidePickerDismissed = true
             }
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = guideFilter.selectedGroups,
                 onDismiss = {
                     showGuideGroupPicker = false
-                    viewModel.saveGuideChannelGroups(emptySet(), markConfigured = true)
+                    initialGuidePickerDismissed = true
                 },
                 onConfirm = { groups ->
                     showGuideGroupPicker = false
+                    initialGuidePickerDismissed = true
                     viewModel.saveGuideChannelGroups(groups, markConfigured = true)
                     focusChannelIndex = 0
                 }
