@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -193,81 +197,91 @@ internal fun HomeEpgChannelList(
         hasContinueWatching -> continueWatchingFocusRequester
         else -> topNavFocusRequester
     }
+    var filterChipHasFocus by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .width(EpgLayout.ChannelColumnWidth)
+                        .height(EpgLayout.TimelineHeaderHeight)
+                        .background(EpgColors.ChannelColumnBg)
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        androidx.tv.material3.Text(
+                            text = formatEpgDay(now),
+                            color = EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 12.sp
+                        )
+                        EpgCategoryFilterChip(
+                            label = guideFilter.label,
+                            active = guideFilter.isActive,
+                            focused = gridFilterFocused || filterChipHasFocus,
+                            headerStyle = true,
+                            onClick = onOpenCategoryFilter,
+                            modifier = Modifier
+                                .focusRequester(gridFilterFocusRequester)
+                                .focusProperties {
+                                    up = gridFilterUpTarget
+                                    down = if (!displayChannelsEmpty) {
+                                        gridFocusRequester
+                                    } else {
+                                        FocusRequester.Cancel
+                                    }
+                                }
+                                .onFocusChanged {
+                                    filterChipHasFocus = it.isFocused
+                                    if (it.isFocused) onGridFilterFocused()
+                                }
+                                .onPreviewKeyEvent { filterChipHasFocus && onGridFilterKey(it) }
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(hScroll, enabled = touchGesturesEnabled)
+                ) {
+                    EpgTimelineHeader(
+                        windowStart = windowStart,
+                        windowDurationMs = windowDurationMs,
+                        now = now
+                    )
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .focusRequester(gridFocusRequester)
                     .focusProperties {
-                        canFocus = !displayChannelsEmpty
-                        up = if (focusChannelIndex == 0) gridFilterFocusRequester else FocusRequester.Cancel
+                        canFocus = !displayChannelsEmpty && gridFocused
+                        up = if (focusChannelIndex == 0) {
+                            gridFilterFocusRequester
+                        } else {
+                            FocusRequester.Cancel
+                        }
                         down = FocusRequester.Cancel
                     }
                     .then(if (!displayChannelsEmpty) Modifier.focusable() else Modifier)
                     .onFocusChanged { if (it.isFocused) onGridFocused() }
                     .onPreviewKeyEvent { gridFocused && onGridKey(it) }
             ) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier
-                                .width(EpgLayout.ChannelColumnWidth)
-                                .height(EpgLayout.TimelineHeaderHeight)
-                                .background(EpgColors.ChannelColumnBg)
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                androidx.tv.material3.Text(
-                                    text = formatEpgDay(now),
-                                    color = EpgColors.TextSecondary,
-                                    fontFamily = DmSansFamily,
-                                    fontSize = 12.sp
-                                )
-                                EpgCategoryFilterChip(
-                                    label = guideFilter.label,
-                                    active = guideFilter.isActive,
-                                    focused = gridFilterFocused,
-                                    headerStyle = true,
-                                    onClick = onOpenCategoryFilter,
-                                    modifier = Modifier
-                                        .focusRequester(gridFilterFocusRequester)
-                                        .focusProperties {
-                                            up = gridFilterUpTarget
-                                            down = if (!displayChannelsEmpty) gridFocusRequester else FocusRequester.Cancel
-                                        }
-                                        .onFocusChanged { if (it.isFocused) onGridFilterFocused() }
-                                        .onPreviewKeyEvent { gridFilterFocused && onGridFilterKey(it) }
-                                )
-                            }
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .horizontalScroll(hScroll, enabled = touchGesturesEnabled)
-                        ) {
-                            EpgTimelineHeader(
-                                windowStart = windowStart,
-                                windowDurationMs = windowDurationMs,
-                                now = now
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .heightIn(min = EpgLayout.GuideChannelListMinHeight)
-                    ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .heightIn(min = EpgLayout.GuideChannelListMinHeight)
+                ) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
@@ -333,19 +347,18 @@ internal fun HomeEpgChannelList(
                             }
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(start = EpgLayout.ChannelColumnWidth)
-                        ) {
-                            EpgNowLine(
-                                windowStart = windowStart,
-                                windowDurationMs = windowDurationMs,
-                                now = now,
-                                scrollOffsetPx = hScroll.value,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = EpgLayout.ChannelColumnWidth)
+                    ) {
+                        EpgNowLine(
+                            windowStart = windowStart,
+                            windowDurationMs = windowDurationMs,
+                            now = now,
+                            scrollOffsetPx = hScroll.value,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
 

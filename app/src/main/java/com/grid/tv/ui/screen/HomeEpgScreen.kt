@@ -1229,21 +1229,22 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(
-        focusZone,
-        displayChannels.size,
-        showPreviewSection,
-        hasContinueWatching,
-        showCategoryFilterMenu,
-        showGuideGroupPicker
-    ) {
-        if (showCategoryFilterMenu || showGuideGroupPicker) return@LaunchedEffect
-        requestEpgZoneFocus(focusZone)
-    }
-
     LaunchedEffect(displayChannels.isEmpty()) {
         if (displayChannels.isEmpty() && focusZone == EpgFocusZone.GRID) {
             focusEpgZone(EpgFocusZone.GRID_FILTER)
+        }
+    }
+
+    var hasRequestedInitialGridFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(isInitializing, displayChannels.isNotEmpty()) {
+        if (
+            !isInitializing &&
+            displayChannels.isNotEmpty() &&
+            !hasRequestedInitialGridFocus &&
+            focusZone == EpgFocusZone.GRID
+        ) {
+            hasRequestedInitialGridFocus = true
+            requestEpgZoneFocus(EpgFocusZone.GRID)
         }
     }
 
