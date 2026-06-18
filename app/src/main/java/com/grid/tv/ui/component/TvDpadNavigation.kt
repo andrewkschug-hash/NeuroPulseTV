@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -340,15 +339,6 @@ fun TvTextField(
                 .background(TvInputBg, fieldShape)
                 .focusRequester(effectiveFocusRequester)
                 .focusable(enabled, interactionSource = interactionSource)
-                .focusProperties {
-                    exit = {
-                        if (inputActive) {
-                            androidx.compose.ui.focus.FocusRequester.Cancel
-                        } else {
-                            androidx.compose.ui.focus.FocusRequester.Default
-                        }
-                    }
-                }
                 .onPreviewKeyEvent(::handleFieldKey)
                 .onKeyEvent(::handleFieldKey)
                 .tvFocusScrollIntoView()
