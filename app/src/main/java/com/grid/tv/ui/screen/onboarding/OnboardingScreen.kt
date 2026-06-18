@@ -50,7 +50,6 @@ import com.grid.tv.ui.viewmodel.OnboardingViewModel
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.input.ImeAction
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
-import com.grid.tv.util.consumeImeKeysWhenVisible
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -596,7 +595,6 @@ private fun EntryScaffold(
                 isEditing = { isEditing },
                 onDismissEditing = onDismissEditing
             )
-            .consumeImeKeysWhenVisible()
     ) {
         TvScrollContainer(
             modifier = Modifier

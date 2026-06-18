@@ -55,7 +55,6 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
-import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.lockFocusWhileTyping
@@ -120,10 +119,8 @@ fun handleTvFocusChainKey(
     onDismissEditing: () -> Unit
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
-    if (isEditing()) {
-        return event.key != Key.Back && event.key != Key.Escape
-    }
+    if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+    if (isEditing()) return false
     return when (event.key) {
         Key.DirectionDown -> {
             when (chain.focusedIndex) {
@@ -284,12 +281,11 @@ fun TvTextField(
     fun handleFieldKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (inputActive) {
-            return when {
-                event.key == Key.Back || event.key == Key.Escape -> {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
                     dismissInput()
                     true
                 }
-                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> true
                 else -> false
             }
         }

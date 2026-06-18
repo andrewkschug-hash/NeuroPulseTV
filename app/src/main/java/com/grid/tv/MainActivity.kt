@@ -138,7 +138,10 @@ class MainActivity : ComponentActivity() {
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {
-                return super.dispatchKeyEvent(event)
+                // Route D-pad to the IME window first; mark handled so app focus chains
+                // do not steal keys that the on-screen keyboard needs for key navigation.
+                super.dispatchKeyEvent(event)
+                return true
             }
             if (VoiceSearchKeys.isMicKey(event.keyCode)) {
                 micSearchTrigger.trigger()
