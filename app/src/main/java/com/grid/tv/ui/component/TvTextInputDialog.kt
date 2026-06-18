@@ -1,5 +1,6 @@
 package com.grid.tv.ui.component
 
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.grid.tv.ui.theme.DmSansFamily
+import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.launch
@@ -84,6 +86,10 @@ fun TvTextInputDialog(
     val scope = rememberCoroutineScope()
     val fieldInteraction = remember { MutableInteractionSource() }
     val fieldFocused by fieldInteraction.collectIsFocusedAsState()
+    val imm = view.context.getSystemService(InputMethodManager::class.java)
+
+    fun isKeyboardVisible(): Boolean =
+        imm?.isAcceptingText == true || TvTextInputSession.isActive
 
     fun openKeyboard() {
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
@@ -132,35 +138,41 @@ fun TvTextInputDialog(
 
     fun handleDialogKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
-            Key.DirectionDown -> {
-                if (focusZone == TvInputDialogFocus.Field) {
-                    focusZone = TvInputDialogFocus.Confirm
-                }
+            Key.Back, Key.Escape -> {
+                dismiss()
                 true
+            }
+            Key.DirectionDown -> {
+                when (focusZone) {
+                    TvInputDialogFocus.Field -> {
+                        if (isKeyboardVisible()) return false
+                        focusZone = TvInputDialogFocus.Confirm
+                        true
+                    }
+                    TvInputDialogFocus.Confirm -> false
+                }
             }
             Key.DirectionUp -> {
                 if (focusZone == TvInputDialogFocus.Confirm) {
                     focusZone = TvInputDialogFocus.Field
+                    true
+                } else {
+                    false
                 }
-                true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 when (focusZone) {
+                    // Enter/OK on the on-screen keyboard must reach the IME, not the dialog.
+                    TvInputDialogFocus.Field -> false
                     TvInputDialogFocus.Confirm -> {
                         confirm()
                         true
                     }
-                    TvInputDialogFocus.Field -> {
-                        openKeyboard()
-                        true
-                    }
                 }
             }
-            Key.Back, Key.Escape -> {
-                dismiss()
-                true
+            Key.DirectionLeft, Key.DirectionRight -> {
+                if (focusZone == TvInputDialogFocus.Field && isKeyboardVisible()) false else false
             }
             else -> false
         }
@@ -169,10 +181,12 @@ fun TvTextInputDialog(
     BackHandler(onBack = ::dismiss)
 
     Dialog(
-        onDismissRequest = ::dismiss,
+        onDismissRequest = {
+            // Only Back should close; ignore platform dismiss from Enter/OK.
+        },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
+            dismissOnBackPress = false,
             dismissOnClickOutside = false,
             decorFitsSystemWindows = false
         )
@@ -181,8 +195,15 @@ fun TvTextInputDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xF0101018))
-                .onPreviewKeyEvent(::handleDialogKey)
-                .onKeyEvent(::handleDialogKey),
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    if (focusZone == TvInputDialogFocus.Field &&
+                        TvImeKeyDispatcher.isImeNavigationKey(event.key)
+                    ) {
+                        return@onPreviewKeyEvent false
+                    }
+                    handleDialogKey(event)
+                },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -212,9 +233,9 @@ fun TvTextInputDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = keyboardType,
-                        imeAction = ImeAction.Done
+                        imeAction = ImeAction.None
                     ),
-                    keyboardActions = KeyboardActions(onDone = { confirm() }),
+                    keyboardActions = KeyboardActions.Default,
                     visualTransformation = if (isPassword) {
                         PasswordVisualTransformation()
                     } else {
@@ -237,12 +258,14 @@ fun TvTextInputDialog(
                         }
                         .onPreviewKeyEvent { event ->
                             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                             when (event.key) {
                                 Key.Back, Key.Escape -> {
                                     dismiss()
                                     true
                                 }
+                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter,
+                                Key.DirectionUp, Key.DirectionDown,
+                                Key.DirectionLeft, Key.DirectionRight -> false
                                 else -> false
                             }
                         },
