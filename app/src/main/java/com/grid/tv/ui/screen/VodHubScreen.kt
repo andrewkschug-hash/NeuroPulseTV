@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -55,6 +56,7 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
+import com.grid.tv.util.quitAppToHome
 import com.grid.tv.ui.viewmodel.VodHubViewModel
 import kotlinx.coroutines.delay
 
@@ -103,6 +105,7 @@ fun VodHubScreen(
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val recommendedForYou by hubViewModel.recommendedForYou.collectAsStateWithLifecycle()
     val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
     val heroMovie by hubViewModel.heroMovie.collectAsStateWithLifecycle()
@@ -394,6 +397,7 @@ fun VodHubScreen(
                     profileMenuOpen = false
                     onNavigateSettings()
                 },
+                onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tabItem ->
                     focusZone = VodFocusZone.TOP_BAR

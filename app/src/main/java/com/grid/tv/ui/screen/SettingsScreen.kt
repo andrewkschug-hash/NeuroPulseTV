@@ -35,6 +35,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
@@ -68,6 +69,7 @@ import com.grid.tv.ui.screen.ProfileAvatarColors
 import com.grid.tv.ui.component.PinEntryDialog
 import com.grid.tv.ui.component.ConnectionResultDialog
 import com.grid.tv.ui.component.FactoryResetConfirmDialog
+import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.TvScrollContainer
 import com.grid.tv.ui.component.SettingsChip
 import com.grid.tv.ui.component.SettingsContentFocus
@@ -110,6 +112,7 @@ import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 import com.grid.tv.util.profileInitials
+import com.grid.tv.util.quitAppToHome
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -173,8 +176,10 @@ fun SettingsScreen(
     val profiles by profileViewModel.profiles.collectAsStateWithLifecycle()
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val scannerRuntime by viewModel.scannerRuntime.collectAsStateWithLifecycle()
+    val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
     val signedInAccount by authViewModel.signedInAccount.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var profileMenuOpen by remember { mutableStateOf(false) }
@@ -213,6 +218,7 @@ fun SettingsScreen(
     var xtreamPass by remember { mutableStateOf("") }
     var editingPlaylistId by remember { mutableStateOf<Long?>(null) }
     var showConnectionForm by remember { mutableStateOf(false) }
+    var showGuideGroupPicker by remember { mutableStateOf(false) }
 
     fun dismissConnectionForm() {
         showConnectionForm = false
@@ -533,6 +539,7 @@ fun SettingsScreen(
                     onSwitchProfile()
                 },
                 onOpenSettings = { profileMenuOpen = false },
+                onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tab ->
                     topBarFocusIndex = GridNavTabs.indexOf(tab)
@@ -741,11 +748,13 @@ fun SettingsScreen(
                         )
                         SettingsSection.Guide -> GuideSettingsContent(
                             settings = settings,
+                            channelGroups = channelGroups,
                             scannerRuntime = scannerRuntime,
                             now = now,
                             focus = contentFocus,
                             onRefreshEpg = { viewModel.refreshEpg() },
                             onOpenEpgResolver = onOpenEpgResolver,
+                            onEditChannelGroups = { showGuideGroupPicker = true },
                             onRowHeight = { viewModel.updateRowHeight(it) },
                             onToggleAutoScan = { viewModel.updateAutoScanEnabled(it) },
                             onScanInterval = { viewModel.updateScanIntervalMinutes(it) },
@@ -836,6 +845,20 @@ fun SettingsScreen(
                 onGoToGuide = {
                     viewModel.dismissConnectionDialog()
                     onNavigateHome()
+                }
+            )
+        }
+
+        if (showGuideGroupPicker && channelGroups.isNotEmpty()) {
+            GuideGroupPickerDialog(
+                channelGroups = channelGroups,
+                initialSelection = settings.guideChannelGroups,
+                title = "Edit channel groups",
+                subtitle = "Choose which provider groups appear in your live guide.",
+                onDismiss = { showGuideGroupPicker = false },
+                onConfirm = { groups ->
+                    showGuideGroupPicker = false
+                    viewModel.updateGuideChannelGroups(groups)
                 }
             )
         }
@@ -1442,11 +1465,13 @@ private fun ConnectionFormPanel(
 @Composable
 private fun GuideSettingsContent(
     settings: com.grid.tv.domain.model.AppSettings,
+    channelGroups: List<String>,
     scannerRuntime: ScannerRuntimeState,
     now: Long,
     focus: SettingsContentFocus,
     onRefreshEpg: () -> Unit,
     onOpenEpgResolver: () -> Unit,
+    onEditChannelGroups: () -> Unit,
     onRowHeight: (EpgRowHeight) -> Unit,
     onToggleAutoScan: (Boolean) -> Unit,
     onScanInterval: (Int) -> Unit,
@@ -1468,8 +1493,33 @@ private fun GuideSettingsContent(
         }
     }
     SettingsPanel(
-        title = "Guide row height",
+        title = "Channel groups",
+        description = "Choose which provider groups appear in the live guide.",
         cardIndex = 1,
+        focus = focus
+    ) {
+        val summary = when {
+            settings.guideChannelGroups.isEmpty() -> "Showing all channel groups"
+            settings.guideChannelGroups.size == 1 -> settings.guideChannelGroups.first()
+            else -> "${settings.guideChannelGroups.size} groups selected"
+        }
+        Text(
+            text = summary,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        SettingsFocusButton(
+            text = "Edit channel groups",
+            onClick = onEditChannelGroups,
+            chainIndex = 2,
+            focus = focus
+        )
+    }
+    SettingsPanel(
+        title = "Guide row height",
+        cardIndex = 2,
         focus = focus
     ) {
         val rowLabels = EpgRowHeight.entries.map { height ->
@@ -1478,7 +1528,7 @@ private fun GuideSettingsContent(
         SettingsFocusPillGroup(
             labels = rowLabels,
             selectedIndex = EpgRowHeight.entries.indexOf(settings.epgRowHeight).coerceAtLeast(0),
-            startChainIndex = 2,
+            startChainIndex = 3,
             focus = focus,
             onSelect = { index -> onRowHeight(EpgRowHeight.entries[index]) }
         )
@@ -1486,7 +1536,7 @@ private fun GuideSettingsContent(
     SettingsPanel(
         title = "Channel Scanner",
         description = "Background checks stream URLs without playing them.",
-        cardIndex = 2,
+        cardIndex = 3,
         focus = focus
     ) {
         Text(
@@ -1498,7 +1548,7 @@ private fun GuideSettingsContent(
         SettingsFocusPillGroup(
             labels = listOf("On", "Turn off"),
             selectedIndex = if (settings.autoScanEnabled) 0 else 1,
-            startChainIndex = 5,
+            startChainIndex = 6,
             focus = focus,
             onSelect = { index -> onToggleAutoScan(index == 0) }
         )
@@ -1513,7 +1563,7 @@ private fun GuideSettingsContent(
         SettingsFocusPillGroup(
             labels = scanIntervals.map { "${it}m" },
             selectedIndex = scanIntervals.indexOf(settings.scanIntervalMinutes).coerceAtLeast(0),
-            startChainIndex = 7,
+            startChainIndex = 8,
             focus = focus,
             onSelect = { index -> onScanInterval(scanIntervals[index]) }
         )
@@ -1528,7 +1578,7 @@ private fun GuideSettingsContent(
         SettingsFocusPillGroup(
             labels = concurrentCounts.map { it.toString() },
             selectedIndex = concurrentCounts.indexOf(settings.concurrentChecks).coerceAtLeast(0),
-            startChainIndex = 12,
+            startChainIndex = 13,
             focus = focus,
             onSelect = { index -> onConcurrentChecks(concurrentCounts[index]) }
         )
@@ -1536,14 +1586,14 @@ private fun GuideSettingsContent(
             label = "Scan on metered / mobile connections",
             enabled = settings.scanOnMetered,
             onToggle = { onToggleScanOnMetered(!settings.scanOnMetered) },
-            chainIndex = 16,
+            chainIndex = 17,
             focus = focus
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
             SettingsFocusButton(
                 text = if (scannerRuntime.isScanning) "Scanning…" else "Scan Now",
                 onClick = onScanNow,
-                chainIndex = 17,
+                chainIndex = 18,
                 focus = focus,
                 enabled = !scannerRuntime.isScanning
             )
@@ -1567,7 +1617,7 @@ private fun GuideSettingsContent(
     SettingsPanel(
         title = "Guide display",
         description = "Sidebar programme info and catch-up playback behavior.",
-        cardIndex = 3,
+        cardIndex = 4,
         focus = focus
     ) {
         SettingsFocusToggleRow(
@@ -1575,7 +1625,7 @@ private fun GuideSettingsContent(
             description = "Display title and time for the selected programme",
             enabled = settings.showEpgProgramInfoOnSidebar,
             onToggle = onToggleShowEpgSidebar,
-            chainIndex = 18,
+            chainIndex = 19,
             focus = focus
         )
         SettingsFocusToggleRow(
@@ -1583,7 +1633,7 @@ private fun GuideSettingsContent(
             description = "Jump to programme start instead of joining live edge",
             enabled = settings.startChannelFromBeginningOnCatchup,
             onToggle = onToggleCatchupFromBeginning,
-            chainIndex = 19,
+            chainIndex = 20,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
         )

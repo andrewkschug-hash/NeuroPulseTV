@@ -520,7 +520,7 @@ fun connectionsFocusCount(playlistType: PlaylistType, playlistCount: Int): Int =
     connectionsListFocusCount(playlistCount) + connectionsAddFocusCount(playlistType)
 
 /** GuideSettingsContent chain indices 0..19. */
-const val GUIDE_FOCUS_COUNT = 20
+const val GUIDE_FOCUS_COUNT = 21
 
 /**
  * PlaybackSettingsContent chain indices 0..28:

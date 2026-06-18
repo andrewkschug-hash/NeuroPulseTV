@@ -86,6 +86,7 @@ object AppProvidesModule {
             .addMigrations(DbMigrations.MIGRATION_22_23)
             .addMigrations(DbMigrations.MIGRATION_23_24)
             .addMigrations(DbMigrations.MIGRATION_24_25)
+            .addMigrations(DbMigrations.MIGRATION_25_26)
              .build()
 
     @Provides

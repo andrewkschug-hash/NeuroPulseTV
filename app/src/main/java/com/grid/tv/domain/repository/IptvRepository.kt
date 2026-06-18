@@ -28,7 +28,7 @@ interface IptvRepository {
     fun groups(): Flow<List<String>>
     fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     suspend fun channelsPage(
-        group: String?,
+        groups: Set<String> = emptySet(),
         search: String,
         favoritesOnly: Boolean,
         favoriteGroupId: Long? = null,

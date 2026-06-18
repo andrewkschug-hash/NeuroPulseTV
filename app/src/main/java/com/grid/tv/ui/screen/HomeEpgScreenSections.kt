@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.grid.tv.data.db.entity.ScheduledRecordingEntity
 import com.grid.tv.domain.epg.EpgProgramReplayState
 import com.grid.tv.domain.model.Channel
-import com.grid.tv.feature.epg.ChannelCategoryFilter
+import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ChannelScanSnapshot
@@ -129,7 +129,7 @@ internal fun HomeEpgChannelList(
     now: Long,
     windowStart: Long,
     windowDurationMs: Long,
-    categoryFilter: ChannelCategoryFilter,
+    guideFilter: GuideChannelFilter,
     channelGroups: List<String>,
     gridFilterFocused: Boolean,
     gridFilterFocusRequester: FocusRequester,
@@ -189,8 +189,8 @@ internal fun HomeEpgChannelList(
                                     fontSize = 12.sp
                                 )
                                 EpgCategoryFilterChip(
-                                    label = categoryFilter.label,
-                                    active = categoryFilter.isActive,
+                                    label = guideFilter.label,
+                                    active = guideFilter.isActive,
                                     focused = gridFilterFocused,
                                     headerStyle = true,
                                     onClick = onOpenCategoryFilter,
@@ -225,7 +225,7 @@ internal fun HomeEpgChannelList(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(displayChannels.size) { index ->
+                            items(displayChannels.size, key = { index -> displayChannels[index].id }) { index ->
                                 val channel = displayChannels[index]
                                 val programs = programsForChannel(channel)
                                 Row(modifier = Modifier.fillMaxWidth()) {

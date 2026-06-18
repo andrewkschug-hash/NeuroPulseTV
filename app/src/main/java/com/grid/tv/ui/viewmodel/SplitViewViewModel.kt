@@ -52,7 +52,7 @@ class SplitViewViewModel @Inject constructor(
             loadingChannels = true
             try {
                 val page = repository.channelsPage(
-                    group = null,
+                    groups = emptySet(),
                     search = "",
                     favoritesOnly = false,
                     favoriteGroupId = null,

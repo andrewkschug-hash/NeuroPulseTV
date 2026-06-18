@@ -108,6 +108,28 @@ interface ChannelDao {
         offset: Int
     ): List<ChannelEntity>
 
+    @Query(
+        """
+        SELECT c.* FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE c.groupName IN (:groupNames)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+        ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun channelsPageInGroups(
+        groupNames: List<String>,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        limit: Int,
+        offset: Int
+    ): List<ChannelEntity>
+
     @Query("SELECT * FROM channels ORDER BY number")
     suspend fun all(): List<ChannelEntity>
 

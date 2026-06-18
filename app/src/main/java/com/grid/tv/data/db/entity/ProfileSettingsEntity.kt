@@ -49,5 +49,8 @@ data class ProfileSettingsEntity(
     val recordQuality: String = "ORIGINAL",
     val recordedPlaybackSpeed: Float = 1f,
     val themeId: String = "NEURO_BLUE",
-    val pictureInPictureEnabled: Boolean = true
+    val pictureInPictureEnabled: Boolean = true,
+    /** Pipe-separated Xtream live group names shown in the guide; empty = all groups. */
+    val guideChannelGroups: String = "",
+    val guideFiltersConfigured: Boolean = false
 )

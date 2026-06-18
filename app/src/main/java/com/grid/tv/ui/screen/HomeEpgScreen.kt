@@ -70,7 +70,7 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.feature.epg.EpgPlaceholderData
-import com.grid.tv.feature.epg.ChannelCategoryPresets
+import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.recording.RecordingStatus
 import com.grid.tv.di.PlayerEntryPoint
 import com.grid.tv.di.SearchEntryPoint
@@ -87,13 +87,13 @@ import com.grid.tv.ui.component.EpgJumpToLiveButton
 import com.grid.tv.ui.component.EpgTimelineHeader
 import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.SearchResultType
-import com.grid.tv.ui.component.CategoryFilterMenu
 import com.grid.tv.ui.component.ContinueWatchingRow
+import com.grid.tv.ui.component.GuideGroupFilterMenu
+import com.grid.tv.ui.component.GuideGroupPickerDialog
+import com.grid.tv.ui.component.guideFilterForMenuSelection
+import com.grid.tv.ui.component.guideFilterMenuItemCount
 import com.grid.tv.ui.component.MoviesHomeRow
 import com.grid.tv.ui.component.SeriesHomeRow
-import com.grid.tv.ui.component.categoryFilterForMenuIndex
-import com.grid.tv.ui.component.categoryFilterMenuItemCount
-import com.grid.tv.ui.component.currentCategoryMenuIndex
 import com.grid.tv.ui.component.EpgCategoryFilterChip
 import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GridNavTabs
@@ -109,6 +109,7 @@ import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
+import com.grid.tv.util.quitAppToHome
 import kotlinx.coroutines.launch
 
 private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FILTER, GRID }
@@ -153,7 +154,9 @@ fun HomeEpgScreen(
     val recordingHealth by recordingViewModel.recordingHealth.collectAsStateWithLifecycle()
     val favoriteGroups by viewModel.favoriteGroups.collectAsStateWithLifecycle()
     val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
-    val categoryFilter by viewModel.categoryFilter.collectAsStateWithLifecycle()
+    val guideFilter by viewModel.guideFilter.collectAsStateWithLifecycle()
+    val guideFiltersConfigured by viewModel.guideFiltersConfigured.collectAsStateWithLifecycle()
+    val isReloadingChannels by viewModel.isReloadingChannels.collectAsStateWithLifecycle()
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val hasCatalogChannels by viewModel.hasCatalogChannels.collectAsStateWithLifecycle()
     val demoFavoriteIds by viewModel.demoFavoriteIds.collectAsStateWithLifecycle()
@@ -195,6 +198,7 @@ fun HomeEpgScreen(
                 Lifecycle.Event.ON_RESUME -> {
                     previewSurfaceAttached = true
                     viewModel.reloadPlaybackSettings(context)
+                    viewModel.reloadGuideSettings()
                     viewModel.setScannerForeground(true)
                     if (guidePreviewEnabledState.value) {
                         viewModel.resumeGuidePreviewIfEnabled(context)
@@ -222,12 +226,12 @@ fun HomeEpgScreen(
         showEmptyState,
         favoriteGroupFilter,
         demoFavoriteIds,
-        categoryFilter
+        guideFilter
     ) {
         when {
             showEmptyState -> emptyList()
             usePlaceholder -> {
-                val all = ChannelCategoryPresets.apply(EpgPlaceholderData.channels(), categoryFilter)
+                val all = EpgPlaceholderData.channels().filter { guideFilter.appliesTo(it) }
                 when (favoriteGroupFilter) {
                     null -> all
                     HomeEpgViewModel.FAVORITES_FILTER -> all.filter { it.id in demoFavoriteIds }
@@ -238,7 +242,7 @@ fun HomeEpgScreen(
         }
     }
     val showFilteredEmptyState = !usePlaceholder && !showEmptyState &&
-        displayChannels.isEmpty() && (categoryFilter.isActive || favoriteGroupFilter != null)
+        displayChannels.isEmpty() && (guideFilter.isActive || favoriteGroupFilter != null)
     val displayPrograms = remember(displayChannels, epgWindow, windowStart, windowDurationMs, usePlaceholder, showEmptyState) {
         when {
             showEmptyState -> emptyList()
@@ -337,7 +341,7 @@ fun HomeEpgScreen(
         viewModel.resumeGuidePreviewIfEnabled(context)
     }
 
-    LaunchedEffect(categoryFilter, displayChannels, previewChannelId, guidePreviewEnabled) {
+    LaunchedEffect(guideFilter, displayChannels, previewChannelId, guidePreviewEnabled) {
         if (!guidePreviewEnabled) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
             viewModel.clearGuidePreviewUi()
@@ -356,6 +360,7 @@ fun HomeEpgScreen(
     var showFavoritePicker by remember { mutableStateOf(false) }
     var showCreateGroup by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
+    var showGuideGroupPicker by remember { mutableStateOf(false) }
     var showCategoryFilterMenu by remember { mutableStateOf(false) }
     var categoryMenuFocusIndex by remember { mutableIntStateOf(0) }
 
@@ -518,7 +523,7 @@ fun HomeEpgScreen(
     val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
     val channelPrograms = remember(focusedChannel, displayPrograms) {
         focusedChannel?.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
         } ?: emptyList()
     }
     val focusedProgram = if (focusOnChannelColumn) {
@@ -534,7 +539,7 @@ fun HomeEpgScreen(
     val previewChannel = channelById(previewChannelId)
     val previewChannelPrograms = remember(previewChannel, displayPrograms) {
         previewChannel?.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId == epgId }.sortedBy { it.startTime }
+            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
         } ?: emptyList()
     }
     val previewProgram = remember(
@@ -610,7 +615,14 @@ fun HomeEpgScreen(
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
     }
 
-    LaunchedEffect(displayChannels.size) {
+    LaunchedEffect(hasCatalogChannels, guideFiltersConfigured, channelGroups) {
+        if (hasCatalogChannels && !guideFiltersConfigured && channelGroups.isNotEmpty()) {
+            showGuideGroupPicker = true
+        }
+    }
+
+    LaunchedEffect(displayChannels.size, isReloadingChannels) {
+        if (isReloadingChannels) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
             focusChannelIndex = 0
             focusProgramIndex = 0
@@ -768,9 +780,9 @@ fun HomeEpgScreen(
         focusZone = EpgFocusZone.GRID_FILTER
     }
 
-    fun focusGuideChannels() {
+    fun focusGuideChannels(targetIndex: Int = focusChannelIndex) {
         focusZone = EpgFocusZone.GRID
-        focusChannelIndex = 0
+        focusChannelIndex = targetIndex.coerceIn(0, displayChannels.lastIndex.coerceAtLeast(0))
         focusOnChannelColumn = true
     }
 
@@ -823,7 +835,7 @@ fun HomeEpgScreen(
 
     fun handleCategoryFilterMenuKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        val menuCount = categoryFilterMenuItemCount()
+        val menuCount = guideFilterMenuItemCount(channelGroups)
         return when (event.key) {
             Key.DirectionUp -> {
                 categoryMenuFocusIndex = (categoryMenuFocusIndex - 1).coerceAtLeast(0)
@@ -838,9 +850,12 @@ fun HomeEpgScreen(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                viewModel.setCategoryFilter(
-                    categoryFilterForMenuIndex(categoryMenuFocusIndex)
+                val next = guideFilterForMenuSelection(
+                    channelGroups,
+                    guideFilter.selectedGroups,
+                    categoryMenuFocusIndex
                 )
+                viewModel.setGuideFilter(next, markConfigured = true)
                 showCategoryFilterMenu = false
                 true
             }
@@ -861,7 +876,12 @@ fun HomeEpgScreen(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter)
+                categoryMenuFocusIndex = if (guideFilter.selectedGroups.isEmpty()) {
+                    0
+                } else {
+                    channelGroups.indexOfFirst { it in guideFilter.selectedGroups }
+                        .takeIf { it >= 0 }?.plus(1) ?: 0
+                }
                 showCategoryFilterMenu = true
                 true
             }
@@ -1198,6 +1218,7 @@ fun HomeEpgScreen(
                     profileMenuOpen = false
                     onNavigateSettings()
                 },
+                onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tab ->
                     focusZone = EpgFocusZone.TOP_BAR
@@ -1301,13 +1322,18 @@ fun HomeEpgScreen(
                 now = now,
                 windowStart = windowStart,
                 windowDurationMs = windowDurationMs,
-                categoryFilter = categoryFilter,
+                guideFilter = guideFilter,
                 channelGroups = channelGroups,
                 gridFilterFocused = focusZone == EpgFocusZone.GRID_FILTER,
                 gridFilterFocusRequester = gridFilterFocusRequester,
                 onOpenCategoryFilter = {
                     focusZone = EpgFocusZone.GRID_FILTER
-                    categoryMenuFocusIndex = currentCategoryMenuIndex(categoryFilter)
+                    categoryMenuFocusIndex = if (guideFilter.selectedGroups.isEmpty()) {
+                        0
+                    } else {
+                        channelGroups.indexOfFirst { it in guideFilter.selectedGroups }
+                            .takeIf { it >= 0 }?.plus(1) ?: 0
+                    }
                     showCategoryFilterMenu = true
                 },
                 onGridFilterKey = ::handleGridFilterKey,
@@ -1315,7 +1341,7 @@ fun HomeEpgScreen(
                 displayChannels = displayChannels,
                 filteredEmptyMessage = when {
                     !showFilteredEmptyState -> null
-                    categoryFilter.isActive -> "No channels match \"${categoryFilter.label}\""
+                    guideFilter.isActive -> "No channels match your selected groups"
                     else -> "No channels in this favorites group"
                 },
                 programsForChannel = ::programsForChannel,
@@ -1336,15 +1362,37 @@ fun HomeEpgScreen(
             )
         }
 
-        CategoryFilterMenu(
+        GuideGroupFilterMenu(
             expanded = showCategoryFilterMenu,
+            channelGroups = channelGroups,
+            selectedGroups = guideFilter.selectedGroups,
             focusedIndex = categoryMenuFocusIndex,
             onDismiss = { showCategoryFilterMenu = false },
-            onSelect = { index ->
-                viewModel.setCategoryFilter(categoryFilterForMenuIndex(index))
-                showCategoryFilterMenu = false
+            onToggle = { index ->
+                val next = guideFilterForMenuSelection(
+                    channelGroups,
+                    guideFilter.selectedGroups,
+                    index
+                )
+                viewModel.setGuideFilter(next, markConfigured = true)
             }
         )
+
+        if (showGuideGroupPicker && channelGroups.isNotEmpty()) {
+            GuideGroupPickerDialog(
+                channelGroups = channelGroups,
+                initialSelection = guideFilter.selectedGroups,
+                onDismiss = {
+                    showGuideGroupPicker = false
+                    viewModel.saveGuideChannelGroups(emptySet(), markConfigured = true)
+                },
+                onConfirm = { groups ->
+                    showGuideGroupPicker = false
+                    viewModel.saveGuideChannelGroups(groups, markConfigured = true)
+                    focusChannelIndex = 0
+                }
+            )
+        }
 
         if (showFavoritePicker && favoriteGroups.isNotEmpty()) {
             androidx.compose.material3.AlertDialog(

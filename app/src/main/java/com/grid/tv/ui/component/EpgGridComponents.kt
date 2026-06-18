@@ -145,6 +145,7 @@ fun EpgTopBar(
     onProfileMenuDismiss: () -> Unit = {},
     onSwitchAccounts: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onQuitApp: () -> Unit = {},
     isRecording: Boolean = false,
     activeRecordingTitle: String? = null,
     recordingHealth: com.grid.tv.feature.recording.RecordingHealth = com.grid.tv.feature.recording.RecordingHealth.RECORDING,
@@ -207,7 +208,8 @@ fun EpgTopBar(
                 focusedIndex = profileMenuFocusIndex,
                 onDismiss = onProfileMenuDismiss,
                 onSwitchAccounts = onSwitchAccounts,
-                onOpenSettings = onOpenSettings
+                onOpenSettings = onOpenSettings,
+                onQuitApp = onQuitApp
             )
         }
 

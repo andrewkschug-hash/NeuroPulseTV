@@ -472,15 +472,15 @@ private fun ProfileColorSwatch(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    val highlighted = focus.isFocused(chainIndex)
     val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     val ringColor = when {
-        isFocused -> Color.White
+        highlighted -> Color.White
         selected -> Color.White.copy(alpha = 0.6f)
         else -> Color.Transparent
     }
     val ringWidth = when {
-        isFocused -> 3.dp
+        highlighted -> 3.dp
         selected -> 2.dp
         else -> 0.dp
     }
@@ -491,12 +491,11 @@ private fun ProfileColorSwatch(
             .size(52.dp)
             .then(settingsFocusModifier(chainIndex, focus, enabled = canReceiveFocus))
             .focusable(enabled = canReceiveFocus)
-            .onFocusChanged { isFocused = it.isFocused }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                        if (isFocused) {
+                        if (highlighted) {
                             onClick()
                             true
                         } else {

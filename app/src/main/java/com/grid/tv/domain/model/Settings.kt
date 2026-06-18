@@ -60,5 +60,8 @@ data class AppSettings(
     val recordQuality: RecordQuality = RecordQuality.ORIGINAL,
     val recordedPlaybackSpeed: Float = 1f,
     val themeId: AppThemeId = AppThemeId.NEURO_BLUE,
-    val pictureInPictureEnabled: Boolean = true
+    val pictureInPictureEnabled: Boolean = true,
+    /** Xtream/provider live groups shown in the guide; empty = all channels. */
+    val guideChannelGroups: Set<String> = emptySet(),
+    val guideFiltersConfigured: Boolean = false
 )

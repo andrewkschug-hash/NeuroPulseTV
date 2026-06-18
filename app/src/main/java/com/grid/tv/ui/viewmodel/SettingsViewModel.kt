@@ -77,6 +77,9 @@ class SettingsViewModel @Inject constructor(
     val xtreamAccounts: StateFlow<List<XtreamAccountInfo>> = repository.xtreamAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val channelGroups: StateFlow<List<String>> = repository.groups()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _settings = MutableStateFlow(AppSettings())
     val settings = _settings.asStateFlow()
 
@@ -338,6 +341,17 @@ class SettingsViewModel @Inject constructor(
     fun updateRowHeight(value: EpgRowHeight) {
         viewModelScope.launch {
             val updated = _settings.value.copy(epgRowHeight = value)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
+    fun updateGuideChannelGroups(groups: Set<String>) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(
+                guideChannelGroups = groups,
+                guideFiltersConfigured = true
+            )
             _settings.value = updated
             repository.saveSettings(updated)
         }

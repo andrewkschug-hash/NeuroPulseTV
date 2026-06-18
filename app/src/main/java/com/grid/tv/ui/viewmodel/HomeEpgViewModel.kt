@@ -24,8 +24,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
-import com.grid.tv.feature.epg.ChannelCategoryFilter
-import com.grid.tv.feature.epg.ChannelCategoryPresets
+import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
@@ -140,8 +139,14 @@ class HomeEpgViewModel @Inject constructor(
     val favoriteGroups: StateFlow<List<FavoriteGroup>> = repository.favoriteGroups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _categoryFilter = MutableStateFlow(ChannelCategoryFilter.All)
-    val categoryFilter: StateFlow<ChannelCategoryFilter> = _categoryFilter.asStateFlow()
+    private val _guideFilter = MutableStateFlow(GuideChannelFilter.All)
+    val guideFilter: StateFlow<GuideChannelFilter> = _guideFilter.asStateFlow()
+
+    private val _isReloadingChannels = MutableStateFlow(false)
+    val isReloadingChannels: StateFlow<Boolean> = _isReloadingChannels.asStateFlow()
+
+    private val _guideFiltersConfigured = MutableStateFlow(false)
+    val guideFiltersConfigured: StateFlow<Boolean> = _guideFiltersConfigured.asStateFlow()
 
     val channelGroups: StateFlow<List<String>> = repository.groups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -291,7 +296,7 @@ class HomeEpgViewModel @Inject constructor(
                 .collectLatest { loadWindow() }
         }
         viewModelScope.launch {
-            combine(_favoriteGroupFilter, _categoryFilter, _hideAdultContent) { _, _, _ -> }
+            combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent) { _, _, _ -> }
                 .collectLatest { reloadChannels() }
         }
         viewModelScope.launch {
@@ -303,6 +308,8 @@ class HomeEpgViewModel @Inject constructor(
             val settings = repository.loadSettings()
             _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
             _hideAdultContent.value = settings.hideAdultContent
+            _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+            _guideFiltersConfigured.value = settings.guideFiltersConfigured
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         }
@@ -314,7 +321,7 @@ class HomeEpgViewModel @Inject constructor(
                 if (list.isEmpty()) {
                     _demoFavoriteIds.value = emptySet()
                     _favoriteGroupFilter.value = null
-                    _categoryFilter.value = ChannelCategoryFilter.All
+                    _guideFilter.value = GuideChannelFilter.All
                 }
             }
         }
@@ -328,12 +335,43 @@ class HomeEpgViewModel @Inject constructor(
         _favoriteGroupFilter.value = groupId
     }
 
-    fun setCategoryFilter(filter: ChannelCategoryFilter) {
-        _categoryFilter.value = filter
+    fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
+        _guideFilter.value = filter
+        if (markConfigured) {
+            _guideFiltersConfigured.value = true
+            persistGuideFilter(filter, configured = true)
+        }
     }
 
-    fun clearCategoryFilter() {
-        _categoryFilter.value = ChannelCategoryFilter.All
+    fun saveGuideChannelGroups(groups: Set<String>, markConfigured: Boolean = true) {
+        val filter = GuideChannelFilter(groups)
+        _guideFilter.value = filter
+        _guideFiltersConfigured.value = markConfigured
+        persistGuideFilter(filter, configured = markConfigured)
+    }
+
+    fun reloadGuideSettings() {
+        viewModelScope.launch {
+            val settings = repository.loadSettings()
+            _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+            _guideFiltersConfigured.value = settings.guideFiltersConfigured
+        }
+    }
+
+    fun clearGuideFilter() {
+        setGuideFilter(GuideChannelFilter.All)
+    }
+
+    private fun persistGuideFilter(filter: GuideChannelFilter, configured: Boolean) {
+        viewModelScope.launch {
+            val current = repository.loadSettings()
+            repository.saveSettings(
+                current.copy(
+                    guideChannelGroups = filter.selectedGroups,
+                    guideFiltersConfigured = configured
+                )
+            )
+        }
     }
 
     /** Extend the visible timeline forward when the user navigates past loaded data. */
@@ -511,10 +549,13 @@ class HomeEpgViewModel @Inject constructor(
     private fun reloadChannels() {
         channelLoadJob?.cancel()
         channelLoadJob = viewModelScope.launch {
+            _isReloadingChannels.value = true
             _channels.value = emptyList()
             channelDbOffset = 0
             _hasMoreChannels.value = true
             loadMoreChannelsInternal()
+            _isReloadingChannels.value = false
+            loadWindow()
         }
     }
 
@@ -523,9 +564,9 @@ class HomeEpgViewModel @Inject constructor(
         loadingChannels = true
         try {
             val favoriteFilter = _favoriteGroupFilter.value
-            val category = _categoryFilter.value
+            val groups = _guideFilter.value.selectedGroups
             val page = repository.channelsPage(
-                group = category.groupName,
+                groups = groups,
                 search = "",
                 favoritesOnly = favoriteFilter != null,
                 favoriteGroupId = favoriteFilter,
@@ -534,7 +575,7 @@ class HomeEpgViewModel @Inject constructor(
             )
             channelDbOffset += page.size
             _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
-            val filtered = ChannelCategoryPresets.apply(page, category).let { list ->
+            val filtered = page.let { list ->
                 if (_hideAdultContent.value) {
                     list.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
                 } else {
@@ -542,6 +583,9 @@ class HomeEpgViewModel @Inject constructor(
                 }
             }
             _channels.value = _channels.value + filtered
+            if (filtered.isNotEmpty()) {
+                loadWindow()
+            }
         } finally {
             loadingChannels = false
         }
@@ -549,7 +593,12 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         _epgLoading.value = true
-        val epgIds = repository.allDistinctEpgIds()
+        val channelEpgIds = _channels.value.mapNotNull { it.epgId?.takeIf { id -> id.isNotBlank() } }.distinct()
+        val epgIds = if (channelEpgIds.isNotEmpty()) {
+            channelEpgIds
+        } else {
+            repository.allDistinctEpgIds().take(500)
+        }
         if (epgIds.isEmpty()) {
             _epgPrograms.value = emptyList()
             _epgLoading.value = false

@@ -52,6 +52,8 @@ import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
+import androidx.compose.ui.platform.LocalContext
+import com.grid.tv.util.quitAppToHome
 import com.grid.tv.util.profileInitials
 
 @Composable
@@ -68,6 +70,7 @@ fun AppNavHost(
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val profileInitials = activeProfile?.let { profileInitials(it.name) } ?: "?"
     val profileAvatarColor = activeProfile?.avatarColor ?: DEFAULT_PROFILE_AVATAR_COLOR
+    val context = LocalContext.current
 
     fun navigateToFavorites() {
         val homeRoute = Routes.Home.route
@@ -222,7 +225,8 @@ fun AppNavHost(
                     onOpenSettings = {
                         profileMenuOpen = false
                         navController.navigate(Routes.Settings.route) { launchSingleTop = true }
-                    }
+                    },
+                    onQuitApp = { context.quitAppToHome() }
                 )
             }
         }

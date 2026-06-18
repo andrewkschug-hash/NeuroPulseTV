@@ -72,6 +72,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
+import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.feature.backup.GridBackupManager
 import com.grid.tv.feature.health.StreamHealthEngine
@@ -371,7 +372,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun channelsPage(
-        group: String?,
+        groups: Set<String>,
         search: String,
         favoritesOnly: Boolean,
         favoriteGroupId: Long?,
@@ -379,15 +380,27 @@ class IptvRepositoryImpl @Inject constructor(
         offset: Int
     ): List<Channel> = withContext(Dispatchers.IO) {
         val groupFilter = favoriteGroupId ?: -1L
-        val rows = channelDao.channelsPage(
-            groupName = group,
-            search = search,
-            onlyFavorites = favoritesOnly,
-            profileId = activeProfileId,
-            favoriteGroupId = groupFilter,
-            limit = limit,
-            offset = offset
-        )
+        val rows = if (groups.isEmpty()) {
+            channelDao.channelsPage(
+                groupName = null,
+                search = search,
+                onlyFavorites = favoritesOnly,
+                profileId = activeProfileId,
+                favoriteGroupId = groupFilter,
+                limit = limit,
+                offset = offset
+            )
+        } else {
+            channelDao.channelsPageInGroups(
+                groupNames = groups.toList(),
+                search = search,
+                onlyFavorites = favoritesOnly,
+                profileId = activeProfileId,
+                favoriteGroupId = groupFilter,
+                limit = limit,
+                offset = offset
+            )
+        }
         mapChannelEntities(rows)
     }
 
@@ -1390,7 +1403,9 @@ class IptvRepositoryImpl @Inject constructor(
                 if (it <= 0f) 1f else it
             },
             themeId = AppThemeId.fromStored(db.themeId),
-            pictureInPictureEnabled = db.pictureInPictureEnabled
+            pictureInPictureEnabled = db.pictureInPictureEnabled,
+            guideChannelGroups = GuideChannelFilter.decode(db.guideChannelGroups),
+            guideFiltersConfigured = db.guideFiltersConfigured
         ).also {
             cachedSettings = it
             appHttpClient.applySettings(it)
@@ -1448,7 +1463,9 @@ class IptvRepositoryImpl @Inject constructor(
                 recordQuality = settings.recordQuality.name,
                 recordedPlaybackSpeed = settings.recordedPlaybackSpeed,
                 themeId = settings.themeId.name,
-                pictureInPictureEnabled = settings.pictureInPictureEnabled
+                pictureInPictureEnabled = settings.pictureInPictureEnabled,
+                guideChannelGroups = GuideChannelFilter.encode(settings.guideChannelGroups),
+                guideFiltersConfigured = settings.guideFiltersConfigured
             )
         )
     }

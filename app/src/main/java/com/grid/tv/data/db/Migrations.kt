@@ -731,4 +731,15 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_25_26 = object : Migration(25, 26) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN guideChannelGroups TEXT NOT NULL DEFAULT ''"
+            )
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN guideFiltersConfigured INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
 }

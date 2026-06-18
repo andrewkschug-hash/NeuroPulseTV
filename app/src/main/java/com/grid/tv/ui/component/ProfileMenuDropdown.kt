@@ -38,6 +38,7 @@ fun ProfileMenuDropdown(
     onDismiss: () -> Unit,
     onSwitchAccounts: () -> Unit,
     onOpenSettings: () -> Unit,
+    onQuitApp: () -> Unit,
     modifier: Modifier = Modifier,
     @Suppress("UNUSED_PARAMETER") focusedIndex: Int = 0
 ) {
@@ -67,6 +68,13 @@ fun ProfileMenuDropdown(
                 onClick = {
                     onDismiss()
                     onOpenSettings()
+                }
+            )
+            ProfileMenuDropdownItem(
+                label = "Quit app",
+                onClick = {
+                    onDismiss()
+                    onQuitApp()
                 }
             )
         }

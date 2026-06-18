@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -71,6 +72,7 @@ import com.grid.tv.ui.component.RecordingsHubHeader
 import com.grid.tv.ui.component.formatEpgTime
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.quitAppToHome
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import java.io.File
@@ -200,6 +202,7 @@ fun RecordingsScreen(
     val activeRecordingTitle by viewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val livePlayerManager = homeViewModel.livePlayerManager
+    val context = LocalContext.current
 
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
@@ -624,6 +627,7 @@ fun RecordingsScreen(
                     profileMenuOpen = false
                     onNavigateSettings()
                 },
+                onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tabItem ->
                     focusZone = RecFocusZone.TOP_BAR

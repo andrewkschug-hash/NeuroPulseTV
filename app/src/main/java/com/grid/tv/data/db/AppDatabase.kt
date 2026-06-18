@@ -113,7 +113,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         VodCatalogEpisodeEntity::class,
         VodUserNotificationEntity::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

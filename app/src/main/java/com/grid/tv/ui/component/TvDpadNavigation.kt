@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
+import com.grid.tv.ui.platform.LocalDeviceFormFactor
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
@@ -202,12 +203,22 @@ fun TvTextField(
     var editing by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
+    val formFactor = LocalDeviceFormFactor.current
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val showFocusBorder = isFocused || editing
 
-    LaunchedEffect(isFocused) {
-        if (isFocused && !editing) keyboard?.hide()
+    fun startEditing() {
+        if (!editing) {
+            editing = true
+            onEditingChanged(true)
+        }
+    }
+
+    LaunchedEffect(isFocused, editing) {
+        if (isFocused && editing) {
+            keyboard?.show()
+        }
     }
 
     fun stopEditing() {
@@ -245,7 +256,9 @@ fun TvTextField(
                         onHighlightChanged(it.isFocused)
                         if (it.isFocused) {
                             chain?.onItemFocused(chainIndex)
-                            if (!editing) keyboard?.hide()
+                            if (formFactor.isTelevision) {
+                                startEditing()
+                            }
                         }
                         if (!it.isFocused) stopEditing()
                     }
@@ -267,10 +280,11 @@ fun TvTextField(
                         when (event.key) {
                             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                                 if (isFocused && !editing) {
-                                    editing = true
-                                    onEditingChanged(true)
+                                    startEditing()
                                     keyboard?.show()
                                     true
+                                } else if (isFocused && editing) {
+                                    false
                                 } else {
                                     false
                                 }
@@ -314,7 +328,7 @@ fun TvTextField(
                 cursorBrush = SolidColor(TvFocusAccent),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusable(false),
+                    .focusable(editing),
                 decorationBox = { inner ->
                     if (value.isEmpty() && !editing) {
                         Text(
