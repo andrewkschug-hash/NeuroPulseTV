@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -208,7 +209,10 @@ internal fun OnboardingTextField(
     chainIndex: Int = -1,
     chain: TvFocusChain? = null,
     onEditingChanged: (Boolean) -> Unit = {},
-    onNavigateBack: () -> Unit = {}
+    onNavigateBack: () -> Unit = {},
+    imeAction: ImeAction = ImeAction.Done,
+    onImeNext: (() -> Unit)? = null,
+    onImeDone: (() -> Unit)? = null
 ) {
     TvTextField(
         value = value,
@@ -223,7 +227,10 @@ internal fun OnboardingTextField(
         chainIndex = chainIndex,
         chain = chain,
         onEditingChanged = onEditingChanged,
-        onNavigateBack = onNavigateBack
+        onNavigateBack = onNavigateBack,
+        imeAction = imeAction,
+        onImeNext = onImeNext,
+        onImeDone = onImeDone
     )
 }
 

@@ -47,7 +47,12 @@ import com.grid.tv.ui.component.tvVerticalDpadNavigation
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.viewmodel.OnboardingConnectState
 import com.grid.tv.ui.viewmodel.OnboardingViewModel
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.input.ImeAction
+import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import com.grid.tv.util.consumeImeKeysWhenVisible
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class OnboardingStep {
     MethodPicker,
@@ -278,6 +283,12 @@ private fun XtreamEntryScreen(
     var showNameField by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     val focusChain = rememberTvFocusChain(count = 6, startIndex = 1)
+    val scope = rememberCoroutineScope()
+
+    fun focusField(index: Int) {
+        focusChain.moveTo(index)
+        scope.launch { focusChain.requesters[index].requestFocusSafelyAfterLayout() }
+    }
 
     EntryScaffold(
         title = "Xtream Codes",
@@ -301,7 +312,9 @@ private fun XtreamEntryScreen(
             chainIndex = 1,
             chain = focusChain,
             onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack
+            onNavigateBack = onBack,
+            imeAction = ImeAction.Next,
+            onImeNext = { focusField(2) }
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -313,7 +326,9 @@ private fun XtreamEntryScreen(
             chainIndex = 2,
             chain = focusChain,
             onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack
+            onNavigateBack = onBack,
+            imeAction = ImeAction.Next,
+            onImeNext = { focusField(3) }
         )
         Spacer(modifier = Modifier.height(16.dp))
         OnboardingTextField(
@@ -326,7 +341,9 @@ private fun XtreamEntryScreen(
             chainIndex = 3,
             chain = focusChain,
             onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack
+            onNavigateBack = onBack,
+            imeAction = ImeAction.Done,
+            onImeDone = { focusField(4) }
         )
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
@@ -358,7 +375,9 @@ private fun XtreamEntryScreen(
                 chainIndex = 5,
                 chain = focusChain,
                 onEditingChanged = { isEditing = it },
-                onNavigateBack = onBack
+                onNavigateBack = onBack,
+                imeAction = ImeAction.Done,
+                onImeDone = { focusField(4) }
             )
         }
     }
@@ -577,6 +596,7 @@ private fun EntryScaffold(
                 isEditing = { isEditing },
                 onDismissEditing = onDismissEditing
             )
+            .consumeImeKeysWhenVisible()
     ) {
         TvScrollContainer(
             modifier = Modifier

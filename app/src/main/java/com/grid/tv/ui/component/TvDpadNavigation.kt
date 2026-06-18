@@ -120,8 +120,10 @@ fun handleTvFocusChainKey(
     onDismissEditing: () -> Unit
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-    if (isEditing()) return false
+    if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
+    if (isEditing()) {
+        return event.key != Key.Back && event.key != Key.Escape
+    }
     return when (event.key) {
         Key.DirectionDown -> {
             when (chain.focusedIndex) {
@@ -232,7 +234,10 @@ fun TvTextField(
     singleLine: Boolean = true,
     onEditingChanged: (Boolean) -> Unit = {},
     onHighlightChanged: (Boolean) -> Unit = {},
-    onNavigateBack: () -> Unit = {}
+    onNavigateBack: () -> Unit = {},
+    imeAction: ImeAction = ImeAction.Done,
+    onImeNext: (() -> Unit)? = null,
+    onImeDone: (() -> Unit)? = null
 ) {
     var inputActive by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
@@ -284,7 +289,7 @@ fun TvTextField(
                     dismissInput()
                     true
                 }
-                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
+                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> true
                 else -> false
             }
         }
@@ -322,9 +327,18 @@ fun TvTextField(
             singleLine = singleLine,
             keyboardOptions = KeyboardOptions(
                 keyboardType = keyboardType,
-                imeAction = if (singleLine) ImeAction.Done else ImeAction.Default
+                imeAction = imeAction
             ),
-            keyboardActions = KeyboardActions(onDone = { dismissInput() }),
+            keyboardActions = KeyboardActions(
+                onNext = {
+                    dismissInput()
+                    onImeNext?.invoke()
+                },
+                onDone = {
+                    dismissInput()
+                    onImeDone?.invoke()
+                }
+            ),
             visualTransformation = if (isPassword && !showPassword) {
                 PasswordVisualTransformation()
             } else {

@@ -9,6 +9,7 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -29,22 +30,24 @@ object TvTextInputSession {
         depth.updateAndGet { current -> (current - 1).coerceAtLeast(0) }
     }
 
-    /** @return true when parent handlers should not consume this key. */
-    fun deferNavigationToIme(event: KeyEvent): Boolean {
+    /** @return true when Compose should consume this key so it does not reach background fields. */
+    fun consumesImeNavigationKeys(event: KeyEvent): Boolean {
         if (!isActive || event.type != KeyEventType.KeyDown) return false
         return TvImeKeyDispatcher.isImeNavigationKey(event.key)
     }
 
-    /** Stand down all TV navigation while the IME owns D-pad input. */
-    fun shouldStandDownNavigation(): Boolean = isActive
-
-    /** Parent preview handlers must not consume these keys while text input is active. */
+    /** Parent preview handlers must not consume Back while text input is active. */
     fun shouldStandDownForActiveInput(event: KeyEvent): Boolean {
         if (!isActive || event.type != KeyEventType.KeyDown) return false
-        return deferNavigationToIme(event) ||
+        return consumesImeNavigationKeys(event) ||
             event.key == Key.Back ||
             event.key == Key.Escape
     }
+}
+
+/** Consume D-pad / Enter in Compose while the IME is open so focus stays on the keyboard. */
+fun Modifier.consumeImeKeysWhenVisible(): Modifier = onPreviewKeyEvent { event ->
+    TvTextInputSession.consumesImeNavigationKeys(event)
 }
 
 /** Prevent Compose from moving focus to sibling fields while the IME is open. */
