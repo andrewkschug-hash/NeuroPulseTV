@@ -301,7 +301,6 @@ internal fun GuideGroupAllChannelsRow(
 }
 
 @Composable
-@Composable
 internal fun GuideGroupCategoryRow(
     prefix: String,
     childCount: Int,
@@ -382,7 +381,6 @@ internal fun GuideGroupChildRow(
     )
 }
 
-@Composable
 @Composable
 private fun GuideGroupTreeRowShell(
     label: String,

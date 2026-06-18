@@ -17,10 +17,10 @@ class M3uParser {
             .forEach { line ->
                 when {
                     line.startsWith("#EXTM3U", ignoreCase = true) -> {
-                        headerAttr(line, "x-tvg-url")
+                        (headerAttr(line, "x-tvg-url")
                             ?: headerAttr(line, "url-tvg")
-                            ?: headerAttr(line, "tvg-url")
-                    }?.let { return it }
+                            ?: headerAttr(line, "tvg-url"))?.let { return it }
+                    }
                     line.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
                         val opt = line.substringAfter(':', "").trim()
                         if (opt.startsWith("url-tvg=", ignoreCase = true)) {
