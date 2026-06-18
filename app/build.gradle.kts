@@ -158,6 +158,7 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.google.googleid)
+    implementation(libs.play.services.cast.framework)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
 

@@ -1,6 +1,7 @@
 package com.grid.tv.ui.screen
 
 import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.component.CastButton
 import com.grid.tv.ui.platform.LocalDeviceFormFactor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -111,6 +112,8 @@ fun PlayerScreen(
         EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
     }
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
+    val chromecastController = remember { entryPoint.chromecastController() }
+    val isMobilePlayer = !LocalDeviceFormFactor.current.isTelevision
     val lastChannel by livePlayerManager.lastChannelFlow.collectAsStateWithLifecycle()
     val channel by viewModel.channel.collectAsStateWithLifecycle()
     val favoriteChannels by viewModel.favoriteChannels.collectAsStateWithLifecycle()
@@ -500,6 +503,7 @@ fun PlayerScreen(
     }
     val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
     val failoverUiState by livePlayerManager.failoverUiState.collectAsStateWithLifecycle()
+    val activeStreamUrl by livePlayerManager.activeStreamUrlFlow.collectAsStateWithLifecycle()
     val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
     val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
 
@@ -518,6 +522,21 @@ fun PlayerScreen(
     LaunchedEffect(Unit) {
         livePlayerManager.enterFullscreen()
         viewModel.pipController.setPlaybackActive(true)
+    }
+
+    DisposableEffect(isMobilePlayer) {
+        if (isMobilePlayer) {
+            chromecastController.bindSessionListener()
+            onDispose { chromecastController.unbindSessionListener() }
+        } else {
+            onDispose {}
+        }
+    }
+
+    LaunchedEffect(isMobilePlayer, channel?.id, activeStreamUrl) {
+        if (isMobilePlayer && channel != null) {
+            chromecastController.onActiveChannelChanged()
+        }
     }
 
     LaunchedEffect(channelId) {
@@ -749,6 +768,14 @@ fun PlayerScreen(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        if (isMobilePlayer) {
+                            CastButton(
+                                chromecastController = chromecastController,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .padding(end = 8.dp)
+                            )
+                        }
                         Text(
                             text = clockText,
                             color = Color.White,

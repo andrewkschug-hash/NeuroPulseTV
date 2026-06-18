@@ -17,3 +17,8 @@
 -dontwarn io.ktor.**
 -dontwarn kotlinx.serialization.**
 -keepclassmembers class kotlinx.serialization.json.** { *; }
+
+# Google Cast
+-keep class com.google.android.gms.cast.** { *; }
+-keep class com.google.android.gms.cast.framework.** { *; }
+-dontwarn com.google.android.gms.cast.**

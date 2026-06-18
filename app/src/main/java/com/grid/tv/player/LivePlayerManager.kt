@@ -64,6 +64,9 @@ class LivePlayerManager @Inject constructor(
     private val _activeChannelId = MutableStateFlow<Long?>(null)
     val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
 
+    private val _activeStreamUrl = MutableStateFlow<String?>(null)
+    val activeStreamUrlFlow: StateFlow<String?> = _activeStreamUrl.asStateFlow()
+
     /** Bumped whenever the underlying ExoPlayer instance is replaced. */
     private val _playerGeneration = MutableStateFlow(0)
     val playerGeneration: StateFlow<Int> = _playerGeneration.asStateFlow()
@@ -269,7 +272,7 @@ class LivePlayerManager @Inject constructor(
 
         if (streamUrl.isBlank()) {
             currentChannelId = channelId
-            currentStreamUrl = streamUrl
+            setActiveStreamUrl(streamUrl)
             channelSnapshot?.let { currentChannel = it }
             _activeChannelId.value = channelId
             _canTimeshift.value = false
@@ -279,7 +282,7 @@ class LivePlayerManager @Inject constructor(
         }
 
         currentChannelId = channelId
-        currentStreamUrl = streamUrl
+        setActiveStreamUrl(streamUrl)
         channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
         pendingJumpToLive = true
@@ -308,7 +311,7 @@ class LivePlayerManager @Inject constructor(
         playbackMonitor.onTuneStarted(streamUrl)
         this.catchupDays = catchupDays
         currentChannelId = channelId
-        currentStreamUrl = streamUrl
+        setActiveStreamUrl(streamUrl)
         channelSnapshot?.let { currentChannel = it }
         _activeChannelId.value = channelId
         pendingJumpToLive = true
@@ -459,6 +462,13 @@ class LivePlayerManager @Inject constructor(
 
     fun activeChannel(): Channel? = currentChannel
 
+    fun activeStreamUrl(): String? = currentStreamUrl
+
+    private fun setActiveStreamUrl(url: String?) {
+        currentStreamUrl = url
+        _activeStreamUrl.value = url
+    }
+
     fun activePlayer(): ExoPlayer? = player
 
     /** Clears the video surface. Call only after every [PlayerView] has set `player = null`. */
@@ -532,7 +542,7 @@ class LivePlayerManager @Inject constructor(
         player?.release()
         player = null
         currentChannelId = null
-        currentStreamUrl = null
+        setActiveStreamUrl(null)
         currentChannel = null
         lastContext = null
         _lastChannel.value = null

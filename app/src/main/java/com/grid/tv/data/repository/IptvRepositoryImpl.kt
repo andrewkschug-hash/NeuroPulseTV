@@ -47,6 +47,7 @@ import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.grid.tv.domain.model.Channel
+import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.EpgResolutionStatus
