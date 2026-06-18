@@ -67,9 +67,10 @@ import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
-import com.grid.tv.util.consumeImeNavigationKeysWhenTyping
+import com.grid.tv.util.lockFocusWhileTyping
 
 private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
 
@@ -140,7 +141,7 @@ fun SearchOverlay(
 
     fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.Back, Key.Escape -> { onDismiss(); true }
             Key.DirectionDown -> {
@@ -218,7 +219,6 @@ fun SearchOverlay(
             .focusRequester(resultsFocusRequester)
             .focusable()
             .onPreviewKeyEvent { handleKey(it) }
-            .consumeImeNavigationKeysWhenTyping()
     ) {
         Column(
             modifier = Modifier
@@ -428,7 +428,7 @@ private fun SearchInputRow(
                     dismissInput()
                     true
                 }
-                TvTextInputSession.consumesImeNavigationKeys(event) -> true
+                TvImeKeyDispatcher.forwardToIme(view, event) -> true
                 else -> false
             }
         }
@@ -473,6 +473,7 @@ private fun SearchInputRow(
                 .height(52.dp)
                 .focusRequester(fieldFocusRequester)
                 .focusable()
+                .lockFocusWhileTyping(inputActive)
                 .onPreviewKeyEvent(::handleFieldKey)
                 .onKeyEvent(::handleFieldKey)
                 .background(Color(0xFF13131A), RoundedCornerShape(8.dp))

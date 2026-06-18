@@ -53,8 +53,10 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
+import com.grid.tv.util.lockFocusWhileTyping
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -116,10 +118,8 @@ fun handleTvFocusChainKey(
     onDismissEditing: () -> Unit
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    if (TvTextInputSession.consumesImeNavigationKeys(event)) return true
-    if (isEditing()) {
-        return event.key != Key.Back && event.key != Key.Escape
-    }
+    if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+    if (isEditing()) return false
     return when (event.key) {
         Key.DirectionDown -> {
             when (chain.focusedIndex) {
@@ -281,7 +281,7 @@ fun TvTextField(
                     dismissInput()
                     true
                 }
-                TvTextInputSession.consumesImeNavigationKeys(event) -> true
+                TvImeKeyDispatcher.forwardToIme(view, event) -> true
                 else -> false
             }
         }
@@ -335,6 +335,7 @@ fun TvTextField(
                 .background(TvInputBg, fieldShape)
                 .focusRequester(effectiveFocusRequester)
                 .focusable(enabled, interactionSource = interactionSource)
+                .lockFocusWhileTyping(inputActive)
                 .onPreviewKeyEvent(::handleFieldKey)
                 .onKeyEvent(::handleFieldKey)
                 .tvFocusScrollIntoView()
