@@ -77,7 +77,7 @@ internal fun MethodCard(
     modifier: Modifier = Modifier
 ) {
     var focused by remember { mutableStateOf(false) }
-    val isActive = focused || selected
+    val isActive = focused
     val bg = if (isActive) OnboardingSelectedBg else OnboardingCardBg
     val borderColor = if (isActive) OnboardingAccent else OnboardingBorderSubtle
     val borderWidth = if (isActive) 2.dp else 1.dp
@@ -311,7 +311,7 @@ internal fun OnboardingSkipLink(
             color = textColor,
             fontFamily = DmSansFamily,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Normal,
+            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
         )

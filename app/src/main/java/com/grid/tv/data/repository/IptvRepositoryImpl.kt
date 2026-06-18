@@ -35,6 +35,7 @@ import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
 import com.grid.tv.data.network.stalker.StalkerPortalClient
 import com.grid.tv.data.security.SecureCredentialStore
+import com.grid.tv.data.session.GuestSessionPreferences
 import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.PlaylistConnectResult
 import com.grid.tv.domain.model.AppThemeId
@@ -126,7 +127,8 @@ class IptvRepositoryImpl @Inject constructor(
     private val secureCredentialStore: SecureCredentialStore,
     private val stalkerPortalClient: StalkerPortalClient,
     private val gridBackupManager: GridBackupManager,
-    private val favoritesRepository: FavoritesRepository
+    private val favoritesRepository: FavoritesRepository,
+    private val guestSessionPreferences: GuestSessionPreferences
 ) : IptvRepository {
 
     companion object {
@@ -605,6 +607,11 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun createProfile(name: String, avatarColor: String, pin: String?, isParental: Boolean): Long {
         profileDao.deleteDefaultProfiles()
         if (profileDao.countUserProfiles() >= MAX_HOUSEHOLD_PROFILES) return -1
+        val guestProfileId = if (guestSessionPreferences.isGuestSession()) {
+            guestSessionPreferences.guestProfileId()
+        } else {
+            -1L
+        }
         val id = profileDao.upsertProfile(
             UserProfileEntity(
                 name = name,
@@ -615,11 +622,58 @@ class IptvRepositoryImpl @Inject constructor(
                 allowedEndMinutes = if (isParental) 21 * 60 else 1439
             )
         )
-        profileSettingsDao.upsert(ProfileSettingsEntity(profileId = id))
-        if (profileDao.countUserProfiles() == 1) {
+        if (guestProfileId > 0L && guestSessionPreferences.isGuestSession()) {
+            migrateGuestProfileData(fromProfileId = guestProfileId, toProfileId = id)
+            guestSessionPreferences.clearGuestSession()
             setActiveProfile(id)
+        } else {
+            if (profileSettingsDao.get(id) == null) {
+                profileSettingsDao.upsert(ProfileSettingsEntity(profileId = id))
+            }
+            if (profileDao.countUserProfiles() == 1) {
+                setActiveProfile(id)
+            }
         }
         return id
+    }
+
+    override suspend fun enterGuestSession() {
+        ensureDefaultProfile()
+        if (profileSettingsDao.get(activeProfileId) == null) {
+            profileSettingsDao.upsert(ProfileSettingsEntity(profileId = activeProfileId))
+        }
+        guestSessionPreferences.startGuestSession(activeProfileId)
+    }
+
+    private suspend fun migrateGuestProfileData(fromProfileId: Long, toProfileId: Long) {
+        if (fromProfileId == toProfileId) {
+            favoritesRepository.ensureDefaultGroups(toProfileId)
+            return
+        }
+        profileSettingsDao.get(fromProfileId)?.let { settings ->
+            profileSettingsDao.upsert(settings.copy(profileId = toProfileId))
+        } ?: profileSettingsDao.upsert(ProfileSettingsEntity(profileId = toProfileId))
+
+        val groupIdMap = mutableMapOf<Long, Long>()
+        favoriteGroupDao.getAllForProfile(fromProfileId).forEach { group ->
+            val newGroupId = favoriteGroupDao.insert(
+                group.copy(id = 0, profileId = toProfileId)
+            )
+            groupIdMap[group.id] = newGroupId
+        }
+        favoritesRepository.ensureDefaultGroups(toProfileId)
+
+        profileFavoriteDao.allForProfile(fromProfileId).forEach { favorite ->
+            profileFavoriteDao.upsert(
+                favorite.copy(
+                    profileId = toProfileId,
+                    groupId = favorite.groupId?.let { groupIdMap[it] ?: it }
+                )
+            )
+        }
+        profileWatchHistoryDao.allForProfile(fromProfileId).forEach { entry ->
+            profileWatchHistoryDao.upsert(entry.copy(profileId = toProfileId))
+        }
     }
 
     override suspend fun updateProfileName(profileId: Long, name: String) {
@@ -646,6 +700,7 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun setActiveProfile(profileId: Long) {
         profileDao.setActive(ActiveProfileEntity(profileId = profileId))
         activeProfileId = profileId
+        guestSessionPreferences.clearGuestSession()
     }
 
     override suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean {
@@ -1578,6 +1633,7 @@ class IptvRepositoryImpl @Inject constructor(
         seriesSeasonsCache.clear()
         activeProfileId = 0L
         cachedSettings = AppSettings()
+        guestSessionPreferences.clearGuestSession()
         saveSettings(AppSettings())
     }
 }

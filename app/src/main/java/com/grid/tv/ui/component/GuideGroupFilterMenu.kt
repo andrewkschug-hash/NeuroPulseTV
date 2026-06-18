@@ -2,6 +2,8 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -48,6 +50,55 @@ private fun buildGuideGroupMenuItems(channelGroups: List<String>): List<GuideGro
 fun guideFilterMenuItemCount(channelGroups: List<String>): Int =
     1 + channelGroups.size
 
+private val GROUP_REGION_SEPARATORS = listOf(" ❖ ", " | ", " - ", " – ")
+
+/** Leading token before a separator in Xtream group names, e.g. `CA ❖ Sports`. */
+fun guideGroupRegionPrefix(groupName: String): String? {
+    val trimmed = groupName.trim()
+    for (separator in GROUP_REGION_SEPARATORS) {
+        if (separator in trimmed) {
+            return trimmed.substringBefore(separator).trim().takeIf { it.isNotBlank() }
+        }
+    }
+    val token = trimmed.substringBefore(' ').trim()
+    return if (token.length in 2..4 && token.all { it.isLetter() }) {
+        token.uppercase()
+    } else {
+        null
+    }
+}
+
+fun guideGroupRegions(channelGroups: List<String>): List<String> =
+    channelGroups.mapNotNull(::guideGroupRegionPrefix)
+        .distinct()
+        .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
+
+fun guideGroupsInRegion(channelGroups: List<String>, region: String?): List<String> {
+    if (region == null) return channelGroups
+    return channelGroups.filter { guideGroupRegionPrefix(it) == region }
+}
+
+fun guideRegionDisplayLabel(code: String): String = when (code.uppercase()) {
+    "CA" -> "Canada"
+    "US", "USA" -> "USA"
+    "UK", "GB" -> "UK"
+    "AU" -> "Australia"
+    "AR" -> "Arabic"
+    "FR" -> "France"
+    "DE" -> "Germany"
+    "ES" -> "Spain"
+    "IT" -> "Italy"
+    "BR" -> "Brazil"
+    "MX" -> "Mexico"
+    else -> code
+}
+
+fun toggleGuideGroupSelection(selectedGroups: Set<String>, group: String): Set<String> {
+    val next = selectedGroups.toMutableSet()
+    if (group in next) next.remove(group) else next.add(group)
+    return next
+}
+
 fun guideFilterForMenuSelection(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
@@ -55,9 +106,7 @@ fun guideFilterForMenuSelection(
 ): GuideChannelFilter {
     if (menuIndex == 0) return GuideChannelFilter.All
     val group = channelGroups.getOrNull(menuIndex - 1) ?: return GuideChannelFilter(selectedGroups)
-    val next = selectedGroups.toMutableSet()
-    if (group in next) next.remove(group) else next.add(group)
-    return GuideChannelFilter(next)
+    return GuideChannelFilter(toggleGuideGroupSelection(selectedGroups, group))
 }
 
 fun isGuideGroupMenuItemSelected(
@@ -117,6 +166,16 @@ fun GuideGroupFilterMenu(
                 }
                 val focused = item.menuIndex == focusedIndex
                 val checked = isGuideGroupMenuItemSelected(channelGroups, selectedGroups, item.menuIndex)
+                val rowBackground = when {
+                    focused -> EpgColors.ChannelRowFocusBg
+                    checked -> androidx.compose.ui.graphics.Color(0xFF16161E)
+                    else -> EpgColors.GridBg
+                }
+                val rowTextColor = when {
+                    focused -> EpgColors.TextPrimary
+                    checked -> EpgColors.TextDimmed
+                    else -> EpgColors.TextSecondary
+                }
                 GridFocusSurface(
                     onClick = { onToggle(item.menuIndex) },
                     modifier = Modifier
@@ -131,23 +190,35 @@ fun GuideGroupFilterMenu(
                         ),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
-                        focusedContainerColor = if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
+                        containerColor = rowBackground,
+                        focusedContainerColor = rowBackground
                     )
                 ) {
-                    Text(
-                        text = buildString {
-                            if (checked) append("✓ ")
-                            append(item.label)
-                        },
-                        color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+                    androidx.compose.foundation.layout.Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp)
-                    )
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = item.label,
+                            color = rowTextColor,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (checked) {
+                            Text(
+                                text = "✓",
+                                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
             }
         }

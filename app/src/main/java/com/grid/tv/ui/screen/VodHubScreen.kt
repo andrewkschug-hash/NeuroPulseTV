@@ -24,7 +24,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import com.grid.tv.ui.component.isTextFieldActivateKey
+import com.grid.tv.ui.component.showTextFieldKeyboard
+import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -496,11 +505,9 @@ fun VodHubScreen(
                             value = searchQuery,
                             onValueChange = hubViewModel::setSearchQuery,
                             placeholder = if (tab == 0) "Search movies…" else "Search series…",
-                            focused = focusZone == VodFocusZone.SEARCH,
+                            focusRequester = searchFocusRequester,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(searchFocusRequester)
-                                .focusable()
                                 .onPreviewKeyEvent { event ->
                                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                     focusZone = VodFocusZone.SEARCH
@@ -570,15 +577,25 @@ private fun VodHubSearchField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
-    focused: Boolean,
-    modifier: Modifier = Modifier
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+    onPreviewKeyEvent: (KeyEvent) -> Boolean = { false }
 ) {
     val shape = RoundedCornerShape(8.dp)
-    val borderColor = if (focused) EpgColors.Accent else EpgColors.BorderSubtle
-    val backgroundColor = if (focused) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val borderColor = if (isFocused) EpgColors.Accent else EpgColors.BorderSubtle
+    val backgroundColor = if (isFocused) {
         EpgColors.Accent.copy(alpha = 0.14f)
     } else {
         Color(0xFF13131A)
+    }
+
+    fun openKeyboard() {
+        scope.launch { showTextFieldKeyboard(keyboard, view, focusRequester) }
     }
 
     BasicTextField(
@@ -593,6 +610,25 @@ private fun VodHubSearchField(
         singleLine = true,
         modifier = modifier
             .height(48.dp)
+            .focusRequester(focusRequester)
+            .focusable(interactionSource = interactionSource)
+            .onPreviewKeyEvent { event ->
+                when {
+                    isTextFieldActivateKey(event) -> {
+                        openKeyboard()
+                        true
+                    }
+                    else -> onPreviewKeyEvent(event)
+                }
+            }
+            .onKeyEvent { event ->
+                if (isTextFieldActivateKey(event)) {
+                    openKeyboard()
+                    true
+                } else {
+                    false
+                }
+            }
             .background(backgroundColor, shape)
             .border(
                 width = 2.dp,
@@ -605,7 +641,7 @@ private fun VodHubSearchField(
                 if (value.isEmpty()) {
                     Text(
                         text = placeholder,
-                        color = if (focused) EpgColors.TextSecondary else EpgColors.TextDimmed,
+                        color = if (isFocused) EpgColors.TextSecondary else EpgColors.TextDimmed,
                         fontFamily = DmSansFamily,
                         fontSize = 15.sp
                     )

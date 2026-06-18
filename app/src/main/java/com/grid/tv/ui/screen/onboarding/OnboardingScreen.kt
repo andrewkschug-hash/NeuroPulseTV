@@ -169,7 +169,6 @@ private fun MethodPickerScreen(
     onSkip: () -> Unit
 ) {
     val focusChain = rememberTvFocusChain(count = 4, startIndex = 0)
-    var focusedMethod by remember { mutableStateOf(OnboardingMethod.Xtream) }
 
     Box(
         modifier = Modifier
@@ -220,12 +219,8 @@ private fun MethodPickerScreen(
                     title = "Xtream Codes",
                     subtitle = "Server URL + username + password",
                     badge = "Most Common",
-                    selected = focusedMethod == OnboardingMethod.Xtream,
                     onClick = { onSelect(OnboardingMethod.Xtream) },
-                    onFocused = {
-                        focusedMethod = OnboardingMethod.Xtream
-                        focusChain.onItemFocused(0)
-                    },
+                    onFocused = { focusChain.onItemFocused(0) },
                     modifier = Modifier
                         .focusRequester(focusChain.requesters[0])
                         .tvFocusChainNavigation(focusChain, 0, onSkip)
@@ -235,12 +230,8 @@ private fun MethodPickerScreen(
                     iconColor = Color(0xFFB8C0D8),
                     title = "M3U URL",
                     subtitle = "A single playlist link",
-                    selected = focusedMethod == OnboardingMethod.M3u,
                     onClick = { onSelect(OnboardingMethod.M3u) },
-                    onFocused = {
-                        focusedMethod = OnboardingMethod.M3u
-                        focusChain.onItemFocused(1)
-                    },
+                    onFocused = { focusChain.onItemFocused(1) },
                     modifier = Modifier
                         .focusRequester(focusChain.requesters[1])
                         .tvFocusChainNavigation(focusChain, 1, onSkip)
@@ -250,12 +241,8 @@ private fun MethodPickerScreen(
                     iconColor = Color(0xFFB8C0D8),
                     title = "MAC / Stalker Portal",
                     subtitle = "Portal URL + device MAC address",
-                    selected = focusedMethod == OnboardingMethod.Stalker,
                     onClick = { onSelect(OnboardingMethod.Stalker) },
-                    onFocused = {
-                        focusedMethod = OnboardingMethod.Stalker
-                        focusChain.onItemFocused(2)
-                    },
+                    onFocused = { focusChain.onItemFocused(2) },
                     modifier = Modifier
                         .focusRequester(focusChain.requesters[2])
                         .tvFocusChainNavigation(focusChain, 2, onSkip)

@@ -68,6 +68,7 @@ import com.grid.tv.ui.component.ProfileColorPicker
 import com.grid.tv.ui.screen.ProfileAvatarColors
 import com.grid.tv.ui.component.PinEntryDialog
 import com.grid.tv.ui.component.ConnectionResultDialog
+import com.grid.tv.ui.component.DestructiveConfirmDialog
 import com.grid.tv.ui.component.FactoryResetConfirmDialog
 import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.TvScrollContainer
@@ -186,6 +187,9 @@ fun SettingsScreen(
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var showResetSettingsConfirm by remember { mutableStateOf(false) }
+    var pendingDeletePlaylistId by remember { mutableStateOf<Long?>(null) }
+    var showSignOutConfirm by remember { mutableStateOf(false) }
+    var showClearCacheConfirm by remember { mutableStateOf(false) }
     var showHideAdultPinDialog by remember { mutableStateOf(false) }
     var showChangePinDialog by remember { mutableStateOf(false) }
     var changePinStep by remember { mutableStateOf(ChangePinStep.VERIFY_CURRENT) }
@@ -405,6 +409,10 @@ fun SettingsScreen(
             }
             showResetConfirm -> showResetConfirm = false
             showResetSettingsConfirm -> showResetSettingsConfirm = false
+            pendingDeletePlaylistId != null -> pendingDeletePlaylistId = null
+            showSignOutConfirm -> showSignOutConfirm = false
+            showClearCacheConfirm -> showClearCacheConfirm = false
+            showGuideGroupPicker -> showGuideGroupPicker = false
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
             focusPanel == SettingsFocusPanel.RIGHT -> {
@@ -739,12 +747,7 @@ fun SettingsScreen(
                             },
                             onPickLocalFile = onPickLocalFile,
                             onPickTiviMateZip = onPickTiviMateZip,
-                            onDeletePlaylist = { id ->
-                                viewModel.deletePlaylist(id)
-                                if (editingPlaylistId == id) {
-                                    dismissConnectionForm()
-                                }
-                            }
+                            onDeletePlaylist = { id -> pendingDeletePlaylistId = id }
                         )
                         SettingsSection.Guide -> GuideSettingsContent(
                             settings = settings,
@@ -824,9 +827,9 @@ fun SettingsScreen(
                                 signedInEmail = signedInAccount?.email ?: signedInAccount?.displayName,
                                 supabaseClient = supabaseClient,
                                 authViewModel = authViewModel,
-                                onSignOut = { authViewModel.signOut(onComplete = onSignOut) },
+                                onSignOut = { showSignOutConfirm = true },
                                 onExportBackup = { viewModel.exportBackup(context.cacheDir) },
-                                onClearCache = { viewModel.clearCache() },
+                                onClearCache = { showClearCacheConfirm = true },
                                 onResetSettings = { showResetSettingsConfirm = true },
                                 onResetApp = { showResetConfirm = true }
                             )
@@ -882,6 +885,49 @@ fun SettingsScreen(
                 onConfirm = {
                     showResetSettingsConfirm = false
                     viewModel.resetSettingsToDefaults()
+                }
+            )
+        }
+
+        pendingDeletePlaylistId?.let { playlistId ->
+            val playlistName = playlists.find { it.id == playlistId }?.name ?: "this connection"
+            DestructiveConfirmDialog(
+                title = "Remove connection?",
+                message = "Remove \"$playlistName\" and all of its channels from this device? This cannot be undone.",
+                confirmLabel = "Remove",
+                onDismiss = { pendingDeletePlaylistId = null },
+                onConfirm = {
+                    viewModel.deletePlaylist(playlistId)
+                    if (editingPlaylistId == playlistId) {
+                        dismissConnectionForm()
+                    }
+                    pendingDeletePlaylistId = null
+                }
+            )
+        }
+
+        if (showSignOutConfirm) {
+            DestructiveConfirmDialog(
+                title = "Sign out?",
+                message = "You will be signed out of your GRID account on this device. Local profiles and connections are kept.",
+                confirmLabel = "Sign out",
+                onDismiss = { showSignOutConfirm = false },
+                onConfirm = {
+                    showSignOutConfirm = false
+                    authViewModel.signOut(onComplete = onSignOut)
+                }
+            )
+        }
+
+        if (showClearCacheConfirm) {
+            DestructiveConfirmDialog(
+                title = "Clear cache?",
+                message = "Clear temporary EPG and catalog cache. Your connections, profiles, and settings are not affected.",
+                confirmLabel = "Clear cache",
+                onDismiss = { showClearCacheConfirm = false },
+                onConfirm = {
+                    showClearCacheConfirm = false
+                    viewModel.clearCache()
                 }
             )
         }

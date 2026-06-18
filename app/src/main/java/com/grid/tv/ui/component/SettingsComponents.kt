@@ -637,6 +637,24 @@ fun FactoryResetConfirmDialog(
     message: String = "This will delete all profiles, connections, watch history, favorites, and settings. The app will restart as if freshly installed. This cannot be undone.",
     confirmLabel: String = "Reset everything"
 ) {
+    DestructiveConfirmDialog(
+        title = title,
+        message = message,
+        confirmLabel = confirmLabel,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+fun DestructiveConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    title: String,
+    message: String,
+    confirmLabel: String,
+    dismissLabel: String = "Cancel"
+) {
     val confirmFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         confirmFocusRequester.requestFocusSafelyAfterLayout()
@@ -677,10 +695,9 @@ fun FactoryResetConfirmDialog(
         dismissButton = {
             M3TextButton(onClick = onDismiss) {
                 Text(
-                    text = "Cancel",
-                    color = Color(0xFF9CA3AF),
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp
+                    dismissLabel,
+                    color = ConnectionDialogBody,
+                    fontFamily = DmSansFamily
                 )
             }
         }

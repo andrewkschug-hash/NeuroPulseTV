@@ -46,6 +46,11 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -374,6 +379,13 @@ private fun SearchInputRow(
         SearchBarState.LISTENING -> Color(0xFFFF3B3B)
         SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
     }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+
+    fun openSearchKeyboard() {
+        scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
+    }
 
     Row(
         modifier = Modifier
@@ -406,7 +418,22 @@ private fun SearchInputRow(
                 .height(52.dp)
                 .focusRequester(fieldFocusRequester)
                 .focusable()
-                .onPreviewKeyEvent { handleKey(it) }
+                .onPreviewKeyEvent { event ->
+                    if (isTextFieldActivateKey(event)) {
+                        openSearchKeyboard()
+                        true
+                    } else {
+                        handleKey(event)
+                    }
+                }
+                .onKeyEvent { event ->
+                    if (isTextFieldActivateKey(event)) {
+                        openSearchKeyboard()
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .background(Color(0xFF13131A), RoundedCornerShape(8.dp))
                 .border(1.5.dp, fieldBorderColor, RoundedCornerShape(8.dp))
                 .padding(horizontal = 14.dp, vertical = 14.dp),

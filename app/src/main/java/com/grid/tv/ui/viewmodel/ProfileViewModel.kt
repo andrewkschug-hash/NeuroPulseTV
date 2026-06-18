@@ -41,6 +41,17 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
+    fun enterGuestSession() {
+        viewModelScope.launch { repository.enterGuestSession() }
+    }
+
+    suspend fun createProfileAndGetId(
+        name: String,
+        color: String,
+        pin: String?,
+        parental: Boolean
+    ): Long = repository.createProfile(name, color, pin, parental)
+
     fun createProfile(name: String, color: String, pin: String?, parental: Boolean) {
         viewModelScope.launch { repository.createProfile(name, color, pin, parental) }
     }

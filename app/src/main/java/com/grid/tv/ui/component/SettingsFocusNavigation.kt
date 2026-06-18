@@ -37,7 +37,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -215,33 +215,22 @@ fun SettingsFocusTextField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true
 ) {
-    val highlighted = focus.isFocused(chainIndex)
     val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
-    val keyboardController = LocalSoftwareKeyboardController.current
-    SettingsTextField(
-        label = label,
+    TvTextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = placeholder,
-        focused = highlighted,
+        label = label,
         singleLine = singleLine,
-        modifier = modifier
-            .then(settingsFocusModifier(chainIndex, focus))
-            .focusable(enabled = canReceiveFocus)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                        if (highlighted) {
-                            keyboardController?.show()
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    else -> false
-                }
+        enabled = canReceiveFocus,
+        focusRequester = focus.chain.requesters.getOrNull(chainIndex),
+        modifier = modifier,
+        onHighlightChanged = { isFocused ->
+            if (isFocused) {
+                focus.chain.onItemFocused(chainIndex)
+                focus.onContentControlFocused?.invoke()
             }
+        }
     )
 }
 

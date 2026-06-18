@@ -177,6 +177,7 @@ fun ProfilePickerScreen(
     }
 
     fun continueAsGuest() {
+        viewModel.enterGuestSession()
         scope.launch {
             exitAlpha.animateTo(0f, tween(400))
             delay(400)
@@ -307,14 +308,23 @@ fun ProfilePickerScreen(
                 onNameChange = { newProfileName = it },
                 onConfirm = {
                     val color = ProfileAvatarColors[profiles.size % ProfileAvatarColors.size]
-                    viewModel.createProfile(
-                        name = newProfileName.ifBlank { "Profile ${profiles.size + 1}" },
-                        color = colorToHex(color),
-                        pin = null,
-                        parental = false
-                    )
-                    newProfileName = ""
-                    showAddProfile = false
+                    val profileName = newProfileName.ifBlank { "Profile ${profiles.size + 1}" }
+                    scope.launch {
+                        val newId = viewModel.createProfileAndGetId(
+                            name = profileName,
+                            color = colorToHex(color),
+                            pin = null,
+                            parental = false
+                        )
+                        newProfileName = ""
+                        showAddProfile = false
+                        if (newId > 0L) {
+                            viewModel.switchProfile(newId)
+                            exitAlpha.animateTo(0f, tween(400))
+                            delay(400)
+                            onProfileSelected()
+                        }
+                    }
                 },
                 onDismiss = {
                     newProfileName = ""

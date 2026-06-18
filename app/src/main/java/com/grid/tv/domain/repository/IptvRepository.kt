@@ -60,6 +60,7 @@ interface IptvRepository {
     suspend fun setActiveProfile(profileId: Long)
     suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean
     suspend fun purgeDefaultProfiles()
+    suspend fun enterGuestSession()
     suspend fun activeProfileId(): Long
     suspend fun activeProfile(): UserProfile?
 
