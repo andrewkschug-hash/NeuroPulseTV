@@ -167,7 +167,9 @@ class XtreamParser {
             if (streamId.isBlank()) continue
             val name = item.optString("name").ifBlank { "Live $streamId" }
             val logo = item.optString("stream_icon").ifBlank { null }
-            val epgId = item.optString("epg_channel_id").ifBlank { null }
+            val epgChannelId = item.optString("epg_channel_id").ifBlank { null }
+            val epgId = epgChannelId ?: streamId
+            val epgSource = if (epgChannelId != null) "xtream" else "xtream:stream_id"
             val catId = item.optString("category_id")
             val group = categories[catId] ?: item.optString("category_name").ifBlank { "Live" }
             val number = item.optString("num").toIntOrNull() ?: (i + 1)
@@ -191,9 +193,9 @@ class XtreamParser {
                 streamUrl = streamUrl,
                 backupStreamUrl = backupUrl?.takeIf { it != streamUrl },
                 playlistId = playlistId,
-                epgResolutionStatus = if (!epgId.isNullOrBlank()) EpgResolutionStatus.CONFIRMED.name else EpgResolutionStatus.UNRESOLVED.name,
-                epgResolutionConfidence = if (!epgId.isNullOrBlank()) 100 else 0,
-                epgResolutionSource = if (!epgId.isNullOrBlank()) "xtream" else null
+                epgResolutionStatus = EpgResolutionStatus.CONFIRMED.name,
+                epgResolutionConfidence = 100,
+                epgResolutionSource = epgSource
             )
         }
         return out

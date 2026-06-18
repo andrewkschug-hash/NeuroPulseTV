@@ -17,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -318,6 +319,7 @@ internal fun GuideGroupCategoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
+            .focusProperties { canFocus = false }
             .clip(shape)
             .background(background, shape)
             .then(
@@ -405,6 +407,7 @@ private fun GuideGroupTreeRowShell(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
+            .focusProperties { canFocus = false }
             .clip(shape)
             .background(background, shape)
             .then(

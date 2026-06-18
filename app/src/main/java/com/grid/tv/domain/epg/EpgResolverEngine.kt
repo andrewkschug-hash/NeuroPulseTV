@@ -1,5 +1,6 @@
 package com.grid.tv.domain.epg
 
+import android.util.Log
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.EpgSourceChannelDao
@@ -72,8 +73,21 @@ class EpgResolverEngine @Inject constructor(
     suspend fun resolveChannel(channel: Channel): EpgResolutionResult {
         canonicalSeeder.ensureSeeded()
         val candidates = gatherCandidates(channel.name)
+        Log.d(
+            TAG,
+            "resolveChannel name=${channel.name} epgId=${channel.epgId} candidates=${candidates.size} " +
+                "(xmltv=${candidates.count { it.source.startsWith("xmltv:") }})"
+        )
         val outcome = matcher.match(channel.name, channel.epgId, candidates)
-        val best = outcome.best ?: return EpgResolutionResult.NoMatch
+        val best = outcome.best ?: run {
+            Log.d(TAG, "resolveChannel NO MATCH for ${channel.name}")
+            return EpgResolutionResult.NoMatch
+        }
+        Log.d(
+            TAG,
+            "resolveChannel ${channel.name} → epgId=${best.epgId} confidence=${best.confidence} " +
+                "source=${best.source} reason=${best.reason}"
+        )
 
         return if (best.confidence >= 85) {
             EpgResolutionResult.AutoMatched(
@@ -167,6 +181,7 @@ class EpgResolverEngine @Inject constructor(
     fun resolveAllUnmatched(createdAfter: Long = 0L): Flow<EpgResolutionProgress> = flow {
         canonicalSeeder.ensureSeeded()
         val allCandidates = loadUnresolvedChannels(createdAfter)
+        Log.i(TAG, "resolveAllUnmatched: ${allCandidates.size} channels (createdAfter=$createdAfter)")
         val total = allCandidates.size
         var completed = 0
         var auto = 0
@@ -259,6 +274,9 @@ class EpgResolverEngine @Inject constructor(
     private suspend fun gatherCandidates(channelName: String): List<EpgSourceChannelEntity> {
         val pool = linkedMapOf<String, EpgSourceChannelEntity>()
         localCandidates().forEach { pool[it.epgId] = it }
+
+        val providerXmlTv = sourceDao.all().filter { it.source.startsWith("xmltv:") }
+        providerXmlTv.forEach { pool[it.epgId] = it }
 
         refreshSourceIfStale("epg.best", "https://epg.best/epg.xml.gz")
         sourceDao.bySource("epg.best").forEach { pool[it.epgId] = it }
@@ -360,4 +378,8 @@ class EpgResolverEngine @Inject constructor(
         playlistId = playlistId,
         isFavorite = false
     )
+
+    companion object {
+        private const val TAG = "EpgFlow"
+    }
 }

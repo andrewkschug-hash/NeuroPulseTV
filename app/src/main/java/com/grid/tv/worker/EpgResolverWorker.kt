@@ -1,6 +1,7 @@
 package com.grid.tv.worker
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -18,10 +19,27 @@ class EpgResolverWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result = runCatching {
         val createdAfter = inputData.getLong(KEY_CREATED_AFTER, 0L)
-        resolverEngine.resolveAllUnmatched(createdAfter).collect()
-    }.fold(onSuccess = { Result.success() }, onFailure = { Result.retry() })
+        Log.i(TAG, "EpgResolverWorker started createdAfter=$createdAfter")
+        var lastProgress: String? = null
+        resolverEngine.resolveAllUnmatched(createdAfter).collect { progress ->
+            val line = "resolve progress ${progress.completed}/${progress.total} " +
+                "auto=${progress.autoMatched} suggested=${progress.suggested} failed=${progress.failed}"
+            if (line != lastProgress) {
+                Log.d(TAG, line)
+                lastProgress = line
+            }
+        }
+        Log.i(TAG, "EpgResolverWorker finished OK")
+    }.fold(
+        onSuccess = { Result.success() },
+        onFailure = { error ->
+            Log.e(TAG, "EpgResolverWorker failed", error)
+            Result.retry()
+        }
+    )
 
     companion object {
         const val KEY_CREATED_AFTER = "created_after"
+        private const val TAG = "EpgFlow"
     }
 }

@@ -50,29 +50,37 @@ fun GuideGroupPickerDialog(
     onConfirm: (Set<String>) -> Unit
 ) {
     var selection by remember { mutableStateOf(initialSelection) }
-    var focusZone by remember { mutableStateOf(GuidePickerFocusZone.List) }
-    var listFocusIndex by remember { mutableIntStateOf(0) }
-    var actionFocusIndex by remember { mutableIntStateOf(0) }
-
     val categories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
-    var expandedCategories by remember(channelGroups, initialSelection) {
+    var expandedCategories by remember {
         mutableStateOf(expandedCategoriesForSelection(categories, initialSelection))
     }
     val visibleRows = remember(categories, expandedCategories) {
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
 
-    val listState = rememberLazyListState()
-
-    LaunchedEffect(channelGroups, initialSelection) {
-        val expanded = expandedCategoriesForSelection(categories, initialSelection)
-        expandedCategories = expanded
-        listFocusIndex = visibleRowIndexForSelection(categories, expanded, initialSelection)
+    var focusZone by remember { mutableStateOf(GuidePickerFocusZone.List) }
+    var listFocusIndex by remember {
+        mutableIntStateOf(
+            visibleRowIndexForSelection(
+                categories,
+                expandedCategoriesForSelection(categories, initialSelection),
+                initialSelection
+            )
+        )
     }
+    var actionFocusIndex by remember { mutableIntStateOf(0) }
+
+    val listState = rememberLazyListState()
 
     LaunchedEffect(focusZone, listFocusIndex, visibleRows.size) {
         if (focusZone == GuidePickerFocusZone.List && visibleRows.isNotEmpty()) {
             listState.animateScrollToItem(listFocusIndex.coerceIn(0, visibleRows.lastIndex))
+        }
+    }
+
+    LaunchedEffect(visibleRows.size) {
+        if (visibleRows.isNotEmpty() && listFocusIndex > visibleRows.lastIndex) {
+            listFocusIndex = visibleRows.lastIndex
         }
     }
 

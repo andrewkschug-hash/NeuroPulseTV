@@ -141,6 +141,7 @@ class IptvRepositoryImpl @Inject constructor(
         private const val CONNECT_ERROR = "Login or URL invalid"
         private const val IPTV_REPO_LOG_TAG = "IptvRepository"
         private const val EPG_MATCH_DEBUG_TAG = "EPG Match Debug"
+        private const val EPG_FLOW_TAG = "EpgFlow"
         private const val CHANNEL_INSERT_CHUNK = 400
         const val CHANNEL_PAGE_SIZE = 200
     }
@@ -583,6 +584,11 @@ class IptvRepositoryImpl @Inject constructor(
             }
 
             if (xmlTvIdsToQuery.isEmpty()) {
+                val noEpgId = channels.count { it.epgId.isNullOrBlank() }
+                Log.w(
+                    EPG_FLOW_TAG,
+                    "programsWindowForChannels: no XMLTV ids (${channels.size} channels, $noEpgId without epgId)"
+                )
                 logEpgMatchDebug(channels, resolver, emptyMap(), start)
                 return@withContext emptyList()
             }
@@ -678,8 +684,8 @@ class IptvRepositoryImpl @Inject constructor(
             val firstProgramStart = programmes.firstOrNull()?.startTime
             Log.i(
                 EPG_MATCH_DEBUG_TAG,
-                "tvgId=${tvgId ?: "null"}, matchedId=${link.xmlTvChannelId ?: "NO MATCH"}, " +
-                    "matchReason=${link.reason}, programmeCount=${programmes.size}, " +
+                "channel=${channel.name}, tvgId=${tvgId ?: "null"}, matchedId=${link.xmlTvChannelId ?: "NO MATCH"}, " +
+                    "matchReason=${link.reason}, lookupKeys=$lookupKeys, programmeCount=${programmes.size}, " +
                     "now=$now, firstProgramStart=$firstProgramStart, windowStart=$windowStart"
             )
         }
@@ -983,6 +989,11 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private fun scheduleEpgImportWork(startedAt: Long) {
+        Log.i(
+            EPG_FLOW_TAG,
+            "scheduleEpgImportWork startedAt=$startedAt → EpgRefreshWorker (xmltv.php / playlist EPG URL) " +
+                "+ EpgResolverWorker (external sources; get_short_epg not used for bulk import)"
+        )
         epgScheduler.runResolverForNewChannels(startedAt)
         epgScheduler.runEpgRefreshNow()
     }
@@ -1052,6 +1063,13 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         Log.i(IPTV_REPO_LOG_TAG, "Parsed ${liveChannels.size} live channels (${categories.size} categories)")
+        val epgFromProvider = liveChannels.count { it.epgResolutionSource == "xtream" }
+        val epgFromStreamId = liveChannels.count { it.epgResolutionSource == "xtream:stream_id" }
+        Log.i(
+            EPG_FLOW_TAG,
+            "Xtream import epgId stats: epg_channel_id=$epgFromProvider stream_id_fallback=$epgFromStreamId " +
+                "total=${liveChannels.size}"
+        )
 
         channelDao.clearByPlaylist(playlistId)
         val seenUrls = linkedSetOf<String>()
@@ -1282,6 +1300,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshEpgNow() = withContext(Dispatchers.IO) {
+        Log.i(EPG_FLOW_TAG, "refreshEpgNow started")
         epgCache.clear()
         epgLinkResolver = null
         val now = System.currentTimeMillis()
@@ -1299,8 +1318,17 @@ class IptvRepositoryImpl @Inject constructor(
                 }
                 else -> return@forEach
             }
+            val endpointKind = when {
+                playlist.type == PlaylistType.XTREAM.name && epgUrl.isNullOrBlank() -> "xmltv.php"
+                else -> "playlist EPG URL"
+            }
+            Log.i(
+                EPG_FLOW_TAG,
+                "Fetching EPG for ${playlist.name} via $endpointKind (not get_short_epg): $resolvedEpgUrl"
+            )
             runCatching {
                 val xml = remoteTextFetcher.fetch(resolvedEpgUrl)
+                Log.i(EPG_FLOW_TAG, "EPG fetch OK: ${xml.length} bytes for ${playlist.name}")
                 val parsed = xmlTvParser.parse(xml)
                 val sourceKey = "xmltv:${playlist.id}"
                 if (parsed.channelsById.isNotEmpty()) {
@@ -1316,6 +1344,12 @@ class IptvRepositoryImpl @Inject constructor(
                         )
                     }
                     epgSourceChannelDao.insertAll(sourceChannels)
+                    Log.i(
+                        EPG_FLOW_TAG,
+                        "Stored ${sourceChannels.size} XMLTV channel refs for ${playlist.name} (source=$sourceKey)"
+                    )
+                } else {
+                    Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
                 }
                 if (parsed.programs.isNotEmpty()) {
                     programDao.insertAll(parsed.programs)
@@ -1330,9 +1364,12 @@ class IptvRepositoryImpl @Inject constructor(
                 }
             }.onFailure { error ->
                 Log.e(IPTV_REPO_LOG_TAG, "EPG refresh failed for ${playlist.name}", error)
+                Log.e(EPG_FLOW_TAG, "EPG fetch failed for ${playlist.name}: ${error.message}")
             }
         }
         rebuildEpgLinkResolver()
+        val programChannelCount = programDao.distinctChannelEpgIds().size
+        Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; ${programChannelCount} distinct programme channel ids in DB")
         val sampleChannels = mapChannelEntities(
             channelDao.channelsPage(
                 groupName = null,
@@ -1346,13 +1383,20 @@ class IptvRepositoryImpl @Inject constructor(
         )
         if (sampleChannels.isNotEmpty()) {
             val nowMs = System.currentTimeMillis()
-            programsWindowForChannels(
+            val samplePrograms = programsWindowForChannels(
                 channels = sampleChannels,
                 start = nowMs - 90 * 60 * 1000,
                 end = nowMs + 4 * 60 * 60 * 1000
             )
+            val matched = samplePrograms.map { it.channelEpgId }.distinct().size
+            Log.i(
+                EPG_FLOW_TAG,
+                "Post-refresh sample: ${sampleChannels.size} channels → $matched with programmes " +
+                    "(${samplePrograms.size} programme rows)"
+            )
         }
         _epgDataRevision.update { it + 1 }
+        Log.i(EPG_FLOW_TAG, "refreshEpgNow finished; epgDataRevision=${_epgDataRevision.value}")
     }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {

@@ -1,5 +1,6 @@
 package com.grid.tv.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.repository.ContinueWatchingRepository
@@ -594,28 +595,48 @@ class HomeEpgViewModel @Inject constructor(
     private suspend fun loadWindow() {
         _epgLoading.value = true
         val channelsForLookup = _channels.value
+        val start = _windowStart.value
+        val end = start + _windowDurationMs.value
         if (channelsForLookup.isEmpty()) {
             val fallbackEpgIds = repository.allDistinctEpgIds().take(500)
+            Log.d(TAG, "loadWindow: no channels loaded; fallback epgIds=${fallbackEpgIds.size}")
             if (fallbackEpgIds.isEmpty()) {
                 _epgPrograms.value = emptyList()
                 _epgLoading.value = false
                 return
             }
-            val start = _windowStart.value
-            val end = start + _windowDurationMs.value
-            _epgPrograms.value = withContext(Dispatchers.IO) {
+            val programs = withContext(Dispatchers.IO) {
                 repository.programsWindow(fallbackEpgIds, start, end)
             }
+            Log.i(TAG, "loadWindow fallback: ${programs.size} programmes for window [$start, $end]")
+            _epgPrograms.value = programs
             recomputeReplayUrls(_epgPrograms.value)
             _epgLoading.value = false
             return
         }
-        val start = _windowStart.value
-        val end = start + _windowDurationMs.value
-        _epgPrograms.value = withContext(Dispatchers.IO) {
+        Log.d(
+            TAG,
+            "loadWindow: ${channelsForLookup.size} channels, window [$start, $end], " +
+                "withEpgId=${channelsForLookup.count { !it.epgId.isNullOrBlank() }}"
+        )
+        val programs = withContext(Dispatchers.IO) {
             repository.programsWindowForChannels(channelsForLookup, start, end)
         }
+        val channelsWithPrograms = programs.map { it.channelEpgId }.toSet()
+        val matchedChannels = channelsForLookup.count { ch ->
+            ch.epgId != null && channelsWithPrograms.any { it.equals(ch.epgId, ignoreCase = true) }
+        }
+        Log.i(
+            TAG,
+            "loadWindow: ${programs.size} programme rows, $matchedChannels/${channelsForLookup.size} " +
+                "channels have matching epgId in window"
+        )
+        _epgPrograms.value = programs
         recomputeReplayUrls(_epgPrograms.value)
         _epgLoading.value = false
+    }
+
+    companion object {
+        private const val TAG = "EpgFlow"
     }
 }
