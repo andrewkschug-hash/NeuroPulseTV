@@ -38,6 +38,7 @@ import com.grid.tv.data.network.stalker.StalkerPortalClient
 import com.grid.tv.data.security.SecureCredentialStore
 import com.grid.tv.data.session.GuestSessionPreferences
 import com.grid.tv.domain.epg.ChannelNameNormalizer
+import com.grid.tv.domain.epg.programmeLookupKeys
 import com.grid.tv.domain.epg.EpgChannelLinkResolver
 import com.grid.tv.domain.epg.XmlTvChannelRef
 import com.grid.tv.domain.model.PlaylistConnectResult
@@ -570,11 +571,15 @@ class IptvRepositoryImpl @Inject constructor(
             val xmlTvIdsToQuery = linkedSetOf<String>()
 
             channels.forEach { channel ->
-                val playlistEpgId = channel.epgId?.trim()?.takeIf { it.isNotEmpty() } ?: return@forEach
-                val link = resolver.resolve(playlistEpgId, channel.name)
-                val xmlTvId = link.xmlTvChannelId ?: return@forEach
-                xmlTvIdsToQuery += xmlTvId
-                xmlTvToPlaylist.getOrPut(xmlTvId) { mutableListOf() }.add(playlistEpgId)
+                val playlistKey = channel.programmeLookupKeys().firstOrNull() ?: return@forEach
+                val link = resolver.resolve(channel.epgId, channel.name)
+                val xmlTvIds = linkedSetOf<String>()
+                link.xmlTvChannelId?.let { xmlTvIds += it }
+                channel.epgId?.trim()?.takeIf { it.isNotEmpty() }?.let { xmlTvIds += it }
+                xmlTvIds.forEach { xmlTvId ->
+                    xmlTvIdsToQuery += xmlTvId
+                    xmlTvToPlaylist.getOrPut(xmlTvId) { mutableListOf() }.add(playlistKey)
+                }
             }
 
             if (xmlTvIdsToQuery.isEmpty()) {
@@ -664,9 +669,12 @@ class IptvRepositoryImpl @Inject constructor(
     ) {
         val now = System.currentTimeMillis()
         channels.take(10).forEach { channel ->
+            val lookupKeys = channel.programmeLookupKeys()
             val tvgId = channel.epgId
             val link = resolver.resolve(tvgId, channel.name)
-            val programmes = tvgId?.let { programmesByPlaylistEpgId[it] }.orEmpty()
+            val programmes = lookupKeys.flatMap { key ->
+                programmesByPlaylistEpgId[key].orEmpty()
+            }.distinctBy { it.id }
             val firstProgramStart = programmes.firstOrNull()?.startTime
             Log.i(
                 EPG_MATCH_DEBUG_TAG,
@@ -953,11 +961,19 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun importM3uChannels(playlistId: Long, url: String) {
         val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
+        val content = remoteTextFetcher.fetch(normalizedUrl)
+        m3uParser.parseHeaderEpgUrl(content)?.let { headerEpgUrl ->
+            val playlist = playlistDao.getById(playlistId) ?: return@let
+            if (playlist.epgUrl.isNullOrBlank()) {
+                playlistDao.update(playlist.copy(epgUrl = headerEpgUrl))
+                Log.i(IPTV_REPO_LOG_TAG, "M3U header EPG URL: $headerEpgUrl")
+            }
+        }
         channelDao.clearByPlaylist(playlistId)
         val seenUrls = linkedSetOf<String>()
         val seenNames = linkedSetOf<String>()
         var totalInserted = 0
-        m3uParser.parseAsFlow(playlistId, remoteTextFetcher.fetch(normalizedUrl)).collect { progress ->
+        m3uParser.parseAsFlow(playlistId, content).collect { progress ->
             totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, progress.batch)
             if (progress.done && totalInserted == 0) {
                 throw IllegalStateException("No channels in playlist")
@@ -1195,7 +1211,17 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun addPlaylistFromLocal(name: String, content: String, epgUrl: String?, refreshHours: Int) =
         withContext(Dispatchers.IO) {
             val startedAt = System.currentTimeMillis()
-            val playlistId = playlistDao.insert(PlaylistEntity(name = name, url = "local://$name", epgUrl = epgUrl, refreshIntervalHours = refreshHours, isLocalFile = true, type = PlaylistType.M3U.name))
+            val resolvedEpgUrl = epgUrl?.takeIf { it.isNotBlank() } ?: m3uParser.parseHeaderEpgUrl(content)
+            val playlistId = playlistDao.insert(
+                PlaylistEntity(
+                    name = name,
+                    url = "local://$name",
+                    epgUrl = resolvedEpgUrl,
+                    refreshIntervalHours = refreshHours,
+                    isLocalFile = true,
+                    type = PlaylistType.M3U.name
+                )
+            )
             channelDao.clearByPlaylist(playlistId)
             val seenUrls = linkedSetOf<String>()
             val seenNames = linkedSetOf<String>()

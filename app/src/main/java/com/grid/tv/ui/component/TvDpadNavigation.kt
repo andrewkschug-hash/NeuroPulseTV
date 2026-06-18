@@ -1,7 +1,5 @@
 package com.grid.tv.ui.component
 
-import android.content.Context
-import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +16,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -213,15 +212,8 @@ internal suspend fun showTextFieldKeyboard(
 ) {
     focusRequester?.requestFocus()
     delay(50)
-    TvRemoteKeyboard.activateFocusedTextInput(view)
+    TvRemoteKeyboard.requestIme(view)
     keyboard?.show()
-    delay(80)
-    val target = view.findFocus() ?: view
-    val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-    imm?.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
-    if (imm?.isActive(target) != true) {
-        imm?.showSoftInput(target, InputMethodManager.SHOW_FORCED)
-    }
 }
 
 @Composable
@@ -257,7 +249,6 @@ fun TvTextField(
     fun activateInput() {
         inputActive = true
         onEditingChanged(true)
-        TvRemoteKeyboard.activateFocusedTextInput(view)
         scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
     }
 
@@ -272,6 +263,8 @@ fun TvTextField(
     LaunchedEffect(isFocused) {
         if (!isFocused) dismissInput()
     }
+
+    TvTextInputActivationEffect(active = isFocused || inputActive, onActivate = ::activateInput)
 
     fun handleFieldKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
@@ -304,6 +297,7 @@ fun TvTextField(
             value = value,
             onValueChange = onValueChange,
             enabled = enabled,
+            readOnly = !inputActive,
             textStyle = TextStyle(
                 color = Color.White,
                 fontFamily = DmSansFamily,
@@ -328,6 +322,8 @@ fun TvTextField(
                 .background(TvInputBg, fieldShape)
                 .focusRequester(effectiveFocusRequester)
                 .focusable(enabled, interactionSource = interactionSource)
+                .onPreviewKeyEvent(::handleFieldKey)
+                .onKeyEvent(::handleFieldKey)
                 .tvFocusScrollIntoView()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -353,8 +349,6 @@ fun TvTextField(
                         Modifier
                     }
                 )
-                .onPreviewKeyEvent(::handleFieldKey)
-                .onKeyEvent(::handleFieldKey)
                 .padding(
                     start = 14.dp,
                     end = if (isPassword) 52.dp else 14.dp,

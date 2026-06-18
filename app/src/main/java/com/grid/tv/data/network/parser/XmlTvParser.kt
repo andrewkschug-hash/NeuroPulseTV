@@ -71,6 +71,7 @@ class XmlTvParser {
                         "programme" -> {
                             if (pChannel.isNotBlank() && pEnd > pStart) {
                                 programs += ProgramEntity(
+                                    id = stableProgramId(pChannel, pStart),
                                     channelEpgId = pChannel,
                                     title = pTitle.ifBlank { "Untitled" },
                                     description = pDesc,
@@ -103,14 +104,36 @@ class XmlTvParser {
 
     private fun parseTime(input: String?): Long {
         if (input.isNullOrBlank()) return 0L
-        val trimmed = input.trim()
-        val hasExplicitTimezone = trimmed.length > 14 &&
-            (trimmed[14] == ' ' || trimmed[14] == '+' || trimmed[14] == '-')
+        val normalized = normalizeXmlTvTimestamp(input.trim())
+        val hasExplicitTimezone = normalized.length > 14 &&
+            (normalized[14] == ' ' || normalized[14] == '+' || normalized[14] == '-')
         return if (hasExplicitTimezone) {
-            runCatching { formatWithTimezone.parse(trimmed)?.time }.getOrNull() ?: 0L
+            runCatching { formatWithTimezone.parse(normalized)?.time }.getOrNull() ?: 0L
         } else {
-            val datePart = trimmed.take(14)
+            val datePart = normalized.take(14)
             runCatching { formatLocal.parse(datePart)?.time }.getOrNull() ?: 0L
+        }
+    }
+
+    /**
+     * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`, `...Z`.
+     */
+    internal fun normalizeXmlTvTimestamp(raw: String): String {
+        if (raw.endsWith('Z', ignoreCase = true) && raw.length >= 15) {
+            return raw.dropLast(1).trimEnd() + " +0000"
+        }
+        Regex("""^(\d{14})([\+\-]\d{4})$""").matchEntire(raw)?.let { match ->
+            return "${match.groupValues[1]} ${match.groupValues[2]}"
+        }
+        return raw
+    }
+
+    companion object {
+        /** Stable primary key so EPG refresh upserts instead of duplicating rows. */
+        fun stableProgramId(channelEpgId: String, startTime: Long): Long {
+            var hash = channelEpgId.lowercase().hashCode().toLong()
+            hash = 31L * hash + startTime
+            return hash and Long.MAX_VALUE
         }
     }
 }

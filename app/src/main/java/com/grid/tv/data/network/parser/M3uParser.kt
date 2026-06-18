@@ -7,6 +7,31 @@ import kotlinx.coroutines.flow.flow
 
 class M3uParser {
 
+    /**
+     * Reads EPG URL from `#EXTM3U x-tvg-url="..."` / `url-tvg` or `#EXTVLCOPT:url-tvg=...`.
+     */
+    fun parseHeaderEpgUrl(content: String): String? {
+        content.lineSequence()
+            .map { it.trim() }
+            .take(20)
+            .forEach { line ->
+                when {
+                    line.startsWith("#EXTM3U", ignoreCase = true) -> {
+                        headerAttr(line, "x-tvg-url")
+                            ?: headerAttr(line, "url-tvg")
+                            ?: headerAttr(line, "tvg-url")
+                    }?.let { return it }
+                    line.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
+                        val opt = line.substringAfter(':', "").trim()
+                        if (opt.startsWith("url-tvg=", ignoreCase = true)) {
+                            return opt.substringAfter('=').trim().trim('"')
+                        }
+                    }
+                }
+            }
+        return null
+    }
+
     fun parseAsFlow(playlistId: Long, content: String): Flow<M3uParseProgress> = flow {
         val lines = content.lineSequence().toList()
         val extinfLines = lines.count { it.trim().startsWith("#EXTINF", ignoreCase = true) }
@@ -104,6 +129,8 @@ class M3uParser {
         if (end == -1) return null
         return line.substring(from, end).takeIf { it.isNotBlank() }
     }
+
+    private fun headerAttr(line: String, key: String): String? = attr(line, key)
 
     private companion object {
         const val PARSE_BATCH_SIZE = 400

@@ -387,6 +387,11 @@ private fun SearchInputRow(
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
     }
 
+    TvTextInputActivationEffect(
+        active = focusZone == SearchFocusZone.FIELD,
+        onActivate = { openSearchKeyboard() }
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()

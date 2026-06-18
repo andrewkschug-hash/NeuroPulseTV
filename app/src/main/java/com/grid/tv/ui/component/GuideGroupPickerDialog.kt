@@ -131,6 +131,9 @@ fun GuideGroupPickerDialog(
                                     row.categoryIndex
                                 )
                             }
+                            is GuideGroupVisibleRow.SelectAll -> {
+                                selection = toggleSelectAllGroups(row.groupNames, selection)
+                            }
                             is GuideGroupVisibleRow.Group -> {
                                 selection = toggleGuideGroupSelection(selection, row.fullName)
                             }
@@ -196,6 +199,7 @@ fun GuideGroupPickerDialog(
                             when (row) {
                                 GuideGroupVisibleRow.AllChannels -> "all"
                                 is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
+                                is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
                             }
                         }
@@ -221,6 +225,17 @@ fun GuideGroupPickerDialog(
                                         expandedCategories,
                                         row.categoryIndex
                                     )
+                                    focusZone = GuidePickerFocusZone.List
+                                    listFocusIndex = index
+                                }
+                            )
+                            is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
+                                prefix = row.prefix,
+                                childCount = row.groupNames.size,
+                                checked = areAllGroupsSelected(row.groupNames, selection),
+                                focused = focused,
+                                onClick = {
+                                    selection = toggleSelectAllGroups(row.groupNames, selection)
                                     focusZone = GuidePickerFocusZone.List
                                     listFocusIndex = index
                                 }

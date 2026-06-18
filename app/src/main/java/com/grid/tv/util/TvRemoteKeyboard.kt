@@ -2,6 +2,7 @@ package com.grid.tv.util
 
 import android.view.KeyEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 
 /**
@@ -15,18 +16,36 @@ object TvRemoteKeyboard {
             keyCode == KeyEvent.KEYCODE_DPAD_CENTER
 
     /**
-     * @return true when the currently focused view is a text editor and the keyboard was requested.
+     * @return true when a focused text field was found and the keyboard was requested.
      */
     fun activateFocusedTextInput(rootView: View): Boolean {
+        if (TvFocusedTextInput.activateCurrent()) return true
+
         val focused = rootView.findFocus() ?: return false
-        if (!focused.onCheckIsTextEditor()) return false
-        focused.performClick()
-        focused.requestFocus()
-        val imm = rootView.context.getSystemService(InputMethodManager::class.java)
-        imm?.showSoftInput(focused, InputMethodManager.SHOW_IMPLICIT)
-        if (imm?.isActive(focused) != true) {
-            imm?.showSoftInput(focused, InputMethodManager.SHOW_FORCED)
+        if (focused.onCheckIsTextEditor()) {
+            requestIme(rootView, focused)
+            return true
         }
-        return true
+        if (focused.isFocusable) {
+            focused.performClick()
+            requestIme(rootView, focused)
+            return true
+        }
+        return false
+    }
+
+    internal fun requestIme(rootView: View, target: View = rootView.findFocus() ?: rootView) {
+        rootView.context.findComponentActivity()?.window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
+        target.requestFocus()
+        target.post {
+            val imm = rootView.context.getSystemService(InputMethodManager::class.java)
+            imm?.showSoftInput(target, InputMethodManager.SHOW_FORCED)
+            if (imm?.isActive(target) != true) {
+                imm?.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
     }
 }

@@ -19,6 +19,12 @@ sealed class GuideGroupVisibleRow {
         val suffixLabel: String,
         val categoryIndex: Int
     ) : GuideGroupVisibleRow()
+
+    data class SelectAll(
+        val categoryIndex: Int,
+        val prefix: String,
+        val groupNames: List<String>
+    ) : GuideGroupVisibleRow()
 }
 
 data class GuideGroupCategory(
@@ -82,6 +88,13 @@ fun buildVisibleGuideGroupRows(
             )
         )
         if (expanded) {
+            add(
+                GuideGroupVisibleRow.SelectAll(
+                    categoryIndex = categoryIndex,
+                    prefix = category.prefix,
+                    groupNames = category.groups
+                )
+            )
             category.groups.forEach { fullName ->
                 add(
                     GuideGroupVisibleRow.Group(

@@ -593,7 +593,7 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         _epgLoading.value = true
-        val channelsForLookup = _channels.value.filter { !it.epgId.isNullOrBlank() }
+        val channelsForLookup = _channels.value
         if (channelsForLookup.isEmpty()) {
             val fallbackEpgIds = repository.allDistinctEpgIds().take(500)
             if (fallbackEpgIds.isEmpty()) {

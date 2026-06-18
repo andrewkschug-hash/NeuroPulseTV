@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.grid.tv.data.db.entity.ScheduledRecordingEntity
+import com.grid.tv.domain.epg.programmesForChannel
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
@@ -530,9 +531,7 @@ fun HomeEpgScreen(
 
     val focusedChannel = displayChannels.getOrNull(focusChannelIndex)
     val channelPrograms = remember(focusedChannel, displayPrograms) {
-        focusedChannel?.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
-        } ?: emptyList()
+        focusedChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
     }
     val focusedProgram = if (focusOnChannelColumn) {
         channelPrograms.firstOrNull { now in it.startTime..it.endTime }
@@ -546,9 +545,7 @@ fun HomeEpgScreen(
 
     val previewChannel = channelById(previewChannelId)
     val previewChannelPrograms = remember(previewChannel, displayPrograms) {
-        previewChannel?.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
-        } ?: emptyList()
+        previewChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
     }
     val previewProgram = remember(
         previewChannel,
@@ -614,9 +611,7 @@ fun HomeEpgScreen(
     }
 
     fun programsForChannel(channel: Channel): List<Program> =
-        channel.epgId?.let { epgId ->
-            displayPrograms.filter { it.channelEpgId.equals(epgId, ignoreCase = true) }.sortedBy { it.startTime }
-        } ?: emptyList()
+        programmesForChannel(channel, displayPrograms)
 
     fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
         val progs = displayChannels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
@@ -864,51 +859,36 @@ fun HomeEpgScreen(
         categoryMenuFocusIndex = categoryMenuFocusIndex.coerceIn(0, (count - 1).coerceAtLeast(0))
     }
 
-    fun handleCategoryFilterMenuKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
+    fun handleCategoryFilterMenuToggle(index: Int) {
         val expanded = categoryMenuExpandedCategories.ifEmpty {
             expandedCategoriesForSelection(guideGroupCategories, guideFilter.selectedGroups)
         }
         val visibleRows = buildVisibleGuideGroupRows(guideGroupCategories, expanded)
-        val menuCount = visibleRows.size
-        return when (event.key) {
-            Key.DirectionUp -> {
-                categoryMenuFocusIndex = (categoryMenuFocusIndex - 1).coerceAtLeast(0)
-                true
+        val row = visibleRows.getOrNull(index) ?: return
+        when (row) {
+            is GuideGroupVisibleRow.Category -> {
+                val willExpand = row.categoryIndex !in categoryMenuExpandedCategories
+                categoryMenuExpandedCategories = toggleCategoryExpansion(
+                    categoryMenuExpandedCategories,
+                    row.categoryIndex
+                )
+                categoryMenuFocusIndex = if (willExpand) index + 1 else index
             }
-            Key.DirectionDown -> {
-                categoryMenuFocusIndex = (categoryMenuFocusIndex + 1).coerceAtMost(menuCount - 1)
-                true
+            is GuideGroupVisibleRow.SelectAll,
+            is GuideGroupVisibleRow.Group -> {
+                val next = guideFilterRowAction(row, guideFilter.selectedGroups) ?: return
+                viewModel.setGuideFilter(next, markConfigured = true)
             }
-            Key.Back, Key.Escape -> {
+            GuideGroupVisibleRow.AllChannels -> {
+                viewModel.setGuideFilter(GuideChannelFilter.All, markConfigured = true)
                 showCategoryFilterMenu = false
-                true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                val row = visibleRows.getOrNull(categoryMenuFocusIndex) ?: return true
-                when (row) {
-                    is GuideGroupVisibleRow.Category -> {
-                        categoryMenuExpandedCategories = toggleCategoryExpansion(
-                            categoryMenuExpandedCategories,
-                            row.categoryIndex
-                        )
-                    }
-                    else -> {
-                        val next = guideFilterRowAction(row, guideFilter.selectedGroups)
-                            ?: return true
-                        viewModel.setGuideFilter(next, markConfigured = true)
-                        showCategoryFilterMenu = false
-                    }
-                }
-                true
-            }
-            else -> false
         }
     }
 
     fun handleGridFilterKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (showCategoryFilterMenu) return handleCategoryFilterMenuKey(event)
+        if (showCategoryFilterMenu) return false
         return when (event.key) {
             Key.DirectionDown -> {
                 focusGuideChannels()
@@ -932,7 +912,7 @@ fun HomeEpgScreen(
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (showCategoryFilterMenu) return handleCategoryFilterMenuKey(event)
+        if (showCategoryFilterMenu) return false
         if (profileMenuOpen) {
             return when (event.key) {
                 Key.Back, Key.Escape -> {
@@ -1227,7 +1207,7 @@ fun HomeEpgScreen(
             .fillMaxSize()
             .background(EpgColors.Background)
             .onPreviewKeyEvent { event ->
-                if (showCategoryFilterMenu) handleCategoryFilterMenuKey(event) else false
+                false
             }
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1361,7 +1341,7 @@ fun HomeEpgScreen(
                 windowDurationMs = windowDurationMs,
                 guideFilter = guideFilter,
                 channelGroups = channelGroups,
-                gridFilterFocused = focusZone == EpgFocusZone.GRID_FILTER,
+                gridFilterFocused = focusZone == EpgFocusZone.GRID_FILTER && !showCategoryFilterMenu,
                 gridFilterFocusRequester = gridFilterFocusRequester,
                 onOpenCategoryFilter = {
                     focusZone = EpgFocusZone.GRID_FILTER
@@ -1399,27 +1379,9 @@ fun HomeEpgScreen(
             selectedGroups = guideFilter.selectedGroups,
             expandedCategories = categoryMenuExpandedCategories,
             focusedIndex = categoryMenuFocusIndex,
+            onFocusedIndexChange = { categoryMenuFocusIndex = it },
             onDismiss = { showCategoryFilterMenu = false },
-            onToggle = { index ->
-                val expanded = categoryMenuExpandedCategories.ifEmpty {
-                    expandedCategoriesForSelection(guideGroupCategories, guideFilter.selectedGroups)
-                }
-                val row = buildVisibleGuideGroupRows(guideGroupCategories, expanded).getOrNull(index)
-                    ?: return@GuideGroupFilterMenu
-                when (row) {
-                    is GuideGroupVisibleRow.Category -> {
-                        categoryMenuExpandedCategories = toggleCategoryExpansion(
-                            categoryMenuExpandedCategories,
-                            row.categoryIndex
-                        )
-                        categoryMenuFocusIndex = index
-                    }
-                    else -> {
-                        val next = guideFilterRowAction(row, guideFilter.selectedGroups) ?: return@GuideGroupFilterMenu
-                        viewModel.setGuideFilter(next, markConfigured = true)
-                    }
-                }
-            }
+            onToggle = ::handleCategoryFilterMenuToggle
         )
 
         if (showGuideGroupPicker && channelGroups.isNotEmpty()) {

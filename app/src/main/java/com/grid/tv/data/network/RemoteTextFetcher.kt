@@ -1,6 +1,7 @@
 package com.grid.tv.data.network
 
 import java.io.EOFException
+import java.util.zip.GZIPInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -35,7 +36,20 @@ class RemoteTextFetcher @Inject constructor(
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP request failed (${response.code}) for $url")
             }
-            response.body?.string().orEmpty()
+            val bytes = response.body?.bytes() ?: byteArrayOf()
+            decodeResponseBody(bytes, response.header("Content-Encoding"), url)
+        }
+    }
+
+    internal fun decodeResponseBody(bytes: ByteArray, contentEncoding: String?, url: String): String {
+        val isGzip = contentEncoding?.contains("gzip", ignoreCase = true) == true ||
+            url.endsWith(".gz", ignoreCase = true) ||
+            url.contains(".xml.gz", ignoreCase = true) ||
+            (bytes.size >= 2 && bytes[0] == GZIP_MAGIC_0 && bytes[1] == GZIP_MAGIC_1)
+        return if (isGzip) {
+            GZIPInputStream(bytes.inputStream()).bufferedReader().use { it.readText() }
+        } else {
+            bytes.toString(Charsets.UTF_8)
         }
     }
 
@@ -59,5 +73,7 @@ class RemoteTextFetcher @Inject constructor(
 
     private companion object {
         const val MAX_FETCH_ATTEMPTS = 3
+        const val GZIP_MAGIC_0: Byte = 0x1f
+        const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
     }
 }

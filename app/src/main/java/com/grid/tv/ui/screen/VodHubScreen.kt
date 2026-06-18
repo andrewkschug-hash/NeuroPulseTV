@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import com.grid.tv.ui.component.isTextFieldActivateKey
 import com.grid.tv.ui.component.showTextFieldKeyboard
+import com.grid.tv.ui.component.TvTextInputActivationEffect
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -597,6 +598,8 @@ private fun VodHubSearchField(
     fun openKeyboard() {
         scope.launch { showTextFieldKeyboard(keyboard, view, focusRequester) }
     }
+
+    TvTextInputActivationEffect(active = isFocused, onActivate = { openKeyboard() })
 
     BasicTextField(
         value = value,

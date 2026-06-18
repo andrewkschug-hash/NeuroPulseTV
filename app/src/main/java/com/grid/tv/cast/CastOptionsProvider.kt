@@ -1,10 +1,10 @@
 package com.grid.tv.cast
 
 import android.content.Context
+import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.framework.CastOptions
 import com.google.android.gms.cast.framework.OptionsProvider
 import com.google.android.gms.cast.framework.SessionProvider
-import com.google.android.gms.cast.framework.media.CastMediaControlIntent
 
 class CastOptionsProvider : OptionsProvider {
     override fun getCastOptions(context: Context): CastOptions =
