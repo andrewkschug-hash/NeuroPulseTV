@@ -48,8 +48,9 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.viewmodel.OnboardingConnectState
 import com.grid.tv.ui.viewmodel.OnboardingViewModel
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.text.input.ImeAction
+import com.grid.tv.ui.component.TvTextInputDialog
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -268,6 +269,13 @@ private fun MethodPickerScreen(
     }
 }
 
+private enum class XtreamInputField {
+    ServerUrl,
+    Username,
+    Password,
+    PlaylistName
+}
+
 @Composable
 private fun XtreamEntryScreen(
     loading: Boolean,
@@ -280,11 +288,11 @@ private fun XtreamEntryScreen(
     var password by remember { mutableStateOf("") }
     var playlistName by remember { mutableStateOf("") }
     var showNameField by remember { mutableStateOf(false) }
-    var isEditing by remember { mutableStateOf(false) }
+    var activeInput by remember { mutableStateOf<XtreamInputField?>(null) }
     val focusChain = rememberTvFocusChain(count = 6, startIndex = 1)
     val scope = rememberCoroutineScope()
 
-    fun focusField(index: Int) {
+    fun restoreFocus(index: Int) {
         focusChain.moveTo(index)
         scope.launch { focusChain.requesters[index].requestFocusSafelyAfterLayout() }
     }
@@ -294,55 +302,45 @@ private fun XtreamEntryScreen(
         subtitle = "Enter the details your IPTV provider gave you",
         onBack = onBack,
         focusChain = focusChain,
-        isEditing = isEditing,
-        onDismissEditing = { isEditing = false }
+        isEditing = activeInput != null,
+        onDismissEditing = { activeInput = null }
     ) {
         if (errorMessage != null) {
             OnboardingErrorBanner(message = errorMessage)
             Spacer(modifier = Modifier.height(16.dp))
         }
-        OnboardingTextField(
+        OnboardingFieldRow(
             label = "Server URL",
             value = serverUrl,
-            onValueChange = { serverUrl = it },
             placeholder = "http://provider.com:8080",
-            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri,
+            onActivate = { activeInput = XtreamInputField.ServerUrl },
             focusRequester = focusChain.requesters[1],
             chainIndex = 1,
             chain = focusChain,
-            onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack,
-            imeAction = ImeAction.Next,
-            onImeNext = { focusField(2) }
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(16.dp))
-        OnboardingTextField(
+        OnboardingFieldRow(
             label = "Username",
             value = username,
-            onValueChange = { username = it },
             placeholder = "your_username",
+            onActivate = { activeInput = XtreamInputField.Username },
             focusRequester = focusChain.requesters[2],
             chainIndex = 2,
             chain = focusChain,
-            onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack,
-            imeAction = ImeAction.Next,
-            onImeNext = { focusField(3) }
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(16.dp))
-        OnboardingTextField(
+        OnboardingFieldRow(
             label = "Password",
             value = password,
-            onValueChange = { password = it },
             placeholder = "your_password",
             isPassword = true,
+            onActivate = { activeInput = XtreamInputField.Password },
             focusRequester = focusChain.requesters[3],
             chainIndex = 3,
             chain = focusChain,
-            onEditingChanged = { isEditing = it },
-            onNavigateBack = onBack,
-            imeAction = ImeAction.Done,
-            onImeDone = { focusField(4) }
+            onNavigateBack = onBack
         )
         Spacer(modifier = Modifier.height(24.dp))
         ConnectButton(
@@ -365,20 +363,79 @@ private fun XtreamEntryScreen(
             )
         } else {
             Spacer(modifier = Modifier.height(16.dp))
-            OnboardingTextField(
+            OnboardingFieldRow(
                 label = "Playlist name",
                 value = playlistName,
-                onValueChange = { playlistName = it },
                 placeholder = "Main TV",
+                onActivate = { activeInput = XtreamInputField.PlaylistName },
                 focusRequester = focusChain.requesters[5],
                 chainIndex = 5,
                 chain = focusChain,
-                onEditingChanged = { isEditing = it },
-                onNavigateBack = onBack,
-                imeAction = ImeAction.Done,
-                onImeDone = { focusField(4) }
+                onNavigateBack = onBack
             )
         }
+    }
+
+    when (activeInput) {
+        XtreamInputField.ServerUrl -> TvTextInputDialog(
+            label = "Server URL",
+            value = serverUrl,
+            placeholder = "http://provider.com:8080",
+            keyboardType = KeyboardType.Uri,
+            onConfirm = {
+                serverUrl = it
+                activeInput = null
+                restoreFocus(1)
+            },
+            onDismiss = {
+                activeInput = null
+                restoreFocus(1)
+            }
+        )
+        XtreamInputField.Username -> TvTextInputDialog(
+            label = "Username",
+            value = username,
+            placeholder = "your_username",
+            onConfirm = {
+                username = it
+                activeInput = null
+                restoreFocus(2)
+            },
+            onDismiss = {
+                activeInput = null
+                restoreFocus(2)
+            }
+        )
+        XtreamInputField.Password -> TvTextInputDialog(
+            label = "Password",
+            value = password,
+            placeholder = "your_password",
+            isPassword = true,
+            onConfirm = {
+                password = it
+                activeInput = null
+                restoreFocus(3)
+            },
+            onDismiss = {
+                activeInput = null
+                restoreFocus(3)
+            }
+        )
+        XtreamInputField.PlaylistName -> TvTextInputDialog(
+            label = "Playlist name",
+            value = playlistName,
+            placeholder = "Main TV",
+            onConfirm = {
+                playlistName = it
+                activeInput = null
+                restoreFocus(5)
+            },
+            onDismiss = {
+                activeInput = null
+                restoreFocus(5)
+            }
+        )
+        null -> Unit
     }
 }
 
