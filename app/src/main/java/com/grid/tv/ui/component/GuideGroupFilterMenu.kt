@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -44,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.theme.DmSansFamily
@@ -228,8 +230,8 @@ fun GuideGroupFilterMenu(
 
     fun handleMenuKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        return when (event.key) {
-            Key.DirectionUp -> {
+        return when {
+            event.key == Key.DirectionUp -> {
                 when (focusZone) {
                     GuideFilterMenuFocusZone.List -> {
                         onFocusedIndexChange((focusedIndex - 1).coerceAtLeast(0))
@@ -241,7 +243,7 @@ fun GuideGroupFilterMenu(
                 }
                 true
             }
-            Key.DirectionDown -> {
+            event.key == Key.DirectionDown -> {
                 when (focusZone) {
                     GuideFilterMenuFocusZone.List -> {
                         if (focusedIndex < lastIndex) {
@@ -254,11 +256,11 @@ fun GuideGroupFilterMenu(
                 }
                 true
             }
-            Key.Back, Key.Escape -> {
+            event.key == Key.Back || event.key == Key.Escape -> {
                 onDismiss()
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+            isTvActivateKey(event) -> {
                 when (focusZone) {
                     GuideFilterMenuFocusZone.List -> onToggle(focusedIndex)
                     GuideFilterMenuFocusZone.Done -> onDismiss()
@@ -406,14 +408,18 @@ private fun GuideFilterDoneButton(
 internal fun GuideGroupAllChannelsRow(
     checked: Boolean,
     focused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
     GuideGroupTreeRowShell(
         label = "All channels",
         checked = checked,
         focused = focused,
         onClick = onClick,
-        startPadding = 20.dp
+        startPadding = 20.dp,
+        modifier = modifier,
+        tvFocusable = tvFocusable
     )
 }
 
@@ -423,44 +429,62 @@ internal fun GuideGroupCategoryRow(
     childCount: Int,
     expanded: Boolean,
     focused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
+    var rowFocused by remember { mutableStateOf(false) }
+    val showFocus = focused || rowFocused
     val background = when {
-        focused -> EpgColors.ChannelRowFocusBg
+        showFocus -> EpgColors.ChannelRowFocusBg
         else -> EpgColors.GridBg
     }
-    val textColor = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val textColor = if (showFocus) EpgColors.TextPrimary else EpgColors.TextSecondary
     val shape = RoundedCornerShape(6.dp)
-    Row(
-        modifier = Modifier
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
-            .focusProperties { canFocus = false }
-            .clip(shape)
-            .background(background, shape)
             .then(
-                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
-                else Modifier
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+                if (tvFocusable) {
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                } else {
+                    Modifier.focusProperties { canFocus = false }
+                }
+            ),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = background
+        )
     ) {
-        Text(
-            text = "$prefix ($childCount)",
-            color = textColor,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = if (expanded) "▼" else "▶",
-            color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (showFocus) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
+                    else Modifier
+                )
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "$prefix ($childCount)",
+                color = textColor,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (showFocus) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (expanded) "▼" else "▶",
+                color = if (showFocus) EpgColors.Accent else EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
@@ -470,7 +494,9 @@ internal fun GuideGroupSelectAllRow(
     childCount: Int,
     checked: Boolean,
     focused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
     val regionLabel = guideRegionDisplayLabel(prefix)
     GuideGroupTreeRowShell(
@@ -479,7 +505,9 @@ internal fun GuideGroupSelectAllRow(
         focused = focused,
         onClick = onClick,
         startPadding = 28.dp,
-        italic = true
+        italic = true,
+        modifier = modifier,
+        tvFocusable = tvFocusable
     )
 }
 
@@ -488,14 +516,18 @@ internal fun GuideGroupChildRow(
     suffixLabel: String,
     checked: Boolean,
     focused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
     GuideGroupTreeRowShell(
         label = suffixLabel,
         checked = checked,
         focused = focused,
         onClick = onClick,
-        startPadding = 36.dp
+        startPadding = 36.dp,
+        modifier = modifier,
+        tvFocusable = tvFocusable
     )
 }
 
@@ -506,54 +538,72 @@ private fun GuideGroupTreeRowShell(
     focused: Boolean,
     onClick: () -> Unit,
     startPadding: androidx.compose.ui.unit.Dp,
-    italic: Boolean = false
+    italic: Boolean = false,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
+    var rowFocused by remember { mutableStateOf(false) }
+    val showFocus = focused || rowFocused
     val background = when {
-        focused -> EpgColors.ChannelRowFocusBg
+        showFocus -> EpgColors.ChannelRowFocusBg
         checked -> Color(0xFF16161E)
         else -> EpgColors.GridBg
     }
     val textColor = when {
-        focused -> EpgColors.TextPrimary
+        showFocus -> EpgColors.TextPrimary
         checked -> EpgColors.TextDimmed
         else -> EpgColors.TextSecondary
     }
     val shape = RoundedCornerShape(6.dp)
-    Row(
-        modifier = Modifier
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
-            .focusProperties { canFocus = false }
-            .clip(shape)
-            .background(background, shape)
             .then(
-                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
-                else Modifier
-            )
-            .clickable(onClick = onClick)
-            .padding(start = startPadding, end = 20.dp, top = 12.dp, bottom = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = label,
-            color = textColor,
-            fontFamily = DmSansFamily,
-            fontSize = if (italic) 13.sp else 14.sp,
-            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-            fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+                if (tvFocusable) {
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                } else {
+                    Modifier.focusProperties { canFocus = false }
+                }
+            ),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = background
         )
-        if (checked) {
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (showFocus) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
+                    else Modifier
+                )
+                .padding(start = startPadding, end = 20.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Text(
-                text = "✓",
-                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                text = label,
+                color = textColor,
                 fontFamily = DmSansFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = if (italic) 13.sp else 14.sp,
+                fontWeight = if (showFocus) FontWeight.SemiBold else FontWeight.Normal,
+                fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            if (checked) {
+                Text(
+                    text = "✓",
+                    color = if (showFocus) EpgColors.Accent else EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }

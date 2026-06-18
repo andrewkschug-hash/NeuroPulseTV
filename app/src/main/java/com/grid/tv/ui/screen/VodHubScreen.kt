@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,22 +23,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
-import com.grid.tv.ui.component.isTextFieldActivateKey
-import com.grid.tv.ui.component.showTextFieldKeyboard
-import com.grid.tv.ui.component.TvTextInputActivationEffect
-import com.grid.tv.util.TvImeKeyDispatcher
-import com.grid.tv.util.TvRemoteKeyboard
+import com.grid.tv.ui.component.TvDialogSearchBar
 import com.grid.tv.util.TvTextInputSession
-import com.grid.tv.util.lockFocusWhileTyping
-import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -591,105 +577,14 @@ private fun VodHubSearchField(
     modifier: Modifier = Modifier,
     onPreviewKeyEvent: (KeyEvent) -> Boolean = { false }
 ) {
-    val shape = RoundedCornerShape(8.dp)
-    val keyboard = LocalSoftwareKeyboardController.current
-    val view = LocalView.current
-    val scope = rememberCoroutineScope()
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    var inputActive by remember { mutableStateOf(false) }
-    val borderColor = if (isFocused || inputActive) EpgColors.Accent else EpgColors.BorderSubtle
-    val backgroundColor = if (isFocused || inputActive) {
-        EpgColors.Accent.copy(alpha = 0.14f)
-    } else {
-        Color(0xFF13131A)
-    }
-
-    fun openKeyboard() {
-        if (!inputActive) {
-            inputActive = true
-            TvTextInputSession.begin()
-        }
-        scope.launch { showTextFieldKeyboard(keyboard, view, focusRequester) }
-    }
-
-    fun dismissInput() {
-        if (inputActive) {
-            inputActive = false
-            TvTextInputSession.end()
-            keyboard?.hide()
-            TvRemoteKeyboard.dismissKeyboard(view)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { dismissInput() }
-    }
-
-    LaunchedEffect(isFocused) {
-        if (!isFocused) dismissInput()
-    }
-
-    TvTextInputActivationEffect(active = isFocused || inputActive, onActivate = { openKeyboard() })
-
-    fun handleFieldKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (inputActive) {
-            return when {
-                event.key == Key.Back || event.key == Key.Escape -> {
-                    dismissInput()
-                    true
-                }
-                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
-                else -> false
-            }
-        }
-        return when {
-            isTextFieldActivateKey(event) -> {
-                openKeyboard()
-                true
-            }
-            else -> onPreviewKeyEvent(event)
-        }
-    }
-
-    BasicTextField(
+    TvDialogSearchBar(
         value = value,
         onValueChange = onValueChange,
-        readOnly = !inputActive,
-        textStyle = TextStyle(
-            color = EpgColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium
-        ),
-        singleLine = true,
-        modifier = modifier
-            .height(48.dp)
-            .focusRequester(focusRequester)
-            .focusable(interactionSource = interactionSource)
-            .lockFocusWhileTyping(inputActive)
-            .onPreviewKeyEvent(::handleFieldKey)
-            .onKeyEvent(::handleFieldKey)
-            .background(backgroundColor, shape)
-            .border(
-                width = 2.dp,
-                color = borderColor,
-                shape = shape
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        decorationBox = { inner ->
-            Box(contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        color = if (isFocused) EpgColors.TextSecondary else EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = 15.sp
-                    )
-                }
-                inner()
-            }
-        }
+        placeholder = placeholder,
+        focusRequester = focusRequester,
+        label = "Search",
+        confirmLabel = "Search",
+        modifier = modifier,
+        onPreviewKeyEvent = onPreviewKeyEvent
     )
 }

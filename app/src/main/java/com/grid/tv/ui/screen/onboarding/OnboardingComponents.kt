@@ -45,8 +45,7 @@ import com.grid.tv.ui.component.GridPrimaryButton
 import com.grid.tv.ui.component.TvFocusChain
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextOverflow
-import com.grid.tv.ui.component.isTextFieldActivateKey
-import com.grid.tv.ui.component.TvTextField
+import com.grid.tv.ui.component.TvDialogTextField
 import com.grid.tv.ui.component.tvFocusChainNavigation
 import com.grid.tv.ui.component.tvFocusScrollIntoView
 import com.grid.tv.ui.theme.DmSansFamily
@@ -202,85 +201,38 @@ internal fun OnboardingErrorBanner(
 internal fun OnboardingFieldRow(
     label: String,
     value: String,
+    onValueChange: (String) -> Unit,
     placeholder: String,
-    onActivate: () -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     chainIndex: Int = -1,
     chain: TvFocusChain? = null,
     onNavigateBack: () -> Unit = {},
+    onEditingChanged: (Boolean) -> Unit = {},
+    keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false
 ) {
-    var focused by remember { mutableStateOf(false) }
-    val displayText = when {
-        value.isNotEmpty() && isPassword -> "•".repeat(value.length.coerceAtMost(16))
-        value.isNotEmpty() -> value
-        else -> placeholder
-    }
-    val displayColor = if (value.isNotEmpty()) OnboardingTextPrimary else OnboardingTextMuted
-    val borderColor = if (focused) OnboardingAccent else OnboardingBorderSubtle
-    val borderWidth = if (focused) 2.dp else 1.dp
-
-    Column(modifier = modifier.fillMaxWidth()) {
-        if (focused || value.isNotBlank()) {
-            Text(
-                text = label,
-                color = OnboardingTextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-        }
-        GridFocusSurface(
-            onClick = onActivate,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .tvFocusScrollIntoView()
-                .onFocusChanged {
-                    focused = it.isFocused
-                    if (it.isFocused) chain?.onItemFocused(chainIndex)
-                }
-                .onPreviewKeyEvent { event ->
-                    if (isTextFieldActivateKey(event)) {
-                        onActivate()
-                        true
-                    } else {
-                        false
-                    }
-                }
-                .then(
-                    if (chain != null && chainIndex >= 0) {
-                        Modifier.tvFocusChainNavigation(chain, chainIndex, onNavigateBack)
-                    } else {
-                        Modifier
-                    }
-                ),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = OnboardingInputBg,
-                focusedContainerColor = OnboardingInputBg
-            )
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = displayText,
-                    color = displayColor,
-                    fontFamily = DmSansFamily,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+    TvDialogTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = placeholder,
+        label = label,
+        keyboardType = keyboardType,
+        isPassword = isPassword,
+        modifier = modifier,
+        focusRequester = focusRequester,
+        chainIndex = chainIndex,
+        chain = chain,
+        onEditingChanged = onEditingChanged,
+        onNavigateBack = onNavigateBack,
+        backgroundColor = OnboardingInputBg,
+        focusedBorderColor = OnboardingAccent,
+        unfocusedBorderColor = OnboardingBorderSubtle,
+        unfocusedBorderWidth = 1.dp,
+        textColor = OnboardingTextPrimary,
+        placeholderColor = OnboardingTextMuted,
+        labelColor = OnboardingTextSecondary
+    )
 }
 
 @Composable
@@ -302,7 +254,7 @@ internal fun OnboardingTextField(
     onImeNext: (() -> Unit)? = null,
     onImeDone: (() -> Unit)? = null
 ) {
-    TvTextField(
+    TvDialogTextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = placeholder,
@@ -316,9 +268,16 @@ internal fun OnboardingTextField(
         chain = chain,
         onEditingChanged = onEditingChanged,
         onNavigateBack = onNavigateBack,
-        imeAction = imeAction,
-        onImeNext = onImeNext,
-        onImeDone = onImeDone
+        onConfirmed = {
+            onImeDone?.invoke() ?: onImeNext?.invoke()
+        },
+        backgroundColor = OnboardingInputBg,
+        focusedBorderColor = OnboardingAccent,
+        unfocusedBorderColor = OnboardingBorderSubtle,
+        unfocusedBorderWidth = 1.dp,
+        textColor = OnboardingTextPrimary,
+        placeholderColor = OnboardingTextMuted,
+        labelColor = OnboardingTextSecondary
     )
 }
 

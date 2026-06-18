@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,10 +66,8 @@ import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.ui.component.requestFocusSafely
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.GridBrandWordmark
-import com.grid.tv.ui.component.GridModal
 import com.grid.tv.ui.component.GridOutlinedButton
-import com.grid.tv.ui.component.GridPrimaryButton
-import com.grid.tv.ui.component.TvTextField
+import com.grid.tv.ui.component.TvTextInputDialog
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.ProfileViewModel
@@ -657,76 +654,24 @@ private fun ProfileNameDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val fieldFocusRequester = remember { FocusRequester() }
-    val cancelFocusRequester = remember { FocusRequester() }
-    val confirmFocusRequester = remember { FocusRequester() }
-    val initials = profileInitials(name.ifBlank { "?" })
+    var showInput by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
-
-    GridModal(onDismiss = onDismiss, width = 440.dp) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(ProfileAvatarColors.first())
-                .align(Alignment.CenterHorizontally),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = initials,
-                color = TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-        Text(
-            text = title,
-            color = TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-        Text(
-            text = subtitle,
-            color = TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp)
-        )
-        Text(
-            text = "Profile name",
-            color = TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp)
-        )
-        TvTextField(
+    if (showInput) {
+        TvTextInputDialog(
+            label = title,
             value = name,
-            onValueChange = onNameChange,
             placeholder = "Enter a name",
-            label = null,
-            focusRequester = fieldFocusRequester,
-            modifier = Modifier.fillMaxWidth()
+            confirmLabel = confirmLabel,
+            onConfirm = { entered ->
+                onNameChange(entered)
+                showInput = false
+                onConfirm()
+            },
+            onDismiss = {
+                showInput = false
+                onDismiss()
+            }
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            GridOutlinedButton(
-                text = "Cancel",
-                onClick = onDismiss,
-                modifier = Modifier.focusRequester(cancelFocusRequester)
-            )
-            GridPrimaryButton(
-                text = confirmLabel,
-                onClick = onConfirm,
-                modifier = Modifier.focusRequester(confirmFocusRequester)
-            )
-        }
     }
 }
 

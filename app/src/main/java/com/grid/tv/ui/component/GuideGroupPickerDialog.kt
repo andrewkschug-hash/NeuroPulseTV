@@ -3,8 +3,6 @@ package com.grid.tv.ui.component
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,27 +25,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
-
-private enum class GuidePickerFocusZone { List, Actions }
 
 @Composable
 fun GuideGroupPickerDialog(
@@ -68,8 +58,7 @@ fun GuideGroupPickerDialog(
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
 
-    var focusZone by remember { mutableStateOf(GuidePickerFocusZone.List) }
-    var listFocusIndex by remember {
+    var focusedRowIndex by remember {
         mutableIntStateOf(
             visibleRowIndexForSelection(
                 categories,
@@ -78,102 +67,32 @@ fun GuideGroupPickerDialog(
             )
         )
     }
-    var actionFocusIndex by remember { mutableIntStateOf(1) }
+
+    val rowFocusRequesters = remember(visibleRows.size) {
+        List(visibleRows.size) { FocusRequester() }
+    }
+    val cancelFocusRequester = remember { FocusRequester() }
+    val saveFocusRequester = remember { FocusRequester() }
 
     val listState = rememberLazyListState()
-    val dialogFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        dialogFocusRequester.requestFocusSafelyAfterLayout()
+        if (visibleRows.isNotEmpty()) {
+            val index = focusedRowIndex.coerceIn(0, visibleRows.lastIndex)
+            rowFocusRequesters[index].requestFocusSafelyAfterLayout()
+        }
     }
 
-    LaunchedEffect(focusZone, listFocusIndex, visibleRows.size) {
-        if (focusZone == GuidePickerFocusZone.List && visibleRows.isNotEmpty()) {
-            listState.scrollToItem(listFocusIndex.coerceIn(0, visibleRows.lastIndex))
+    LaunchedEffect(focusedRowIndex, visibleRows.size) {
+        if (visibleRows.isNotEmpty()) {
+            val index = focusedRowIndex.coerceIn(0, visibleRows.lastIndex)
+            listState.scrollToItem(index)
         }
     }
 
     LaunchedEffect(visibleRows.size) {
-        if (visibleRows.isNotEmpty() && listFocusIndex > visibleRows.lastIndex) {
-            listFocusIndex = visibleRows.lastIndex
-        }
-    }
-
-    fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        val lastListIndex = (visibleRows.size - 1).coerceAtLeast(0)
-        return when (event.key) {
-            Key.DirectionDown -> {
-                when (focusZone) {
-                    GuidePickerFocusZone.List -> {
-                        if (listFocusIndex < lastListIndex) {
-                            listFocusIndex += 1
-                        } else {
-                            focusZone = GuidePickerFocusZone.Actions
-                            actionFocusIndex = 1
-                        }
-                    }
-                    GuidePickerFocusZone.Actions -> Unit
-                }
-                true
-            }
-            Key.DirectionUp -> {
-                when (focusZone) {
-                    GuidePickerFocusZone.List -> {
-                        if (listFocusIndex > 0) {
-                            listFocusIndex -= 1
-                        }
-                    }
-                    GuidePickerFocusZone.Actions -> {
-                        focusZone = GuidePickerFocusZone.List
-                        listFocusIndex = lastListIndex
-                    }
-                }
-                true
-            }
-            Key.DirectionLeft -> {
-                if (focusZone == GuidePickerFocusZone.Actions && actionFocusIndex > 0) {
-                    actionFocusIndex -= 1
-                }
-                true
-            }
-            Key.DirectionRight -> {
-                if (focusZone == GuidePickerFocusZone.Actions && actionFocusIndex < 1) {
-                    actionFocusIndex += 1
-                }
-                true
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                when (focusZone) {
-                    GuidePickerFocusZone.List -> {
-                        when (val row = visibleRows.getOrNull(listFocusIndex)) {
-                            GuideGroupVisibleRow.AllChannels -> selection = emptySet()
-                            is GuideGroupVisibleRow.Category -> {
-                                expandedCategories = toggleCategoryExpansion(
-                                    expandedCategories,
-                                    row.categoryIndex
-                                )
-                            }
-                            is GuideGroupVisibleRow.SelectAll -> {
-                                selection = toggleSelectAllGroups(row.groupNames, selection)
-                            }
-                            is GuideGroupVisibleRow.Group -> {
-                                selection = toggleGuideGroupSelection(selection, row.fullName)
-                            }
-                            null -> Unit
-                        }
-                    }
-                    GuidePickerFocusZone.Actions -> {
-                        if (actionFocusIndex == 0) onDismiss() else onConfirm(selection)
-                    }
-                }
-                true
-            }
-            Key.Back, Key.Escape -> {
-                onDismiss()
-                true
-            }
-            else -> false
+        if (visibleRows.isNotEmpty() && focusedRowIndex > visibleRows.lastIndex) {
+            focusedRowIndex = visibleRows.lastIndex
         }
     }
 
@@ -197,14 +116,9 @@ fun GuideGroupPickerDialog(
                 modifier = Modifier
                     .fillMaxWidth(0.55f)
                     .fillMaxHeight(0.82f)
-                    .focusRequester(dialogFocusRequester)
-                    .focusable()
-                    .focusProperties { canFocus = true }
                     .background(EpgColors.DetailPanelBg, RoundedCornerShape(12.dp))
                     .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
                     .padding(24.dp)
-                    .onPreviewKeyEvent(::handleKey)
-                    .onKeyEvent(::handleKey)
             ) {
                 Text(
                     text = title,
@@ -238,51 +152,53 @@ fun GuideGroupPickerDialog(
                             }
                         }
                     ) { index, row ->
-                        val focused = focusZone == GuidePickerFocusZone.List && listFocusIndex == index
+                        val rowModifier = Modifier
+                            .focusRequester(rowFocusRequesters[index])
+                            .onFocusChanged {
+                                if (it.isFocused) focusedRowIndex = index
+                            }
                         when (row) {
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selection.isEmpty(),
-                                focused = focused,
-                                onClick = {
-                                    selection = emptySet()
-                                    focusZone = GuidePickerFocusZone.List
-                                    listFocusIndex = index
-                                }
+                                focused = false,
+                                onClick = { selection = emptySet() },
+                                modifier = rowModifier,
+                                tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
                                 prefix = row.prefix,
                                 childCount = row.childCount,
                                 expanded = row.expanded,
-                                focused = focused,
+                                focused = false,
                                 onClick = {
                                     expandedCategories = toggleCategoryExpansion(
                                         expandedCategories,
                                         row.categoryIndex
                                     )
-                                    focusZone = GuidePickerFocusZone.List
-                                    listFocusIndex = index
-                                }
+                                },
+                                modifier = rowModifier,
+                                tvFocusable = true
                             )
                             is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
                                 prefix = row.prefix,
                                 childCount = row.groupNames.size,
                                 checked = areAllGroupsSelected(row.groupNames, selection),
-                                focused = focused,
+                                focused = false,
                                 onClick = {
                                     selection = toggleSelectAllGroups(row.groupNames, selection)
-                                    focusZone = GuidePickerFocusZone.List
-                                    listFocusIndex = index
-                                }
+                                },
+                                modifier = rowModifier,
+                                tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
                                 suffixLabel = row.suffixLabel,
                                 checked = row.fullName in selection,
-                                focused = focused,
+                                focused = false,
                                 onClick = {
                                     selection = toggleGuideGroupSelection(selection, row.fullName)
-                                    focusZone = GuidePickerFocusZone.List
-                                    listFocusIndex = index
-                                }
+                                },
+                                modifier = rowModifier,
+                                tvFocusable = true
                             )
                         }
                     }
@@ -296,15 +212,19 @@ fun GuideGroupPickerDialog(
                 ) {
                     GuidePickerActionButton(
                         text = "Cancel",
-                        focused = focusZone == GuidePickerFocusZone.Actions && actionFocusIndex == 0,
+                        focused = false,
                         primary = false,
-                        onClick = onDismiss
+                        onClick = onDismiss,
+                        modifier = Modifier.focusRequester(cancelFocusRequester),
+                        tvFocusable = true
                     )
                     GuidePickerActionButton(
                         text = confirmLabel,
-                        focused = focusZone == GuidePickerFocusZone.Actions && actionFocusIndex == 1,
+                        focused = false,
                         primary = true,
-                        onClick = { onConfirm(selection) }
+                        onClick = { onConfirm(selection) },
+                        modifier = Modifier.focusRequester(saveFocusRequester),
+                        tvFocusable = true
                     )
                 }
             }
@@ -317,41 +237,58 @@ private fun GuidePickerActionButton(
     text: String,
     focused: Boolean,
     primary: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tvFocusable: Boolean = false
 ) {
+    var rowFocused by remember { mutableStateOf(false) }
+    val showFocus = focused || rowFocused
     val shape = RoundedCornerShape(8.dp)
     val background = when {
-        primary && focused -> Color(0xFF5AA3FF)
+        primary && showFocus -> Color(0xFF5AA3FF)
         primary -> Color(0xFF3B8FFF)
-        focused -> Color(0xFF343446)
+        showFocus -> Color(0xFF343446)
         else -> Color(0xFF2E2E3E)
     }
     val borderColor = when {
-        focused -> EpgColors.FocusBorder
+        showFocus -> EpgColors.FocusBorder
         primary -> Color.Transparent
         else -> Color(0xFF4B5563)
     }
-    Box(
-        modifier = Modifier
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = modifier
             .height(44.dp)
-            .clip(shape)
-            .background(background, shape)
-            .border(
-                width = if (focused) 2.dp else if (primary) 0.dp else 1.dp,
-                color = borderColor,
-                shape = shape
-            )
-            .clickable(onClick = onClick)
-            .focusProperties { canFocus = false }
-            .padding(horizontal = 20.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            color = Color.White,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
+            .then(
+                if (tvFocusable) {
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                } else {
+                    Modifier
+                }
+            ),
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = background
         )
+    ) {
+        Box(
+            modifier = Modifier
+                .border(
+                    width = if (showFocus) 2.dp else if (primary) 0.dp else 1.dp,
+                    color = borderColor,
+                    shape = shape
+                )
+                .padding(horizontal = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }

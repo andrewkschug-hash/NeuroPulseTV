@@ -23,14 +23,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,20 +37,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalView
-import kotlinx.coroutines.launch
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,10 +55,7 @@ import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
-import com.grid.tv.util.TvImeKeyDispatcher
-import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
-import com.grid.tv.util.lockFocusWhileTyping
 
 private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
 
@@ -385,60 +370,10 @@ private fun SearchInputRow(
         SearchBarState.LISTENING -> Color(0xFFFF3B3B)
         SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
     }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val view = LocalView.current
-    val scope = rememberCoroutineScope()
-    var inputActive by remember { mutableStateOf(false) }
-
-    fun openSearchKeyboard() {
-        if (!inputActive) {
-            inputActive = true
-            TvTextInputSession.begin()
-        }
-        scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
-    }
-
-    fun dismissInput() {
-        if (inputActive) {
-            inputActive = false
-            TvTextInputSession.end()
-            keyboard?.hide()
-            TvRemoteKeyboard.dismissKeyboard(view)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { dismissInput() }
-    }
-
-    LaunchedEffect(focusZone) {
-        if (focusZone != SearchFocusZone.FIELD) dismissInput()
-    }
-
-    TvTextInputActivationEffect(
-        active = focusZone == SearchFocusZone.FIELD || inputActive,
-        onActivate = { openSearchKeyboard() }
-    )
-
-    fun handleFieldKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (inputActive) {
-            return when {
-                event.key == Key.Back || event.key == Key.Escape -> {
-                    dismissInput()
-                    true
-                }
-                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
-                else -> false
-            }
-        }
-        return when {
-            isTextFieldActivateKey(event) -> {
-                openSearchKeyboard()
-                true
-            }
-            else -> handleKey(event)
-        }
+    val searchPlaceholder = when (searchBarState) {
+        SearchBarState.LISTENING -> "Listening…"
+        SearchBarState.CONFIRMED -> "Search confirmed"
+        SearchBarState.DEFAULT -> "Search channels, movies, series, actors…"
     }
 
     Row(
@@ -457,45 +392,19 @@ private fun SearchInputRow(
                 modifier = if (searchBarState == SearchBarState.LISTENING) Modifier.scale(micPulse) else Modifier
             )
         }
-        BasicTextField(
+        TvDialogSearchBar(
             value = query,
             onValueChange = onQueryChange,
-            readOnly = !inputActive,
-            textStyle = TextStyle(color = EpgColors.TextPrimary, fontFamily = DmSansFamily, fontSize = 16.sp),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(
-                onSearch = { if (flatResults.isNotEmpty()) onSelectAt(focusedIndex.coerceAtLeast(0)) }
-            ),
-            cursorBrush = SolidColor(EpgColors.Accent),
+            placeholder = searchPlaceholder,
+            focusRequester = fieldFocusRequester,
+            label = "Search",
+            confirmLabel = "Search",
             modifier = Modifier
                 .weight(1f)
-                .height(52.dp)
-                .focusRequester(fieldFocusRequester)
-                .focusable()
-                .lockFocusWhileTyping(inputActive)
-                .onPreviewKeyEvent(::handleFieldKey)
-                .onKeyEvent(::handleFieldKey)
-                .background(Color(0xFF13131A), RoundedCornerShape(8.dp))
-                .border(1.5.dp, fieldBorderColor, RoundedCornerShape(8.dp))
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-            decorationBox = { inner ->
-                Box(contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) {
-                        Text(
-                            text = when (searchBarState) {
-                                SearchBarState.LISTENING -> "Listening…"
-                                SearchBarState.CONFIRMED -> "Search confirmed"
-                                SearchBarState.DEFAULT -> "Search channels, movies, series, actors…"
-                            },
-                            color = Color(0xFF888899),
-                            fontFamily = DmSansFamily,
-                            fontSize = 16.sp
-                        )
-                    }
-                    inner()
-                }
-            }
+                .height(52.dp),
+            borderColorFocused = fieldBorderColor,
+            borderColorUnfocused = fieldBorderColor.copy(alpha = 0.6f),
+            onPreviewKeyEvent = handleKey
         )
         MicButton(
             listening = searchBarState == SearchBarState.LISTENING,

@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.focusable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Button as M3Button
@@ -213,50 +211,22 @@ fun SettingsTextField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = singleLine,
-            textStyle = TextStyle(
-                color = EpgColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp
-            ),
-            cursorBrush = SolidColor(EpgColors.Accent),
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF252836), RoundedCornerShape(8.dp))
-                .then(
-                    if (focused) {
-                        Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
-                    } else {
-                        Modifier
-                    }
-                )
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            decorationBox = { inner ->
-                Box {
-                    if (value.isEmpty() && placeholder.isNotEmpty()) {
-                        Text(
-                            text = placeholder,
-                            color = Color(0xFFB8BEC8),
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp
-                        )
-                    }
-                    inner()
-                }
-            }
-        )
-    }
+    TvDialogTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = placeholder,
+        label = label,
+        modifier = modifier,
+        showFloatingLabel = false,
+        backgroundColor = Color(0xFF252836),
+        focusedBorderColor = if (focused) EpgColors.FocusBorder else Color.Transparent,
+        unfocusedBorderColor = Color.Transparent,
+        focusedBorderWidth = if (focused) 2.dp else 0.dp,
+        textColor = EpgColors.TextPrimary,
+        placeholderColor = Color(0xFFB8BEC8),
+        labelColor = EpgColors.TextSecondary,
+        fieldHeight = if (singleLine) 44.dp else 96.dp
+    )
 }
 
 @Composable

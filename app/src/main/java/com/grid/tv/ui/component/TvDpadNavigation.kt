@@ -1,24 +1,9 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.ui.ExperimentalComposeUiApi
-
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -26,28 +11,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
@@ -57,7 +35,6 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
-import com.grid.tv.util.lockFocusWhileTyping
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -191,6 +168,12 @@ fun Modifier.tvFocusChainNavigation(
 
 internal fun isTextFieldActivateKey(event: KeyEvent): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
+    return isTvActivateKey(event)
+}
+
+/** Enter / D-pad center on TV remotes (Compose key + native keycode). */
+internal fun isTvActivateKey(event: KeyEvent): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
     return when (event.key) {
         Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> true
         else -> {
@@ -213,7 +196,6 @@ internal suspend fun showTextFieldKeyboard(
     keyboard?.show()
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvTextField(
     value: String,
@@ -228,212 +210,40 @@ fun TvTextField(
     chainIndex: Int = -1,
     chain: TvFocusChain? = null,
     enabled: Boolean = true,
-    singleLine: Boolean = true,
+  @Suppress("UNUSED_PARAMETER") singleLine: Boolean = true,
     onEditingChanged: (Boolean) -> Unit = {},
     onHighlightChanged: (Boolean) -> Unit = {},
     onNavigateBack: () -> Unit = {},
-    imeAction: ImeAction = ImeAction.Done,
+    @Suppress("UNUSED_PARAMETER") imeAction: ImeAction = ImeAction.Done,
     onImeNext: (() -> Unit)? = null,
     onImeDone: (() -> Unit)? = null
 ) {
-    var inputActive by remember { mutableStateOf(false) }
-    var showPassword by remember { mutableStateOf(false) }
-    val keyboard = LocalSoftwareKeyboardController.current
-    val view = LocalView.current
-    val scope = rememberCoroutineScope()
-    val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
-    val innerFocusRequester = remember { FocusRequester() }
-    val effectiveFocusRequester = focusRequester ?: innerFocusRequester
-    val showFocusBorder = isFocused || inputActive
-
-    fun activateInput() {
-        if (inputActive) {
-            scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
-            return
-        }
-        inputActive = true
-        onEditingChanged(true)
-        TvTextInputSession.begin()
-        scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
-    }
-
-    fun dismissInput() {
-        if (inputActive) {
-            inputActive = false
-            onEditingChanged(false)
-            TvTextInputSession.end()
-            keyboard?.hide()
-            TvRemoteKeyboard.dismissKeyboard(view)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose { dismissInput() }
-    }
-
-    LaunchedEffect(isFocused) {
-        if (!isFocused) dismissInput()
-    }
-
-    TvTextInputActivationEffect(active = isFocused || inputActive, onActivate = ::activateInput)
-
-    fun handleFieldKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (inputActive) {
-            return when (event.key) {
-                Key.Back, Key.Escape -> {
-                    dismissInput()
-                    true
-                }
-                else -> false
-            }
-        }
-        return when {
-            isTextFieldActivateKey(event) -> {
-                activateInput()
-                true
-            }
-            else -> false
-        }
-    }
-
-    ColumnFieldLabel(label = label, value = value, showLabel = showFocusBorder || value.isNotBlank())
-
-    val fieldShape = RoundedCornerShape(8.dp)
-    val borderColor = when {
-        error != null -> Color(0xFFFF4444)
-        showFocusBorder -> TvInputFocusBorder
-        else -> TvInputBorder
-    }
-    val borderWidth = if (showFocusBorder) 2.dp else 0.dp
-    val fieldHeight = if (singleLine) 48.dp else null
-
-    Box(modifier = Modifier.fillMaxWidth()) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            enabled = enabled,
-            readOnly = !inputActive,
-            textStyle = TextStyle(
-                color = Color.White,
-                fontFamily = DmSansFamily,
-                fontSize = 15.sp
-            ),
-            singleLine = singleLine,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = keyboardType,
-                imeAction = imeAction
-            ),
-            keyboardActions = KeyboardActions(
-                onNext = {
-                    dismissInput()
-                    onImeNext?.invoke()
-                },
-                onDone = {
-                    dismissInput()
-                    onImeDone?.invoke()
-                }
-            ),
-            visualTransformation = if (isPassword && !showPassword) {
-                PasswordVisualTransformation()
-            } else {
-                VisualTransformation.None
-            },
-            cursorBrush = SolidColor(TvFocusAccent),
-            modifier = modifier
-                .fillMaxWidth()
-                .then(if (fieldHeight != null) Modifier.height(fieldHeight) else Modifier)
-                .border(borderWidth, borderColor, fieldShape)
-                .background(TvInputBg, fieldShape)
-                .focusRequester(effectiveFocusRequester)
-                .focusable(enabled, interactionSource = interactionSource)
-                .lockFocusWhileTyping(inputActive)
-                .onPreviewKeyEvent(::handleFieldKey)
-                .onKeyEvent(::handleFieldKey)
-                .tvFocusScrollIntoView()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = enabled
-                ) { activateInput() }
-                .onFocusChanged {
-                    onHighlightChanged(it.isFocused)
-                    if (it.isFocused) {
-                        chain?.onItemFocused(chainIndex)
-                    }
-                }
-                .then(
-                    if (chain != null && chainIndex >= 0) {
-                        Modifier.tvFocusChainNavigation(
-                            chain = chain,
-                            index = chainIndex,
-                            onBack = onNavigateBack,
-                            isEditing = { inputActive },
-                            onDismissEditing = { dismissInput() }
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
-                .padding(
-                    start = 14.dp,
-                    end = if (isPassword) 52.dp else 14.dp,
-                    top = if (singleLine) 0.dp else 12.dp,
-                    bottom = if (singleLine) 0.dp else 12.dp
-                ),
-            decorationBox = { inner ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(if (fieldHeight != null) Modifier.fillMaxHeight() else Modifier),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            color = TvTextMuted,
-                            fontFamily = DmSansFamily,
-                            fontSize = 15.sp
-                        )
-                    }
-                    inner()
-                }
-            }
-        )
-        if (isPassword) {
-            var showFocused by remember { mutableStateOf(false) }
-            GridFocusSurface(
-                onClick = { showPassword = !showPassword },
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 4.dp)
-                    .onFocusChanged { showFocused = it.isFocused }
-                    .tvFocusRing(focused = showFocused, shape = RoundedCornerShape(4.dp), width = 1.5.dp)
-            ) {
-                Text(
-                    text = if (showPassword) "Hide" else "Show",
-                    color = TvTextMuted,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ColumnFieldLabel(label: String?, value: String, showLabel: Boolean) {
-    if (label != null && showLabel) {
-        Text(
-            text = label,
-            color = TvTextMuted,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(bottom = 6.dp)
-        )
-    }
+    TvDialogTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = placeholder,
+        modifier = modifier,
+        label = label,
+        keyboardType = keyboardType,
+        isPassword = isPassword,
+        error = error,
+        enabled = enabled,
+        focusRequester = focusRequester,
+        chainIndex = chainIndex,
+        chain = chain,
+        onEditingChanged = onEditingChanged,
+        onHighlightChanged = onHighlightChanged,
+        onNavigateBack = onNavigateBack,
+        onConfirmed = {
+            onImeDone?.invoke() ?: onImeNext?.invoke()
+        },
+        backgroundColor = TvInputBg,
+        focusedBorderColor = TvInputFocusBorder,
+        unfocusedBorderColor = TvInputBorder,
+        textColor = Color.White,
+        placeholderColor = TvTextMuted,
+        labelColor = TvTextMuted
+    )
 }
 
 @Composable
