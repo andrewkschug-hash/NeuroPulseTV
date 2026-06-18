@@ -2,6 +2,7 @@ package com.grid.tv.domain.epg
 
 enum class EpgMatchReason(val label: String) {
     TVG_ID_EXACT("Exact TVG-ID match"),
+    TVG_ID_NORMALIZED("Normalized TVG-ID match"),
     LEARNED_MAPPING("Previously corrected by you"),
     CANONICAL_ALIAS("Canonical channel alias"),
     NORMALIZED_EXACT("Exact normalized name"),

@@ -49,6 +49,7 @@ interface IptvRepository {
     fun liveSportsNow(): Flow<List<Program>>
     fun moviesStartingSoon(now: Long): Flow<List<Program>>
     suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program>
+    suspend fun programsWindowForChannels(channels: List<Channel>, start: Long, end: Long): List<Program>
     suspend fun allDistinctEpgIds(): List<String>
 
     fun profiles(): Flow<List<UserProfile>>

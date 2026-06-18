@@ -696,15 +696,20 @@ private fun ProfileNameDialog(
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 6.dp)
         )
+        Text(
+            text = "Profile name",
+            color = TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp)
+        )
         TvTextField(
             value = name,
             onValueChange = onNameChange,
             placeholder = "Enter a name",
-            label = "Profile name",
+            label = null,
             focusRequester = fieldFocusRequester,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 16.dp)
+            modifier = Modifier.fillMaxWidth()
         )
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 20.dp),

@@ -593,21 +593,27 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         _epgLoading.value = true
-        val channelEpgIds = _channels.value.mapNotNull { it.epgId?.takeIf { id -> id.isNotBlank() } }.distinct()
-        val epgIds = if (channelEpgIds.isNotEmpty()) {
-            channelEpgIds
-        } else {
-            repository.allDistinctEpgIds().take(500)
-        }
-        if (epgIds.isEmpty()) {
-            _epgPrograms.value = emptyList()
+        val channelsForLookup = _channels.value.filter { !it.epgId.isNullOrBlank() }
+        if (channelsForLookup.isEmpty()) {
+            val fallbackEpgIds = repository.allDistinctEpgIds().take(500)
+            if (fallbackEpgIds.isEmpty()) {
+                _epgPrograms.value = emptyList()
+                _epgLoading.value = false
+                return
+            }
+            val start = _windowStart.value
+            val end = start + _windowDurationMs.value
+            _epgPrograms.value = withContext(Dispatchers.IO) {
+                repository.programsWindow(fallbackEpgIds, start, end)
+            }
+            recomputeReplayUrls(_epgPrograms.value)
             _epgLoading.value = false
             return
         }
         val start = _windowStart.value
         val end = start + _windowDurationMs.value
         _epgPrograms.value = withContext(Dispatchers.IO) {
-            repository.programsWindow(epgIds, start, end)
+            repository.programsWindowForChannels(channelsForLookup, start, end)
         }
         recomputeReplayUrls(_epgPrograms.value)
         _epgLoading.value = false

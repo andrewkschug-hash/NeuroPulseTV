@@ -22,7 +22,13 @@ class EpgMatchAnalyticsTracker @Inject constructor(
             current.copy(
                 totalAttempts = current.totalAttempts + 1,
                 autoMatched = current.autoMatched + 1,
-                tvgIdMatches = current.tvgIdMatches + if (reason == EpgMatchReason.TVG_ID_EXACT) 1 else 0,
+                tvgIdMatches = current.tvgIdMatches + if (
+                    reason == EpgMatchReason.TVG_ID_EXACT || reason == EpgMatchReason.TVG_ID_NORMALIZED
+                ) {
+                    1
+                } else {
+                    0
+                },
                 learnedMatches = current.learnedMatches + if (reason == EpgMatchReason.LEARNED_MAPPING) 1 else 0,
                 canonicalMatches = current.canonicalMatches + if (reason == EpgMatchReason.CANONICAL_ALIAS) 1 else 0,
                 exactNameMatches = current.exactNameMatches + if (reason == EpgMatchReason.NORMALIZED_EXACT) 1 else 0,

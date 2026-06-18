@@ -22,6 +22,7 @@ import com.grid.tv.data.db.dao.SeriesRecordingRuleDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.entity.ActiveProfileEntity
+import com.grid.tv.data.db.entity.EpgSourceChannelEntity
 import com.grid.tv.data.db.entity.PlaylistEntity
 import com.grid.tv.data.db.entity.ProfileFavoriteEntity
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
@@ -36,7 +37,9 @@ import com.grid.tv.data.network.parser.XmlTvParser
 import com.grid.tv.data.network.stalker.StalkerPortalClient
 import com.grid.tv.data.security.SecureCredentialStore
 import com.grid.tv.data.session.GuestSessionPreferences
-import com.grid.tv.domain.model.ConnectionFormFields
+import com.grid.tv.domain.epg.ChannelNameNormalizer
+import com.grid.tv.domain.epg.EpgChannelLinkResolver
+import com.grid.tv.domain.epg.XmlTvChannelRef
 import com.grid.tv.domain.model.PlaylistConnectResult
 import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
@@ -128,12 +131,14 @@ class IptvRepositoryImpl @Inject constructor(
     private val stalkerPortalClient: StalkerPortalClient,
     private val gridBackupManager: GridBackupManager,
     private val favoritesRepository: FavoritesRepository,
-    private val guestSessionPreferences: GuestSessionPreferences
+    private val guestSessionPreferences: GuestSessionPreferences,
+    private val channelNameNormalizer: ChannelNameNormalizer
 ) : IptvRepository {
 
     companion object {
         private const val CONNECT_ERROR = "Login or URL invalid"
         private const val IPTV_REPO_LOG_TAG = "IptvRepository"
+        private const val EPG_MATCH_DEBUG_TAG = "EPG Match Debug"
         private const val CHANNEL_INSERT_CHUNK = 400
         const val CHANNEL_PAGE_SIZE = 200
     }
@@ -142,6 +147,8 @@ class IptvRepositoryImpl @Inject constructor(
     private val healthEngine = StreamHealthEngine()
     private val epgCache = EpgBlockCache(maxBlocks = 6)
     private val _epgDataRevision = MutableStateFlow(0L)
+    @Volatile
+    private var epgLinkResolver: EpgChannelLinkResolver? = null
 
     private var cachedSettings = AppSettings()
     private var activeProfileId = 1L
@@ -535,39 +542,139 @@ class IptvRepositoryImpl @Inject constructor(
         }
 
     override suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program> =
+        programsWindowForChannels(
+            channels = epgIds.map { epgId ->
+                Channel(
+                    id = 0L,
+                    number = 0,
+                    name = epgId,
+                    group = "",
+                    logoUrl = null,
+                    epgId = epgId,
+                    streamUrl = "",
+                    playlistId = 0L,
+                    isFavorite = false
+                )
+            },
+            start = start,
+            end = end
+        )
+
+    override suspend fun programsWindowForChannels(channels: List<Channel>, start: Long, end: Long): List<Program> =
         withContext(Dispatchers.IO) {
-            if (epgIds.isEmpty()) return@withContext emptyList()
-            val key = "${start / 1000}-${end / 1000}-${epgIds.size}-${epgIds.hashCode()}"
-            epgCache.get(key)?.let { return@withContext it }
-            val entities = epgIds.chunked(400).flatMap { chunk ->
-                programDao.loadWindow(chunk, start, end)
+            if (channels.isEmpty()) return@withContext emptyList()
+
+            val resolver = ensureEpgLinkResolver()
+            val xmlTvToPlaylist = linkedMapOf<String, MutableList<String>>()
+            val xmlTvIdsToQuery = linkedSetOf<String>()
+
+            channels.forEach { channel ->
+                val playlistEpgId = channel.epgId?.trim()?.takeIf { it.isNotEmpty() } ?: return@forEach
+                val link = resolver.resolve(playlistEpgId, channel.name)
+                val xmlTvId = link.xmlTvChannelId ?: return@forEach
+                xmlTvIdsToQuery += xmlTvId
+                xmlTvToPlaylist.getOrPut(xmlTvId) { mutableListOf() }.add(playlistEpgId)
             }
-            val foundLower = entities.map { it.channelEpgId.lowercase() }.toSet()
-            val missingLower = epgIds.map { it.lowercase() }.filter { it !in foundLower }.distinct()
-            val caseInsensitive = if (missingLower.isEmpty()) {
-                emptyList()
+
+            if (xmlTvIdsToQuery.isEmpty()) {
+                logEpgMatchDebug(channels, resolver, emptyMap(), start)
+                return@withContext emptyList()
+            }
+
+            val key = "${start / 1000}-${end / 1000}-ch${channels.size}-${xmlTvIdsToQuery.hashCode()}"
+            val cached = epgCache.get(key)
+            val rawPrograms = if (cached != null) {
+                cached
             } else {
-                missingLower.chunked(400).flatMap { chunk ->
-                    programDao.loadWindowIgnoreCase(chunk, start, end)
-                }
+                val loaded = loadProgramsForXmlTvIds(xmlTvIdsToQuery.toList(), start, end)
+                epgCache.put(key, loaded)
+                loaded
             }
-            val loaded = (entities + caseInsensitive)
-                .distinctBy { it.id }
-                .map { row ->
-                    Program(
-                        id = row.id,
-                        channelEpgId = row.channelEpgId,
-                        title = row.title,
-                        description = row.description,
-                        startTime = row.startTime,
-                        endTime = row.endTime,
-                        genre = runCatching { ProgramGenre.valueOf(row.genre) }.getOrDefault(ProgramGenre.GENERAL),
-                        catchupUrl = row.catchupUrl
-                    )
-                }
-            epgCache.put(key, loaded)
-            loaded
+
+            val remapped = rawPrograms.flatMap { program ->
+                val playlistEpgIds = xmlTvToPlaylist[program.channelEpgId]
+                    ?: xmlTvToPlaylist.entries.firstOrNull { (xmlTvId, _) ->
+                        xmlTvId.equals(program.channelEpgId, ignoreCase = true)
+                    }?.value
+                    ?: listOf(program.channelEpgId)
+                playlistEpgIds.map { playlistEpgId -> program.copy(channelEpgId = playlistEpgId) }
+            }
+
+            val programmesByPlaylistEpgId = remapped.groupBy { it.channelEpgId }
+            logEpgMatchDebug(channels, resolver, programmesByPlaylistEpgId, start)
+            remapped
         }
+
+    private suspend fun loadProgramsForXmlTvIds(
+        xmlTvIds: List<String>,
+        start: Long,
+        end: Long
+    ): List<Program> {
+        val entities = xmlTvIds.chunked(400).flatMap { chunk ->
+            programDao.loadWindow(chunk, start, end)
+        }
+        val foundLower = entities.map { it.channelEpgId.lowercase() }.toSet()
+        val missingLower = xmlTvIds.map { it.lowercase() }.filter { it !in foundLower }.distinct()
+        val caseInsensitive = if (missingLower.isEmpty()) {
+            emptyList()
+        } else {
+            missingLower.chunked(400).flatMap { chunk ->
+                programDao.loadWindowIgnoreCase(chunk, start, end)
+            }
+        }
+        return (entities + caseInsensitive)
+            .distinctBy { it.id }
+            .map { row ->
+                Program(
+                    id = row.id,
+                    channelEpgId = row.channelEpgId,
+                    title = row.title,
+                    description = row.description,
+                    startTime = row.startTime,
+                    endTime = row.endTime,
+                    genre = runCatching { ProgramGenre.valueOf(row.genre) }.getOrDefault(ProgramGenre.GENERAL),
+                    catchupUrl = row.catchupUrl
+                )
+            }
+    }
+
+    private suspend fun ensureEpgLinkResolver(): EpgChannelLinkResolver {
+        val cached = epgLinkResolver
+        if (cached != null) return cached
+        return rebuildEpgLinkResolver()
+    }
+
+    private suspend fun rebuildEpgLinkResolver(): EpgChannelLinkResolver {
+        val refs = linkedMapOf<String, XmlTvChannelRef>()
+        epgSourceChannelDao.all().forEach { source ->
+            refs[source.epgId] = XmlTvChannelRef(source.epgId, source.displayName)
+        }
+        programDao.distinctChannelEpgIds().forEach { epgId ->
+            refs.putIfAbsent(epgId, XmlTvChannelRef(epgId, epgId))
+        }
+        return EpgChannelLinkResolver(refs.values.toList()).also { epgLinkResolver = it }
+    }
+
+    private fun logEpgMatchDebug(
+        channels: List<Channel>,
+        resolver: EpgChannelLinkResolver,
+        programmesByPlaylistEpgId: Map<String, List<Program>>,
+        windowStart: Long
+    ) {
+        val now = System.currentTimeMillis()
+        channels.take(10).forEach { channel ->
+            val tvgId = channel.epgId
+            val link = resolver.resolve(tvgId, channel.name)
+            val programmes = tvgId?.let { programmesByPlaylistEpgId[it] }.orEmpty()
+            val firstProgramStart = programmes.firstOrNull()?.startTime
+            Log.i(
+                EPG_MATCH_DEBUG_TAG,
+                "tvgId=${tvgId ?: "null"}, matchedId=${link.xmlTvChannelId ?: "NO MATCH"}, " +
+                    "matchReason=${link.reason}, programmeCount=${programmes.size}, " +
+                    "now=$now, firstProgramStart=$firstProgramStart, windowStart=$windowStart"
+            )
+        }
+    }
 
     override suspend fun allDistinctEpgIds(): List<String> = withContext(Dispatchers.IO) {
         channelDao.allDistinctEpgIds()
@@ -1149,6 +1256,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun refreshEpgNow() = withContext(Dispatchers.IO) {
         epgCache.clear()
+        epgLinkResolver = null
         val now = System.currentTimeMillis()
         val threshold = now - 24L * 60 * 60 * 1000
         programDao.purgeOlderThan(threshold)
@@ -1167,12 +1275,28 @@ class IptvRepositoryImpl @Inject constructor(
             runCatching {
                 val xml = remoteTextFetcher.fetch(resolvedEpgUrl)
                 val parsed = xmlTvParser.parse(xml)
+                val sourceKey = "xmltv:${playlist.id}"
+                if (parsed.channelsById.isNotEmpty()) {
+                    epgSourceChannelDao.clearBySource(sourceKey)
+                    val sourceChannels = parsed.channelsById.map { (epgId, displayName) ->
+                        EpgSourceChannelEntity(
+                            epgId = epgId,
+                            displayName = displayName,
+                            normalizedName = channelNameNormalizer.normalize(displayName),
+                            source = sourceKey,
+                            logoUrl = null,
+                            cachedAt = now
+                        )
+                    }
+                    epgSourceChannelDao.insertAll(sourceChannels)
+                }
                 if (parsed.programs.isNotEmpty()) {
                     programDao.insertAll(parsed.programs)
                     playlistDao.update(playlist.copy(lastRefreshed = now))
                     Log.i(
                         IPTV_REPO_LOG_TAG,
-                        "EPG refresh: ${parsed.programs.size} programmes for ${playlist.name}"
+                        "EPG refresh: ${parsed.programs.size} programmes, " +
+                            "${parsed.channelsById.size} XMLTV channels for ${playlist.name}"
                     )
                 } else {
                     Log.w(IPTV_REPO_LOG_TAG, "EPG refresh: no programmes parsed from $resolvedEpgUrl")
@@ -1180,6 +1304,26 @@ class IptvRepositoryImpl @Inject constructor(
             }.onFailure { error ->
                 Log.e(IPTV_REPO_LOG_TAG, "EPG refresh failed for ${playlist.name}", error)
             }
+        }
+        rebuildEpgLinkResolver()
+        val sampleChannels = mapChannelEntities(
+            channelDao.channelsPage(
+                groupName = null,
+                search = "",
+                onlyFavorites = false,
+                profileId = activeProfileId,
+                favoriteGroupId = -1L,
+                limit = 10,
+                offset = 0
+            )
+        )
+        if (sampleChannels.isNotEmpty()) {
+            val nowMs = System.currentTimeMillis()
+            programsWindowForChannels(
+                channels = sampleChannels,
+                start = nowMs - 90 * 60 * 1000,
+                end = nowMs + 4 * 60 * 60 * 1000
+            )
         }
         _epgDataRevision.update { it + 1 }
     }

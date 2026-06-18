@@ -28,6 +28,16 @@ class EpgMatcherTest {
     }
 
     @Test
+    fun match_prefersNormalizedTvgId() = runTest {
+        val candidates = listOf(
+            epgSource("BBC.One.uk", "BBC One", "xmltv")
+        )
+        val outcome = matcher.match("BBC One", "bbc.one.uk", candidates)
+        assertEquals(EpgMatchReason.TVG_ID_NORMALIZED, outcome.best?.reason)
+        assertEquals("BBC.One.uk", outcome.best?.epgId)
+    }
+
+    @Test
     fun match_prefersTvgId() = runTest {
         val candidates = listOf(
             epgSource("espn.us", "ESPN", "epg.best"),

@@ -31,6 +31,18 @@ class EpgMatcher @Inject constructor(
                     reason = EpgMatchReason.TVG_ID_EXACT
                 )
             }
+            val normalizedTvgId = EpgIdNormalizer.normalize(tvgId)
+            if (normalizedTvgId.isNotEmpty()) {
+                candidates.firstOrNull { EpgIdNormalizer.normalize(it.epgId) == normalizedTvgId }?.let { hit ->
+                    ranked += EpgMatchCandidate(
+                        epgId = hit.epgId,
+                        epgName = hit.displayName,
+                        confidence = 99,
+                        source = hit.source,
+                        reason = EpgMatchReason.TVG_ID_NORMALIZED
+                    )
+                }
+            }
         }
 
         learnedDao.get(normalizedInput)?.let { learned ->

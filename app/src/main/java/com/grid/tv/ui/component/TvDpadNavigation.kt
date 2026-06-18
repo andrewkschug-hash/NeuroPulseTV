@@ -9,6 +9,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -53,6 +54,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvRemoteKeyboard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -211,6 +213,7 @@ internal suspend fun showTextFieldKeyboard(
 ) {
     focusRequester?.requestFocus()
     delay(50)
+    TvRemoteKeyboard.activateFocusedTextInput(view)
     keyboard?.show()
     delay(80)
     val target = view.findFocus() ?: view
@@ -254,6 +257,7 @@ fun TvTextField(
     fun activateInput() {
         inputActive = true
         onEditingChanged(true)
+        TvRemoteKeyboard.activateFocusedTextInput(view)
         scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
     }
 
@@ -293,89 +297,89 @@ fun TvTextField(
         else -> TvInputBorder
     }
     val borderWidth = if (showFocusBorder) 2.dp else 0.dp
+    val fieldHeight = if (singleLine) 48.dp else null
 
     Box(modifier = Modifier.fillMaxWidth()) {
-        Box(
-            modifier = Modifier
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            textStyle = TextStyle(
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp
+            ),
+            singleLine = singleLine,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboardType,
+                imeAction = if (singleLine) ImeAction.Done else ImeAction.Default
+            ),
+            keyboardActions = KeyboardActions(onDone = { dismissInput() }),
+            visualTransformation = if (isPassword && !showPassword) {
+                PasswordVisualTransformation()
+            } else {
+                VisualTransformation.None
+            },
+            cursorBrush = SolidColor(TvFocusAccent),
+            modifier = modifier
                 .fillMaxWidth()
+                .then(if (fieldHeight != null) Modifier.height(fieldHeight) else Modifier)
                 .border(borderWidth, borderColor, fieldShape)
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = enabled,
-                textStyle = TextStyle(
-                    color = Color.White,
-                    fontFamily = DmSansFamily,
-                    fontSize = 15.sp
-                ),
-                singleLine = singleLine,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = keyboardType,
-                    imeAction = if (singleLine) ImeAction.Done else ImeAction.Default
-                ),
-                keyboardActions = KeyboardActions(onDone = { dismissInput() }),
-                visualTransformation = if (isPassword && !showPassword) {
-                    PasswordVisualTransformation()
-                } else {
-                    VisualTransformation.None
-                },
-                cursorBrush = SolidColor(TvFocusAccent),
-                modifier = modifier
-                    .fillMaxWidth()
-                    .then(if (singleLine) Modifier.height(48.dp) else Modifier)
-                    .focusRequester(effectiveFocusRequester)
-                    .focusable(enabled, interactionSource = interactionSource)
-                    .tvFocusScrollIntoView()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        enabled = enabled
-                    ) { activateInput() }
-                    .onFocusChanged {
-                        onHighlightChanged(it.isFocused)
-                        if (it.isFocused) {
-                            chain?.onItemFocused(chainIndex)
-                        }
-                    }
-                    .then(
-                        if (chain != null && chainIndex >= 0) {
-                            Modifier.tvFocusChainNavigation(
-                                chain = chain,
-                                index = chainIndex,
-                                onBack = onNavigateBack,
-                                isEditing = { inputActive },
-                                onDismissEditing = { dismissInput() }
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
-                    .onPreviewKeyEvent(::handleFieldKey)
-                    .onKeyEvent(::handleFieldKey)
-                    .clip(fieldShape)
-                    .background(TvInputBg)
-                    .padding(
-                        start = 14.dp,
-                        end = if (isPassword) 52.dp else 14.dp,
-                        top = if (singleLine) 0.dp else 12.dp,
-                        bottom = if (singleLine) 0.dp else 12.dp
-                    ),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (value.isEmpty()) {
-                            Text(
-                                text = placeholder,
-                                color = TvTextMuted,
-                                fontFamily = DmSansFamily,
-                                fontSize = 15.sp
-                            )
-                        }
-                        inner()
+                .background(TvInputBg, fieldShape)
+                .focusRequester(effectiveFocusRequester)
+                .focusable(enabled, interactionSource = interactionSource)
+                .tvFocusScrollIntoView()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    enabled = enabled
+                ) { activateInput() }
+                .onFocusChanged {
+                    onHighlightChanged(it.isFocused)
+                    if (it.isFocused) {
+                        chain?.onItemFocused(chainIndex)
                     }
                 }
-            )
-        }
+                .then(
+                    if (chain != null && chainIndex >= 0) {
+                        Modifier.tvFocusChainNavigation(
+                            chain = chain,
+                            index = chainIndex,
+                            onBack = onNavigateBack,
+                            isEditing = { inputActive },
+                            onDismissEditing = { dismissInput() }
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .onPreviewKeyEvent(::handleFieldKey)
+                .onKeyEvent(::handleFieldKey)
+                .padding(
+                    start = 14.dp,
+                    end = if (isPassword) 52.dp else 14.dp,
+                    top = if (singleLine) 0.dp else 12.dp,
+                    bottom = if (singleLine) 0.dp else 12.dp
+                ),
+            decorationBox = { inner ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(if (fieldHeight != null) Modifier.fillMaxHeight() else Modifier),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (value.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            color = TvTextMuted,
+                            fontFamily = DmSansFamily,
+                            fontSize = 15.sp
+                        )
+                    }
+                    inner()
+                }
+            }
+        )
         if (isPassword) {
             var showFocused by remember { mutableStateOf(false) }
             GridFocusSurface(

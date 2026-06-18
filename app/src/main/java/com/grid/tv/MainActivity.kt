@@ -22,6 +22,7 @@ import com.grid.tv.ui.navigation.AppRoot
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
+import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -130,9 +131,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && VoiceSearchKeys.isMicKey(event.keyCode)) {
-            micSearchTrigger.trigger()
-            return true
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            if (VoiceSearchKeys.isMicKey(event.keyCode)) {
+                micSearchTrigger.trigger()
+                return true
+            }
+            if (TvRemoteKeyboard.isActivateKey(event.keyCode)) {
+                if (TvRemoteKeyboard.activateFocusedTextInput(window.decorView)) {
+                    return true
+                }
+            }
         }
         return super.dispatchKeyEvent(event)
     }

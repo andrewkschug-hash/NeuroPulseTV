@@ -9,10 +9,10 @@ import java.util.TimeZone
 
 class XmlTvParser {
 
-    private val formats = listOf(
-        SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") },
-        SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-    )
+    private val formatWithTimezone = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+    private val formatLocal = SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply {
+        timeZone = TimeZone.getDefault()
+    }
 
     fun parse(xml: String): ParsedXmlTv {
         val parser = Xml.newPullParser().apply {
@@ -103,6 +103,14 @@ class XmlTvParser {
 
     private fun parseTime(input: String?): Long {
         if (input.isNullOrBlank()) return 0L
-        return formats.firstNotNullOfOrNull { runCatching { it.parse(input.trim())?.time }.getOrNull() } ?: 0L
+        val trimmed = input.trim()
+        val hasExplicitTimezone = trimmed.length > 14 &&
+            (trimmed[14] == ' ' || trimmed[14] == '+' || trimmed[14] == '-')
+        return if (hasExplicitTimezone) {
+            runCatching { formatWithTimezone.parse(trimmed)?.time }.getOrNull() ?: 0L
+        } else {
+            val datePart = trimmed.take(14)
+            runCatching { formatLocal.parse(datePart)?.time }.getOrNull() ?: 0L
+        }
     }
 }

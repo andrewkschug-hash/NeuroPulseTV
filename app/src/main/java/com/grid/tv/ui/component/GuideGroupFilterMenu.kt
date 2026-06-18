@@ -13,9 +13,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -26,36 +29,12 @@ import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-private data class GuideGroupMenuItem(
-    val label: String,
-    val groupName: String?,
-    val menuIndex: Int,
-    val section: String? = null
-)
-
-private fun buildGuideGroupMenuItems(channelGroups: List<String>): List<GuideGroupMenuItem> = buildList {
-    add(GuideGroupMenuItem("All channels", groupName = null, menuIndex = 0, section = "Channel groups"))
-    channelGroups.forEachIndexed { index, group ->
-        add(
-            GuideGroupMenuItem(
-                label = group,
-                groupName = group,
-                menuIndex = index + 1,
-                section = null
-            )
-        )
-    }
-}
-
-fun guideFilterMenuItemCount(channelGroups: List<String>): Int =
-    1 + channelGroups.size
-
-private val GROUP_REGION_SEPARATORS = listOf(" ❖ ", " | ", " - ", " – ")
+val GUIDE_GROUP_REGION_SEPARATORS = listOf(" ❖ ", " | ", " - ", " – ")
 
 /** Leading token before a separator in Xtream group names, e.g. `CA ❖ Sports`. */
 fun guideGroupRegionPrefix(groupName: String): String? {
     val trimmed = groupName.trim()
-    for (separator in GROUP_REGION_SEPARATORS) {
+    for (separator in GUIDE_GROUP_REGION_SEPARATORS) {
         if (separator in trimmed) {
             return trimmed.substringBefore(separator).trim().takeIf { it.isNotBlank() }
         }
@@ -99,24 +78,65 @@ fun toggleGuideGroupSelection(selectedGroups: Set<String>, group: String): Set<S
     return next
 }
 
+fun guideFilterMenuItemCount(
+    channelGroups: List<String>,
+    expandedCategories: Set<Int>,
+    selectedGroups: Set<String> = emptySet()
+): Int {
+    val categories = buildGuideGroupCategories(channelGroups)
+    val expanded = expandedCategories.ifEmpty {
+        expandedCategoriesForSelection(categories, selectedGroups)
+    }
+    return buildVisibleGuideGroupRows(categories, expanded).size
+}
+
 fun guideFilterForMenuSelection(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
-    menuIndex: Int
+    menuIndex: Int,
+    expandedCategories: Set<Int>
 ): GuideChannelFilter {
-    if (menuIndex == 0) return GuideChannelFilter.All
-    val group = channelGroups.getOrNull(menuIndex - 1) ?: return GuideChannelFilter(selectedGroups)
-    return GuideChannelFilter(toggleGuideGroupSelection(selectedGroups, group))
+    val categories = buildGuideGroupCategories(channelGroups)
+    val row = buildVisibleGuideGroupRows(categories, expandedCategories).getOrNull(menuIndex)
+        ?: return GuideChannelFilter(selectedGroups)
+    return when (row) {
+        GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
+        is GuideGroupVisibleRow.Group -> GuideChannelFilter(
+            toggleGuideGroupSelection(selectedGroups, row.fullName)
+        )
+        is GuideGroupVisibleRow.Category -> GuideChannelFilter(selectedGroups)
+    }
+}
+
+fun guideFilterRowAction(
+    row: GuideGroupVisibleRow,
+    selectedGroups: Set<String>
+): GuideChannelFilter? = when (row) {
+    GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
+    is GuideGroupVisibleRow.Group -> GuideChannelFilter(
+        toggleGuideGroupSelection(selectedGroups, row.fullName)
+    )
+    is GuideGroupVisibleRow.Category -> null
+}
+
+fun isGuideGroupRowSelected(
+    row: GuideGroupVisibleRow,
+    selectedGroups: Set<String>
+): Boolean = when (row) {
+    GuideGroupVisibleRow.AllChannels -> selectedGroups.isEmpty()
+    is GuideGroupVisibleRow.Group -> row.fullName in selectedGroups
+    is GuideGroupVisibleRow.Category -> false
 }
 
 fun isGuideGroupMenuItemSelected(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
-    menuIndex: Int
+    menuIndex: Int,
+    expandedCategories: Set<Int>
 ): Boolean {
-    if (menuIndex == 0) return selectedGroups.isEmpty()
-    val group = channelGroups.getOrNull(menuIndex - 1) ?: return false
-    return group in selectedGroups
+    val categories = buildGuideGroupCategories(channelGroups)
+    val row = buildVisibleGuideGroupRows(categories, expandedCategories).getOrNull(menuIndex) ?: return false
+    return isGuideGroupRowSelected(row, selectedGroups)
 }
 
 @Composable
@@ -124,6 +144,7 @@ fun GuideGroupFilterMenu(
     expanded: Boolean,
     channelGroups: List<String>,
     selectedGroups: Set<String>,
+    expandedCategories: Set<Int>,
     focusedIndex: Int,
     onDismiss: () -> Unit,
     onToggle: (Int) -> Unit,
@@ -131,12 +152,14 @@ fun GuideGroupFilterMenu(
 ) {
     if (!expanded) return
 
-    val items = buildGuideGroupMenuItems(channelGroups)
+    val categories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
+    val visibleRows = remember(categories, expandedCategories) {
+        buildVisibleGuideGroupRows(categories, expandedCategories)
+    }
     val listState = rememberLazyListState()
-    val focusedLazyIndex = items.indexOfFirst { it.menuIndex == focusedIndex }.coerceAtLeast(0)
 
-    LaunchedEffect(focusedIndex) {
-        listState.animateScrollToItem(focusedLazyIndex)
+    LaunchedEffect(focusedIndex, visibleRows.size) {
+        listState.animateScrollToItem(focusedIndex.coerceIn(0, (visibleRows.size - 1).coerceAtLeast(0)))
     }
 
     Popup(
@@ -153,10 +176,10 @@ fun GuideGroupFilterMenu(
                 .padding(vertical = 8.dp)
                 .heightIn(max = 420.dp)
         ) {
-            itemsIndexed(items, key = { _, item -> item.menuIndex }) { _, item ->
-                if (item.section != null) {
+            if (visibleRows.isNotEmpty()) {
+                item {
                     Text(
-                        text = item.section,
+                        text = "Channel groups",
                         color = EpgColors.TextDimmed,
                         fontFamily = DmSansFamily,
                         fontSize = 11.sp,
@@ -164,62 +187,185 @@ fun GuideGroupFilterMenu(
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                     )
                 }
-                val focused = item.menuIndex == focusedIndex
-                val checked = isGuideGroupMenuItemSelected(channelGroups, selectedGroups, item.menuIndex)
-                val rowBackground = when {
-                    focused -> EpgColors.ChannelRowFocusBg
-                    checked -> androidx.compose.ui.graphics.Color(0xFF16161E)
-                    else -> EpgColors.GridBg
-                }
-                val rowTextColor = when {
-                    focused -> EpgColors.TextPrimary
-                    checked -> EpgColors.TextDimmed
-                    else -> EpgColors.TextSecondary
-                }
-                GridFocusSurface(
-                    onClick = { onToggle(item.menuIndex) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                        .then(
-                            if (focused) {
-                                Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
-                            } else {
-                                Modifier
-                            }
-                        ),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = rowBackground,
-                        focusedContainerColor = rowBackground
-                    )
-                ) {
-                    androidx.compose.foundation.layout.Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = item.label,
-                            color = rowTextColor,
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (checked) {
-                            Text(
-                                text = "✓",
-                                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
-                                fontFamily = DmSansFamily,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+            }
+            itemsIndexed(
+                visibleRows,
+                key = { index, row ->
+                    when (row) {
+                        GuideGroupVisibleRow.AllChannels -> "all"
+                        is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
+                        is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
                     }
                 }
+            ) { index, row ->
+                val focused = index == focusedIndex
+                when (row) {
+                    GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
+                        checked = selectedGroups.isEmpty(),
+                        focused = focused,
+                        onClick = { onToggle(index) }
+                    )
+                    is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
+                        prefix = row.prefix,
+                        childCount = row.childCount,
+                        expanded = row.expanded,
+                        focused = focused,
+                        onClick = { onToggle(index) }
+                    )
+                    is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
+                        suffixLabel = row.suffixLabel,
+                        checked = row.fullName in selectedGroups,
+                        focused = focused,
+                        onClick = { onToggle(index) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun GuideGroupAllChannelsRow(
+    checked: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit
+) {
+    GuideGroupTreeRowShell(
+        label = "All channels",
+        checked = checked,
+        focused = focused,
+        onClick = onClick,
+        startPadding = 20.dp
+    )
+}
+
+@Composable
+internal fun GuideGroupCategoryRow(
+    prefix: String,
+    childCount: Int,
+    expanded: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit
+) {
+    val background = when {
+        focused -> EpgColors.ChannelRowFocusBg
+        else -> EpgColors.GridBg
+    }
+    val textColor = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .then(
+                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                else Modifier
+            ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = background
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "$prefix ($childCount)",
+                color = textColor,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (expanded) "▼" else "▶",
+                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp
+            )
+        }
+    }
+}
+
+@Composable
+internal fun GuideGroupChildRow(
+    suffixLabel: String,
+    checked: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit
+) {
+    GuideGroupTreeRowShell(
+        label = suffixLabel,
+        checked = checked,
+        focused = focused,
+        onClick = onClick,
+        startPadding = 36.dp
+    )
+}
+
+@Composable
+private fun GuideGroupTreeRowShell(
+    label: String,
+    checked: Boolean,
+    focused: Boolean,
+    onClick: () -> Unit,
+    startPadding: androidx.compose.ui.unit.Dp
+) {
+    val background = when {
+        focused -> EpgColors.ChannelRowFocusBg
+        checked -> Color(0xFF16161E)
+        else -> EpgColors.GridBg
+    }
+    val textColor = when {
+        focused -> EpgColors.TextPrimary
+        checked -> EpgColors.TextDimmed
+        else -> EpgColors.TextSecondary
+    }
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .then(
+                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(6.dp))
+                else Modifier
+            ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(6.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = background,
+            focusedContainerColor = background
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = startPadding, end = 20.dp, top = 12.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = label,
+                color = textColor,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (checked) {
+                Text(
+                    text = "✓",
+                    color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
