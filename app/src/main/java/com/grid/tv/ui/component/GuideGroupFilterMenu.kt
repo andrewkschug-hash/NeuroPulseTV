@@ -12,12 +12,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.focusable
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -181,6 +184,7 @@ fun GuideGroupFilterMenu(
 ) {
     if (!expanded) return
 
+    val menuFocusRequester = remember { FocusRequester() }
     val categories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
     val visibleRows = remember(categories, expandedCategories) {
         buildVisibleGuideGroupRows(categories, expandedCategories)
@@ -188,8 +192,15 @@ fun GuideGroupFilterMenu(
     val listState = rememberLazyListState()
     val lastIndex = (visibleRows.size - 1).coerceAtLeast(0)
 
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            menuFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
     LaunchedEffect(focusedIndex, visibleRows.size) {
-        listState.animateScrollToItem(focusedIndex.coerceIn(0, lastIndex))
+        if (visibleRows.isEmpty()) return@LaunchedEffect
+        listState.scrollToItem(focusedIndex.coerceIn(0, lastIndex))
     }
 
     fun handleMenuKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
@@ -224,6 +235,9 @@ fun GuideGroupFilterMenu(
             state = listState,
             modifier = modifier
                 .padding(top = 108.dp, end = 24.dp)
+                .focusRequester(menuFocusRequester)
+                .focusable()
+                .focusProperties { canFocus = true }
                 .background(EpgColors.DetailPanelBg, RoundedCornerShape(8.dp))
                 .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
                 .padding(vertical = 8.dp)

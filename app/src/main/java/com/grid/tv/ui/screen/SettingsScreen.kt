@@ -347,7 +347,8 @@ fun SettingsScreen(
     // Move focus to the sidebar item / top bar whenever the focused region or sidebar
     // selection changes via explicit navigation. Content focus is requested directly in
     // enterContentFromSidebar(); native directional focus handles movement inside content.
-    LaunchedEffect(focusPanel, sidebarFocusIndex) {
+    LaunchedEffect(focusPanel, sidebarFocusIndex, showGuideGroupPicker) {
+        if (showGuideGroupPicker) return@LaunchedEffect
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
             SettingsFocusPanel.LEFT ->

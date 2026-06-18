@@ -4,6 +4,7 @@ import com.grid.tv.ui.component.GlowFocusButton
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -1183,8 +1184,11 @@ fun HomeEpgScreen(
         focusZone,
         displayChannels.size,
         showPreviewSection,
-        continueWatchingItems.isNotEmpty()
+        continueWatchingItems.isNotEmpty(),
+        showCategoryFilterMenu,
+        showGuideGroupPicker
     ) {
+        if (showCategoryFilterMenu || showGuideGroupPicker) return@LaunchedEffect
         when (focusZone) {
             EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
                 gridFocusRequester.requestFocusSafelyAfterLayout()
@@ -1373,6 +1377,13 @@ fun HomeEpgScreen(
             )
         }
 
+        if (showCategoryFilterMenu) {
+            BackHandler {
+                showCategoryFilterMenu = false
+                focusZone = EpgFocusZone.GRID_FILTER
+            }
+        }
+
         GuideGroupFilterMenu(
             expanded = showCategoryFilterMenu,
             channelGroups = channelGroups,
@@ -1380,11 +1391,18 @@ fun HomeEpgScreen(
             expandedCategories = categoryMenuExpandedCategories,
             focusedIndex = categoryMenuFocusIndex,
             onFocusedIndexChange = { categoryMenuFocusIndex = it },
-            onDismiss = { showCategoryFilterMenu = false },
+            onDismiss = {
+                showCategoryFilterMenu = false
+                focusZone = EpgFocusZone.GRID_FILTER
+            },
             onToggle = ::handleCategoryFilterMenuToggle
         )
 
         if (showGuideGroupPicker && channelGroups.isNotEmpty()) {
+            BackHandler {
+                showGuideGroupPicker = false
+                viewModel.saveGuideChannelGroups(emptySet(), markConfigured = true)
+            }
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = guideFilter.selectedGroups,
