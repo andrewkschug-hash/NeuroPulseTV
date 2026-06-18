@@ -56,6 +56,7 @@ import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.ui.viewmodel.ConnectionDialogState
 
 data class SettingsNavItem(
@@ -492,6 +493,7 @@ private fun ProfileColorSwatch(
             .then(settingsFocusModifier(chainIndex, focus, enabled = canReceiveFocus))
             .focusable(enabled = canReceiveFocus)
             .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {

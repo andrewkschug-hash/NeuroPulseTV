@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -54,6 +55,7 @@ import com.grid.tv.ui.component.GridFocusSurface
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvRemoteKeyboard
+import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -247,8 +249,13 @@ fun TvTextField(
     val showFocusBorder = isFocused || inputActive
 
     fun activateInput() {
+        if (inputActive) {
+            scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
+            return
+        }
         inputActive = true
         onEditingChanged(true)
+        TvTextInputSession.begin()
         scope.launch { showTextFieldKeyboard(keyboard, view, effectiveFocusRequester) }
     }
 
@@ -256,8 +263,14 @@ fun TvTextField(
         if (inputActive) {
             inputActive = false
             onEditingChanged(false)
+            TvTextInputSession.end()
             keyboard?.hide()
+            TvRemoteKeyboard.dismissKeyboard(view)
         }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { dismissInput() }
     }
 
     LaunchedEffect(isFocused) {
@@ -268,13 +281,18 @@ fun TvTextField(
 
     fun handleFieldKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (inputActive) {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
+                    dismissInput()
+                    true
+                }
+                else -> false
+            }
+        }
         return when {
             isTextFieldActivateKey(event) -> {
                 activateInput()
-                true
-            }
-            (event.key == Key.Back || event.key == Key.Escape) && inputActive -> {
-                dismissInput()
                 true
             }
             else -> false
@@ -322,6 +340,15 @@ fun TvTextField(
                 .background(TvInputBg, fieldShape)
                 .focusRequester(effectiveFocusRequester)
                 .focusable(enabled, interactionSource = interactionSource)
+                .focusProperties {
+                    exit = {
+                        if (inputActive) {
+                            androidx.compose.ui.focus.FocusRequester.Cancel
+                        } else {
+                            androidx.compose.ui.focus.FocusRequester.Default
+                        }
+                    }
+                }
                 .onPreviewKeyEvent(::handleFieldKey)
                 .onKeyEvent(::handleFieldKey)
                 .tvFocusScrollIntoView()

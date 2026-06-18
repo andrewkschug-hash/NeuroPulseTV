@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
@@ -203,6 +204,7 @@ fun GuideGroupPickerDialog(
                     .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
                     .padding(24.dp)
                     .onPreviewKeyEvent(::handleKey)
+                    .onKeyEvent(::handleKey)
             ) {
                 Text(
                     text = title,

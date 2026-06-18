@@ -1033,6 +1033,7 @@ fun HomeEpgScreen(
 
     fun handleGridKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (showCategoryFilterMenu || showGuideGroupPicker) return false
         if (displayChannels.isEmpty()) return false
 
         return when (event.key) {

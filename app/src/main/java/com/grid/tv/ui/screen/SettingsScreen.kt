@@ -112,6 +112,7 @@ import com.grid.tv.ui.viewmodel.AuthViewModel
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
+import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.profileInitials
 import com.grid.tv.util.quitAppToHome
 import java.text.SimpleDateFormat
@@ -445,6 +446,7 @@ fun SettingsScreen(
     }
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (TvTextInputSession.deferNavigationToIme(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         if (profileMenuOpen) {
             return when (event.key) {
@@ -488,6 +490,7 @@ fun SettingsScreen(
     }
 
     fun handleSidebarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (TvTextInputSession.deferNavigationToIme(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionUp -> {
@@ -616,6 +619,7 @@ fun SettingsScreen(
                             up = topNavFocusRequester
                         }
                         .onPreviewKeyEvent { event ->
+                            if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
                             if (focusPanel != SettingsFocusPanel.RIGHT) return@onPreviewKeyEvent false
                             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                             when (event.key) {

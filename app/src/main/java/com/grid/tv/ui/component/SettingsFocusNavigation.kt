@@ -46,6 +46,7 @@ import androidx.tv.material3.Text
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvTextInputSession
 enum class SettingsFocusPanel { TOP_BAR, LEFT, RIGHT }
 
 enum class SettingsFocusLevel { SIDEBAR, SECTION, INSIDE_CARD }
@@ -284,6 +285,7 @@ fun SettingsFocusPill(
             )
             .border(borderWidth, borderColor, PillShape)
             .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.DirectionLeft -> {
@@ -430,6 +432,7 @@ fun SettingsFocusProfileRow(
             .focusable(enabled = canReceiveFocus)
             .onFocusChanged { isFocused = it.isFocused }
             .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -481,6 +484,7 @@ fun SettingsFocusToggleRow(
             .then(settingsFocusModifier(chainIndex, focus))
             .focusable(enabled = canReceiveFocus, interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {

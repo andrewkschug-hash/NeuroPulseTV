@@ -22,7 +22,9 @@ import com.grid.tv.ui.navigation.AppRoot
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
+import android.view.inputmethod.InputMethodManager
 import com.grid.tv.util.TvRemoteKeyboard
+import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -132,6 +134,19 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
+            val imm = getSystemService(InputMethodManager::class.java)
+            val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
+            if (imeActive) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP,
+                    KeyEvent.KEYCODE_DPAD_DOWN,
+                    KeyEvent.KEYCODE_DPAD_LEFT,
+                    KeyEvent.KEYCODE_DPAD_RIGHT,
+                    KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    KeyEvent.KEYCODE_DPAD_CENTER -> return super.dispatchKeyEvent(event)
+                }
+            }
             if (VoiceSearchKeys.isMicKey(event.keyCode)) {
                 micSearchTrigger.trigger()
                 return true
