@@ -881,11 +881,7 @@ fun HomeEpgScreen(
             guideFilter.selectedGroups
         )
         categoryMenuExpandedCategories = expanded
-        categoryMenuFocusIndex = visibleRowIndexForSelection(
-            guideGroupCategories,
-            expanded,
-            guideFilter.selectedGroups
-        )
+        categoryMenuFocusIndex = 0
         showCategoryFilterMenu = true
     }
 

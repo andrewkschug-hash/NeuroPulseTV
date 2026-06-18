@@ -1,5 +1,7 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
@@ -237,15 +240,34 @@ enum class EpgNavTab(val glyph: String, val label: String) {
 fun EpgChannelCell(
     channel: Channel,
     isFocused: Boolean,
+    isRowActive: Boolean = isFocused,
     showBottomSeparator: Boolean = true,
     scanStatus: com.grid.tv.domain.model.ChannelScanStatus? = null,
     lastCheckedLabel: String? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bgColor = if (isFocused) EpgColors.ChannelRowFocusBg else EpgColors.ChannelColumnBg
-    val logoTint = if (isFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
-    val nameColor = if (isFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> EpgColors.ChannelRowFocusBg
+            isRowActive -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.45f)
+            else -> EpgColors.ChannelColumnBg
+        },
+        animationSpec = tween(durationMillis = 120),
+        label = "channelCellBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> EpgColors.FocusBorder
+            isRowActive -> EpgColors.Accent.copy(alpha = 0.55f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 120),
+        label = "channelCellBorder"
+    )
+    val logoTint = if (isFocused || isRowActive) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val nameColor = if (isFocused || isRowActive) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val showAccentBar = isFocused || isRowActive
     val initials = channel.name.take(2).uppercase()
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
@@ -260,20 +282,26 @@ fun EpgChannelCell(
                 .weight(1f)
                 .background(bgColor)
                 .then(
-                    if (isFocused) {
-                        Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(0.dp))
+                    if (showAccentBar) {
+                        Modifier.border(
+                            width = if (isFocused) 2.dp else 1.dp,
+                            color = borderColor,
+                            shape = RoundedCornerShape(0.dp)
+                        )
                     } else {
                         Modifier
                     }
                 ),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (isFocused) {
+            if (showAccentBar) {
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
+                        .width(if (isFocused) 3.dp else 2.dp)
                         .fillMaxHeight()
-                        .background(EpgColors.Accent)
+                        .background(
+                            if (isFocused) EpgColors.Accent else EpgColors.Accent.copy(alpha = 0.6f)
+                        )
                 )
             }
             Row(
@@ -363,13 +391,23 @@ fun EpgProgramCell(
     modifier: Modifier = Modifier
 ) {
     val timeState = programTimeState(program, now)
-    val (bgColor, textColor) = cellColors(timeState)
+    val (baseBgColor, textColor) = cellColors(timeState)
     val isAiring = timeState == ProgramTimeState.AIRING
     val effectiveBg = when {
         isFocused -> EpgColors.ChannelRowFocusBg
         isSelected -> EpgColors.SelectedFill.copy(alpha = 0.35f)
-        else -> bgColor
+        else -> baseBgColor
     }
+    val animatedBg by animateColorAsState(
+        targetValue = effectiveBg,
+        animationSpec = tween(durationMillis = 120),
+        label = "programCellBg"
+    )
+    val animatedBorder by animateColorAsState(
+        targetValue = if (isFocused) EpgColors.FocusBorder else Color.Transparent,
+        animationSpec = tween(durationMillis = 120),
+        label = "programCellBorder"
+    )
     val showTime = width.value >= 100f
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
@@ -379,6 +417,7 @@ fun EpgProgramCell(
 
     Box(
         modifier = modifier
+            .zIndex(if (isFocused) 1f else 0f)
             .width(width)
             .padding(end = EpgLayout.CellGap)
             .height(EpgLayout.RowHeight)
@@ -387,15 +426,13 @@ fun EpgProgramCell(
             modifier = Modifier
                 .fillMaxSize()
                 .then(touchModifier)
-                .then(
-                    if (isFocused) {
-                        Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(2.dp))
-                    } else {
-                        Modifier
-                    }
+                .border(
+                    width = if (isFocused) 2.dp else 0.dp,
+                    color = animatedBorder,
+                    shape = RoundedCornerShape(2.dp)
                 )
                 .clip(RoundedCornerShape(2.dp))
-                .background(effectiveBg)
+                .background(animatedBg)
                 .padding(horizontal = 8.dp)
         ) {
             if (isAiring) {
@@ -411,10 +448,10 @@ fun EpgProgramCell(
             Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
                 Text(
                     text = program.title,
-                    color = if (isSelected) EpgColors.TextPrimary else textColor,
+                    color = if (isFocused || isSelected) EpgColors.TextPrimary else textColor,
                     fontFamily = DmSansFamily,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
                     maxLines = if (isFocused) 2 else 1,
                     overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis
                 )

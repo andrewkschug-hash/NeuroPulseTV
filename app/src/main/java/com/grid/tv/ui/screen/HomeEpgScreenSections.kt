@@ -1,5 +1,7 @@
 package com.grid.tv.ui.screen
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -289,11 +291,12 @@ internal fun HomeEpgChannelList(
                             items(displayChannels.size, key = { index -> displayChannels[index].id }) { index ->
                                 val channel = displayChannels[index]
                                 val programs = programsForChannel(channel)
+                                val isActiveRow = gridFocused && index == focusChannelIndex
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     EpgChannelCell(
                                         channel = channel,
-                                        isFocused = gridFocused &&
-                                            focusOnChannelColumn && index == focusChannelIndex,
+                                        isFocused = isActiveRow && focusOnChannelColumn,
+                                        isRowActive = isActiveRow,
                                         showBottomSeparator = index < displayChannels.lastIndex,
                                         scanStatus = channelScanStatuses[channel.id]?.status,
                                         lastCheckedLabel = formatLastChecked(
@@ -394,13 +397,21 @@ private fun EpgChannelTimelineRow(
     onProgramClick: (Int, Int, Program) -> Unit = { _, _, _ -> },
     replayStateFor: (Channel, Program) -> EpgProgramReplayState
 ) {
+    val rowActive = gridFocused && channelIndex == focusChannelIndex
+    val rowBg by animateColorAsState(
+        targetValue = when {
+            rowActive && !focusOnChannelColumn -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.32f)
+            isRowFocused -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.2f)
+            else -> EpgColors.GridBg
+        },
+        animationSpec = tween(durationMillis = 120),
+        label = "timelineRowBg"
+    )
     Box(
         modifier = hScrollModifier
             .width(timelineWidth)
             .height(EpgLayout.RowHeight)
-            .background(
-                if (isRowFocused) EpgColors.ChannelRowFocusBg.copy(alpha = 0.35f) else EpgColors.GridBg
-            )
+            .background(rowBg)
     ) {
         programs.forEachIndexed { programIndex, program ->
             val width = EpgLayout.widthForDurationMs(program.endTime - program.startTime) - EpgLayout.CellGap
