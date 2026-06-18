@@ -5,6 +5,7 @@ import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
+import com.grid.tv.domain.model.EpgRefreshReport
 import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistConnectResult
@@ -87,7 +88,7 @@ interface IptvRepository {
     suspend fun addPlaylistFromLocal(name: String, content: String, epgUrl: String?, refreshHours: Int)
     suspend fun connectionFormForPlaylist(playlist: Playlist): ConnectionFormFields
     suspend fun deletePlaylist(playlistId: Long)
-    suspend fun refreshEpgNow()
+    suspend fun refreshEpgNow(): EpgRefreshReport
     suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>>
     fun epgDataRevision(): Flow<Long>
 

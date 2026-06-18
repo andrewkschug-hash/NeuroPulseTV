@@ -51,6 +51,8 @@ import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ConnectionFormFields
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.FavoriteGroup
+import com.grid.tv.domain.model.EpgFetchAttempt
+import com.grid.tv.domain.model.EpgRefreshReport
 import com.grid.tv.domain.model.EpgResolutionStatus
 import com.grid.tv.domain.model.EpgRowHeight
 import com.grid.tv.domain.model.AspectRatioSetting
@@ -1299,25 +1301,62 @@ class IptvRepositoryImpl @Inject constructor(
         clearSeriesSeasonsForPlaylist(playlistId)
     }
 
-    override suspend fun refreshEpgNow() {
-        withContext(Dispatchers.IO) {
+    override suspend fun refreshEpgNow(): EpgRefreshReport = withContext(Dispatchers.IO) {
         Log.i(EPG_FLOW_TAG, "refreshEpgNow started")
         epgCache.clear()
         epgLinkResolver = null
         val now = System.currentTimeMillis()
         val threshold = now - 24L * 60 * 60 * 1000
         programDao.purgeOlderThan(threshold)
-        playlistDao.all().forEach { playlist ->
+        val playlists = playlistDao.all()
+        Log.i(EPG_FLOW_TAG, "refreshEpgNow: ${playlists.size} playlist(s) in DB")
+        val attempts = mutableListOf<EpgFetchAttempt>()
+        playlists.forEach { playlist ->
             val epgUrl = playlist.epgUrl
             val resolvedEpgUrl = when {
                 !epgUrl.isNullOrBlank() -> epgUrl
                 playlist.type == PlaylistType.XTREAM.name -> {
                     val server = playlist.xtreamServerUrl ?: playlist.url
-                    val user = playlist.xtreamUsername ?: return@forEach
-                    val pass = resolveXtreamPassword(playlist) ?: return@forEach
+                    val user = playlist.xtreamUsername
+                    if (user.isNullOrBlank()) {
+                        val skip = EpgFetchAttempt(
+                            playlistName = playlist.name,
+                            playlistId = playlist.id,
+                            endpointKind = "xmltv.php",
+                            skippedReason = "missing Xtream username"
+                        )
+                        attempts += skip
+                        Log.w(EPG_FLOW_TAG, "Skipping EPG for ${playlist.name}: missing Xtream username")
+                        return@forEach
+                    }
+                    val pass = resolveXtreamPassword(playlist)
+                    if (pass == null) {
+                        val skip = EpgFetchAttempt(
+                            playlistName = playlist.name,
+                            playlistId = playlist.id,
+                            endpointKind = "xmltv.php",
+                            skippedReason = "missing Xtream password"
+                        )
+                        attempts += skip
+                        Log.w(EPG_FLOW_TAG, "Skipping EPG for ${playlist.name}: missing Xtream password")
+                        return@forEach
+                    }
                     buildXtreamXmlTvUrl(server, user, pass)
                 }
-                else -> return@forEach
+                else -> {
+                    val skip = EpgFetchAttempt(
+                        playlistName = playlist.name,
+                        playlistId = playlist.id,
+                        endpointKind = null,
+                        skippedReason = "no EPG URL and not Xtream (${playlist.type})"
+                    )
+                    attempts += skip
+                    Log.w(
+                        EPG_FLOW_TAG,
+                        "Skipping EPG for ${playlist.name}: no epgUrl and type=${playlist.type}"
+                    )
+                    return@forEach
+                }
             }
             val endpointKind = when {
                 playlist.type == PlaylistType.XTREAM.name && epgUrl.isNullOrBlank() -> "xmltv.php"
@@ -1325,13 +1364,32 @@ class IptvRepositoryImpl @Inject constructor(
             }
             Log.i(
                 EPG_FLOW_TAG,
-                "Fetching EPG for ${playlist.name} via $endpointKind (not get_short_epg): $resolvedEpgUrl"
+                "Fetching EPG for ${playlist.name} (id=${playlist.id}) via $endpointKind: $resolvedEpgUrl"
             )
-            runCatching {
-                val xml = remoteTextFetcher.fetch(resolvedEpgUrl)
-                Log.i(EPG_FLOW_TAG, "EPG fetch OK: ${xml.length} bytes for ${playlist.name}")
-                val parsed = xmlTvParser.parse(xml)
+            var attempt = EpgFetchAttempt(
+                playlistName = playlist.name,
+                playlistId = playlist.id,
+                endpointKind = endpointKind,
+                url = resolvedEpgUrl
+            )
+            try {
+                val fetchResult = remoteTextFetcher.fetchDetailed(resolvedEpgUrl)
+                attempt = attempt.copy(
+                    httpCode = fetchResult.httpCode,
+                    bytesReceived = fetchResult.rawBytes
+                )
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "EPG fetch OK for ${playlist.name}: HTTP ${fetchResult.httpCode}, " +
+                        "${fetchResult.rawBytes} bytes"
+                )
+                val parsed = xmlTvParser.parse(fetchResult.body)
+                attempt = attempt.copy(
+                    channelsParsed = parsed.channelsById.size,
+                    programmesParsed = parsed.programs.size
+                )
                 val sourceKey = "xmltv:${playlist.id}"
+                var channelsStored = 0
                 if (parsed.channelsById.isNotEmpty()) {
                     epgSourceChannelDao.clearBySource(sourceKey)
                     val sourceChannels = parsed.channelsById.map { (epgId, displayName) ->
@@ -1345,32 +1403,40 @@ class IptvRepositoryImpl @Inject constructor(
                         )
                     }
                     epgSourceChannelDao.insertAll(sourceChannels)
+                    channelsStored = sourceChannels.size
                     Log.i(
                         EPG_FLOW_TAG,
-                        "Stored ${sourceChannels.size} XMLTV channel refs for ${playlist.name} (source=$sourceKey)"
+                        "Stored $channelsStored XMLTV channel refs for ${playlist.name} (source=$sourceKey)"
                     )
                 } else {
                     Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
                 }
+                var programmesStored = 0
                 if (parsed.programs.isNotEmpty()) {
                     programDao.insertAll(parsed.programs)
                     playlistDao.update(playlist.copy(lastRefreshed = now))
+                    programmesStored = parsed.programs.size
                     Log.i(
-                        IPTV_REPO_LOG_TAG,
-                        "EPG refresh: ${parsed.programs.size} programmes, " +
-                            "${parsed.channelsById.size} XMLTV channels for ${playlist.name}"
+                        EPG_FLOW_TAG,
+                        "Stored $programmesStored programmes for ${playlist.name} " +
+                            "(${parsed.channelsById.size} XMLTV channels in file)"
                     )
                 } else {
-                    Log.w(IPTV_REPO_LOG_TAG, "EPG refresh: no programmes parsed from $resolvedEpgUrl")
+                    Log.w(EPG_FLOW_TAG, "No programmes parsed from $resolvedEpgUrl for ${playlist.name}")
                 }
-            }.onFailure { error ->
-                Log.e(IPTV_REPO_LOG_TAG, "EPG refresh failed for ${playlist.name}", error)
-                Log.e(EPG_FLOW_TAG, "EPG fetch failed for ${playlist.name}: ${error.message}")
+                attempt = attempt.copy(
+                    channelsStored = channelsStored,
+                    programmesStored = programmesStored
+                )
+            } catch (error: Exception) {
+                Log.e(EPG_FLOW_TAG, "EPG refresh failed for ${playlist.name}: ${error.message}", error)
+                attempt = attempt.copy(error = error.message ?: error.javaClass.simpleName)
             }
+            attempts += attempt
         }
         rebuildEpgLinkResolver()
         val programChannelCount = programDao.distinctChannelEpgIds().size
-        Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; ${programChannelCount} distinct programme channel ids in DB")
+        Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; $programChannelCount distinct programme channel ids in DB")
         val sampleChannels = mapChannelEntities(
             channelDao.channelsPage(
                 groupName = null,
@@ -1397,8 +1463,15 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         _epgDataRevision.update { it + 1 }
-        Log.i(EPG_FLOW_TAG, "refreshEpgNow finished; epgDataRevision=${_epgDataRevision.value}")
-        }
+        val report = EpgRefreshReport(playlistsTotal = playlists.size, attempts = attempts)
+        Log.i(
+            EPG_FLOW_TAG,
+            "refreshEpgNow finished; playlists=${report.playlistsTotal} " +
+                "fetches=${report.urlsAttempted} bytes=${report.totalBytesReceived} " +
+                "channelsStored=${report.totalChannelsStored} programmesStored=${report.totalProgrammesStored} " +
+                "failures=${report.failures.size} epgDataRevision=${_epgDataRevision.value}"
+        )
+        report
     }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {

@@ -48,8 +48,10 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -126,6 +128,45 @@ private enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FILT
 private val TopBarProfileIndex get() = GridNavTabs.size
 private const val TopBarSearchIndex = 0
 
+private fun epgZoneAbove(
+    from: EpgFocusZone,
+    showPreview: Boolean,
+    hasContinueWatching: Boolean
+): EpgFocusZone? = when (from) {
+    EpgFocusZone.GRID -> EpgFocusZone.GRID_FILTER
+    EpgFocusZone.GRID_FILTER -> when {
+        showPreview -> EpgFocusZone.PREVIEW
+        hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+        else -> EpgFocusZone.TOP_BAR
+    }
+    EpgFocusZone.PREVIEW -> when {
+        hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+        else -> EpgFocusZone.TOP_BAR
+    }
+    EpgFocusZone.CONTINUE_WATCHING -> EpgFocusZone.TOP_BAR
+    EpgFocusZone.TOP_BAR -> null
+}
+
+private fun epgZoneBelow(
+    from: EpgFocusZone,
+    showPreview: Boolean,
+    hasContinueWatching: Boolean
+): EpgFocusZone? = when (from) {
+    EpgFocusZone.TOP_BAR -> when {
+        hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+        showPreview -> EpgFocusZone.PREVIEW
+        else -> EpgFocusZone.GRID_FILTER
+    }
+    EpgFocusZone.CONTINUE_WATCHING -> when {
+        showPreview -> EpgFocusZone.PREVIEW
+        else -> EpgFocusZone.GRID_FILTER
+    }
+    EpgFocusZone.PREVIEW -> EpgFocusZone.GRID_FILTER
+    EpgFocusZone.GRID_FILTER -> EpgFocusZone.GRID
+    EpgFocusZone.GRID -> null
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun HomeEpgScreen(
     onWatchChannel: (Long) -> Unit,
@@ -599,6 +640,7 @@ fun HomeEpgScreen(
         com.grid.tv.player.StreamPlaybackStatus.LOADING
     }
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
+    val hasContinueWatching = continueWatchingItems.isNotEmpty()
 
     val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
         val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
@@ -777,66 +819,60 @@ fun HomeEpgScreen(
         }
     }
 
+    fun requestEpgZoneFocus(zone: EpgFocusZone) {
+        scope.launch {
+            when (zone) {
+                EpgFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
+                EpgFocusZone.CONTINUE_WATCHING -> if (hasContinueWatching) {
+                    continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
+                }
+                EpgFocusZone.PREVIEW -> if (showPreviewSection) {
+                    previewFocusRequester.requestFocusSafelyAfterLayout(150)
+                }
+                EpgFocusZone.GRID_FILTER -> gridFilterFocusRequester.requestFocusSafelyAfterLayout()
+                EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
+                    gridFocusRequester.requestFocusSafelyAfterLayout()
+                }
+            }
+        }
+    }
+
+    fun focusEpgZone(zone: EpgFocusZone) {
+        focusZone = zone
+        if (zone == EpgFocusZone.PREVIEW) detailActionIndex = 0
+        requestEpgZoneFocus(zone)
+    }
+
     fun focusSearchTopBar() {
         topBarFocusIndex = TopBarSearchIndex
-        focusZone = EpgFocusZone.TOP_BAR
+        focusEpgZone(EpgFocusZone.TOP_BAR)
     }
 
     fun focusGuideFilter() {
-        focusZone = EpgFocusZone.GRID_FILTER
+        focusEpgZone(EpgFocusZone.GRID_FILTER)
     }
 
     fun focusGuideChannels(targetIndex: Int = focusChannelIndex) {
-        focusZone = EpgFocusZone.GRID
         focusChannelIndex = targetIndex.coerceIn(0, displayChannels.lastIndex.coerceAtLeast(0))
         focusOnChannelColumn = true
+        focusEpgZone(EpgFocusZone.GRID)
     }
 
     fun focusPreviewSection() {
         if (showPreviewSection) {
-            focusZone = EpgFocusZone.PREVIEW
-            detailActionIndex = 0
+            focusEpgZone(EpgFocusZone.PREVIEW)
         } else {
             focusGuideFilter()
         }
     }
 
-    fun moveGuideFocusUp(from: EpgFocusZone) {
-        when (from) {
-            EpgFocusZone.GRID_FILTER -> {
-                if (showPreviewSection) {
-                    focusPreviewSection()
-                } else if (continueWatchingItems.isNotEmpty()) {
-                    focusZone = EpgFocusZone.CONTINUE_WATCHING
-                } else {
-                    focusSearchTopBar()
-                }
-            }
-            EpgFocusZone.CONTINUE_WATCHING -> focusSearchTopBar()
-            else -> Unit
+    fun moveGuideFocusVertical(from: EpgFocusZone, direction: Int) {
+        val target = if (direction < 0) {
+            epgZoneAbove(from, showPreviewSection, hasContinueWatching)
+        } else {
+            epgZoneBelow(from, showPreviewSection, hasContinueWatching)
         }
-    }
-
-    fun moveGuideFocusDown(from: EpgFocusZone) {
-        when (from) {
-            EpgFocusZone.TOP_BAR -> {
-                focusZone = when {
-                    continueWatchingItems.isNotEmpty() -> EpgFocusZone.CONTINUE_WATCHING
-                    showPreviewSection -> EpgFocusZone.PREVIEW
-                    else -> EpgFocusZone.GRID_FILTER
-                }
-                if (focusZone == EpgFocusZone.PREVIEW) detailActionIndex = 0
-            }
-            EpgFocusZone.CONTINUE_WATCHING -> {
-                if (showPreviewSection) {
-                    focusPreviewSection()
-                } else {
-                    focusGuideFilter()
-                }
-            }
-            EpgFocusZone.PREVIEW -> focusGuideFilter()
-            else -> Unit
-        }
+        target?.let(::focusEpgZone)
     }
 
     fun openCategoryFilterMenu() {
@@ -901,7 +937,7 @@ fun HomeEpgScreen(
                 true
             }
             event.key == Key.DirectionUp -> {
-                moveGuideFocusUp(EpgFocusZone.GRID_FILTER)
+                moveGuideFocusVertical(EpgFocusZone.GRID_FILTER, direction = -1)
                 true
             }
             isTvActivateKey(event) -> {
@@ -909,7 +945,9 @@ fun HomeEpgScreen(
                 true
             }
             event.key == Key.Back || event.key == Key.Escape -> {
-                focusZone = EpgFocusZone.GRID
+                if (displayChannels.isNotEmpty()) {
+                    focusGuideChannels()
+                }
                 true
             }
             else -> false
@@ -943,7 +981,7 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionDown -> {
-                moveGuideFocusDown(EpgFocusZone.TOP_BAR)
+                moveGuideFocusVertical(EpgFocusZone.TOP_BAR, direction = 1)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -975,15 +1013,11 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionUp -> {
-                focusSearchTopBar()
+                moveGuideFocusVertical(EpgFocusZone.CONTINUE_WATCHING, direction = -1)
                 true
             }
             Key.DirectionDown -> {
-                if (showPreviewSection) {
-                    focusPreviewSection()
-                } else {
-                    focusGuideFilter()
-                }
+                moveGuideFocusVertical(EpgFocusZone.CONTINUE_WATCHING, direction = 1)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -1015,15 +1049,11 @@ fun HomeEpgScreen(
                 true
             }
             Key.DirectionUp -> {
-                if (continueWatchingItems.isNotEmpty()) {
-                    focusZone = EpgFocusZone.CONTINUE_WATCHING
-                } else {
-                    focusSearchTopBar()
-                }
+                moveGuideFocusVertical(EpgFocusZone.PREVIEW, direction = -1)
                 true
             }
             Key.DirectionDown -> {
-                focusGuideFilter()
+                moveGuideFocusVertical(EpgFocusZone.PREVIEW, direction = 1)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -1071,10 +1101,11 @@ fun HomeEpgScreen(
                         focusProgramIndex = clampProgramIndex(focusChannelIndex, focusProgramIndex)
                     }
                     scope.launch { listState.animateScrollToItem(focusChannelIndex) }
+                    true
                 } else {
-                    focusGuideFilter()
+                    moveGuideFocusVertical(EpgFocusZone.GRID, direction = -1)
+                    true
                 }
-                true
             }
             Key.DirectionRight -> {
                 val channel = displayChannels.getOrNull(focusChannelIndex) ?: return false
@@ -1202,31 +1233,17 @@ fun HomeEpgScreen(
         focusZone,
         displayChannels.size,
         showPreviewSection,
-        continueWatchingItems.isNotEmpty(),
+        hasContinueWatching,
         showCategoryFilterMenu,
         showGuideGroupPicker
     ) {
         if (showCategoryFilterMenu || showGuideGroupPicker) return@LaunchedEffect
-        when (focusZone) {
-            EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
-                gridFocusRequester.requestFocusSafelyAfterLayout()
-            }
-            EpgFocusZone.GRID_FILTER -> {
-                gridFilterFocusRequester.requestFocusSafelyAfterLayout()
-            }
-            EpgFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
-            EpgFocusZone.CONTINUE_WATCHING -> if (continueWatchingItems.isNotEmpty()) {
-                continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
-            }
-            EpgFocusZone.PREVIEW -> if (showPreviewSection) {
-                previewFocusRequester.requestFocusSafelyAfterLayout(150)
-            }
-        }
+        requestEpgZoneFocus(focusZone)
     }
 
     LaunchedEffect(displayChannels.isEmpty()) {
         if (displayChannels.isEmpty() && focusZone == EpgFocusZone.GRID) {
-            focusZone = EpgFocusZone.GRID_FILTER
+            focusEpgZone(EpgFocusZone.GRID_FILTER)
         }
     }
 
@@ -1277,7 +1294,15 @@ fun HomeEpgScreen(
                 onRecordingIndicatorClick = onNavigateRecordings,
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
+                    .focusProperties {
+                        down = when {
+                            hasContinueWatching -> continueWatchingFocusRequester
+                            showPreviewSection -> previewFocusRequester
+                            else -> gridFilterFocusRequester
+                        }
+                    }
                     .focusable()
+                    .onFocusChanged { if (it.isFocused) focusZone = EpgFocusZone.TOP_BAR }
                     .onPreviewKeyEvent {
                         if (focusZone == EpgFocusZone.TOP_BAR) handleTopBarKey(it) else false
                     }
@@ -1291,7 +1316,7 @@ fun HomeEpgScreen(
                 )
             }
 
-            if (continueWatchingItems.isNotEmpty()) {
+            if (hasContinueWatching) {
                 HomeEpgContinueWatchingRow(
                     continueWatchingItems = continueWatchingItems,
                     focusedContinueIndex = focusedContinueIndex,
@@ -1302,7 +1327,12 @@ fun HomeEpgScreen(
                         }
                     },
                     continueWatchingFocusRequester = continueWatchingFocusRequester,
-                    onContinueWatchingKey = ::handleContinueWatchingKey
+                    topNavFocusRequester = topNavFocusRequester,
+                    previewFocusRequester = previewFocusRequester,
+                    gridFilterFocusRequester = gridFilterFocusRequester,
+                    showPreviewSection = showPreviewSection,
+                    onContinueWatchingKey = ::handleContinueWatchingKey,
+                    onFocused = { focusZone = EpgFocusZone.CONTINUE_WATCHING }
                 )
             }
 
@@ -1334,7 +1364,12 @@ fun HomeEpgScreen(
                         executeDetailAction()
                     },
                     previewFocusRequester = previewFocusRequester,
-                    onPreviewKey = ::handlePreviewKey
+                    continueWatchingFocusRequester = continueWatchingFocusRequester,
+                    topNavFocusRequester = topNavFocusRequester,
+                    gridFilterFocusRequester = gridFilterFocusRequester,
+                    hasContinueWatching = hasContinueWatching,
+                    onPreviewKey = ::handlePreviewKey,
+                    onFocused = { focusZone = EpgFocusZone.PREVIEW }
                 )
             }
 
@@ -1363,6 +1398,7 @@ fun HomeEpgScreen(
                 gridFocusRequester = gridFocusRequester,
                 onGridKey = ::handleGridKey,
                 gridFocused = focusZone == EpgFocusZone.GRID,
+                displayChannelsEmpty = displayChannels.isEmpty(),
                 hScroll = hScroll,
                 now = now,
                 windowStart = windowStart,
@@ -1371,11 +1407,18 @@ fun HomeEpgScreen(
                 channelGroups = channelGroups,
                 gridFilterFocused = focusZone == EpgFocusZone.GRID_FILTER && !showCategoryFilterMenu,
                 gridFilterFocusRequester = gridFilterFocusRequester,
+                previewFocusRequester = previewFocusRequester,
+                continueWatchingFocusRequester = continueWatchingFocusRequester,
+                topNavFocusRequester = topNavFocusRequester,
+                showPreviewSection = showPreviewSection,
+                hasContinueWatching = hasContinueWatching,
                 onOpenCategoryFilter = {
-                    focusZone = EpgFocusZone.GRID_FILTER
+                    focusEpgZone(EpgFocusZone.GRID_FILTER)
                     openCategoryFilterMenu()
                 },
                 onGridFilterKey = ::handleGridFilterKey,
+                onGridFocused = { focusZone = EpgFocusZone.GRID },
+                onGridFilterFocused = { focusZone = EpgFocusZone.GRID_FILTER },
                 listState = listState,
                 displayChannels = displayChannels,
                 filteredEmptyMessage = when {
@@ -1404,7 +1447,7 @@ fun HomeEpgScreen(
         if (showCategoryFilterMenu) {
             BackHandler {
                 showCategoryFilterMenu = false
-                focusZone = EpgFocusZone.GRID_FILTER
+                focusEpgZone(EpgFocusZone.GRID_FILTER)
             }
         }
 
@@ -1417,7 +1460,7 @@ fun HomeEpgScreen(
             onFocusedIndexChange = { categoryMenuFocusIndex = it },
             onDismiss = {
                 showCategoryFilterMenu = false
-                focusZone = EpgFocusZone.GRID_FILTER
+                focusEpgZone(EpgFocusZone.GRID_FILTER)
             },
             onToggle = ::handleCategoryFilterMenuToggle
         )

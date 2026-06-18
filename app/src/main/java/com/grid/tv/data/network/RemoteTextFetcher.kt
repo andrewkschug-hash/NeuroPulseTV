@@ -1,5 +1,6 @@
 package com.grid.tv.data.network
 
+import android.util.Log
 import java.io.EOFException
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
@@ -8,36 +9,58 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 
+data class RemoteFetchResult(
+    val httpCode: Int,
+    val rawBytes: Int,
+    val body: String
+)
+
 @Singleton
 class RemoteTextFetcher @Inject constructor(
     private val appHttpClient: AppHttpClient
 ) {
-    suspend fun fetch(rawUrl: String): String = withContext(Dispatchers.IO) {
+    suspend fun fetch(rawUrl: String): String = fetchDetailed(rawUrl).body
+
+    suspend fun fetchDetailed(rawUrl: String): RemoteFetchResult = withContext(Dispatchers.IO) {
         val url = normalizeRemoteUrl(rawUrl)
+        Log.i(EPG_FLOW_TAG, "HTTP GET $url")
         var lastEof: EOFException? = null
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             try {
-                return@withContext executeFetch(url)
+                val result = executeFetch(url)
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "HTTP ${result.httpCode} for $url — ${result.rawBytes} raw bytes, " +
+                        "${result.body.length} decoded chars"
+                )
+                return@withContext result
             } catch (e: EOFException) {
                 lastEof = e
+                Log.w(EPG_FLOW_TAG, "HTTP EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url", e)
                 if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
+            } catch (e: Exception) {
+                Log.e(EPG_FLOW_TAG, "HTTP fetch failed for $url: ${e.message}", e)
+                throw e
             }
         }
         throw lastEof ?: IllegalStateException("Fetch failed for $url")
     }
 
-    private fun executeFetch(url: String): String {
+    private fun executeFetch(url: String): RemoteFetchResult {
         val requestBuilder = Request.Builder().url(url).get()
         if (isXtreamApiUrl(url)) {
             requestBuilder.header("Accept-Encoding", "identity")
         }
         val request = requestBuilder.build()
         return appHttpClient.client().newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP request failed (${response.code}) for $url")
-            }
+            val code = response.code
             val bytes = response.body?.bytes() ?: byteArrayOf()
-            decodeResponseBody(bytes, response.header("Content-Encoding"), url)
+            if (!response.isSuccessful) {
+                Log.e(EPG_FLOW_TAG, "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes in body")
+                throw IllegalStateException("HTTP request failed ($code) for $url")
+            }
+            val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
+            RemoteFetchResult(httpCode = code, rawBytes = bytes.size, body = body)
         }
     }
 
@@ -72,6 +95,7 @@ class RemoteTextFetcher @Inject constructor(
     }
 
     private companion object {
+        const val EPG_FLOW_TAG = "EpgFlow"
         const val MAX_FETCH_ATTEMPTS = 3
         const val GZIP_MAGIC_0: Byte = 0x1f
         const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
