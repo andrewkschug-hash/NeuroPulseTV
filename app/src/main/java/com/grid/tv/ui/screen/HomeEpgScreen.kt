@@ -99,6 +99,7 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.toggleCategoryExpansion
 import com.grid.tv.ui.component.visibleRowIndexForSelection
+import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.MoviesHomeRow
 import com.grid.tv.ui.component.SeriesHomeRow
 import com.grid.tv.ui.component.EpgCategoryFilterChip
@@ -892,20 +893,22 @@ fun HomeEpgScreen(
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showCategoryFilterMenu) return false
-        return when (event.key) {
-            Key.DirectionDown -> {
-                focusGuideChannels()
+        return when {
+            event.key == Key.DirectionDown -> {
+                if (displayChannels.isNotEmpty()) {
+                    focusGuideChannels()
+                }
                 true
             }
-            Key.DirectionUp -> {
+            event.key == Key.DirectionUp -> {
                 moveGuideFocusUp(EpgFocusZone.GRID_FILTER)
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+            isTvActivateKey(event) -> {
                 openCategoryFilterMenu()
                 true
             }
-            Key.Back, Key.Escape -> {
+            event.key == Key.Back || event.key == Key.Escape -> {
                 focusZone = EpgFocusZone.GRID
                 true
             }
@@ -1040,7 +1043,15 @@ fun HomeEpgScreen(
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showCategoryFilterMenu || showGuideGroupPicker) return false
-        if (displayChannels.isEmpty()) return false
+        if (displayChannels.isEmpty()) {
+            return when (event.key) {
+                Key.DirectionUp -> {
+                    focusGuideFilter()
+                    true
+                }
+                else -> false
+            }
+        }
 
         return when (event.key) {
             Key.DirectionDown -> {
@@ -1200,7 +1211,7 @@ fun HomeEpgScreen(
             EpgFocusZone.GRID -> if (displayChannels.isNotEmpty()) {
                 gridFocusRequester.requestFocusSafelyAfterLayout()
             }
-            EpgFocusZone.GRID_FILTER -> if (displayChannels.isNotEmpty()) {
+            EpgFocusZone.GRID_FILTER -> {
                 gridFilterFocusRequester.requestFocusSafelyAfterLayout()
             }
             EpgFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
@@ -1210,6 +1221,12 @@ fun HomeEpgScreen(
             EpgFocusZone.PREVIEW -> if (showPreviewSection) {
                 previewFocusRequester.requestFocusSafelyAfterLayout(150)
             }
+        }
+    }
+
+    LaunchedEffect(displayChannels.isEmpty()) {
+        if (displayChannels.isEmpty() && focusZone == EpgFocusZone.GRID) {
+            focusZone = EpgFocusZone.GRID_FILTER
         }
     }
 

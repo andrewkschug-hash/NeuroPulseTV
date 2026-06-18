@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -164,7 +165,8 @@ internal fun HomeEpgChannelList(
                     .weight(1f)
                     .fillMaxWidth()
                     .focusRequester(gridFocusRequester)
-                    .focusable()
+                    .focusProperties { canFocus = gridFocused }
+                    .then(if (gridFocused) Modifier.focusable() else Modifier)
                     .onPreviewKeyEvent { gridFocused && onGridKey(it) }
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -197,7 +199,6 @@ internal fun HomeEpgChannelList(
                                     modifier = Modifier
                                         .focusRequester(gridFilterFocusRequester)
                                         .focusProperties { canFocus = gridFilterFocused }
-                                        .focusable()
                                         .onPreviewKeyEvent { gridFilterFocused && onGridFilterKey(it) }
                                 )
                             }
