@@ -138,10 +138,6 @@ class MainActivity : ComponentActivity() {
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {
-                val root = window.decorView
-                if (TvImeKeyDispatcher.forwardToIme(root, event)) {
-                    return true
-                }
                 return super.dispatchKeyEvent(event)
             }
             if (VoiceSearchKeys.isMicKey(event.keyCode)) {

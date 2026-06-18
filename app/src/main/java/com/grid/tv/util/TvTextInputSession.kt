@@ -1,5 +1,6 @@
 package com.grid.tv.util
 
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -47,6 +48,7 @@ object TvTextInputSession {
 }
 
 /** Prevent Compose from moving focus to sibling fields while the IME is open. */
+@OptIn(ExperimentalComposeUiApi::class)
 fun Modifier.lockFocusWhileTyping(active: Boolean): Modifier =
     if (!active) {
         this

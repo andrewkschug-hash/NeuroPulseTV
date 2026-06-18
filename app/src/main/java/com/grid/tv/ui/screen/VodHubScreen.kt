@@ -640,7 +640,7 @@ private fun VodHubSearchField(
                     dismissInput()
                     true
                 }
-                TvImeKeyDispatcher.forwardToIme(view, event) -> true
+                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
                 else -> false
             }
         }

@@ -428,7 +428,7 @@ private fun SearchInputRow(
                     dismissInput()
                     true
                 }
-                TvImeKeyDispatcher.forwardToIme(view, event) -> true
+                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
                 else -> false
             }
         }

@@ -1,5 +1,7 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.ui.ExperimentalComposeUiApi
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -212,6 +214,7 @@ internal suspend fun showTextFieldKeyboard(
     keyboard?.show()
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun TvTextField(
     value: String,
@@ -281,7 +284,7 @@ fun TvTextField(
                     dismissInput()
                     true
                 }
-                TvImeKeyDispatcher.forwardToIme(view, event) -> true
+                TvImeKeyDispatcher.isImeNavigationKey(event.key) -> false
                 else -> false
             }
         }
