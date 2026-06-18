@@ -1299,7 +1299,8 @@ class IptvRepositoryImpl @Inject constructor(
         clearSeriesSeasonsForPlaylist(playlistId)
     }
 
-    override suspend fun refreshEpgNow() = withContext(Dispatchers.IO) {
+    override suspend fun refreshEpgNow() {
+        withContext(Dispatchers.IO) {
         Log.i(EPG_FLOW_TAG, "refreshEpgNow started")
         epgCache.clear()
         epgLinkResolver = null
@@ -1397,6 +1398,7 @@ class IptvRepositoryImpl @Inject constructor(
         }
         _epgDataRevision.update { it + 1 }
         Log.i(EPG_FLOW_TAG, "refreshEpgNow finished; epgDataRevision=${_epgDataRevision.value}")
+        }
     }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {

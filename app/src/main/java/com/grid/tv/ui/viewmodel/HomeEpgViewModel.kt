@@ -76,6 +76,7 @@ class HomeEpgViewModel @Inject constructor(
         private const val WINDOW_CHUNK_MS = 2 * 60 * 60 * 1000L
         private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
         private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
+        private const val TAG = "EpgFlow"
     }
 
     private var previewTuneJob: Job? = null
@@ -634,9 +635,5 @@ class HomeEpgViewModel @Inject constructor(
         _epgPrograms.value = programs
         recomputeReplayUrls(_epgPrograms.value)
         _epgLoading.value = false
-    }
-
-    companion object {
-        private const val TAG = "EpgFlow"
     }
 }

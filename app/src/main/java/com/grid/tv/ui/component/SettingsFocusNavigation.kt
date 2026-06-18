@@ -576,6 +576,7 @@ fun settingsHorizontalFocusGroups(
     parentalStart: Int = 0
 ): List<IntRange> = when (kind) {
     SettingsSectionKind.Profile -> buildList {
+        add(0..0)
         add(1..4)
         add(5..8)
         add((parentalStart + 2)..(parentalStart + 5))

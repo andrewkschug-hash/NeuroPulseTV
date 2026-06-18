@@ -49,4 +49,26 @@ class SettingsFocusCountTest {
     fun connectionsFormCountsMatchXtreamFields() {
         assertTrue(connectionsAddFocusCount(PlaylistType.XTREAM) >= 17)
     }
+
+    @Test
+    fun profileInitialFocusIsActiveProfileCard() {
+        val focusCount = profileContentFocusCount(
+            profileCount = 2,
+            activeProfileId = 1L,
+            hasActiveProfile = true
+        )
+        val cards = buildSettingsSectionCards(
+            kind = SettingsSectionKind.Profile,
+            contentFocusCount = focusCount,
+            profileCount = 2,
+            activeProfileId = 1L,
+            hasActiveProfile = true
+        )
+        val index = initialSettingsContentFocusIndex(
+            kind = SettingsSectionKind.Profile,
+            sectionCards = cards,
+            parentalStart = focusCount - 7
+        )
+        assertEquals(0, index)
+    }
 }
