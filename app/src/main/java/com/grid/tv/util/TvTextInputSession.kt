@@ -8,9 +8,8 @@ import androidx.compose.ui.input.key.type
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Tracks when a [com.grid.tv.ui.component.TvTextField] is actively accepting IME input.
- * Parent TV navigation (settings sidebars, focus groups, etc.) must stand down so D-pad
- * events reach the on-screen keyboard.
+ * Tracks when a text field is actively accepting IME input.
+ * Parent TV navigation must stand down so D-pad events reach the on-screen keyboard.
  */
 object TvTextInputSession {
     private val depth = AtomicInteger(0)
@@ -39,5 +38,16 @@ object TvTextInputSession {
             Key.DirectionCenter -> true
             else -> false
         }
+    }
+
+    /** Stand down all TV navigation while the IME owns D-pad input. */
+    fun shouldStandDownNavigation(): Boolean = isActive
+
+    /** Parent preview handlers must not consume these keys while text input is active. */
+    fun shouldStandDownForActiveInput(event: KeyEvent): Boolean {
+        if (!isActive || event.type != KeyEventType.KeyDown) return false
+        return deferNavigationToIme(event) ||
+            event.key == Key.Back ||
+            event.key == Key.Escape
     }
 }

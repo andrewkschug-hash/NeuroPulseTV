@@ -285,7 +285,7 @@ fun SettingsFocusPill(
             )
             .border(borderWidth, borderColor, PillShape)
             .onPreviewKeyEvent { event ->
-                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.DirectionLeft -> {
@@ -432,7 +432,7 @@ fun SettingsFocusProfileRow(
             .focusable(enabled = canReceiveFocus)
             .onFocusChanged { isFocused = it.isFocused }
             .onPreviewKeyEvent { event ->
-                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -484,7 +484,7 @@ fun SettingsFocusToggleRow(
             .then(settingsFocusModifier(chainIndex, focus))
             .focusable(enabled = canReceiveFocus, interactionSource = interactionSource)
             .onPreviewKeyEvent { event ->
-                if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {

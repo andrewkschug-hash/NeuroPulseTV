@@ -116,15 +116,8 @@ fun handleTvFocusChainKey(
     onDismissEditing: () -> Unit
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    if (isEditing()) {
-        return when (event.key) {
-            Key.Back, Key.Escape -> {
-                onDismissEditing()
-                true
-            }
-            else -> false
-        }
-    }
+    if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+    if (isEditing()) return false
     return when (event.key) {
         Key.DirectionDown -> {
             when (chain.focusedIndex) {

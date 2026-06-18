@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +67,8 @@ import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvRemoteKeyboard
+import com.grid.tv.util.TvTextInputSession
 
 private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
 
@@ -136,6 +139,7 @@ fun SearchOverlay(
 
     fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.Back, Key.Escape -> { onDismiss(); true }
             Key.DirectionDown -> {
@@ -382,15 +386,57 @@ private fun SearchInputRow(
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    var inputActive by remember { mutableStateOf(false) }
 
     fun openSearchKeyboard() {
+        if (!inputActive) {
+            inputActive = true
+            TvTextInputSession.begin()
+        }
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
     }
 
+    fun dismissInput() {
+        if (inputActive) {
+            inputActive = false
+            TvTextInputSession.end()
+            keyboard?.hide()
+            TvRemoteKeyboard.dismissKeyboard(view)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { dismissInput() }
+    }
+
+    LaunchedEffect(focusZone) {
+        if (focusZone != SearchFocusZone.FIELD) dismissInput()
+    }
+
     TvTextInputActivationEffect(
-        active = focusZone == SearchFocusZone.FIELD,
+        active = focusZone == SearchFocusZone.FIELD || inputActive,
         onActivate = { openSearchKeyboard() }
     )
+
+    fun handleFieldKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        if (inputActive) {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
+                    dismissInput()
+                    true
+                }
+                else -> false
+            }
+        }
+        return when {
+            isTextFieldActivateKey(event) -> {
+                openSearchKeyboard()
+                true
+            }
+            else -> handleKey(event)
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -411,6 +457,7 @@ private fun SearchInputRow(
         BasicTextField(
             value = query,
             onValueChange = onQueryChange,
+            readOnly = !inputActive,
             textStyle = TextStyle(color = EpgColors.TextPrimary, fontFamily = DmSansFamily, fontSize = 16.sp),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -423,22 +470,8 @@ private fun SearchInputRow(
                 .height(52.dp)
                 .focusRequester(fieldFocusRequester)
                 .focusable()
-                .onPreviewKeyEvent { event ->
-                    if (isTextFieldActivateKey(event)) {
-                        openSearchKeyboard()
-                        true
-                    } else {
-                        handleKey(event)
-                    }
-                }
-                .onKeyEvent { event ->
-                    if (isTextFieldActivateKey(event)) {
-                        openSearchKeyboard()
-                        true
-                    } else {
-                        false
-                    }
-                }
+                .onPreviewKeyEvent(::handleFieldKey)
+                .onKeyEvent(::handleFieldKey)
                 .background(Color(0xFF13131A), RoundedCornerShape(8.dp))
                 .border(1.5.dp, fieldBorderColor, RoundedCornerShape(8.dp))
                 .padding(horizontal = 14.dp, vertical = 14.dp),

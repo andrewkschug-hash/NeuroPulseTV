@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +35,8 @@ import androidx.compose.ui.platform.LocalView
 import com.grid.tv.ui.component.isTextFieldActivateKey
 import com.grid.tv.ui.component.showTextFieldKeyboard
 import com.grid.tv.ui.component.TvTextInputActivationEffect
+import com.grid.tv.util.TvRemoteKeyboard
+import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -194,6 +197,7 @@ fun VodHubScreen(
 
     fun handleTabsKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
                 tabFocusIndex = (tabFocusIndex - 1).coerceAtLeast(0)
@@ -230,6 +234,7 @@ fun VodHubScreen(
 
     fun handleContinueKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown || continueWatchingItems.isEmpty()) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
                 continueFocusIndex = (continueFocusIndex - 1).coerceAtLeast(0)
@@ -258,6 +263,7 @@ fun VodHubScreen(
 
     fun handleTopBarKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (profileMenuOpen) {
             return when (event.key) {
                 Key.Back, Key.Escape -> {
@@ -371,6 +377,7 @@ fun VodHubScreen(
             .background(EpgColors.Background)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> false
@@ -588,22 +595,65 @@ private fun VodHubSearchField(
     val scope = rememberCoroutineScope()
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val borderColor = if (isFocused) EpgColors.Accent else EpgColors.BorderSubtle
-    val backgroundColor = if (isFocused) {
+    var inputActive by remember { mutableStateOf(false) }
+    val borderColor = if (isFocused || inputActive) EpgColors.Accent else EpgColors.BorderSubtle
+    val backgroundColor = if (isFocused || inputActive) {
         EpgColors.Accent.copy(alpha = 0.14f)
     } else {
         Color(0xFF13131A)
     }
 
     fun openKeyboard() {
+        if (!inputActive) {
+            inputActive = true
+            TvTextInputSession.begin()
+        }
         scope.launch { showTextFieldKeyboard(keyboard, view, focusRequester) }
     }
 
-    TvTextInputActivationEffect(active = isFocused, onActivate = { openKeyboard() })
+    fun dismissInput() {
+        if (inputActive) {
+            inputActive = false
+            TvTextInputSession.end()
+            keyboard?.hide()
+            TvRemoteKeyboard.dismissKeyboard(view)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { dismissInput() }
+    }
+
+    LaunchedEffect(isFocused) {
+        if (!isFocused) dismissInput()
+    }
+
+    TvTextInputActivationEffect(active = isFocused || inputActive, onActivate = { openKeyboard() })
+
+    fun handleFieldKey(event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        if (inputActive) {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
+                    dismissInput()
+                    true
+                }
+                else -> false
+            }
+        }
+        return when {
+            isTextFieldActivateKey(event) -> {
+                openKeyboard()
+                true
+            }
+            else -> onPreviewKeyEvent(event)
+        }
+    }
 
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
+        readOnly = !inputActive,
         textStyle = TextStyle(
             color = EpgColors.TextPrimary,
             fontFamily = DmSansFamily,
@@ -615,23 +665,8 @@ private fun VodHubSearchField(
             .height(48.dp)
             .focusRequester(focusRequester)
             .focusable(interactionSource = interactionSource)
-            .onPreviewKeyEvent { event ->
-                when {
-                    isTextFieldActivateKey(event) -> {
-                        openKeyboard()
-                        true
-                    }
-                    else -> onPreviewKeyEvent(event)
-                }
-            }
-            .onKeyEvent { event ->
-                if (isTextFieldActivateKey(event)) {
-                    openKeyboard()
-                    true
-                } else {
-                    false
-                }
-            }
+            .onPreviewKeyEvent(::handleFieldKey)
+            .onKeyEvent(::handleFieldKey)
             .background(backgroundColor, shape)
             .border(
                 width = 2.dp,

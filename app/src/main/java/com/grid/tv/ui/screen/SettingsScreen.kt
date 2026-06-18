@@ -446,7 +446,7 @@ fun SettingsScreen(
     }
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (TvTextInputSession.deferNavigationToIme(event)) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         if (profileMenuOpen) {
             return when (event.key) {
@@ -490,7 +490,7 @@ fun SettingsScreen(
     }
 
     fun handleSidebarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (TvTextInputSession.deferNavigationToIme(event)) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionUp -> {
@@ -619,7 +619,7 @@ fun SettingsScreen(
                             up = topNavFocusRequester
                         }
                         .onPreviewKeyEvent { event ->
-                            if (TvTextInputSession.deferNavigationToIme(event)) return@onPreviewKeyEvent false
+                            if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                             if (focusPanel != SettingsFocusPanel.RIGHT) return@onPreviewKeyEvent false
                             if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                             when (event.key) {

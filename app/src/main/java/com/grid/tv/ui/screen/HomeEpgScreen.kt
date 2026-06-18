@@ -116,6 +116,7 @@ import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
+import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.quitAppToHome
 import kotlinx.coroutines.launch
 
@@ -889,6 +890,7 @@ fun HomeEpgScreen(
 
     fun handleGridFilterKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showCategoryFilterMenu) return false
         return when (event.key) {
             Key.DirectionDown -> {
@@ -913,6 +915,7 @@ fun HomeEpgScreen(
 
     fun handleTopBarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showCategoryFilterMenu) return false
         if (profileMenuOpen) {
             return when (event.key) {
@@ -956,6 +959,7 @@ fun HomeEpgScreen(
 
     fun handleContinueWatchingKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (continueWatchingItems.isEmpty()) return false
         return when (event.key) {
             Key.DirectionLeft -> {
@@ -997,6 +1001,7 @@ fun HomeEpgScreen(
 
     fun handlePreviewKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
                 if (detailActionIndex > 0) detailActionIndex -= 1
@@ -1033,6 +1038,7 @@ fun HomeEpgScreen(
 
     fun handleGridKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showCategoryFilterMenu || showGuideGroupPicker) return false
         if (displayChannels.isEmpty()) return false
 
