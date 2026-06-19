@@ -28,8 +28,8 @@ import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.scanner.ChannelScanner
-import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,7 +52,6 @@ sealed interface ConnectionDialogState {
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: IptvRepository,
-    private val scheduler: EpgScheduler,
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
     private val channelScanner: ChannelScanner,
@@ -114,10 +113,9 @@ class SettingsViewModel @Inject constructor(
     val cacheMessage = _cacheMessage.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _settings.value = repository.loadSettings()
             _settingsReady.value = true
-            scheduler.scheduleAtLaunch()
             refreshStorageSettings()
             syncScannerSettings()
         }

@@ -2,10 +2,9 @@ package com.grid.tv.di
 
 import android.content.Context
 import android.app.AlarmManager
-import androidx.room.Room
 import androidx.work.WorkManager
 import com.grid.tv.data.db.AppDatabase
-import com.grid.tv.data.db.DbMigrations
+import com.grid.tv.data.db.AppDatabaseHolder
 import com.grid.tv.data.db.dao.ContinueWatchingDao
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
@@ -62,32 +61,7 @@ object AppProvidesModule {
     @Provides
     @Singleton
     fun provideDb(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "streamflow.db")
-            .addMigrations(DbMigrations.MIGRATION_2_3)
-            .addMigrations(DbMigrations.MIGRATION_3_4)
-            .addMigrations(DbMigrations.MIGRATION_4_5)
-            .addMigrations(DbMigrations.MIGRATION_5_6)
-            .addMigrations(DbMigrations.MIGRATION_6_7)
-            .addMigrations(DbMigrations.MIGRATION_7_8)
-            .addMigrations(DbMigrations.MIGRATION_8_9)
-            .addMigrations(DbMigrations.MIGRATION_9_10)
-            .addMigrations(DbMigrations.MIGRATION_10_11)
-            .addMigrations(DbMigrations.MIGRATION_11_12)
-            .addMigrations(DbMigrations.MIGRATION_12_13)
-            .addMigrations(DbMigrations.MIGRATION_13_14)
-            .addMigrations(DbMigrations.MIGRATION_14_15)
-            .addMigrations(DbMigrations.MIGRATION_15_16)
-            .addMigrations(DbMigrations.MIGRATION_16_17)
-            .addMigrations(DbMigrations.MIGRATION_17_18)
-            .addMigrations(DbMigrations.MIGRATION_18_19)
-            .addMigrations(DbMigrations.MIGRATION_19_20)
-            .addMigrations(DbMigrations.MIGRATION_20_21)
-            .addMigrations(DbMigrations.MIGRATION_21_22)
-            .addMigrations(DbMigrations.MIGRATION_22_23)
-            .addMigrations(DbMigrations.MIGRATION_23_24)
-            .addMigrations(DbMigrations.MIGRATION_24_25)
-            .addMigrations(DbMigrations.MIGRATION_25_26)
-             .build()
+        AppDatabaseHolder.get(context)
 
     @Provides
     fun provideM3uParser(): M3uParser = M3uParser()

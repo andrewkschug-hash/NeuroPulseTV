@@ -41,7 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -76,8 +76,13 @@ class HomeEpgViewModel @Inject constructor(
         private const val WINDOW_CHUNK_MS = 2 * 60 * 60 * 1000L
         private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
         private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
+        /** Visible guide rows to hydrate from cache before loading the rest of the page. */
+        private const val PRIORITY_EPG_CHANNEL_COUNT = 50
         private const val TAG = "EpgFlow"
     }
+
+    private var guideBootstrapComplete = false
+    private var epgLoadGeneration = 0
 
     private var previewTuneJob: Job? = null
 
@@ -282,45 +287,31 @@ class HomeEpgViewModel @Inject constructor(
     private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
     val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
-    val programs: StateFlow<List<Program>> = channels
-        .flatMapLatest { ch ->
-            repository.programs(ch.mapNotNull { it.epgId }, now.value)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     init {
         viewModelScope.launch {
             _hasConnection.value = repository.hasActiveConnection()
+            _activeProfile.value = repository.activeProfile()
             _isInitializing.value = false
         }
         viewModelScope.launch {
-            _activeProfile.value = repository.activeProfile()
+            bootstrapGuideFromSettings()
         }
         viewModelScope.launch {
-            loadWindow()
-        }
-        viewModelScope.launch {
-            combine(_windowStart, _windowDurationMs) { _, _ -> }
+            combine(_windowStart, _windowDurationMs, _guideSettingsLoaded) { _, _, loaded -> loaded }
+                .filter { it }
                 .collectLatest { loadWindow() }
         }
         viewModelScope.launch {
             combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent) { _, _, _ -> }
-                .collectLatest { reloadChannels() }
+                .collectLatest {
+                    if (!guideBootstrapComplete) return@collectLatest
+                    reloadChannels()
+                }
         }
         viewModelScope.launch {
             repository.epgDataRevision().collect {
                 if (it > 0L) loadWindow()
             }
-        }
-        viewModelScope.launch {
-            val settings = repository.loadSettings()
-            _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
-            _hideAdultContent.value = settings.hideAdultContent
-            _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
-            _guideFiltersConfigured.value = settings.guideFiltersConfigured
-            _guideSettingsLoaded.value = true
-            livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
-            livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         }
         viewModelScope.launch {
             repository.playlists().collect { list ->
@@ -334,6 +325,19 @@ class HomeEpgViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun bootstrapGuideFromSettings() {
+        val settings = repository.loadSettings()
+        _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
+        _hideAdultContent.value = settings.hideAdultContent
+        _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+        _guideFiltersConfigured.value = settings.guideFiltersConfigured
+        _guideSettingsLoaded.value = true
+        livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+        livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+        guideBootstrapComplete = true
+        reloadChannelsInternal()
     }
 
     fun saveGuidePosition(position: EpgGuidePosition) {
@@ -561,76 +565,139 @@ class HomeEpgViewModel @Inject constructor(
         channelLoadJob = viewModelScope.launch {
             _isReloadingChannels.value = true
             _channels.value = emptyList()
+            _epgPrograms.value = emptyList()
             channelDbOffset = 0
             _hasMoreChannels.value = true
-            loadMoreChannelsInternal()
+            reloadChannelsInternal()
             _isReloadingChannels.value = false
-            loadWindow()
         }
+    }
+
+    private suspend fun reloadChannelsInternal() {
+        loadMoreChannelsInternal()
     }
 
     private suspend fun loadMoreChannelsInternal() {
         if (!_hasMoreChannels.value) return
         loadingChannels = true
         try {
-            val favoriteFilter = _favoriteGroupFilter.value
-            val groups = _guideFilter.value.selectedGroups
-            val page = repository.channelsPage(
-                groups = groups,
-                search = "",
-                favoritesOnly = favoriteFilter != null,
-                favoriteGroupId = favoriteFilter,
-                limit = CHANNEL_PAGE_SIZE,
-                offset = channelDbOffset
-            )
+            val page = fetchFilteredChannelPage(channelDbOffset)
             channelDbOffset += page.size
             _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
-            val filtered = page.let { list ->
-                if (_hideAdultContent.value) {
-                    list.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
-                } else {
-                    list
-                }
-            }
-            _channels.value = _channels.value + filtered
-            if (filtered.isNotEmpty()) {
+            if (page.isEmpty()) return
+            _channels.value = _channels.value + page
+            if (_channels.value.size <= CHANNEL_PAGE_SIZE) {
                 loadWindow()
+            } else {
+                appendProgramsForChannels(page)
             }
         } finally {
             loadingChannels = false
         }
     }
 
+    private suspend fun fetchFilteredChannelPage(offset: Int): List<Channel> {
+        val favoriteFilter = _favoriteGroupFilter.value
+        val groups = _guideFilter.value.selectedGroups
+        val page = repository.channelsPage(
+            groups = groups,
+            search = "",
+            favoritesOnly = favoriteFilter != null,
+            favoriteGroupId = favoriteFilter,
+            limit = CHANNEL_PAGE_SIZE,
+            offset = offset
+        )
+        return if (_hideAdultContent.value) {
+            page.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
+        } else {
+            page
+        }
+    }
+
+    private suspend fun appendProgramsForChannels(newChannels: List<Channel>) {
+        if (newChannels.isEmpty()) return
+        val generation = ++epgLoadGeneration
+        val start = _windowStart.value
+        val end = start + _windowDurationMs.value
+        val newPrograms = withContext(Dispatchers.IO) {
+            repository.programsWindowForChannels(newChannels, start, end)
+        }
+        if (generation != epgLoadGeneration) return
+        _epgPrograms.value = mergePrograms(_epgPrograms.value, newPrograms)
+        recomputeReplayUrls(_epgPrograms.value)
+    }
+
+    private fun mergePrograms(existing: List<Program>, additional: List<Program>): List<Program> =
+        (existing + additional).distinctBy { it.id }.sortedBy { it.startTime }
+
     private suspend fun loadWindow() {
+        if (!guideBootstrapComplete) return
+        val generation = ++epgLoadGeneration
         _epgLoading.value = true
         val channelsForLookup = _channels.value
         val start = _windowStart.value
         val end = start + _windowDurationMs.value
         if (channelsForLookup.isEmpty()) {
-            val fallbackEpgIds = repository.allDistinctEpgIds().take(500)
-            Log.d(TAG, "loadWindow: no channels loaded; fallback epgIds=${fallbackEpgIds.size}")
-            if (fallbackEpgIds.isEmpty()) {
+            val priorityChannels = fetchFilteredChannelPage(offset = 0)
+                .take(PRIORITY_EPG_CHANNEL_COUNT)
+            Log.d(
+                TAG,
+                "loadWindow: no channels loaded yet; priority filtered batch=${priorityChannels.size}, " +
+                    "filter=${_guideFilter.value.label}"
+            )
+            if (priorityChannels.isEmpty()) {
                 _epgPrograms.value = emptyList()
                 _epgLoading.value = false
                 return
             }
             val programs = withContext(Dispatchers.IO) {
-                repository.programsWindow(fallbackEpgIds, start, end)
+                repository.programsWindowForChannels(priorityChannels, start, end)
             }
-            Log.i(TAG, "loadWindow fallback: ${programs.size} programmes for window [$start, $end]")
+            if (generation != epgLoadGeneration) return
+            Log.i(
+                TAG,
+                "loadWindow priority (filtered cache): ${programs.size} programmes for " +
+                    "${priorityChannels.size} channels, window [$start, $end]"
+            )
             _epgPrograms.value = programs
-            recomputeReplayUrls(_epgPrograms.value)
+            recomputeReplayUrls(programs)
             _epgLoading.value = false
             return
         }
+
+        val priorityCount = minOf(PRIORITY_EPG_CHANNEL_COUNT, channelsForLookup.size)
+        val priorityChannels = channelsForLookup.take(priorityCount)
+        val remainingChannels = channelsForLookup.drop(priorityCount)
         Log.d(
             TAG,
-            "loadWindow: ${channelsForLookup.size} channels, window [$start, $end], " +
-                "withEpgId=${channelsForLookup.count { !it.epgId.isNullOrBlank() }}"
+            "loadWindow: ${channelsForLookup.size} filtered channels, priority=$priorityCount, " +
+                "window [$start, $end], withEpgId=${channelsForLookup.count { !it.epgId.isNullOrBlank() }}"
         )
-        val programs = withContext(Dispatchers.IO) {
-            repository.programsWindowForChannels(channelsForLookup, start, end)
+
+        val priorityPrograms = withContext(Dispatchers.IO) {
+            repository.programsWindowForChannels(priorityChannels, start, end)
         }
+        if (generation != epgLoadGeneration) return
+        _epgPrograms.value = priorityPrograms
+        recomputeReplayUrls(priorityPrograms)
+        _epgLoading.value = false
+
+        if (remainingChannels.isEmpty()) {
+            logProgrammeCoverage(channelsForLookup, priorityPrograms)
+            return
+        }
+
+        val restPrograms = withContext(Dispatchers.IO) {
+            repository.programsWindowForChannels(remainingChannels, start, end)
+        }
+        if (generation != epgLoadGeneration) return
+        val merged = mergePrograms(priorityPrograms, restPrograms)
+        _epgPrograms.value = merged
+        recomputeReplayUrls(merged)
+        logProgrammeCoverage(channelsForLookup, merged)
+    }
+
+    private fun logProgrammeCoverage(channelsForLookup: List<Channel>, programs: List<Program>) {
         val channelsWithPrograms = programs.map { it.channelEpgId }.toSet()
         val matchedChannels = channelsForLookup.count { ch ->
             ch.epgId != null && channelsWithPrograms.any { it.equals(ch.epgId, ignoreCase = true) }
@@ -638,10 +705,7 @@ class HomeEpgViewModel @Inject constructor(
         Log.i(
             TAG,
             "loadWindow: ${programs.size} programme rows, $matchedChannels/${channelsForLookup.size} " +
-                "channels have matching epgId in window"
+                "filtered channels have matching epgId in window"
         )
-        _epgPrograms.value = programs
-        recomputeReplayUrls(_epgPrograms.value)
-        _epgLoading.value = false
     }
 }
