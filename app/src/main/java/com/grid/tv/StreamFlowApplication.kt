@@ -25,7 +25,7 @@ class StreamFlowApplication : Application(), Configuration.Provider {
             ImageLoader.Builder(this)
                 .memoryCache {
                     MemoryCache.Builder(this)
-                        .maxSizeBytes(64L * 1024L * 1024L)
+                        .maxSizeBytes(64 * 1024 * 1024)
                         .build()
                 }
                 .diskCache {
