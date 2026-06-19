@@ -1640,7 +1640,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun refreshVodCatalogForPlaylist(
         playlist: PlaylistEntity,
-        onProgress: suspend (loadedDelta: Int, totalDelta: Int) -> Unit
+        onProgress: (loadedDelta: Int, totalDelta: Int) -> Unit
     ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
         val user = playlist.xtreamUsername
@@ -1742,7 +1742,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun refreshSeriesCatalogForPlaylist(
         playlist: PlaylistEntity,
-        onProgress: suspend (loadedDelta: Int, totalDelta: Int) -> Unit
+        onProgress: (loadedDelta: Int, totalDelta: Int) -> Unit
     ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
         val user = playlist.xtreamUsername
