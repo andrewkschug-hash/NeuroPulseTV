@@ -75,10 +75,12 @@ import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
+import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
 import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
@@ -1674,7 +1676,7 @@ class IptvRepositoryImpl @Inject constructor(
 
             val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
             Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
-            onProgress(loadedDelta = 0, totalDelta = arrayLength)
+            onProgress(0, arrayLength)
 
             val accumulated = ArrayList<VodItem>(arrayLength.coerceAtMost(256))
             var loggedSample = false
@@ -1699,7 +1701,7 @@ class IptvRepositoryImpl @Inject constructor(
                 vodCacheByPlaylist.update { current ->
                     current + (playlist.id to accumulated.toList())
                 }
-                onProgress(loadedDelta = batch.size, totalDelta = 0)
+                onProgress(batch.size, 0)
             }
 
             if (accumulated.isEmpty() && arrayLength == 0) {
@@ -1768,7 +1770,7 @@ class IptvRepositoryImpl @Inject constructor(
 
             val arrayLength = xtreamParser.parseSeriesArrayLength(seriesRaw)
             Log.i(VOD_FLOW_TAG, "Series parse arrayLength=$arrayLength playlist=${playlist.id}")
-            onProgress(loadedDelta = 0, totalDelta = arrayLength)
+            onProgress(0, arrayLength)
 
             val accumulated = ArrayList<SeriesShow>(arrayLength.coerceAtMost(256))
             var loggedSample = false
@@ -1791,7 +1793,7 @@ class IptvRepositoryImpl @Inject constructor(
                     current + (playlist.id to accumulated.toList())
                 }
                 clearSeriesSeasonsForPlaylist(playlist.id)
-                onProgress(loadedDelta = batch.size, totalDelta = 0)
+                onProgress(batch.size, 0)
             }
 
             if (accumulated.isEmpty() && arrayLength == 0) {
