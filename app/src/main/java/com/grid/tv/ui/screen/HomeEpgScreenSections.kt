@@ -69,6 +69,7 @@ import com.grid.tv.ui.component.EpgTimelineHeader
 import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.GuideGroupFilterMenu
 import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.MoviesHomeRow

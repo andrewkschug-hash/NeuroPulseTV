@@ -63,6 +63,7 @@ import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.ProfileAvatarBadge
 import com.grid.tv.ui.component.ProfileColorPicker
 import com.grid.tv.ui.screen.ProfileAvatarColors
@@ -132,7 +133,6 @@ private enum class SettingsSection(val title: String, val subtitle: String) {
     About("About", "Version, backup & info")
 }
 
-private val TopBarProfileIndex get() = GridNavTabs.size
 private const val PROFILE_SWATCH_START = 1
 private const val PROFILE_SWATCH_COUNT = 8
 

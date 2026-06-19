@@ -22,6 +22,7 @@ import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.GuideGroupCategory
 import com.grid.tv.ui.component.GuideGroupVisibleRow
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
@@ -37,7 +38,6 @@ import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-internal val TopBarProfileIndex get() = GridNavTabs.size
 internal const val TopBarSearchIndex = 0
 
 internal data class HomeEpgGuideDeps(

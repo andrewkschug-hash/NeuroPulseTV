@@ -49,6 +49,7 @@ import com.grid.tv.ui.component.EpgChipFilterBar
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.PersonalizedVodRow
 import com.grid.tv.ui.component.VodHeroSection
 import com.grid.tv.ui.component.ScreenBackHandler
@@ -62,8 +63,6 @@ import com.grid.tv.ui.viewmodel.VodHubViewModel
 import kotlinx.coroutines.delay
 
 private enum class VodFocusZone { TOP_BAR, CONTINUE, SEARCH, TABS, CONTENT }
-
-private val TopBarProfileIndex get() = GridNavTabs.size
 
 @Composable
 fun VodHubScreen(

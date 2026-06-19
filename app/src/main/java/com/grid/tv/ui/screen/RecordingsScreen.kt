@@ -60,6 +60,7 @@ import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.RecordingsBottomSheetPanel
 import com.grid.tv.ui.component.RecordingDeleteDialog
 import com.grid.tv.ui.component.RecordingGridCard
@@ -83,8 +84,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class RecFocusZone { TOP_BAR, LIST, DETAIL }
-
-private val TopBarProfileIndex get() = GridNavTabs.size
 
 private sealed class RecordingRow {
     abstract val id: Long
