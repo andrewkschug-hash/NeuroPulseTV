@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.data.db.model.GroupChannelCountRow
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -23,6 +24,9 @@ interface ChannelDao {
 
     @Query("SELECT DISTINCT groupName FROM channels ORDER BY groupName")
     fun observeGroups(): Flow<List<String>>
+
+    @Query("SELECT groupName, COUNT(*) AS channelCount FROM channels GROUP BY groupName")
+    fun observeGroupChannelCounts(): Flow<List<GroupChannelCountRow>>
 
     @Query(
         """

@@ -51,6 +51,7 @@ import com.grid.tv.ui.component.EpgJumpToLiveButton
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNowLine
 import com.grid.tv.ui.component.EpgPreviewSection
+import com.grid.tv.ui.component.EpgNoInformationCell
 import com.grid.tv.ui.component.EpgProgramCell
 import com.grid.tv.ui.component.EpgTimelineHeader
 import com.grid.tv.ui.component.formatEpgDay
@@ -413,7 +414,18 @@ private fun EpgChannelTimelineRow(
             .height(EpgLayout.RowHeight)
             .background(rowBg)
     ) {
-        programs.forEachIndexed { programIndex, program ->
+        if (programs.isEmpty()) {
+            val isFocused = gridFocused &&
+                channelIndex == focusChannelIndex &&
+                !focusOnChannelColumn &&
+                focusProgramIndex == 0
+            EpgNoInformationCell(
+                width = timelineWidth - EpgLayout.CellGap,
+                isFocused = isFocused,
+                modifier = Modifier.offset(x = 0.dp)
+            )
+        } else {
+            programs.forEachIndexed { programIndex, program ->
             val width = EpgLayout.widthForDurationMs(program.endTime - program.startTime) - EpgLayout.CellGap
             val offset = EpgLayout.offsetForTime(program.startTime, windowStart)
             val isFocused = gridFocused &&
@@ -448,6 +460,7 @@ private fun EpgChannelTimelineRow(
                 },
                 modifier = Modifier.offset(x = offset)
             )
+        }
         }
     }
 }

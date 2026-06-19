@@ -108,9 +108,10 @@ fun toggleGuideGroupSelection(selectedGroups: Set<String>, group: String): Set<S
 fun guideFilterMenuItemCount(
     channelGroups: List<String>,
     expandedCategories: Set<Int>,
-    selectedGroups: Set<String> = emptySet()
+    selectedGroups: Set<String> = emptySet(),
+    groupChannelCounts: Map<String, Int> = emptyMap()
 ): Int {
-    val categories = buildGuideGroupCategories(channelGroups)
+    val categories = buildGuideGroupCategories(channelGroups, groupChannelCounts)
     val expanded = expandedCategories.ifEmpty {
         expandedCategoriesForSelection(categories, selectedGroups)
     }
@@ -121,9 +122,10 @@ fun guideFilterForMenuSelection(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
     menuIndex: Int,
-    expandedCategories: Set<Int>
+    expandedCategories: Set<Int>,
+    groupChannelCounts: Map<String, Int> = emptyMap()
 ): GuideChannelFilter {
-    val categories = buildGuideGroupCategories(channelGroups)
+    val categories = buildGuideGroupCategories(channelGroups, groupChannelCounts)
     val row = buildVisibleGuideGroupRows(categories, expandedCategories).getOrNull(menuIndex)
         ?: return GuideChannelFilter(selectedGroups)
     return when (row) {
@@ -166,9 +168,10 @@ fun isGuideGroupMenuItemSelected(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
     menuIndex: Int,
-    expandedCategories: Set<Int>
+    expandedCategories: Set<Int>,
+    groupChannelCounts: Map<String, Int> = emptyMap()
 ): Boolean {
-    val categories = buildGuideGroupCategories(channelGroups)
+    val categories = buildGuideGroupCategories(channelGroups, groupChannelCounts)
     val row = buildVisibleGuideGroupRows(categories, expandedCategories).getOrNull(menuIndex) ?: return false
     return isGuideGroupRowSelected(row, selectedGroups)
 }
@@ -179,6 +182,7 @@ fun GuideGroupFilterMenu(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
     expandedCategories: Set<Int>,
+    groupChannelCounts: Map<String, Int> = emptyMap(),
     focusedIndex: Int,
     onFocusedIndexChange: (Int) -> Unit,
     onDismiss: () -> Unit,
@@ -187,7 +191,9 @@ fun GuideGroupFilterMenu(
 ) {
     if (!expanded) return
 
-    val categories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
+    val categories = remember(channelGroups, groupChannelCounts) {
+        buildGuideGroupCategories(channelGroups, groupChannelCounts)
+    }
     val visibleRows = remember(categories, expandedCategories) {
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
@@ -281,8 +287,9 @@ fun GuideGroupFilterMenu(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
-                                prefix = row.prefix,
-                                childCount = row.childCount,
+                                displayName = row.displayName,
+                                channelCount = row.channelCount,
+                                subGroupCount = row.subGroupCount,
                                 expanded = row.expanded,
                                 focused = false,
                                 onClick = { onToggle(index) },
@@ -290,7 +297,7 @@ fun GuideGroupFilterMenu(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
-                                prefix = row.prefix,
+                                displayName = row.displayName,
                                 childCount = row.groupNames.size,
                                 checked = areAllGroupsSelected(row.groupNames, selectedGroups),
                                 focused = false,
@@ -299,7 +306,7 @@ fun GuideGroupFilterMenu(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
-                                suffixLabel = row.suffixLabel,
+                                label = row.fullName,
                                 checked = row.fullName in selectedGroups,
                                 focused = false,
                                 onClick = { onToggle(index) },
@@ -394,8 +401,9 @@ internal fun GuideGroupAllChannelsRow(
 
 @Composable
 internal fun GuideGroupCategoryRow(
-    prefix: String,
-    childCount: Int,
+    displayName: String,
+    channelCount: Int,
+    subGroupCount: Int,
     expanded: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
@@ -410,6 +418,7 @@ internal fun GuideGroupCategoryRow(
     }
     val textColor = if (showFocus) EpgColors.TextPrimary else EpgColors.TextSecondary
     val shape = RoundedCornerShape(6.dp)
+    val countLabel = categoryCountLabel(channelCount, subGroupCount)
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier
@@ -440,7 +449,7 @@ internal fun GuideGroupCategoryRow(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "$prefix ($childCount)",
+                text = "$displayName ($countLabel)",
                 color = textColor,
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
@@ -459,7 +468,7 @@ internal fun GuideGroupCategoryRow(
 
 @Composable
 internal fun GuideGroupSelectAllRow(
-    prefix: String,
+    displayName: String,
     childCount: Int,
     checked: Boolean,
     focused: Boolean,
@@ -467,9 +476,8 @@ internal fun GuideGroupSelectAllRow(
     modifier: Modifier = Modifier,
     tvFocusable: Boolean = false
 ) {
-    val regionLabel = guideRegionDisplayLabel(prefix)
     GuideGroupTreeRowShell(
-        label = "Select all $regionLabel ($childCount)",
+        label = "Select all $displayName ($childCount)",
         checked = checked,
         focused = focused,
         onClick = onClick,
@@ -482,7 +490,7 @@ internal fun GuideGroupSelectAllRow(
 
 @Composable
 internal fun GuideGroupChildRow(
-    suffixLabel: String,
+    label: String,
     checked: Boolean,
     focused: Boolean,
     onClick: () -> Unit,
@@ -490,7 +498,7 @@ internal fun GuideGroupChildRow(
     tvFocusable: Boolean = false
 ) {
     GuideGroupTreeRowShell(
-        label = suffixLabel,
+        label = label,
         checked = checked,
         focused = focused,
         onClick = onClick,

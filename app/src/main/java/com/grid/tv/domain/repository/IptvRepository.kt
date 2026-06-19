@@ -27,6 +27,7 @@ interface IptvRepository {
     fun playlists(): Flow<List<Playlist>>
     suspend fun hasActiveConnection(): Boolean
     fun groups(): Flow<List<String>>
+    fun groupChannelCounts(): Flow<Map<String, Int>>
     fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     suspend fun channelsPage(
         groups: Set<String> = emptySet(),
@@ -96,6 +97,8 @@ interface IptvRepository {
     fun vodStreams(): Flow<List<VodItem>>
     fun vodCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
     fun vodCatalogLoading(): Flow<Boolean>
+    fun vodCatalogProgress(): Flow<com.grid.tv.domain.model.VodCatalogProgress>
+    fun vodCatalogStatus(): Flow<com.grid.tv.domain.model.VodCatalogStatus>
     fun seriesShows(): Flow<List<SeriesShow>>
     suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
     fun vodWatchProgress(): Flow<Map<Long, Long>>

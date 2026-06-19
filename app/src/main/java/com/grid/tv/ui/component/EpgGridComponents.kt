@@ -505,6 +505,54 @@ fun EpgProgramCell(
 }
 
 @Composable
+fun EpgNoInformationCell(
+    width: Dp,
+    isFocused: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val baseBg = EpgColors.CellFuture.copy(alpha = 0.65f)
+    val animatedBg by animateColorAsState(
+        targetValue = if (isFocused) EpgColors.ChannelRowFocusBg else baseBg,
+        animationSpec = tween(durationMillis = 120),
+        label = "noInfoCellBg"
+    )
+    val animatedBorder by animateColorAsState(
+        targetValue = if (isFocused) EpgColors.FocusBorder else EpgColors.BorderSubtle.copy(alpha = 0.35f),
+        animationSpec = tween(durationMillis = 120),
+        label = "noInfoCellBorder"
+    )
+
+    Box(
+        modifier = modifier
+            .zIndex(if (isFocused) 1f else 0f)
+            .width(width.coerceAtLeast(120.dp))
+            .padding(end = EpgLayout.CellGap)
+            .height(EpgLayout.RowHeight)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(1.dp, animatedBorder, RoundedCornerShape(2.dp))
+                .clip(RoundedCornerShape(2.dp))
+                .background(animatedBg)
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Text(
+                text = "No information",
+                color = if (isFocused) EpgColors.TextPrimary else EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 fun EpgTimelineHeader(
     windowStart: Long,
     windowDurationMs: Long,

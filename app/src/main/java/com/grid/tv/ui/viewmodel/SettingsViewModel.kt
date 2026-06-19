@@ -80,6 +80,9 @@ class SettingsViewModel @Inject constructor(
     val channelGroups: StateFlow<List<String>> = repository.groups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val groupChannelCounts: StateFlow<Map<String, Int>> = repository.groupChannelCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _settings = MutableStateFlow(AppSettings())
     val settings = _settings.asStateFlow()
 

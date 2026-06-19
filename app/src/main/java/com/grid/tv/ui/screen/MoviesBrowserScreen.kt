@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import android.util.Log
 import com.grid.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -36,10 +37,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
+import com.grid.tv.domain.model.VodCatalogEmptyReason
+import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodPlaybackHelper
+import com.grid.tv.domain.model.vodEmptyMessage
+import com.grid.tv.domain.model.vodEmptyTitle
+import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodPosterCard
+import com.grid.tv.ui.component.VodPosterSkeleton
 import com.grid.tv.ui.component.showsHdBadge
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -58,8 +66,10 @@ fun MoviesBrowserScreen(
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
     val movies by viewModel.movies.collectAsStateWithLifecycle()
+    val allMovies by viewModel.allMovies.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
-    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
+    val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
+    val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
     val progress by viewModel.vodProgress.collectAsStateWithLifecycle()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
     var search by remember { mutableStateOf("") }
@@ -73,12 +83,43 @@ fun MoviesBrowserScreen(
         listOf(null to "All") + categories.distinctBy { it.id }.map { it.id to it.name }
     }
 
+    val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
+    val activeSearch = if (embedded) hubSearchQuery else search
+    val emptyReason = catalogStatus.moviesEmptyReason(
+        filteredCount = movies.size,
+        catalogTotal = allMovies.size,
+        categoryId = selectedCategoryId,
+        searchQuery = activeSearch
+    )
+
+    LaunchedEffect(emptyReason, movies.size, allMovies.size, selectedCategoryId, moviesLoading, catalogProgress.moviesPhaseFinished) {
+        Log.i(
+            "VodCatalogPipeline",
+            "Movies empty-state: reason=$emptyReason filter=Movies filtered=${movies.size} " +
+                "catalog=${allMovies.size} category=$selectedCategoryId loading=$moviesLoading " +
+                "phaseFinished=${catalogProgress.moviesPhaseFinished}"
+        )
+    }
+
+    val skeletonCount = remember(movies.size, catalogProgress.moviesTotal, moviesLoading) {
+        if (!moviesLoading || catalogProgress.moviesTotal <= movies.size) {
+            0
+        } else {
+            (catalogProgress.moviesTotal - movies.size).coerceIn(1, 32)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
             .padding(if (embedded) 0.dp else 20.dp)
     ) {
+        VodCatalogProgressBar(
+            progress = catalogProgress.moviesProgressFraction(),
+            visible = moviesLoading
+        )
+
         if (!embedded) {
             GlowFocusButton(onClick = onBack) {
                 Text("← Back", fontFamily = DmSansFamily)
@@ -138,39 +179,53 @@ fun MoviesBrowserScreen(
             }
         }
 
-        if (catalogLoading) {
-            VodEmptyState(
-                title = "Loading movies…",
-                message = "Fetching your provider's movie catalog. Large libraries can take a minute."
-            )
-        } else if (movies.isEmpty()) {
-            VodEmptyState(
-                title = "No movies available",
-                message = "Open VOD again after connecting Xtream in Settings, or try another category."
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 112.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
-                    VodPosterCard(
-                        title = movie.title,
-                        posterUrl = movie.posterUrl,
-                        progressFraction = viewModel.progressFraction(movie, progress),
-                        showHdBadge = movie.showsHdBadge(),
-                        onClick = {
-                            scope.launch {
-                                onMovieBrowse(movie)
-                                val resume = viewModel.shouldResume(movie, progress)
-                                VodPlaybackHelper.stageMovie(movie)
-                                onPlayMovie(movie.title, movie.streamUrl, resume)
+        VodCatalogLoadingBanner(
+            baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
+            progress = catalogProgress,
+            isMovies = true
+        )
+
+        when {
+            movies.isEmpty() && skeletonCount == 0 && catalogProgress.moviesPhaseFinished && !moviesLoading -> {
+                val title = emptyReason.vodEmptyTitle(isMovies = true)
+                val message = emptyReason.vodEmptyMessage(catalogStatus, isMovies = true)
+                VodEmptyState(
+                    title = title,
+                    message = message,
+                    onRetry = if (emptyReason != VodCatalogEmptyReason.FILTERED_EMPTY) {
+                        { viewModel.refreshCatalog() }
+                    } else {
+                        null
+                    }
+                )
+            }
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 112.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
+                        VodPosterCard(
+                            title = movie.title,
+                            posterUrl = movie.posterUrl,
+                            progressFraction = viewModel.progressFraction(movie, progress),
+                            showHdBadge = movie.showsHdBadge(),
+                            onClick = {
+                                scope.launch {
+                                    onMovieBrowse(movie)
+                                    val resume = viewModel.shouldResume(movie, progress)
+                                    VodPlaybackHelper.stageMovie(movie)
+                                    onPlayMovie(movie.title, movie.streamUrl, resume)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
+                    items(skeletonCount, key = { index -> "movie_skeleton_$index" }) {
+                        VodPosterSkeleton()
+                    }
                 }
             }
         }

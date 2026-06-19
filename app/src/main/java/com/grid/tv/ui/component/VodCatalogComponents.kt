@@ -1,11 +1,18 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,9 +41,11 @@ import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import java.text.NumberFormat
 
 fun parseVodDurationMs(raw: String?): Long? {
     if (raw.isNullOrBlank()) return null
@@ -683,10 +692,104 @@ fun VodHubHeader(
 }
 
 @Composable
+fun VodPosterSkeleton(
+    modifier: Modifier = Modifier,
+    posterHeight: androidx.compose.ui.unit.Dp = 168.dp
+) {
+    Column(modifier = modifier.width(112.dp)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(posterHeight)
+                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                .background(Color(0xFF1E1E28))
+        )
+        Box(
+            modifier = Modifier
+                .padding(horizontal = 6.dp, vertical = 8.dp)
+                .fillMaxWidth(0.72f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF252532))
+        )
+    }
+}
+
+@Composable
+fun VodCatalogProgressBar(
+    progress: Float,
+    visible: Boolean,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(180)),
+        exit = fadeOut(animationSpec = tween(400)) + shrinkVertically(animationSpec = tween(400))
+    ) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(Color(0xFF14141C))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .background(EpgColors.Accent)
+            )
+        }
+    }
+}
+
+fun formatVodCatalogCount(count: Int): String = NumberFormat.getIntegerInstance().format(count)
+
+fun vodCatalogStatusMessage(
+    baseMessage: String,
+    loaded: Int,
+    total: Int
+): String {
+    val countLine = when {
+        total > 0 -> "Loaded ${formatVodCatalogCount(loaded)} / ${formatVodCatalogCount(total)} titles"
+        loaded > 0 -> "Loaded ${formatVodCatalogCount(loaded)} titles"
+        else -> null
+    }
+    return if (countLine != null) "$baseMessage\n$countLine" else baseMessage
+}
+
+@Composable
+fun VodCatalogLoadingBanner(
+    baseMessage: String,
+    progress: VodCatalogProgress,
+    isMovies: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val loaded = if (isMovies) progress.moviesLoaded else progress.seriesLoaded
+    val total = if (isMovies) progress.moviesTotal else progress.seriesTotal
+    val phaseComplete = if (isMovies) progress.isMoviesPhaseComplete else progress.isSeriesPhaseComplete
+    val showBanner = if (isMovies) {
+        progress.isLoading && !phaseComplete
+    } else {
+        progress.isLoading && progress.isMoviesPhaseComplete && !phaseComplete
+    }
+    if (!showBanner) return
+
+    Text(
+        text = vodCatalogStatusMessage(baseMessage, loaded, total),
+        color = EpgColors.TextSecondary,
+        fontFamily = DmSansFamily,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        modifier = modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
 fun VodEmptyState(
     title: String,
     message: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
@@ -716,6 +819,14 @@ fun VodEmptyState(
             fontSize = 13.sp,
             modifier = Modifier.padding(top = 8.dp)
         )
+        if (onRetry != null) {
+            GlowFocusButton(
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 24.dp)
+            ) {
+                Text("Retry", fontFamily = DmSansFamily)
+            }
+        }
     }
 }
 

@@ -156,6 +156,9 @@ class HomeEpgViewModel @Inject constructor(
     val channelGroups: StateFlow<List<String>> = repository.groups()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val groupChannelCounts: StateFlow<Map<String, Int>> = repository.groupChannelCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
     val hasCatalogChannels: StateFlow<Boolean> = repository.hasChannels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)

@@ -1,5 +1,8 @@
 package com.grid.tv.ui.component
 
+import com.grid.tv.util.parentGroupSortIndex
+import com.grid.tv.util.resolveParentGroup
+
 /**
  * Visible rows for the collapsible channel-group picker / filter menu.
  * Does not change how groups are fetched or stored — UI navigation only.
@@ -9,68 +12,61 @@ sealed class GuideGroupVisibleRow {
 
     data class Category(
         val categoryIndex: Int,
-        val prefix: String,
-        val childCount: Int,
+        val displayName: String,
+        val channelCount: Int,
+        val subGroupCount: Int,
         val expanded: Boolean
     ) : GuideGroupVisibleRow()
 
     data class Group(
         val fullName: String,
-        val suffixLabel: String,
         val categoryIndex: Int
     ) : GuideGroupVisibleRow()
 
     data class SelectAll(
         val categoryIndex: Int,
-        val prefix: String,
+        val displayName: String,
         val groupNames: List<String>
     ) : GuideGroupVisibleRow()
 }
 
 data class GuideGroupCategory(
-    val prefix: String,
-    val groups: List<String>
+    val displayName: String,
+    val groups: List<String>,
+    val channelCount: Int = 0
 )
 
-fun buildGuideGroupCategories(channelGroups: List<String>): List<GuideGroupCategory> {
+fun buildGuideGroupCategories(
+    channelGroups: List<String>,
+    groupChannelCounts: Map<String, Int> = emptyMap()
+): List<GuideGroupCategory> {
     val grouped = linkedMapOf<String, MutableList<String>>()
-    val order = mutableListOf<String>()
     channelGroups.forEach { group ->
-        val prefix = guideGroupRegionPrefix(group)
-            ?: group.trim().substringBefore(' ').ifBlank { group }
-        if (!grouped.containsKey(prefix)) {
-            grouped[prefix] = mutableListOf()
-            order.add(prefix)
+        val parent = resolveParentGroup(group)
+        grouped.getOrPut(parent) { mutableListOf() }.add(group)
+    }
+    return grouped.entries
+        .map { (parent, groups) ->
+            GuideGroupCategory(
+                displayName = parent,
+                groups = groups.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it }),
+                channelCount = groups.sumOf { groupChannelCounts[it] ?: 0 }
+            )
         }
-        grouped.getValue(prefix).add(group)
-    }
-    return order.map { prefix ->
-        GuideGroupCategory(prefix = prefix, groups = grouped.getValue(prefix).toList())
-    }
-}
-
-fun guideGroupSuffixLabel(fullName: String): String {
-    val trimmed = fullName.trim()
-    for (separator in GUIDE_GROUP_REGION_SEPARATORS) {
-        if (separator in trimmed) {
-            val suffix = trimmed.substringAfter(separator).trim()
-            return if (suffix.isNotBlank()) "❖ $suffix" else trimmed
-        }
-    }
-    val prefix = guideGroupRegionPrefix(trimmed)
-    if (prefix != null && trimmed.startsWith(prefix, ignoreCase = true)) {
-        val rest = trimmed.removePrefix(prefix).trim().trimStart('❖', '|', '-', '–', ' ')
-        return if (rest.isNotBlank()) "❖ $rest" else trimmed
-    }
-    return trimmed
+        .sortedWith(
+            compareBy({ parentGroupSortIndex(it.displayName) }, { it.displayName })
+        )
 }
 
 fun expandedCategoriesForSelection(
     categories: List<GuideGroupCategory>,
     selectedGroups: Set<String>
-): Set<Int> = categories.mapIndexedNotNull { index, category ->
-    if (category.groups.any { it in selectedGroups }) index else null
-}.toSet()
+): Set<Int> {
+    val index = categories.indexOfFirst { category ->
+        category.groups.any { it in selectedGroups }
+    }
+    return if (index >= 0) setOf(index) else emptySet()
+}
 
 fun buildVisibleGuideGroupRows(
     categories: List<GuideGroupCategory>,
@@ -82,8 +78,9 @@ fun buildVisibleGuideGroupRows(
         add(
             GuideGroupVisibleRow.Category(
                 categoryIndex = categoryIndex,
-                prefix = category.prefix,
-                childCount = category.groups.size,
+                displayName = category.displayName,
+                channelCount = category.channelCount,
+                subGroupCount = category.groups.size,
                 expanded = expanded
             )
         )
@@ -91,7 +88,7 @@ fun buildVisibleGuideGroupRows(
             add(
                 GuideGroupVisibleRow.SelectAll(
                     categoryIndex = categoryIndex,
-                    prefix = category.prefix,
+                    displayName = category.displayName,
                     groupNames = category.groups
                 )
             )
@@ -99,7 +96,6 @@ fun buildVisibleGuideGroupRows(
                 add(
                     GuideGroupVisibleRow.Group(
                         fullName = fullName,
-                        suffixLabel = guideGroupSuffixLabel(fullName),
                         categoryIndex = categoryIndex
                     )
                 )
@@ -121,11 +117,18 @@ fun visibleRowIndexForSelection(
     }.takeIf { it >= 0 } ?: 0
 }
 
+/** Only one parent category may be expanded at a time. */
 fun toggleCategoryExpansion(
     expandedCategories: Set<Int>,
     categoryIndex: Int
-): Set<Int> {
-    val next = expandedCategories.toMutableSet()
-    if (categoryIndex in next) next.remove(categoryIndex) else next.add(categoryIndex)
-    return next
+): Set<Int> = if (categoryIndex in expandedCategories) {
+    emptySet()
+} else {
+    setOf(categoryIndex)
+}
+
+fun categoryCountLabel(channelCount: Int, subGroupCount: Int): String = when {
+    channelCount > 0 -> channelCount.toString()
+    subGroupCount > 0 -> "$subGroupCount groups"
+    else -> "0"
 }

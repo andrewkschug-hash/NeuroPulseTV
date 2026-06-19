@@ -43,6 +43,7 @@ import com.grid.tv.ui.theme.EpgColors
 fun GuideGroupPickerDialog(
     channelGroups: List<String>,
     initialSelection: Set<String>,
+    groupChannelCounts: Map<String, Int> = emptyMap(),
     title: String = "Choose your channels",
     subtitle: String = "Pick the groups you want in the live guide. You can change this later in Settings.",
     confirmLabel: String = "Save",
@@ -50,7 +51,9 @@ fun GuideGroupPickerDialog(
     onConfirm: (Set<String>) -> Unit
 ) {
     var selection by remember { mutableStateOf(initialSelection) }
-    val categories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
+    val categories = remember(channelGroups, groupChannelCounts) {
+        buildGuideGroupCategories(channelGroups, groupChannelCounts)
+    }
     var expandedCategories by remember {
         mutableStateOf(expandedCategoriesForSelection(categories, initialSelection))
     }
@@ -166,8 +169,9 @@ fun GuideGroupPickerDialog(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
-                                prefix = row.prefix,
-                                childCount = row.childCount,
+                                displayName = row.displayName,
+                                channelCount = row.channelCount,
+                                subGroupCount = row.subGroupCount,
                                 expanded = row.expanded,
                                 focused = false,
                                 onClick = {
@@ -180,7 +184,7 @@ fun GuideGroupPickerDialog(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
-                                prefix = row.prefix,
+                                displayName = row.displayName,
                                 childCount = row.groupNames.size,
                                 checked = areAllGroupsSelected(row.groupNames, selection),
                                 focused = false,
@@ -191,7 +195,7 @@ fun GuideGroupPickerDialog(
                                 tvFocusable = true
                             )
                             is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
-                                suffixLabel = row.suffixLabel,
+                                label = row.fullName,
                                 checked = row.fullName in selection,
                                 focused = false,
                                 onClick = {

@@ -179,6 +179,7 @@ fun SettingsScreen(
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val scannerRuntime by viewModel.scannerRuntime.collectAsStateWithLifecycle()
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
+    val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
     val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
     val signedInAccount by authViewModel.signedInAccount.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -861,6 +862,7 @@ fun SettingsScreen(
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = settings.guideChannelGroups,
+                groupChannelCounts = groupChannelCounts,
                 title = "Edit channel groups",
                 subtitle = "Choose which provider groups appear in your live guide.",
                 onDismiss = { showGuideGroupPicker = false },

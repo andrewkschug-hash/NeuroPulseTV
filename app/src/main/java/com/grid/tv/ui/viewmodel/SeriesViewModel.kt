@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingContentType
+import com.grid.tv.domain.model.VodCatalogProgress
+import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.repository.IptvRepository
@@ -37,6 +39,12 @@ class SeriesViewModel @Inject constructor(
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     val shows = repository.seriesShows().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())
+
+    val catalogStatus: StateFlow<VodCatalogStatus> = repository.vodCatalogStatus()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogStatus())
 
     val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)

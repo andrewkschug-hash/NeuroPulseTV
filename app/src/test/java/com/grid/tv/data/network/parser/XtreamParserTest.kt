@@ -87,4 +87,59 @@ class XtreamParserTest {
         )
         assertEquals("http://example.com:8080/live/user/p%40ss%2Fword/99.m3u8", url)
     }
+
+    @Test
+    fun parseVodBatchedEmitsIncrementalBatches() {
+        val raw = buildString {
+            append('[')
+            repeat(120) { index ->
+                if (index > 0) append(',')
+                append(
+                    """{"stream_id":"$index","name":"Movie $index","container_extension":"mp4"}"""
+                )
+            }
+            append(']')
+        }
+        val batches = mutableListOf<List<com.grid.tv.domain.model.VodItem>>()
+        val total = parser.parseVodBatched(
+            raw = raw,
+            username = "user",
+            password = "pass",
+            serverUrl = "http://example.com:8080",
+            batchSize = 50
+        ) { batch ->
+            batches += batch
+        }
+        assertEquals(120, total)
+        assertEquals(3, batches.size)
+        assertEquals(50, batches[0].size)
+        assertEquals(50, batches[1].size)
+        assertEquals(20, batches[2].size)
+    }
+
+    @Test
+    fun parseVodBatchedAcceptsNumericStreamId() {
+        val raw = """[{"stream_id":42,"name":"Numeric Movie","container_extension":"mp4"}]"""
+        val items = parser.parseVod(
+            raw = raw,
+            username = "user",
+            password = "pass",
+            serverUrl = "http://example.com:8080"
+        )
+        assertEquals(1, items.size)
+        assertEquals(42L, items.first().streamId)
+    }
+
+    @Test
+    fun parseVodBatchedAcceptsWrappedArray() {
+        val raw = """{"vod_streams":[{"stream_id":"7","name":"Wrapped Movie","container_extension":"mp4"}]}"""
+        val items = parser.parseVod(
+            raw = raw,
+            username = "user",
+            password = "pass",
+            serverUrl = "http://example.com:8080"
+        )
+        assertEquals(1, items.size)
+        assertEquals(7L, items.first().streamId)
+    }
 }

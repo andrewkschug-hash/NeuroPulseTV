@@ -51,14 +51,21 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import android.util.Log
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.PlaylistType
+import com.grid.tv.domain.model.VodCatalogEmptyReason
+import com.grid.tv.domain.model.vodEmptyMessage
+import com.grid.tv.domain.model.vodEmptyTitle
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.ui.component.SeriesPosterCard
+import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodEpisodeCard
+import com.grid.tv.ui.component.VodPosterSkeleton
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.SeriesViewModel
@@ -82,7 +89,8 @@ fun SeriesBrowserScreen(
     val shows by viewModel.filteredShows.collectAsStateWithLifecycle()
     val allShows by viewModel.shows.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
-    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
+    val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
+    val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
@@ -134,12 +142,47 @@ fun SeriesBrowserScreen(
             }
     }
 
+    val seriesLoading = catalogProgress.isLoading &&
+        catalogProgress.isMoviesPhaseComplete &&
+        !catalogProgress.isSeriesPhaseComplete
+    val activeSearch = if (embedded) hubSearchQuery else searchQuery
+    val seriesEmptyReason = catalogStatus.seriesEmptyReason(
+        filteredCount = shows.size,
+        catalogTotal = allShows.size,
+        category = selectedCategory,
+        searchQuery = activeSearch
+    )
+
+    LaunchedEffect(seriesEmptyReason, shows.size, allShows.size, selectedCategory, seriesLoading, catalogProgress.seriesPhaseFinished) {
+        Log.i(
+            "VodCatalogPipeline",
+            "Series empty-state: reason=$seriesEmptyReason filter=Series filtered=${shows.size} " +
+                "catalog=${allShows.size} category=$selectedCategory loading=$seriesLoading " +
+                "phaseFinished=${catalogProgress.seriesPhaseFinished}"
+        )
+    }
+
+    val skeletonCount = remember(shows.size, catalogProgress.seriesTotal, seriesLoading) {
+        if (!seriesLoading || catalogProgress.seriesTotal <= shows.size) {
+            0
+        } else {
+            (catalogProgress.seriesTotal - shows.size).coerceIn(1, 32)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(EpgColors.Background)
             .padding(if (embedded) 0.dp else 20.dp)
     ) {
+        if (seasons.isEmpty()) {
+            VodCatalogProgressBar(
+                progress = catalogProgress.seriesProgressFraction(),
+                visible = seriesLoading
+            )
+        }
+
         if (!embedded) {
             GlowFocusButton(onClick = onBack) {
                 Text("← Back", fontFamily = DmSansFamily)
@@ -186,6 +229,14 @@ fun SeriesBrowserScreen(
                     )
                 }
             }
+        }
+
+        if (seasons.isEmpty()) {
+            VodCatalogLoadingBanner(
+                baseMessage = "Fetching your provider's series catalog. Large libraries can take a minute.",
+                progress = catalogProgress,
+                isMovies = false
+            )
         }
 
         if (seasons.isNotEmpty() && activeShow != null) {
@@ -260,17 +311,19 @@ fun SeriesBrowserScreen(
                     )
                 }
             }
-        } else if (catalogLoading) {
+        } else if (shows.isEmpty() && skeletonCount == 0 && catalogProgress.seriesPhaseFinished && !seriesLoading) {
+            val title = seriesEmptyReason.vodEmptyTitle(isMovies = false)
+            val message = seriesEmptyReason.vodEmptyMessage(catalogStatus, isMovies = false)
             VodEmptyState(
-                title = "Loading series…",
-                message = "Fetching your provider's series catalog. Large libraries can take a minute."
+                title = title,
+                message = message,
+                onRetry = if (seriesEmptyReason != VodCatalogEmptyReason.FILTERED_EMPTY) {
+                    { viewModel.refreshCatalog() }
+                } else {
+                    null
+                }
             )
-        } else if (shows.isEmpty()) {
-            VodEmptyState(
-                title = "No series available",
-                message = "Open VOD again after connecting Xtream in Settings, or try another category."
-            )
-        } else {
+        } else if (seasons.isEmpty()) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 112.dp),
                 contentPadding = PaddingValues(vertical = 8.dp),
@@ -289,6 +342,9 @@ fun SeriesBrowserScreen(
                             viewModel.selectShow(show.id, cw?.seasonNumber)
                         }
                     )
+                }
+                items(skeletonCount, key = { index -> "series_skeleton_$index" }) {
+                    VodPosterSkeleton()
                 }
             }
         }

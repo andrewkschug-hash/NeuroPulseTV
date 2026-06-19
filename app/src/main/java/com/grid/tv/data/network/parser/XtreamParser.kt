@@ -13,6 +13,17 @@ import org.json.JSONObject
 
 class XtreamParser {
 
+    companion object {
+        const val VOD_CATALOG_BATCH_SIZE = 75
+        private val JSON_ARRAY_WRAPPER_KEYS = listOf(
+            "vod_streams",
+            "series",
+            "movie_data",
+            "js",
+            "data"
+        )
+    }
+
     data class AuthPayload(
         val status: String,
         val expiryDateEpochSec: Long?,
@@ -213,52 +224,116 @@ class XtreamParser {
         return out
     }
 
+    fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw)?.length() ?: 0
+
+    fun parseSeriesArrayLength(raw: String): Int = parseJsonArray(raw)?.length() ?: 0
+
     fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
-        val arr = parseJsonArray(raw) ?: return emptyList()
-        val out = ArrayList<VodItem>(arr.length())
-        for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val id = item.optString("stream_id").toLongOrNull() ?: continue
-            val ext = item.optString("container_extension").ifBlank { "mp4" }
-            val directSource = item.optString("direct_source").ifBlank { null }
-            val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), ext, directSource)
-            val title = item.optString("name").ifBlank { "VOD $id" }
-            out += VodItem(
-                id = id,
-                title = title,
-                streamId = id,
-                streamUrl = url,
-                posterUrl = item.optString("stream_icon").ifBlank { null },
-                plot = item.optString("plot").ifBlank { null },
-                cast = item.optString("cast").ifBlank { null },
-                director = item.optString("director").ifBlank { null },
-                genre = item.optString("genre").ifBlank { null },
-                rating = item.optString("rating").ifBlank { null },
-                duration = item.optString("duration").ifBlank { null },
-                categoryId = item.optString("category_id").ifBlank { null },
-                addedEpochSec = item.optString("added").toLongOrNull(),
-                playlistId = playlistId
-            )
+        val out = ArrayList<VodItem>()
+        parseVodBatched(raw, username, password, serverUrl, playlistId) { batch ->
+            out.addAll(batch)
         }
         return out
     }
 
-    fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
-        val arr = parseJsonArray(raw) ?: return emptyList()
-        val out = ArrayList<SeriesShow>(arr.length())
+    fun parseVodBatched(
+        raw: String,
+        username: String,
+        password: String,
+        serverUrl: String,
+        playlistId: Long = 0L,
+        batchSize: Int = VOD_CATALOG_BATCH_SIZE,
+        onBatch: (List<VodItem>) -> Unit
+    ): Int {
+        val arr = parseJsonArray(raw) ?: return 0
+        val batch = ArrayList<VodItem>(batchSize)
         for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val id = item.optString("series_id").toLongOrNull() ?: continue
-            out += SeriesShow(
-                id = id,
-                name = item.optString("name").ifBlank { "Series $id" },
-                coverUrl = item.optString("cover").ifBlank { null },
-                categoryId = item.optString("category_id").ifBlank { null },
-                genre = item.optString("genre").ifBlank { null },
-                playlistId = playlistId
-            )
+            val parsed = parseVodItem(arr.optJSONObject(i), username, password, serverUrl, playlistId)
+                ?: continue
+            batch += parsed
+            if (batch.size >= batchSize) {
+                onBatch(batch.toList())
+                batch.clear()
+            }
+        }
+        if (batch.isNotEmpty()) {
+            onBatch(batch.toList())
+        }
+        return arr.length()
+    }
+
+    private fun parseVodItem(
+        item: JSONObject?,
+        username: String,
+        password: String,
+        serverUrl: String,
+        playlistId: Long
+    ): VodItem? {
+        item ?: return null
+        val id = optLongId(item, "stream_id", "num") ?: return null
+        val ext = item.optString("container_extension").ifBlank { "mp4" }
+        val directSource = item.optString("direct_source").ifBlank { null }
+        val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), ext, directSource)
+        val title = item.optString("name").ifBlank { "VOD $id" }
+        return VodItem(
+            id = id,
+            title = title,
+            streamId = id,
+            streamUrl = url,
+            posterUrl = item.optString("stream_icon").ifBlank { null },
+            plot = item.optString("plot").ifBlank { null },
+            cast = item.optString("cast").ifBlank { null },
+            director = item.optString("director").ifBlank { null },
+            genre = item.optString("genre").ifBlank { null },
+            rating = item.optString("rating").ifBlank { null },
+            duration = item.optString("duration").ifBlank { null },
+            categoryId = item.optString("category_id").ifBlank { null },
+            addedEpochSec = item.optString("added").toLongOrNull(),
+            playlistId = playlistId
+        )
+    }
+
+    fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
+        val out = ArrayList<SeriesShow>()
+        parseSeriesBatched(raw, playlistId) { batch ->
+            out.addAll(batch)
         }
         return out
+    }
+
+    fun parseSeriesBatched(
+        raw: String,
+        playlistId: Long = 0L,
+        batchSize: Int = VOD_CATALOG_BATCH_SIZE,
+        onBatch: (List<SeriesShow>) -> Unit
+    ): Int {
+        val arr = parseJsonArray(raw) ?: return 0
+        val batch = ArrayList<SeriesShow>(batchSize)
+        for (i in 0 until arr.length()) {
+            val parsed = parseSeriesItem(arr.optJSONObject(i), playlistId) ?: continue
+            batch += parsed
+            if (batch.size >= batchSize) {
+                onBatch(batch.toList())
+                batch.clear()
+            }
+        }
+        if (batch.isNotEmpty()) {
+            onBatch(batch.toList())
+        }
+        return arr.length()
+    }
+
+    private fun parseSeriesItem(item: JSONObject?, playlistId: Long): SeriesShow? {
+        item ?: return null
+        val id = optLongId(item, "series_id") ?: return null
+        return SeriesShow(
+            id = id,
+            name = item.optString("name").ifBlank { "Series $id" },
+            coverUrl = item.optString("cover").ifBlank { null },
+            categoryId = item.optString("category_id").ifBlank { null },
+            genre = item.optString("genre").ifBlank { null },
+            playlistId = playlistId
+        )
     }
 
     fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): List<SeriesSeason> {
@@ -309,10 +384,31 @@ class XtreamParser {
         return out
     }
 
+    private fun optLongId(item: JSONObject, vararg keys: String): Long? {
+        for (key in keys) {
+            if (!item.has(key)) continue
+            when (val value = item.opt(key)) {
+                is Number -> return value.toLong()
+                is String -> value.toLongOrNull()?.let { return it }
+            }
+        }
+        return null
+    }
+
     private fun parseJsonArray(raw: String): JSONArray? {
         if (raw.isBlank()) return null
+        val trimmed = raw.trim()
         return try {
-            JSONArray(raw)
+            when {
+                trimmed.startsWith("[") -> JSONArray(trimmed)
+                trimmed.startsWith("{") -> {
+                    val obj = JSONObject(trimmed)
+                    JSON_ARRAY_WRAPPER_KEYS.firstNotNullOfOrNull { key ->
+                        obj.optJSONArray(key)?.takeIf { it.length() > 0 }
+                    }
+                }
+                else -> null
+            }
         } catch (_: Exception) {
             null
         }

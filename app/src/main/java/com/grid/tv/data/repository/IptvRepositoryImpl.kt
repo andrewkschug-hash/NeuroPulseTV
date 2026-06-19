@@ -73,12 +73,12 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
 import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.domain.model.VodCategory
-import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodCatalogProgress
+import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
 import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
@@ -97,6 +97,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 import java.net.URLEncoder
 import java.net.URI
 import java.io.File
@@ -144,6 +145,7 @@ class IptvRepositoryImpl @Inject constructor(
         private const val IPTV_REPO_LOG_TAG = "IptvRepository"
         private const val EPG_MATCH_DEBUG_TAG = "EPG Match Debug"
         private const val EPG_FLOW_TAG = "EpgFlow"
+        private const val VOD_FLOW_TAG = "VodCatalogPipeline"
         private const val CHANNEL_INSERT_CHUNK = 400
         const val CHANNEL_PAGE_SIZE = 200
     }
@@ -161,7 +163,18 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodCategoriesByPlaylist = MutableStateFlow<Map<Long, List<VodCategory>>>(emptyMap())
     private val seriesCacheByPlaylist = MutableStateFlow<Map<Long, List<SeriesShow>>>(emptyMap())
     private val vodCatalogLoading = MutableStateFlow(false)
+    private val vodCatalogProgress = MutableStateFlow(VodCatalogProgress())
+    private val vodCatalogStatus = MutableStateFlow(VodCatalogStatus())
+    private val vodRefreshMutex = Mutex()
     private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
+
+    private data class VodPlaylistRefreshResult(
+        val rawLength: Int = 0,
+        val parsedCount: Int = 0,
+        val arrayLength: Int = 0,
+        val error: String? = null,
+        val skippedReason: String? = null
+    )
 
     private fun encode(v: String): String = URLEncoder.encode(v, Charsets.UTF_8.name())
 
@@ -360,6 +373,11 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.getXtreamPassword(playlist.id) ?: playlist.xtreamPassword
 
     override fun groups(): Flow<List<String>> = channelDao.observeGroups()
+
+    override fun groupChannelCounts(): Flow<Map<String, Int>> =
+        channelDao.observeGroupChannelCounts().map { rows ->
+            rows.associate { it.groupName to it.channelCount }
+        }
 
     override fun channels(
         group: String?,
@@ -1512,79 +1530,311 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshVodSeriesCatalog() = withContext(Dispatchers.IO) {
-        val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
-        if (playlists.isEmpty()) return@withContext
-        vodCatalogLoading.value = true
+        if (!vodRefreshMutex.tryLock()) {
+            Log.i(VOD_FLOW_TAG, "VOD refresh already in progress — skipping duplicate request")
+            return@withContext
+        }
         try {
-            playlists.forEach { playlist ->
-                refreshVodCatalogForPlaylist(playlist)
+            val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
+            if (playlists.isEmpty()) {
+                Log.w(VOD_FLOW_TAG, "No Xtream playlists configured — VOD catalog unavailable")
+                val progress = VodCatalogProgress(
+                    moviesPhaseFinished = true,
+                    seriesPhaseFinished = true
+                )
+                vodCatalogLoading.value = false
+                vodCatalogProgress.value = progress
+                vodCatalogStatus.value = VodCatalogStatus(
+                    progress = progress,
+                    hasXtreamPlaylist = false
+                )
+                return@withContext
             }
-            playlists.forEach { playlist ->
-                refreshSeriesCatalogForPlaylist(playlist)
+
+            vodCatalogLoading.value = true
+            var moviesLoaded = 0
+            var moviesTotal = 0
+            var seriesLoaded = 0
+            var seriesTotal = 0
+            var moviesError: String? = null
+            var seriesError: String? = null
+            var moviesRawLength = 0
+            var moviesParsedCount = 0
+            var seriesRawLength = 0
+            var seriesParsedCount = 0
+
+            fun publishProgress(
+                isLoading: Boolean,
+                moviesPhaseFinished: Boolean = vodCatalogProgress.value.moviesPhaseFinished,
+                seriesPhaseFinished: Boolean = vodCatalogProgress.value.seriesPhaseFinished
+            ) {
+                val progress = VodCatalogProgress(
+                    moviesLoaded = moviesLoaded,
+                    moviesTotal = moviesTotal,
+                    seriesLoaded = seriesLoaded,
+                    seriesTotal = seriesTotal,
+                    isLoading = isLoading,
+                    moviesPhaseFinished = moviesPhaseFinished,
+                    seriesPhaseFinished = seriesPhaseFinished
+                )
+                vodCatalogProgress.value = progress
+                vodCatalogStatus.value = VodCatalogStatus(
+                    progress = progress,
+                    moviesError = moviesError,
+                    seriesError = seriesError,
+                    moviesRawLength = moviesRawLength,
+                    moviesParsedCount = moviesParsedCount,
+                    seriesRawLength = seriesRawLength,
+                    seriesParsedCount = seriesParsedCount,
+                    hasXtreamPlaylist = true
+                )
             }
+
+            publishProgress(isLoading = true)
+
+            playlists.forEach { playlist ->
+                val result = refreshVodCatalogForPlaylist(playlist) { loadedDelta, totalDelta ->
+                    moviesLoaded += loadedDelta
+                    moviesTotal += totalDelta
+                    publishProgress(isLoading = true)
+                }
+                moviesRawLength += result.rawLength
+                moviesParsedCount += result.parsedCount
+                result.error?.let { moviesError = it }
+                result.skippedReason?.let { moviesError = it }
+            }
+            publishProgress(isLoading = true, moviesPhaseFinished = true)
+            Log.i(
+                VOD_FLOW_TAG,
+                "Movies phase complete: parsed=$moviesParsedCount rawBytes=$moviesRawLength cache=${vodCacheByPlaylist.value.values.sumOf { it.size }}"
+            )
+
+            playlists.forEach { playlist ->
+                val result = refreshSeriesCatalogForPlaylist(playlist) { loadedDelta, totalDelta ->
+                    seriesLoaded += loadedDelta
+                    seriesTotal += totalDelta
+                    publishProgress(isLoading = true, moviesPhaseFinished = true)
+                }
+                seriesRawLength += result.rawLength
+                seriesParsedCount += result.parsedCount
+                result.error?.let { seriesError = it }
+                result.skippedReason?.let { seriesError = it }
+            }
+            publishProgress(
+                isLoading = false,
+                moviesPhaseFinished = true,
+                seriesPhaseFinished = true
+            )
+            Log.i(
+                VOD_FLOW_TAG,
+                "VOD pipeline complete: movies=$moviesParsedCount series=$seriesParsedCount " +
+                    "finalMovieCache=${vodCacheByPlaylist.value.values.sumOf { it.size }}"
+            )
         } finally {
             vodCatalogLoading.value = false
+            vodRefreshMutex.unlock()
         }
     }
 
-    private suspend fun refreshVodCatalogForPlaylist(playlist: PlaylistEntity) {
+    private suspend fun refreshVodCatalogForPlaylist(
+        playlist: PlaylistEntity,
+        onProgress: suspend (loadedDelta: Int, totalDelta: Int) -> Unit
+    ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
-        val user = playlist.xtreamUsername ?: return
-        val pass = resolveXtreamPassword(playlist) ?: return
-        runCatching {
-            val vodRaw = remoteTextFetcher.fetch(
-                buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
+        val user = playlist.xtreamUsername
+        if (user.isNullOrBlank()) {
+            val reason = "Missing Xtream username for ${playlist.name}"
+            Log.w(VOD_FLOW_TAG, "Skipping VOD playlist ${playlist.id}: $reason")
+            return VodPlaylistRefreshResult(skippedReason = reason)
+        }
+        val pass = resolveXtreamPassword(playlist)
+        if (pass.isNullOrBlank()) {
+            val reason = "Missing Xtream password for ${playlist.name}"
+            Log.w(VOD_FLOW_TAG, "Skipping VOD playlist ${playlist.id}: $reason")
+            return VodPlaylistRefreshResult(skippedReason = reason)
+        }
+        val vodUrl = buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
+        return runCatching {
+            val vodRaw = remoteTextFetcher.fetch(vodUrl)
+            Log.i(
+                VOD_FLOW_TAG,
+                "VOD fetch playlist=${playlist.id} action=get_vod_streams " +
+                    "responseLength=${vodRaw.length} urlHost=${runCatching { URI(server).host }.getOrNull()}"
             )
+            if (vodRaw.length < 500) {
+                Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(300)}")
+            }
+
             val vodCategoriesRaw = remoteTextFetcher.fetch(
                 buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
             )
-            val parsedVod = xtreamParser.parseVod(vodRaw, user, pass, server, playlist.id)
-            vodCacheByPlaylist.update { current ->
-                current + (playlist.id to parsedVod)
-            }
             vodCategoriesByPlaylist.update { current ->
                 current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
             }
+
+            val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
+            Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
+            onProgress(loadedDelta = 0, totalDelta = arrayLength)
+
+            val accumulated = ArrayList<VodItem>(arrayLength.coerceAtMost(256))
+            var loggedSample = false
+            xtreamParser.parseVodBatched(
+                raw = vodRaw,
+                username = user,
+                password = pass,
+                serverUrl = server,
+                playlistId = playlist.id
+            ) { batch ->
+                if (!loggedSample && batch.isNotEmpty()) {
+                    batch.take(5).forEachIndexed { index, item ->
+                        Log.d(
+                            VOD_FLOW_TAG,
+                            "VOD parsed[$index] playlist=${playlist.id} id=${item.streamId} " +
+                                "title=${item.title.take(48)} category=${item.categoryId}"
+                        )
+                    }
+                    loggedSample = true
+                }
+                accumulated.addAll(batch)
+                vodCacheByPlaylist.update { current ->
+                    current + (playlist.id to accumulated.toList())
+                }
+                onProgress(loadedDelta = batch.size, totalDelta = 0)
+            }
+
+            if (accumulated.isEmpty() && arrayLength == 0) {
+                vodCacheByPlaylist.update { current ->
+                    current + (playlist.id to emptyList())
+                }
+            } else if (accumulated.isEmpty() && arrayLength > 0) {
+                Log.w(
+                    VOD_FLOW_TAG,
+                    "VOD parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
+                )
+            }
+
             Log.i(
-                IPTV_REPO_LOG_TAG,
-                "Loaded ${parsedVod.size} VOD titles for playlist ${playlist.id} (${playlist.name})"
+                VOD_FLOW_TAG,
+                "VOD commit playlist=${playlist.id} finalCount=${accumulated.size} arrayLength=$arrayLength"
             )
-        }.onFailure { error ->
+            VodPlaylistRefreshResult(
+                rawLength = vodRaw.length,
+                parsedCount = accumulated.size,
+                arrayLength = arrayLength,
+                error = if (arrayLength > 0 && accumulated.isEmpty()) {
+                    "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
+                } else {
+                    null
+                }
+            )
+        }.getOrElse { error ->
+            val message = error.message ?: error.javaClass.simpleName
             Log.w(
-                IPTV_REPO_LOG_TAG,
-                "VOD catalog refresh failed for playlist ${playlist.id} (${playlist.name})",
+                VOD_FLOW_TAG,
+                "VOD catalog refresh failed for playlist ${playlist.id} (${playlist.name}): $message",
                 error
             )
+            VodPlaylistRefreshResult(error = message)
         }
     }
 
-    private suspend fun refreshSeriesCatalogForPlaylist(playlist: PlaylistEntity) {
+    private suspend fun refreshSeriesCatalogForPlaylist(
+        playlist: PlaylistEntity,
+        onProgress: suspend (loadedDelta: Int, totalDelta: Int) -> Unit
+    ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
-        val user = playlist.xtreamUsername ?: return
-        val pass = resolveXtreamPassword(playlist) ?: return
-        runCatching {
-            val seriesRaw = remoteTextFetcher.fetch(
-                buildXtreamApiUrl(server, user, pass, action = "get_series")
-            )
-            val parsedSeries = xtreamParser.parseSeries(seriesRaw, playlist.id)
-            seriesCacheByPlaylist.update { current ->
-                current + (playlist.id to parsedSeries)
-            }
-            clearSeriesSeasonsForPlaylist(playlist.id)
+        val user = playlist.xtreamUsername
+        if (user.isNullOrBlank()) {
+            val reason = "Missing Xtream username for ${playlist.name}"
+            Log.w(VOD_FLOW_TAG, "Skipping series playlist ${playlist.id}: $reason")
+            return VodPlaylistRefreshResult(skippedReason = reason)
+        }
+        val pass = resolveXtreamPassword(playlist)
+        if (pass.isNullOrBlank()) {
+            val reason = "Missing Xtream password for ${playlist.name}"
+            Log.w(VOD_FLOW_TAG, "Skipping series playlist ${playlist.id}: $reason")
+            return VodPlaylistRefreshResult(skippedReason = reason)
+        }
+        return runCatching {
+            val seriesUrl = buildXtreamApiUrl(server, user, pass, action = "get_series")
+            val seriesRaw = remoteTextFetcher.fetch(seriesUrl)
             Log.i(
-                IPTV_REPO_LOG_TAG,
-                "Loaded ${parsedSeries.size} series for playlist ${playlist.id} (${playlist.name})"
+                VOD_FLOW_TAG,
+                "Series fetch playlist=${playlist.id} action=get_series responseLength=${seriesRaw.length}"
             )
-        }.onFailure { error ->
+            if (seriesRaw.length < 500) {
+                Log.d(VOD_FLOW_TAG, "Series raw preview playlist=${playlist.id}: ${seriesRaw.take(300)}")
+            }
+
+            val arrayLength = xtreamParser.parseSeriesArrayLength(seriesRaw)
+            Log.i(VOD_FLOW_TAG, "Series parse arrayLength=$arrayLength playlist=${playlist.id}")
+            onProgress(loadedDelta = 0, totalDelta = arrayLength)
+
+            val accumulated = ArrayList<SeriesShow>(arrayLength.coerceAtMost(256))
+            var loggedSample = false
+            xtreamParser.parseSeriesBatched(
+                raw = seriesRaw,
+                playlistId = playlist.id
+            ) { batch ->
+                if (!loggedSample && batch.isNotEmpty()) {
+                    batch.take(5).forEachIndexed { index, show ->
+                        Log.d(
+                            VOD_FLOW_TAG,
+                            "Series parsed[$index] playlist=${playlist.id} id=${show.id} " +
+                                "name=${show.name.take(48)} category=${show.categoryId}"
+                        )
+                    }
+                    loggedSample = true
+                }
+                accumulated.addAll(batch)
+                seriesCacheByPlaylist.update { current ->
+                    current + (playlist.id to accumulated.toList())
+                }
+                clearSeriesSeasonsForPlaylist(playlist.id)
+                onProgress(loadedDelta = batch.size, totalDelta = 0)
+            }
+
+            if (accumulated.isEmpty() && arrayLength == 0) {
+                seriesCacheByPlaylist.update { current ->
+                    current + (playlist.id to emptyList())
+                }
+            } else if (accumulated.isEmpty() && arrayLength > 0) {
+                Log.w(
+                    VOD_FLOW_TAG,
+                    "Series parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
+                )
+            }
+
+            Log.i(
+                VOD_FLOW_TAG,
+                "Series commit playlist=${playlist.id} finalCount=${accumulated.size} arrayLength=$arrayLength"
+            )
+            VodPlaylistRefreshResult(
+                rawLength = seriesRaw.length,
+                parsedCount = accumulated.size,
+                arrayLength = arrayLength,
+                error = if (arrayLength > 0 && accumulated.isEmpty()) {
+                    "Parsed 0 of $arrayLength series entries for ${playlist.name}"
+                } else {
+                    null
+                }
+            )
+        }.getOrElse { error ->
+            val message = error.message ?: error.javaClass.simpleName
             Log.w(
-                IPTV_REPO_LOG_TAG,
-                "Series catalog refresh failed for playlist ${playlist.id} (${playlist.name})",
+                VOD_FLOW_TAG,
+                "Series catalog refresh failed for playlist ${playlist.id} (${playlist.name}): $message",
                 error
             )
+            VodPlaylistRefreshResult(error = message)
         }
     }
 
     override fun vodCatalogLoading(): Flow<Boolean> = vodCatalogLoading
+
+    override fun vodCatalogProgress(): Flow<VodCatalogProgress> = vodCatalogProgress
+
+    override fun vodCatalogStatus(): Flow<VodCatalogStatus> = vodCatalogStatus
 
     override fun vodStreams(): Flow<List<VodItem>> =
         vodCacheByPlaylist.map { cache -> cache.values.flatten() }

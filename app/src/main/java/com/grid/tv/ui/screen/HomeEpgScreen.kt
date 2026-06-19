@@ -209,6 +209,7 @@ fun HomeEpgScreen(
     val guideSettingsLoaded by viewModel.guideSettingsLoaded.collectAsStateWithLifecycle()
     val isReloadingChannels by viewModel.isReloadingChannels.collectAsStateWithLifecycle()
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
+    val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
     val hasCatalogChannels by viewModel.hasCatalogChannels.collectAsStateWithLifecycle()
     val demoFavoriteIds by viewModel.demoFavoriteIds.collectAsStateWithLifecycle()
     val favoriteSavedMessage by viewModel.favoriteSavedMessage.collectAsStateWithLifecycle()
@@ -417,7 +418,9 @@ fun HomeEpgScreen(
     var categoryMenuFocusIndex by remember { mutableIntStateOf(0) }
     var categoryMenuExpandedCategories by remember { mutableStateOf(setOf<Int>()) }
 
-    val guideGroupCategories = remember(channelGroups) { buildGuideGroupCategories(channelGroups) }
+    val guideGroupCategories = remember(channelGroups, groupChannelCounts) {
+        buildGuideGroupCategories(channelGroups, groupChannelCounts)
+    }
 
     val hScroll = rememberScrollState()
     val listState = rememberLazyListState()
@@ -1460,6 +1463,7 @@ fun HomeEpgScreen(
             channelGroups = channelGroups,
             selectedGroups = guideFilter.selectedGroups,
             expandedCategories = categoryMenuExpandedCategories,
+            groupChannelCounts = groupChannelCounts,
             focusedIndex = categoryMenuFocusIndex,
             onFocusedIndexChange = { categoryMenuFocusIndex = it },
             onDismiss = {
@@ -1477,6 +1481,7 @@ fun HomeEpgScreen(
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = guideFilter.selectedGroups,
+                groupChannelCounts = groupChannelCounts,
                 onDismiss = {
                     showGuideGroupPicker = false
                     initialGuidePickerDismissed = true
