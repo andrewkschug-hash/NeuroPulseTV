@@ -47,6 +47,7 @@ import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
+import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.SeriesShow
@@ -189,7 +190,7 @@ internal fun HomeEpgScreenMainColumn(
             miniPlayer = {},
             isRecording = isRecording,
             activeRecordingTitle = activeRecordingTitle,
-            recordingHealth = recordingHealth,
+            recordingHealth = recordingHealth ?: RecordingHealth.RECORDING,
             onRecordingIndicatorClick = onNavigateRecordings,
             modifier = Modifier
                 .focusRequester(deps.topNavFocusRequester)
@@ -364,7 +365,7 @@ internal fun HomeEpgScreenOverlays(
     storageOptions: List<com.grid.tv.feature.recording.StorageOption>,
     precheck: com.grid.tv.feature.recording.RecordingPrecheck?,
     searchQuery: String,
-    unifiedSearchResults: List<SearchResultItem>,
+    unifiedSearchResults: UnifiedSearchResults,
     searchResults: List<SearchResultItem>,
     searchBarState: SearchBarState,
     searchViewModel: SearchViewModel,
@@ -783,6 +784,7 @@ internal fun HomeEpgChannelList(
                                         channel = channel,
                                         programs = programs,
                                         windowStart = windowStart,
+                                        windowDurationMs = windowDurationMs,
                                         now = now,
                                         channelIndex = index,
                                         focusChannelIndex = focusChannelIndex,
@@ -851,6 +853,7 @@ private fun EpgChannelTimelineRow(
     channel: Channel,
     programs: List<Program>,
     windowStart: Long,
+    windowDurationMs: Long,
     now: Long,
     channelIndex: Int,
     focusChannelIndex: Int,
