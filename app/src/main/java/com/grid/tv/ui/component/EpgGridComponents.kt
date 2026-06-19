@@ -80,14 +80,50 @@ object EpgLayout {
     val NowLineWidth = 2.dp
     val NowMarkerWidth = 64.dp
 
+    private const val MinProgramDurationMs = 60_000L
+    private const val MaxProgramDurationMs = 12 * 60 * 60 * 1000L
+    private const val MaxTimelineDurationMs = 7 * 24 * 60 * 60 * 1000L
+
     fun dpPerMs(): Float = DpPerMinute / 60_000f
 
-    fun widthForDurationMs(ms: Long): Dp = (ms * dpPerMs()).dp
+    fun sanitizeWindowDurationMs(windowDurationMs: Long): Long =
+        windowDurationMs.coerceIn(MinProgramDurationMs, MaxTimelineDurationMs)
 
-    fun offsetForTime(time: Long, windowStart: Long): Dp =
-        ((time - windowStart).coerceAtLeast(0) * dpPerMs()).dp
+    fun programDurationMs(start: Long, end: Long, windowDurationMs: Long): Long {
+        val raw = if (end >= start) end - start else 0L
+        val windowCap = sanitizeWindowDurationMs(windowDurationMs)
+        return raw.coerceIn(0L, windowCap)
+            .coerceAtMost(MaxProgramDurationMs)
+            .coerceAtLeast(MinProgramDurationMs)
+    }
 
-    fun timelineWidthMs(windowDurationMs: Long): Dp = (windowDurationMs * dpPerMs()).dp
+    fun widthForDurationMs(ms: Long, windowDurationMs: Long = ms.coerceAtLeast(MinProgramDurationMs)): Dp {
+        val safeMs = ms.coerceIn(0L, sanitizeWindowDurationMs(windowDurationMs))
+            .coerceAtMost(MaxProgramDurationMs)
+        val maxDp = timelineWidthMs(windowDurationMs).value
+        val rawDp = safeMs * dpPerMs()
+        return rawDp.coerceIn(1f, maxDp.coerceAtLeast(1f)).dp
+    }
+
+    fun widthForProgram(start: Long, end: Long, windowDurationMs: Long): Dp =
+        widthForDurationMs(programDurationMs(start, end, windowDurationMs), windowDurationMs)
+
+    fun offsetForTime(time: Long, windowStart: Long, windowDurationMs: Long = MaxTimelineDurationMs): Dp {
+        val windowCap = sanitizeWindowDurationMs(windowDurationMs)
+        val offsetMs = (time - windowStart).coerceIn(0L, windowCap)
+        val maxDp = timelineWidthMs(windowDurationMs).value
+        return (offsetMs * dpPerMs()).coerceIn(0f, maxDp.coerceAtLeast(0f)).dp
+    }
+
+    fun timelineWidthMs(windowDurationMs: Long): Dp {
+        val safeWindow = sanitizeWindowDurationMs(windowDurationMs)
+        return (safeWindow * dpPerMs()).coerceAtLeast(1f).dp
+    }
+
+    fun safeCellWidth(width: Dp, windowDurationMs: Long): Dp {
+        val maxWidth = timelineWidthMs(windowDurationMs)
+        return width.coerceIn(1.dp, maxWidth)
+    }
 }
 
 fun formatEpgTime(epochMs: Long): String =
@@ -385,6 +421,7 @@ fun EpgProgramCell(
     now: Long,
     isFocused: Boolean,
     isSelected: Boolean,
+    windowDurationMs: Long,
     canReplay: Boolean = false,
     isFuture: Boolean = false,
     onClick: (() -> Unit)? = null,
@@ -408,7 +445,8 @@ fun EpgProgramCell(
         animationSpec = tween(durationMillis = 120),
         label = "programCellBorder"
     )
-    val showTime = width.value >= 100f
+    val safeWidth = EpgLayout.safeCellWidth(width.coerceAtLeast(1.dp), windowDurationMs)
+    val showTime = safeWidth.value >= 100f
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
     } else {
@@ -418,9 +456,9 @@ fun EpgProgramCell(
     Box(
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)
-            .width(width)
+            .width(safeWidth)
             .padding(end = EpgLayout.CellGap)
-            .height(EpgLayout.RowHeight)
+            .height(EpgLayout.RowHeight.coerceAtLeast(1.dp))
     ) {
         Box(
             modifier = Modifier
@@ -508,6 +546,7 @@ fun EpgProgramCell(
 fun EpgNoInformationCell(
     width: Dp,
     isFocused: Boolean,
+    windowDurationMs: Long,
     modifier: Modifier = Modifier
 ) {
     val baseBg = EpgColors.CellFuture.copy(alpha = 0.65f)
@@ -522,12 +561,14 @@ fun EpgNoInformationCell(
         label = "noInfoCellBorder"
     )
 
+    val safeWidth = EpgLayout.safeCellWidth(width.coerceAtLeast(120.dp), windowDurationMs)
+
     Box(
         modifier = modifier
             .zIndex(if (isFocused) 1f else 0f)
-            .width(width.coerceAtLeast(120.dp))
+            .width(safeWidth)
             .padding(end = EpgLayout.CellGap)
-            .height(EpgLayout.RowHeight)
+            .height(EpgLayout.RowHeight.coerceAtLeast(1.dp))
     ) {
         Box(
             modifier = Modifier
@@ -563,7 +604,7 @@ fun EpgTimelineHeader(
     val slotMs = 30 * 60 * 1000L
     val slotCount = (windowDurationMs / slotMs).toInt()
     val showNow = now in windowStart..(windowStart + windowDurationMs)
-    val nowOffset = if (showNow) EpgLayout.offsetForTime(now, windowStart) else 0.dp
+    val nowOffset = if (showNow) EpgLayout.offsetForTime(now, windowStart, windowDurationMs) else 0.dp
 
     Box(
         modifier = modifier
@@ -576,7 +617,7 @@ fun EpgTimelineHeader(
                 val time = windowStart + i * slotMs
                 val label = formatEpgTime(time)
                 Box(
-                    modifier = Modifier.width(EpgLayout.widthForDurationMs(slotMs)),
+                    modifier = Modifier.width(EpgLayout.widthForDurationMs(slotMs, windowDurationMs)),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Text(
@@ -629,7 +670,7 @@ fun EpgNowLine(
     modifier: Modifier = Modifier
 ) {
     if (now !in windowStart..(windowStart + windowDurationMs)) return
-    val nowOffset = EpgLayout.offsetForTime(now, windowStart)
+    val nowOffset = EpgLayout.offsetForTime(now, windowStart, windowDurationMs)
     val scrollOffsetDp = with(LocalDensity.current) { scrollOffsetPx.toDp() }
     Box(modifier = modifier) {
         Box(
