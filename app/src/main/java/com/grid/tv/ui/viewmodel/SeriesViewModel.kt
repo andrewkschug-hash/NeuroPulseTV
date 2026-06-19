@@ -11,9 +11,12 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
+import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.parseVodDurationMs
+import com.grid.tv.ui.component.toGridCardModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class SeriesViewModel @Inject constructor(
@@ -31,14 +35,45 @@ class SeriesViewModel @Inject constructor(
     private val profileDao: ProfileDao
 ) : ViewModel() {
 
-    init {
-        refreshCatalog()
-    }
+    private val pager = VodCatalogPager<SeriesShow>()
+    private val filteredCatalog = ArrayList<SeriesShow>()
+    private val catalog = ArrayList<SeriesShow>()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    val shows = repository.seriesShows().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _selectedCategory = MutableStateFlow("All")
+    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+
+    init {
+        refreshCatalog()
+        viewModelScope.launch(Dispatchers.Default) {
+            combine(
+                repository.seriesShows(),
+                _searchQuery,
+                _selectedCategory
+            ) { all, query, category ->
+                all.asSequence()
+                    .filter { category == "All" || it.genre?.contains(category, ignoreCase = true) == true }
+                    .filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+                    .sortedBy { it.name.lowercase() }
+                    .toList()
+            }.collect { filtered ->
+                withContext(Dispatchers.Main.immediate) {
+                    applyFilteredCatalog(filtered)
+                }
+            }
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            repository.seriesShows().collect { all ->
+                withContext(Dispatchers.Main.immediate) {
+                    catalog.clear()
+                    catalog.addAll(all)
+                    _categories.value = buildCategories(all)
+                }
+            }
+        }
+    }
 
     val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())
@@ -49,22 +84,18 @@ class SeriesViewModel @Inject constructor(
     val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    val categories: StateFlow<List<String>> = shows.map { all ->
-        listOf("All") + all.mapNotNull { show ->
-            show.genre?.split(",")?.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
-        }.distinct().sorted().take(12)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All"))
+    val catalogTotalCount: StateFlow<Int> = repository.seriesShows()
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    private val _selectedCategory = MutableStateFlow("All")
-    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+    private val _categories = MutableStateFlow(listOf("All"))
+    val categories: StateFlow<List<String>> = _categories.asStateFlow()
 
-    val filteredShows: StateFlow<List<SeriesShow>> = combine(shows, _searchQuery, _selectedCategory) { all, query, category ->
-        all.asSequence()
-            .filter { category == "All" || it.genre?.contains(category, ignoreCase = true) == true }
-            .filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
-            .sortedBy { it.name.lowercase() }
-            .toList()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
+    val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()
+
+    private val _filteredTotalCount = MutableStateFlow(0)
+    val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()
@@ -93,6 +124,32 @@ class SeriesViewModel @Inject constructor(
                 .toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    private fun buildCategories(all: List<SeriesShow>): List<String> =
+        listOf("All") + all.mapNotNull { show ->
+            show.genre?.split(",")?.firstOrNull()?.trim()?.takeIf { it.isNotBlank() }
+        }.distinct().sorted().take(12)
+
+    private fun applyFilteredCatalog(filtered: List<SeriesShow>) {
+        filteredCatalog.clear()
+        filteredCatalog.addAll(filtered)
+        pager.reset(filtered)
+        _filteredTotalCount.value = filtered.size
+        publishPagedCards()
+    }
+
+    private fun publishPagedCards() {
+        _pagedCards.value = pager.currentSlice().map { it.toGridCardModel() }
+    }
+
+    fun loadNextPage() {
+        if (pager.loadMore()) {
+            publishPagedCards()
+        }
+    }
+
+    fun findShow(showId: Long): SeriesShow? = catalog.find { it.id == showId }
+        ?: filteredCatalog.find { it.id == showId }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query

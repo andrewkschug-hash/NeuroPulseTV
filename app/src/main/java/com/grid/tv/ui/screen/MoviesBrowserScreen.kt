@@ -5,15 +5,11 @@ import com.grid.tv.ui.component.GlowFocusButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,10 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.VodCatalogEmptyReason
-import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.vodEmptyMessage
 import com.grid.tv.domain.model.vodEmptyTitle
@@ -46,9 +40,7 @@ import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
-import com.grid.tv.ui.component.VodPosterCard
-import com.grid.tv.ui.component.VodPosterSkeleton
-import com.grid.tv.ui.component.showsHdBadge
+import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.MoviesViewModel
@@ -65,8 +57,9 @@ fun MoviesBrowserScreen(
     onMovieBrowse: (com.grid.tv.domain.model.VodItem) -> Unit = {},
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
-    val movies by viewModel.movies.collectAsStateWithLifecycle()
-    val allMovies by viewModel.allMovies.collectAsStateWithLifecycle()
+    val pagedCards by viewModel.pagedCards.collectAsStateWithLifecycle()
+    val catalogTotalCount by viewModel.catalogTotalCount.collectAsStateWithLifecycle()
+    val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
     val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
@@ -86,27 +79,19 @@ fun MoviesBrowserScreen(
     val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
     val activeSearch = if (embedded) hubSearchQuery else search
     val emptyReason = catalogStatus.moviesEmptyReason(
-        filteredCount = movies.size,
-        catalogTotal = allMovies.size,
+        filteredCount = filteredTotalCount,
+        catalogTotal = catalogTotalCount,
         categoryId = selectedCategoryId,
         searchQuery = activeSearch
     )
 
-    LaunchedEffect(emptyReason, movies.size, allMovies.size, selectedCategoryId, moviesLoading, catalogProgress.moviesPhaseFinished) {
+    LaunchedEffect(emptyReason, pagedCards.size, filteredTotalCount, catalogTotalCount, selectedCategoryId, moviesLoading, catalogProgress.moviesPhaseFinished) {
         Log.i(
             "VodCatalogPipeline",
-            "Movies empty-state: reason=$emptyReason filter=Movies filtered=${movies.size} " +
-                "catalog=${allMovies.size} category=$selectedCategoryId loading=$moviesLoading " +
-                "phaseFinished=${catalogProgress.moviesPhaseFinished}"
+            "Movies empty-state: reason=$emptyReason filter=Movies paged=${pagedCards.size} " +
+                "filtered=$filteredTotalCount catalog=$catalogTotalCount category=$selectedCategoryId " +
+                "loading=$moviesLoading phaseFinished=${catalogProgress.moviesPhaseFinished}"
         )
-    }
-
-    val skeletonCount = remember(movies.size, catalogProgress.moviesTotal, moviesLoading) {
-        if (!moviesLoading || catalogProgress.moviesTotal <= movies.size) {
-            0
-        } else {
-            (catalogProgress.moviesTotal - movies.size).coerceIn(1, 32)
-        }
     }
 
     Column(
@@ -186,7 +171,7 @@ fun MoviesBrowserScreen(
         )
 
         when {
-            movies.isEmpty() && skeletonCount == 0 && catalogProgress.moviesPhaseFinished && !moviesLoading -> {
+            pagedCards.isEmpty() && catalogProgress.moviesPhaseFinished && !moviesLoading -> {
                 val title = emptyReason.vodEmptyTitle(isMovies = true)
                 val message = emptyReason.vodEmptyMessage(catalogStatus, isMovies = true)
                 VodEmptyState(
@@ -200,33 +185,22 @@ fun MoviesBrowserScreen(
                 )
             }
             else -> {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 112.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                VodPagedVerticalGrid(
+                    items = pagedCards,
+                    progressByStreamId = progress,
+                    progressFraction = viewModel::progressFraction,
+                    onLoadMore = viewModel::loadNextPage,
+                    onItemClick = { card ->
+                        val movie = viewModel.findMovie(card.playlistId, card.streamId) ?: return@VodPagedVerticalGrid
+                        scope.launch {
+                            onMovieBrowse(movie)
+                            val resume = viewModel.shouldResume(card, progress)
+                            VodPlaybackHelper.stageMovie(movie)
+                            onPlayMovie(card.title, card.streamUrl, resume)
+                        }
+                    },
                     modifier = Modifier.weight(1f)
-                ) {
-                    items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
-                        VodPosterCard(
-                            title = movie.title,
-                            posterUrl = movie.posterUrl,
-                            progressFraction = viewModel.progressFraction(movie, progress),
-                            showHdBadge = movie.showsHdBadge(),
-                            onClick = {
-                                scope.launch {
-                                    onMovieBrowse(movie)
-                                    val resume = viewModel.shouldResume(movie, progress)
-                                    VodPlaybackHelper.stageMovie(movie)
-                                    onPlayMovie(movie.title, movie.streamUrl, resume)
-                                }
-                            }
-                        )
-                    }
-                    items(skeletonCount, key = { index -> "movie_skeleton_$index" }) {
-                        VodPosterSkeleton()
-                    }
-                }
+                )
             }
         }
     }

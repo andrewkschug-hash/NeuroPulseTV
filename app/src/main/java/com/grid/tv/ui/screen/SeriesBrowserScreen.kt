@@ -59,13 +59,12 @@ import com.grid.tv.domain.model.vodEmptyMessage
 import com.grid.tv.domain.model.vodEmptyTitle
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodPlaybackHelper
-import com.grid.tv.ui.component.SeriesPosterCard
+import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodEpisodeCard
-import com.grid.tv.ui.component.VodPosterSkeleton
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.SeriesViewModel
@@ -86,8 +85,9 @@ fun SeriesBrowserScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel(),
     hubViewModel: VodHubViewModel = hiltViewModel()
 ) {
-    val shows by viewModel.filteredShows.collectAsStateWithLifecycle()
-    val allShows by viewModel.shows.collectAsStateWithLifecycle()
+    val pagedCards by viewModel.pagedCards.collectAsStateWithLifecycle()
+    val catalogTotalCount by viewModel.catalogTotalCount.collectAsStateWithLifecycle()
+    val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
     val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
@@ -128,9 +128,9 @@ fun SeriesBrowserScreen(
         )
     }
 
-    val activeShow = remember(allShows, selectedShowId, continueWatchingItems) {
+    val activeShow = remember(selectedShowId, continueWatchingItems) {
         val showId = selectedShowId ?: return@remember null
-        allShows.find { it.id == showId }
+        viewModel.findShow(showId)
             ?: continueWatchingItems.firstOrNull {
                 it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == showId
             }?.let { cw ->
@@ -147,27 +147,19 @@ fun SeriesBrowserScreen(
         !catalogProgress.isSeriesPhaseComplete
     val activeSearch = if (embedded) hubSearchQuery else searchQuery
     val seriesEmptyReason = catalogStatus.seriesEmptyReason(
-        filteredCount = shows.size,
-        catalogTotal = allShows.size,
+        filteredCount = filteredTotalCount,
+        catalogTotal = catalogTotalCount,
         category = selectedCategory,
         searchQuery = activeSearch
     )
 
-    LaunchedEffect(seriesEmptyReason, shows.size, allShows.size, selectedCategory, seriesLoading, catalogProgress.seriesPhaseFinished) {
+    LaunchedEffect(seriesEmptyReason, pagedCards.size, filteredTotalCount, catalogTotalCount, selectedCategory, seriesLoading, catalogProgress.seriesPhaseFinished) {
         Log.i(
             "VodCatalogPipeline",
-            "Series empty-state: reason=$seriesEmptyReason filter=Series filtered=${shows.size} " +
-                "catalog=${allShows.size} category=$selectedCategory loading=$seriesLoading " +
-                "phaseFinished=${catalogProgress.seriesPhaseFinished}"
+            "Series empty-state: reason=$seriesEmptyReason filter=Series paged=${pagedCards.size} " +
+                "filtered=$filteredTotalCount catalog=$catalogTotalCount category=$selectedCategory " +
+                "loading=$seriesLoading phaseFinished=${catalogProgress.seriesPhaseFinished}"
         )
-    }
-
-    val skeletonCount = remember(shows.size, catalogProgress.seriesTotal, seriesLoading) {
-        if (!seriesLoading || catalogProgress.seriesTotal <= shows.size) {
-            0
-        } else {
-            (catalogProgress.seriesTotal - shows.size).coerceIn(1, 32)
-        }
     }
 
     Column(
@@ -311,7 +303,7 @@ fun SeriesBrowserScreen(
                     )
                 }
             }
-        } else if (shows.isEmpty() && skeletonCount == 0 && catalogProgress.seriesPhaseFinished && !seriesLoading) {
+        } else if (pagedCards.isEmpty() && catalogProgress.seriesPhaseFinished && !seriesLoading) {
             val title = seriesEmptyReason.vodEmptyTitle(isMovies = false)
             val message = seriesEmptyReason.vodEmptyMessage(catalogStatus, isMovies = false)
             VodEmptyState(
@@ -324,29 +316,20 @@ fun SeriesBrowserScreen(
                 }
             )
         } else if (seasons.isEmpty()) {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 112.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+            VodPagedVerticalGrid(
+                items = pagedCards,
+                progressByStreamId = emptyMap(),
+                progressFraction = { _, _ -> null },
+                onLoadMore = viewModel::loadNextPage,
+                onItemClick = { card ->
+                    val cw = continueWatchingItems.firstOrNull {
+                        it.contentType == ContinueWatchingContentType.SERIES &&
+                            it.seriesId == card.showId
+                    }
+                    viewModel.selectShow(card.showId, cw?.seasonNumber)
+                },
                 modifier = Modifier.weight(1f)
-            ) {
-                items(shows, key = { "${it.playlistId}_${it.id}" }) { show ->
-                    SeriesPosterCard(
-                        show = show,
-                        onClick = {
-                            val cw = continueWatchingItems.firstOrNull {
-                                it.contentType == ContinueWatchingContentType.SERIES &&
-                                    it.seriesId == show.id
-                            }
-                            viewModel.selectShow(show.id, cw?.seasonNumber)
-                        }
-                    )
-                }
-                items(skeletonCount, key = { index -> "series_skeleton_$index" }) {
-                    VodPosterSkeleton()
-                }
-            }
+            )
         }
     }
 }

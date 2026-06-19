@@ -1595,11 +1595,9 @@ class IptvRepositoryImpl @Inject constructor(
             publishProgress(isLoading = true)
 
             playlists.forEach { playlist ->
-                val result = refreshVodCatalogForPlaylist(playlist) { loadedDelta, totalDelta ->
-                    moviesLoaded += loadedDelta
-                    moviesTotal += totalDelta
-                    publishProgress(isLoading = true)
-                }
+                val result = refreshVodCatalogForPlaylist(playlist)
+                moviesTotal += result.arrayLength
+                moviesLoaded += result.parsedCount
                 moviesRawLength += result.rawLength
                 moviesParsedCount += result.parsedCount
                 result.error?.let { moviesError = it }
@@ -1612,11 +1610,9 @@ class IptvRepositoryImpl @Inject constructor(
             )
 
             playlists.forEach { playlist ->
-                val result = refreshSeriesCatalogForPlaylist(playlist) { loadedDelta, totalDelta ->
-                    seriesLoaded += loadedDelta
-                    seriesTotal += totalDelta
-                    publishProgress(isLoading = true, moviesPhaseFinished = true)
-                }
+                val result = refreshSeriesCatalogForPlaylist(playlist)
+                seriesTotal += result.arrayLength
+                seriesLoaded += result.parsedCount
                 seriesRawLength += result.rawLength
                 seriesParsedCount += result.parsedCount
                 result.error?.let { seriesError = it }
@@ -1639,8 +1635,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refreshVodCatalogForPlaylist(
-        playlist: PlaylistEntity,
-        onProgress: (loadedDelta: Int, totalDelta: Int) -> Unit
+        playlist: PlaylistEntity
     ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
         val user = playlist.xtreamUsername
@@ -1676,39 +1671,31 @@ class IptvRepositoryImpl @Inject constructor(
 
             val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
             Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
-            onProgress(0, arrayLength)
 
-            val accumulated = ArrayList<VodItem>(arrayLength.coerceAtMost(256))
-            var loggedSample = false
-            xtreamParser.parseVodBatched(
+            val parsed = xtreamParser.parseVod(
                 raw = vodRaw,
                 username = user,
                 password = pass,
                 serverUrl = server,
                 playlistId = playlist.id
-            ) { batch ->
-                if (!loggedSample && batch.isNotEmpty()) {
-                    batch.take(5).forEachIndexed { index, item ->
-                        Log.d(
-                            VOD_FLOW_TAG,
-                            "VOD parsed[$index] playlist=${playlist.id} id=${item.streamId} " +
-                                "title=${item.title.take(48)} category=${item.categoryId}"
-                        )
-                    }
-                    loggedSample = true
-                }
-                accumulated.addAll(batch)
-                vodCacheByPlaylist.update { current ->
-                    current + (playlist.id to accumulated.toList())
-                }
-                onProgress(batch.size, 0)
+            )
+            parsed.take(5).forEachIndexed { index, item ->
+                Log.d(
+                    VOD_FLOW_TAG,
+                    "VOD parsed[$index] playlist=${playlist.id} id=${item.streamId} " +
+                        "title=${item.title.take(48)} category=${item.categoryId}"
+                )
             }
 
-            if (accumulated.isEmpty() && arrayLength == 0) {
+            if (parsed.isEmpty() && arrayLength == 0) {
                 vodCacheByPlaylist.update { current ->
                     current + (playlist.id to emptyList())
                 }
-            } else if (accumulated.isEmpty() && arrayLength > 0) {
+            } else if (parsed.isNotEmpty()) {
+                vodCacheByPlaylist.update { current ->
+                    current + (playlist.id to parsed)
+                }
+            } else if (arrayLength > 0) {
                 Log.w(
                     VOD_FLOW_TAG,
                     "VOD parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
@@ -1717,13 +1704,13 @@ class IptvRepositoryImpl @Inject constructor(
 
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD commit playlist=${playlist.id} finalCount=${accumulated.size} arrayLength=$arrayLength"
+                "VOD commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
                 rawLength = vodRaw.length,
-                parsedCount = accumulated.size,
+                parsedCount = parsed.size,
                 arrayLength = arrayLength,
-                error = if (arrayLength > 0 && accumulated.isEmpty()) {
+                error = if (arrayLength > 0 && parsed.isEmpty()) {
                     "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
                 } else {
                     null
@@ -1741,8 +1728,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refreshSeriesCatalogForPlaylist(
-        playlist: PlaylistEntity,
-        onProgress: (loadedDelta: Int, totalDelta: Int) -> Unit
+        playlist: PlaylistEntity
     ): VodPlaylistRefreshResult {
         val server = playlist.xtreamServerUrl ?: playlist.url
         val user = playlist.xtreamUsername
@@ -1770,37 +1756,29 @@ class IptvRepositoryImpl @Inject constructor(
 
             val arrayLength = xtreamParser.parseSeriesArrayLength(seriesRaw)
             Log.i(VOD_FLOW_TAG, "Series parse arrayLength=$arrayLength playlist=${playlist.id}")
-            onProgress(0, arrayLength)
 
-            val accumulated = ArrayList<SeriesShow>(arrayLength.coerceAtMost(256))
-            var loggedSample = false
-            xtreamParser.parseSeriesBatched(
+            val parsed = xtreamParser.parseSeries(
                 raw = seriesRaw,
                 playlistId = playlist.id
-            ) { batch ->
-                if (!loggedSample && batch.isNotEmpty()) {
-                    batch.take(5).forEachIndexed { index, show ->
-                        Log.d(
-                            VOD_FLOW_TAG,
-                            "Series parsed[$index] playlist=${playlist.id} id=${show.id} " +
-                                "name=${show.name.take(48)} category=${show.categoryId}"
-                        )
-                    }
-                    loggedSample = true
-                }
-                accumulated.addAll(batch)
-                seriesCacheByPlaylist.update { current ->
-                    current + (playlist.id to accumulated.toList())
-                }
-                clearSeriesSeasonsForPlaylist(playlist.id)
-                onProgress(batch.size, 0)
+            )
+            parsed.take(5).forEachIndexed { index, show ->
+                Log.d(
+                    VOD_FLOW_TAG,
+                    "Series parsed[$index] playlist=${playlist.id} id=${show.id} " +
+                        "name=${show.name.take(48)} category=${show.categoryId}"
+                )
             }
 
-            if (accumulated.isEmpty() && arrayLength == 0) {
+            if (parsed.isEmpty() && arrayLength == 0) {
                 seriesCacheByPlaylist.update { current ->
                     current + (playlist.id to emptyList())
                 }
-            } else if (accumulated.isEmpty() && arrayLength > 0) {
+            } else if (parsed.isNotEmpty()) {
+                seriesCacheByPlaylist.update { current ->
+                    current + (playlist.id to parsed)
+                }
+                clearSeriesSeasonsForPlaylist(playlist.id)
+            } else if (arrayLength > 0) {
                 Log.w(
                     VOD_FLOW_TAG,
                     "Series parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
@@ -1809,13 +1787,13 @@ class IptvRepositoryImpl @Inject constructor(
 
             Log.i(
                 VOD_FLOW_TAG,
-                "Series commit playlist=${playlist.id} finalCount=${accumulated.size} arrayLength=$arrayLength"
+                "Series commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
                 rawLength = seriesRaw.length,
-                parsedCount = accumulated.size,
+                parsedCount = parsed.size,
                 arrayLength = arrayLength,
-                error = if (arrayLength > 0 && accumulated.isEmpty()) {
+                error = if (arrayLength > 0 && parsed.isEmpty()) {
                     "Parsed 0 of $arrayLength series entries for ${playlist.name}"
                 } else {
                     null

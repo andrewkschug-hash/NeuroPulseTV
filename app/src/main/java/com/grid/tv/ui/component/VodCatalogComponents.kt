@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -40,6 +41,8 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodItem
@@ -92,8 +95,13 @@ fun VodPosterCard(
                     .background(Color(0xFF1A1A22))
             ) {
                 if (!posterUrl.isNullOrBlank()) {
+                    val context = LocalContext.current
                     AsyncImage(
-                        model = posterUrl,
+                        model = ImageRequest.Builder(context)
+                            .data(posterUrl)
+                            .size(Size(224, 336))
+                            .crossfade(200)
+                            .build(),
                         contentDescription = title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -168,15 +176,30 @@ fun VodPosterCard(
 
 @Composable
 fun SeriesPosterCard(
-    show: SeriesShow,
+    title: String,
+    posterUrl: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     VodPosterCard(
-        title = show.name,
-        posterUrl = show.coverUrl,
+        title = title,
+        posterUrl = posterUrl,
         progressFraction = null,
         showHdBadge = false,
+        onClick = onClick,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun SeriesPosterCard(
+    show: SeriesShow,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    SeriesPosterCard(
+        title = show.name,
+        posterUrl = show.coverUrl,
         onClick = onClick,
         modifier = modifier
     )
