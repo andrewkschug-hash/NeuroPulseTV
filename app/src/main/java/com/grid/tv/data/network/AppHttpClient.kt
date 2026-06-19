@@ -1,6 +1,7 @@
 package com.grid.tv.data.network
 
 import com.grid.tv.domain.model.AppSettings
+import com.grid.tv.util.connectionTimeoutMs
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
@@ -28,12 +29,15 @@ class AppHttpClient @Inject constructor() {
         epgClient = buildEpgClient(settings)
     }
 
-    private fun buildClient(settings: AppSettings): OkHttpClient =
-        baseBuilder(settings)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .callTimeout(180, TimeUnit.SECONDS)
+    private fun buildClient(settings: AppSettings): OkHttpClient {
+        val timeoutSeconds = settings.connectionTimeoutSeconds
+        val timeoutMs = connectionTimeoutMs(timeoutSeconds)
+        return baseBuilder(settings, timeoutSeconds)
+            .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .writeTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+            .callTimeout(timeoutMs * 2, TimeUnit.MILLISECONDS)
             .build()
+    }
 
     private fun buildEpgClient(settings: AppSettings): OkHttpClient =
         baseBuilder(settings)
@@ -42,14 +46,17 @@ class AppHttpClient @Inject constructor() {
             .callTimeout(EPG_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
             .build()
 
-    private fun baseBuilder(settings: AppSettings): OkHttpClient.Builder {
+    private fun baseBuilder(
+        settings: AppSettings,
+        connectTimeoutSeconds: Int = settings.connectionTimeoutSeconds
+    ): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()
             .dns(IptvDns)
             .addInterceptor(
                 HttpLoggingInterceptor(createSafeHttpLogger())
                     .apply { level = HttpLoggingInterceptor.Level.BASIC }
             )
-            .connectTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(connectionTimeoutMs(connectTimeoutSeconds), TimeUnit.MILLISECONDS)
             .retryOnConnectionFailure(true)
 
         if (settings.useProxy && settings.proxyUrl.isNotBlank()) {

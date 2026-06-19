@@ -6,7 +6,7 @@ import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistConnectResult
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.util.CONNECTION_TIMEOUT_ERROR
-import com.grid.tv.util.CONNECTION_TIMEOUT_MS
+import com.grid.tv.util.connectionTimeoutMs
 import com.grid.tv.util.DeviceMacAddress
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.TimeoutCancellationException
@@ -102,8 +102,9 @@ class OnboardingViewModel @Inject constructor(
     private suspend fun runConnectWithTimeout(
         block: suspend () -> PlaylistConnectResult
     ): PlaylistConnectResult {
+        val timeoutMs = connectionTimeoutMs(repository.loadSettings().connectionTimeoutSeconds)
         return try {
-            withTimeout(CONNECTION_TIMEOUT_MS) { block() }
+            withTimeout(timeoutMs) { block() }
         } catch (_: TimeoutCancellationException) {
             PlaylistConnectResult(
                 success = false,

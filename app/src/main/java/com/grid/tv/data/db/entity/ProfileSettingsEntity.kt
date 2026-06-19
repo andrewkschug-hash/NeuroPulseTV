@@ -25,7 +25,7 @@ data class ProfileSettingsEntity(
     val preferredSearchInput: String = "KEYBOARD",
     val parentalPinLockEnabled: Boolean = false,
     val maxContentRating: String = "ALL_AGES",
-    val connectionTimeoutSeconds: Int = 10,
+    val connectionTimeoutSeconds: Int = 300,
     val useProxy: Boolean = false,
     val proxyUrl: String = "",
     val showEpgProgramInfoOnSidebar: Boolean = true,

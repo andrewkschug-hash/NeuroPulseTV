@@ -104,10 +104,11 @@ fun TvDialogTextField(
         else -> unfocusedBorderWidth
     }
 
-    if (label != null && showFloatingLabel && (focused || value.isNotBlank())) {
+    // Keep label space stable so focus is not lost when an empty field is first highlighted.
+    if (label != null && showFloatingLabel) {
         Text(
             text = label,
-            color = labelColor,
+            color = if (focused || value.isNotBlank()) labelColor else Color.Transparent,
             fontFamily = DmSansFamily,
             fontSize = 12.sp,
             modifier = Modifier.padding(bottom = 6.dp)

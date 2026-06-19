@@ -1417,7 +1417,8 @@ private fun ConnectionFormPanel(
                 onValueChange = onXtreamPassChange,
                 placeholder = "Password",
                 chainIndex = base + 5,
-                focus = focus
+                focus = focus,
+                isPassword = true
             )
         }
         val epgIndex = if (playlistType == PlaylistType.M3U) base + 4 else base + 6
@@ -1449,9 +1450,15 @@ private fun ConnectionFormPanel(
             fontSize = 14.sp,
             modifier = Modifier.padding(top = 8.dp)
         )
-        val timeoutOptions = listOf(5, 10, 20)
+        val timeoutOptions = listOf(60, 120, 300, 600)
         SettingsFocusPillGroup(
-            labels = timeoutOptions.map { "${it}s" },
+            labels = timeoutOptions.map { seconds ->
+                when {
+                    seconds < 60 -> "${seconds}s"
+                    seconds % 60 == 0 -> "${seconds / 60}m"
+                    else -> "${seconds}s"
+                }
+            },
             selectedIndex = timeoutOptions.indexOf(settings.connectionTimeoutSeconds).coerceAtLeast(0),
             startChainIndex = timeoutStart,
             focus = focus,

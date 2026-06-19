@@ -21,6 +21,7 @@ class M3uParser {
                             ?: headerAttr(line, "url-tvg")
                             ?: headerAttr(line, "tvg-url"))?.let { return it }
                     }
+
                     line.startsWith("#EXTVLCOPT:", ignoreCase = true) -> {
                         val opt = line.substringAfter(':', "").trim()
                         if (opt.startsWith("url-tvg=", ignoreCase = true)) {

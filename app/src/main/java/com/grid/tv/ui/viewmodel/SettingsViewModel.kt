@@ -40,7 +40,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import com.grid.tv.util.CONNECTION_FAILED_ERROR
 import com.grid.tv.util.CONNECTION_TIMEOUT_ERROR
-import com.grid.tv.util.CONNECTION_TIMEOUT_MS
+import com.grid.tv.util.connectionTimeoutMs
 import java.io.File
 import javax.inject.Inject
 
@@ -274,7 +274,7 @@ class SettingsViewModel @Inject constructor(
         _isConnecting.value = true
         _m3uProgress.value = progressLabel
         return try {
-            withTimeout(CONNECTION_TIMEOUT_MS) { block() }
+            withTimeout(connectionTimeoutMs(_settings.value.connectionTimeoutSeconds)) { block() }
             _connectionDialog.value = ConnectionDialogState.Success
             true
         } catch (_: TimeoutCancellationException) {

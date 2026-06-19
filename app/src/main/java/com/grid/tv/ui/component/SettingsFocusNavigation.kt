@@ -214,7 +214,8 @@ fun SettingsFocusTextField(
     focus: SettingsContentFocus,
     placeholder: String = "",
     modifier: Modifier = Modifier,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    isPassword: Boolean = false
 ) {
     val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     TvTextField(
@@ -223,6 +224,7 @@ fun SettingsFocusTextField(
         placeholder = placeholder,
         label = label,
         singleLine = singleLine,
+        isPassword = isPassword,
         enabled = canReceiveFocus,
         focusRequester = focus.chain.requesters.getOrNull(chainIndex),
         modifier = modifier,
