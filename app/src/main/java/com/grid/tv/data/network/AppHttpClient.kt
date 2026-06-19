@@ -20,13 +20,21 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var epgClient: OkHttpClient = buildEpgClient(AppSettings())
 
+    /** Long-running client for large Xtream VOD/series catalog JSON. */
+    @Volatile
+    private var vodClient: OkHttpClient = buildVodClient(AppSettings())
+
     fun client(): OkHttpClient = client
 
     fun epgClient(): OkHttpClient = epgClient
 
+    /** Large Xtream VOD/series catalog JSON can be tens of MB — use extended timeouts. */
+    fun vodClient(): OkHttpClient = vodClient
+
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
         epgClient = buildEpgClient(settings)
+        vodClient = buildVodClient(settings)
     }
 
     private fun buildClient(settings: AppSettings): OkHttpClient {
@@ -44,6 +52,13 @@ class AppHttpClient @Inject constructor() {
             .readTimeout(EPG_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
             .writeTimeout(60, TimeUnit.SECONDS)
             .callTimeout(EPG_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .build()
+
+    private fun buildVodClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings)
+            .readTimeout(VOD_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(VOD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
             .build()
 
     private fun baseBuilder(
@@ -69,6 +84,8 @@ class AppHttpClient @Inject constructor() {
     private companion object {
         const val EPG_CALL_TIMEOUT_MINUTES = 5L
         const val EPG_READ_TIMEOUT_MINUTES = 5L
+        const val VOD_CALL_TIMEOUT_MINUTES = 10L
+        const val VOD_READ_TIMEOUT_MINUTES = 10L
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {

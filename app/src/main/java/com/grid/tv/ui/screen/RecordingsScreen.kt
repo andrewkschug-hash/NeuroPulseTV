@@ -85,7 +85,9 @@ import kotlinx.coroutines.launch
 
 private enum class RecFocusZone { TOP_BAR, LIST, DETAIL }
 
-private sealed class RecordingRow {
+private seal
+
+ed class RecordingRow {
     abstract val id: Long
     abstract val title: String
     abstract val subtitle: String

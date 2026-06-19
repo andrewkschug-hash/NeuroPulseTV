@@ -46,6 +46,7 @@ import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
+import com.grid.tv.util.DEFAULT_CONNECTION_TIMEOUT_SECONDS
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ConnectionFormFields
@@ -1537,6 +1538,7 @@ class IptvRepositoryImpl @Inject constructor(
             return@withContext
         }
         try {
+            loadSettings()
             val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
             if (playlists.isEmpty()) {
                 Log.w(VOD_FLOW_TAG, "No Xtream playlists configured — VOD catalog unavailable")
@@ -1662,13 +1664,6 @@ class IptvRepositoryImpl @Inject constructor(
                 Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(300)}")
             }
 
-            val vodCategoriesRaw = remoteTextFetcher.fetch(
-                buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
-            )
-            vodCategoriesByPlaylist.update { current ->
-                current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
-            }
-
             val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
             Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
 
@@ -1699,6 +1694,21 @@ class IptvRepositoryImpl @Inject constructor(
                 Log.w(
                     VOD_FLOW_TAG,
                     "VOD parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
+                )
+            }
+
+            runCatching {
+                val vodCategoriesRaw = remoteTextFetcher.fetch(
+                    buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
+                )
+                vodCategoriesByPlaylist.update { current ->
+                    current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
+                }
+            }.onFailure { categoryError ->
+                Log.w(
+                    VOD_FLOW_TAG,
+                    "VOD categories fetch failed for playlist ${playlist.id} — movies still available",
+                    categoryError
                 )
             }
 
@@ -1952,7 +1962,10 @@ class IptvRepositoryImpl @Inject constructor(
             preferredSearchInput = SearchInputMode.fromStored(db.preferredSearchInput),
             parentalPinLockEnabled = db.parentalPinLockEnabled,
             maxContentRating = enumValueOrDefault(db.maxContentRating, MaxContentRating.ALL_AGES),
-            connectionTimeoutSeconds = db.connectionTimeoutSeconds,
+            connectionTimeoutSeconds = db.connectionTimeoutSeconds.let { stored ->
+                // Migration 12_13 defaulted to 10s — too short for large playlist/VOD downloads.
+                if (stored <= 10) DEFAULT_CONNECTION_TIMEOUT_SECONDS else stored
+            },
             useProxy = db.useProxy,
             proxyUrl = db.proxyUrl,
             showEpgProgramInfoOnSidebar = db.showEpgProgramInfoOnSidebar,

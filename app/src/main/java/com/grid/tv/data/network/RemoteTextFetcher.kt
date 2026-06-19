@@ -97,7 +97,7 @@ class RemoteTextFetcher @Inject constructor(
             requestBuilder.header("Accept-Encoding", "identity")
         }
         val request = requestBuilder.build()
-        return appHttpClient.client().newCall(request).execute().use { response ->
+        return selectClient(url).newCall(request).execute().use { response ->
             val code = response.code
             val bytes = response.body?.bytes() ?: byteArrayOf()
             if (!response.isSuccessful) {
@@ -174,6 +174,19 @@ class RemoteTextFetcher @Inject constructor(
 
     private fun isXtreamApiUrl(url: String): Boolean =
         url.contains("player_api.php", ignoreCase = true)
+
+    private fun isVodCatalogUrl(url: String): Boolean {
+        if (!isXtreamApiUrl(url)) return false
+        return url.contains("action=get_vod_streams", ignoreCase = true) ||
+            url.contains("action=get_vod_categories", ignoreCase = true) ||
+            url.contains("action=get_series", ignoreCase = true) ||
+            url.contains("action=get_series_categories", ignoreCase = true)
+    }
+
+    private fun selectClient(url: String) = when {
+        isVodCatalogUrl(url) -> appHttpClient.vodClient()
+        else -> appHttpClient.client()
+    }
 
     fun normalizeRemoteUrl(raw: String): String {
         val trimmed = raw.trim()

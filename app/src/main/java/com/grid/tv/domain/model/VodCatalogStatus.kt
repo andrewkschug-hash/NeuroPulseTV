@@ -24,7 +24,8 @@ data class VodCatalogStatus(
     fun moviesEmptyReason(filteredCount: Int, catalogTotal: Int, categoryId: String?, searchQuery: String): VodCatalogEmptyReason {
         if (progress.isLoading && !progress.moviesPhaseFinished) return VodCatalogEmptyReason.LOADING
         if (!hasXtreamPlaylist) return VodCatalogEmptyReason.NO_XTREAM_PLAYLIST
-        if (moviesError != null) return VodCatalogEmptyReason.FETCH_FAILED
+        if (catalogTotal > 0 && filteredCount > 0) return VodCatalogEmptyReason.NONE
+        if (moviesError != null && catalogTotal == 0) return VodCatalogEmptyReason.FETCH_FAILED
         if (moviesRawLength > 0 && moviesParsedCount == 0) return VodCatalogEmptyReason.PARSE_FAILED
         if (progress.moviesPhaseFinished && catalogTotal == 0) return VodCatalogEmptyReason.PARSE_ZERO
         if (catalogTotal > 0 && filteredCount == 0) return VodCatalogEmptyReason.FILTERED_EMPTY
@@ -37,7 +38,8 @@ data class VodCatalogStatus(
             return VodCatalogEmptyReason.LOADING
         }
         if (!hasXtreamPlaylist) return VodCatalogEmptyReason.NO_XTREAM_PLAYLIST
-        if (seriesError != null) return VodCatalogEmptyReason.FETCH_FAILED
+        if (catalogTotal > 0 && filteredCount > 0) return VodCatalogEmptyReason.NONE
+        if (seriesError != null && catalogTotal == 0) return VodCatalogEmptyReason.FETCH_FAILED
         if (seriesRawLength > 0 && seriesParsedCount == 0) return VodCatalogEmptyReason.PARSE_FAILED
         if (progress.seriesPhaseFinished && catalogTotal == 0) return VodCatalogEmptyReason.PARSE_ZERO
         if (catalogTotal > 0 && filteredCount == 0) return VodCatalogEmptyReason.FILTERED_EMPTY
@@ -70,7 +72,12 @@ fun VodCatalogEmptyReason.vodEmptyMessage(status: VodCatalogStatus, isMovies: Bo
         "Connect an Xtream playlist in Settings to browse on-demand titles."
     VodCatalogEmptyReason.FETCH_FAILED -> {
         val detail = if (isMovies) status.moviesError else status.seriesError
-        detail ?: "Network or server error while contacting your provider."
+        when {
+            detail?.contains("timeout", ignoreCase = true) == true ->
+                "The catalog request timed out. Large libraries can take several minutes — tap Retry, or raise Connection timeout in Settings."
+            detail != null -> detail
+            else -> "Network or server error while contacting your provider."
+        }
     }
     VodCatalogEmptyReason.PARSE_FAILED -> {
         val raw = if (isMovies) status.moviesRawLength else status.seriesRawLength
