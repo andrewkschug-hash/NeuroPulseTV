@@ -57,6 +57,10 @@ class RemoteTextFetcher @Inject constructor(
                 logHttpError(EPG_FLOW_TAG, outcome.httpCode, url, outcome.bodyPreview)
                 null
             }
+            is SimpleFetchOutcome.Network -> {
+                logNetworkError(EPG_FLOW_TAG, url, outcome.error)
+                null
+            }
         }
     }
 
@@ -154,6 +158,7 @@ class RemoteTextFetcher @Inject constructor(
     private sealed interface SimpleFetchOutcome {
         data class Ok(val body: String, val httpCode: Int, val rawBytes: Int) : SimpleFetchOutcome
         data class Http(val httpCode: Int, val bodyPreview: String?) : SimpleFetchOutcome
+        data class Network(val error: IOException) : SimpleFetchOutcome
     }
 
     private fun executeFetch(url: String, logTag: String = EPG_FLOW_TAG): RemoteFetchResult {
@@ -166,6 +171,10 @@ class RemoteTextFetcher @Inject constructor(
             is SimpleFetchOutcome.Http -> {
                 logHttpError(logTag, outcome.httpCode, url, outcome.bodyPreview)
                 throw IllegalStateException("HTTP request failed (${outcome.httpCode}) for $url")
+            }
+            is SimpleFetchOutcome.Network -> {
+                logNetworkError(logTag, url, outcome.error)
+                throw outcome.error
             }
         }
     }
@@ -180,15 +189,19 @@ class RemoteTextFetcher @Inject constructor(
             requestBuilder.header("Accept-Encoding", "identity")
         }
         val request = requestBuilder.build()
-        return httpClient.newCall(request).execute().use { response ->
-            val code = response.code
-            if (!response.isSuccessful) {
-                val preview = readAndCloseErrorBody(response.body, response.header("Content-Encoding"))
-                return@use SimpleFetchOutcome.Http(code, preview)
+        return try {
+            httpClient.newCall(request).execute().use { response ->
+                val code = response.code
+                if (!response.isSuccessful) {
+                    val preview = readAndCloseErrorBody(response.body, response.header("Content-Encoding"))
+                    return@use SimpleFetchOutcome.Http(code, preview)
+                }
+                val bytes = response.body?.bytes() ?: byteArrayOf()
+                val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
+                SimpleFetchOutcome.Ok(body = body, httpCode = code, rawBytes = bytes.size)
             }
-            val bytes = response.body?.bytes() ?: byteArrayOf()
-            val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
-            SimpleFetchOutcome.Ok(body = body, httpCode = code, rawBytes = bytes.size)
+        } catch (e: IOException) {
+            SimpleFetchOutcome.Network(e)
         }
     }
 
@@ -390,6 +403,10 @@ class RemoteTextFetcher @Inject constructor(
     private fun looksLikeGzip(bytes: ByteArray, contentEncoding: String?): Boolean =
         contentEncoding?.contains("gzip", ignoreCase = true) == true ||
             (bytes.size >= 2 && bytes[0] == GZIP_MAGIC_0 && bytes[1] == GZIP_MAGIC_1)
+
+    private fun logNetworkError(logTag: String, url: String, error: IOException) {
+        Log.w(logTag, "HTTP network error for $url: ${error.message}")
+    }
 
     private fun logHttpError(logTag: String, code: Int, url: String, preview: String?) {
         val detail = preview ?: "(no body)"
