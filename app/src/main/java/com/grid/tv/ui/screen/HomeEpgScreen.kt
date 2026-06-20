@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -339,18 +340,21 @@ fun HomeEpgScreen(
 
     val controller = remember(ui) { HomeEpgGuideController(ui) }
 
-    LaunchedEffect(ui.focusChannelIndex, displayChannels, listState.layoutInfo.visibleItemsInfo) {
+    LaunchedEffect(listState, displayChannels, ui.focusChannelIndex) {
         if (displayChannels.isEmpty()) return@LaunchedEffect
-        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-        if (lastVisible >= displayChannels.size - 20) {
-            viewModel.loadMoreChannels()
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
+                displayChannels.getOrNull(info.index)?.id
+            } to ui.focusChannelIndex
+        }.collect { (visibleIds, focusIdx) ->
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            if (lastVisible >= displayChannels.size - 20) {
+                viewModel.loadMoreChannels()
+            }
+            val focusWindow = (focusIdx - 3..focusIdx + 3)
+                .mapNotNull { displayChannels.getOrNull(it)?.id }
+            viewModel.onGuideViewportChanged(visibleIds, focusWindow)
         }
-        val visible = listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
-            displayChannels.getOrNull(info.index)?.id
-        }.toSet()
-        val focusWindow = (ui.focusChannelIndex - 3..ui.focusChannelIndex + 3)
-            .mapNotNull { displayChannels.getOrNull(it)?.id }
-        viewModel.updateScannerViewport((visible + focusWindow).toList())
     }
 
     LaunchedEffect(guidePosition, displayChannels.size, liveChannelId) {

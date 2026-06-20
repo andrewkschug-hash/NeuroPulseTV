@@ -70,9 +70,11 @@ class AppHttpClient @Inject constructor() {
 
     private fun buildEpgClient(settings: AppSettings): OkHttpClient =
         baseBuilder(settings)
+            .connectTimeout(EPG_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(EPG_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(EPG_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(EPG_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .retryOnConnectionFailure(true)
             .build()
 
     private fun buildVodClient(settings: AppSettings): OkHttpClient =
@@ -103,8 +105,10 @@ class AppHttpClient @Inject constructor() {
     }
 
     private companion object {
-        const val EPG_CALL_TIMEOUT_MINUTES = 5L
+        const val EPG_CONNECT_TIMEOUT_SECONDS = 30L
+        const val EPG_CALL_TIMEOUT_MINUTES = 8L
         const val EPG_READ_TIMEOUT_MINUTES = 5L
+        const val EPG_WRITE_TIMEOUT_SECONDS = 60L
         const val VOD_CALL_TIMEOUT_MINUTES = 10L
         const val VOD_READ_TIMEOUT_MINUTES = 10L
         const val PROBE_MAX_REQUESTS = 8

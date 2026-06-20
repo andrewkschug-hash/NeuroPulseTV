@@ -12,27 +12,24 @@ class XmlTvParserTest {
     private val parser = XmlTvParser()
 
     @Test
-    fun parse_localTimeWithoutTimezoneUsesDeviceTimezone() {
+    fun parse_timezoneLessTimestampUsesUtc() {
         val xml = """
             <?xml version="1.0" encoding="UTF-8"?>
             <tv>
               <channel id="test.ch"><display-name>Test</display-name></channel>
               <programme channel="test.ch" start="20240616120000" stop="20240616130000">
-                <title>Local News</title>
+                <title>Utc News</title>
               </programme>
             </tv>
         """.trimIndent()
 
-        val parsed = parser.parse(xml)
-        val program = parsed.programs.single()
-
-        val expected = Calendar.getInstance().apply {
+        val program = parser.parse(xml).programs.single()
+        val expected = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
             set(2024, Calendar.JUNE, 16, 12, 0, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        assertTrue(program.startTime > 0L)
-        assertEqualsApprox(expected, program.startTime, 60_000L)
+        assertEquals(expected, program.startTime)
     }
 
     @Test
@@ -104,6 +101,12 @@ class XmlTvParserTest {
     @Test
     fun parse_zuluSuffixTimestamp() {
         val normalized = XmlTvParser.normalizeXmlTvTimestamp("20240616120000Z")
+        assertEquals("20240616120000 +0000", normalized)
+    }
+
+    @Test
+    fun parse_colonUtcOffsetTimestamp() {
+        val normalized = XmlTvParser.normalizeXmlTvTimestamp("20240616120000+00:00")
         assertEquals("20240616120000 +0000", normalized)
     }
 

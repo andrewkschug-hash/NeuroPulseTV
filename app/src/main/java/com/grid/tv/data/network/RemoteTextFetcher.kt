@@ -10,13 +10,16 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.EOFException
 import java.io.File
 import java.io.IOException
-import java.io.InputStream
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okio.GzipSource
+import okio.buffer
+import okio.sink
+import okio.source
 import okhttp3.Request
 import okhttp3.ResponseBody
 
@@ -158,18 +161,18 @@ class RemoteTextFetcher @Inject constructor(
 
         try {
             ensureCacheSpaceForEpgDownload()
-            val request = Request.Builder().url(url).get().build()
-            val callClient = appHttpClient.epgClient().newBuilder()
-                .readTimeout(EPG_DOWNLOAD_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-                .callTimeout(EPG_DOWNLOAD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept-Encoding", ACCEPT_ENCODING_GZIP)
+                .get()
                 .build()
 
-            callClient.newCall(request).execute().use { response ->
+            appHttpClient.epgClient().newCall(request).execute().use { response ->
                 httpCode = response.code
                 Log.i(
                     EPG_FLOW_TAG,
                     "HTTP $httpCode for $url — response headers received, spooling body to " +
-                        "${cacheFile.name}…"
+                        "${cacheFile.name} (Accept-Encoding: $ACCEPT_ENCODING_GZIP)…"
                 )
                 if (!response.isSuccessful) {
                     val errorBytes = response.body?.bytes() ?: byteArrayOf()
@@ -179,17 +182,25 @@ class RemoteTextFetcher @Inject constructor(
                 val body = response.body
                     ?: throw IllegalStateException("Empty HTTP body for $url")
                 contentEncoding = response.header("Content-Encoding")
-                rawBytes = downloadBodyToCacheFile(body, url, cacheFile)
+                val spooled = downloadBodyToCacheFile(body, url, cacheFile, contentEncoding)
+                rawBytes = spooled.networkBytesRead
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "EPG spool stats for $url — network=${spooled.networkBytesRead} bytes, " +
+                        "decompressed=${spooled.decompressedBytesWritten} bytes on disk"
+                )
             }
 
             Log.i(
                 EPG_FLOW_TAG,
-                "EPG download complete for $url — ${rawBytes} bytes written to ${cacheFile.absolutePath}"
+                "EPG download complete for $url — ${rawBytes} network bytes, " +
+                    "${cacheFile.length()} bytes decompressed at ${cacheFile.absolutePath}"
             )
 
             EpgFlowLogger.parseStarted(playlistId, playlistName, url)
             val parsed = try {
-                parser.parseFile(cacheFile, contentEncoding, url)
+                // Cache file always holds decompressed XML after spooling.
+                parser.parseFile(cacheFile, contentEncoding = null, sourceUrl = url)
             } catch (e: Exception) {
                 Log.e(
                     EPG_FLOW_TAG,
@@ -236,23 +247,59 @@ class RemoteTextFetcher @Inject constructor(
         }
     }
 
-    private fun downloadBodyToCacheFile(body: ResponseBody, url: String, destination: File): Long {
-        val countingStream = ByteProgressInputStream(body.byteStream(), url)
-        try {
-            destination.outputStream().buffered(DEFAULT_BUFFER_SIZE).use { output ->
-                countingStream.copyTo(output)
+    private data class SpoolResult(
+        val networkBytesRead: Long,
+        val decompressedBytesWritten: Long
+    )
+
+    private fun downloadBodyToCacheFile(
+        body: ResponseBody,
+        url: String,
+        destination: File,
+        contentEncoding: String?
+    ): SpoolResult {
+        val gzipOnWire = contentEncoding?.contains("gzip", ignoreCase = true) == true
+        if (gzipOnWire) {
+            Log.i(
+                EPG_FLOW_TAG,
+                "EPG response Content-Encoding=gzip — decompressing on-the-fly while spooling to " +
+                    destination.name
+            )
+        }
+
+        body.source().use { wireSource ->
+            val progressSource = ProgressSource(wireSource, url)
+            val decodeSource: okio.Source = if (gzipOnWire) GzipSource(progressSource) else progressSource
+
+            try {
+                destination.sink().buffer().use { fileSink ->
+                    val readBuf = okio.Buffer()
+                    while (true) {
+                        val read = decodeSource.read(readBuf, SPOOL_BUFFER_SIZE.toLong())
+                        if (read == -1L) break
+                        fileSink.write(readBuf, read)
+                        readBuf.clear()
+                    }
+                }
+            } catch (e: IOException) {
+                destination.delete()
+                throw IOException(
+                    "Failed writing EPG body to ${destination.absolutePath}: ${e.message}",
+                    e
+                )
+            } finally {
+                decodeSource.close()
             }
-        } catch (e: IOException) {
-            destination.delete()
-            throw IOException("Failed writing EPG body to ${destination.absolutePath}: ${e.message}", e)
-        } finally {
-            countingStream.close()
+
+            if (!destination.exists() || destination.length() <= 0L) {
+                destination.delete()
+                throw IOException("EPG cache file was not written: ${destination.absolutePath}")
+            }
+            return SpoolResult(
+                networkBytesRead = progressSource.bytesRead,
+                decompressedBytesWritten = destination.length()
+            )
         }
-        if (!destination.exists() || destination.length() <= 0L) {
-            destination.delete()
-            throw IOException("EPG cache file was not written: ${destination.absolutePath}")
-        }
-        return countingStream.bytesRead
     }
 
     private fun deleteEpgCacheFile(file: File) {
@@ -305,31 +352,25 @@ class RemoteTextFetcher @Inject constructor(
         }
     }
 
-    /** Counts network bytes and logs when the body stream starts and during large downloads. */
-    private class ByteProgressInputStream(
-        private val delegate: InputStream,
+    /** Counts wire bytes and logs when the body stream starts and during large downloads. */
+    private class ProgressSource(
+        private val delegate: okio.Source,
         private val url: String
-    ) : InputStream() {
+    ) : okio.Source {
         var bytesRead: Long = 0
             private set
         private var loggedFirstByte = false
         private var lastLoggedMb = 0L
 
-        override fun read(): Int {
-            val value = delegate.read()
-            if (value >= 0) {
-                recordBytes(1)
+        override fun read(sink: okio.Buffer, byteCount: Long): Long {
+            val read = delegate.read(sink, byteCount)
+            if (read > 0L) {
+                recordBytes(read)
             }
-            return value
+            return read
         }
 
-        override fun read(b: ByteArray, off: Int, len: Int): Int {
-            val count = delegate.read(b, off, len)
-            if (count > 0) {
-                recordBytes(count.toLong())
-            }
-            return count
-        }
+        override fun timeout(): okio.Timeout = delegate.timeout()
 
         override fun close() {
             delegate.close()
@@ -358,7 +399,7 @@ class RemoteTextFetcher @Inject constructor(
         const val BYTES_PER_LOG_MB = 10L * 1024L * 1024L
         const val BYTES_PER_MB = 1024L * 1024L
         const val MIN_CACHE_HEADROOM_BYTES = 128L * BYTES_PER_MB
-        const val EPG_DOWNLOAD_READ_TIMEOUT_MINUTES = 2L
-        const val EPG_DOWNLOAD_CALL_TIMEOUT_MINUTES = 6L
+        const val SPOOL_BUFFER_SIZE = 131_072
+        const val ACCEPT_ENCODING_GZIP = "gzip"
     }
 }

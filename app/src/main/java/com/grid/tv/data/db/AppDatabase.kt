@@ -194,12 +194,17 @@ abstract class AppDatabase : RoomDatabase() {
         if (sourceChannels.isNotEmpty()) {
             epgSourceChannelDao().clearBySource(sourceKey)
             epgSourceChannelDao().insertAll(sourceChannels)
-            resetCount = channelDao().markUnlinkedEpgIdsUnresolved(playlistId, sourceKey)
         }
         if (programs.isNotEmpty()) {
-            programDao().insertAll(programs)
+            programs.chunked(EPG_PROGRAM_INSERT_CHUNK).forEach { batch ->
+                programDao().insertAll(batch)
+            }
             playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))
         }
         return resetCount
+    }
+
+    private companion object {
+        const val EPG_PROGRAM_INSERT_CHUNK = 5_000
     }
 }

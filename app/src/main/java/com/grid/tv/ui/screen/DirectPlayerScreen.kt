@@ -1,16 +1,12 @@
 package com.grid.tv.ui.screen
 
-import com.grid.tv.ui.component.GlowFocusButton
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -24,13 +20,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,9 +33,8 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
-import androidx.tv.material3.Text
 import com.grid.tv.ui.component.CatchupPlayerControlsOverlay
-import com.grid.tv.ui.component.VodSubtitleControls
+import com.grid.tv.ui.component.VodPlayerSettingsOverlay
 import com.grid.tv.ui.component.RecordedPlayerControlsOverlay
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.RecordedPlayerFocusZone
@@ -445,14 +438,14 @@ fun DirectPlayerScreen(
                 )
             }
         } else if (showOverlay) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(16.dp)
+            AnimatedVisibility(
+                visible = showOverlay,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150)),
+                modifier = Modifier.fillMaxSize()
             ) {
-                Text(title, color = Color.White)
-                VodSubtitleControls(
+                VodPlayerSettingsOverlay(
+                    title = title,
                     settings = subtitleSettings,
                     activeSubtitle = activeSubtitle,
                     onToggle = {
@@ -493,9 +486,10 @@ fun DirectPlayerScreen(
                             url = url,
                             title = title
                         )
-                    }
+                    },
+                    onBack = ::leaveScreen,
+                    onDone = { showOverlay = false }
                 )
-                GlowFocusButton(onClick = onBack, modifier = Modifier.padding(top = 8.dp)) { Text("Back") }
             }
         }
 

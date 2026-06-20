@@ -55,6 +55,9 @@ interface IptvRepository {
     fun moviesStartingSoon(now: Long): Flow<List<Program>>
     suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program>
     suspend fun programsWindowForChannels(channels: List<Channel>, start: Long, end: Long): List<Program>
+    fun observeProgramsWindowForChannels(channels: List<Channel>, windowStart: Long, windowEnd: Long): Flow<List<Program>>
+    /** Fetches a short EPG window from the provider for visible channels and upserts into the DB. */
+    suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int
     suspend fun allDistinctEpgIds(): List<String>
 
     fun profiles(): Flow<List<UserProfile>>

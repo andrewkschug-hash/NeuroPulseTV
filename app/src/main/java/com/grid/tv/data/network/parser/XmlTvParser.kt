@@ -15,9 +15,12 @@ import java.util.zip.GZIPInputStream
 
 class XmlTvParser {
 
-    private val formatWithTimezone = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
-    private val formatLocal = SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply {
-        timeZone = TimeZone.getDefault()
+    private val formatWithTimezone = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply {
+        timeZone = UTC
+    }
+    /** IPTV providers (Xtream xmltv.php) send timezone-less timestamps as UTC wall clock. */
+    private val formatUtc = SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply {
+        timeZone = UTC
     }
 
     fun parse(xml: String): ParsedXmlTv =
@@ -150,7 +153,7 @@ class XmlTvParser {
             runCatching { formatWithTimezone.parse(normalized)?.time }.getOrNull() ?: 0L
         } else {
             val datePart = normalized.take(14)
-            runCatching { formatLocal.parse(datePart)?.time }.getOrNull() ?: 0L
+            runCatching { formatUtc.parse(datePart)?.time }.getOrNull() ?: 0L
         }
     }
 
@@ -158,18 +161,24 @@ class XmlTvParser {
         private const val TAG = "EpgFlow"
         private const val GZIP_MAGIC_0: Byte = 0x1f
         private const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
+        private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
         /**
-         * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`, `...Z`.
+         * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`,
+         * `20240615120000+00:00`, `...Z`.
          */
         internal fun normalizeXmlTvTimestamp(raw: String): String {
-            if (raw.endsWith('Z', ignoreCase = true) && raw.length >= 15) {
-                return raw.dropLast(1).trimEnd() + " +0000"
+            val trimmed = raw.trim()
+            if (trimmed.endsWith('Z', ignoreCase = true) && trimmed.length >= 15) {
+                return trimmed.dropLast(1).trimEnd() + " +0000"
             }
-            Regex("""^(\d{14})([\+\-]\d{4})$""").matchEntire(raw)?.let { match ->
+            Regex("""^(\d{14})([\+\-]\d{2}):?(\d{2})$""").matchEntire(trimmed)?.let { match ->
+                return "${match.groupValues[1]} ${match.groupValues[2]}${match.groupValues[3]}"
+            }
+            Regex("""^(\d{14})([\+\-]\d{4})$""").matchEntire(trimmed)?.let { match ->
                 return "${match.groupValues[1]} ${match.groupValues[2]}"
             }
-            return raw
+            return trimmed
         }
 
         /** Stable primary key so EPG refresh upserts instead of duplicating rows. */

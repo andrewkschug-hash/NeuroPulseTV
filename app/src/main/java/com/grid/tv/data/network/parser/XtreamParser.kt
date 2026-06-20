@@ -1,6 +1,7 @@
 package com.grid.tv.data.network.parser
 
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.data.db.entity.ProgramEntity
 import com.grid.tv.domain.model.EpgResolutionStatus
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
@@ -419,6 +420,58 @@ class XtreamParser {
             out += start * 1000L to end * 1000L
         }
         return out
+    }
+
+    /**
+     * Parses Xtream `get_short_epg` JSON into programme rows keyed by [channelEpgId]
+     * (the playlist channel's tvg-id / epg id, not the provider xmltv id).
+     */
+    fun parseShortEpg(
+        raw: String,
+        channelEpgId: String,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<ProgramEntity> {
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyList()
+        val arr = root.optJSONArray("epg_listings") ?: return emptyList()
+        val out = ArrayList<ProgramEntity>(arr.length())
+        for (i in 0 until arr.length()) {
+            val row = arr.optJSONObject(i) ?: continue
+            val startSec = row.optString("start_timestamp").toLongOrNull()
+                ?: row.optString("start").toLongOrNull()
+            val endSec = row.optString("stop_timestamp").toLongOrNull()
+                ?: row.optString("end").toLongOrNull()
+            if (startSec == null || endSec == null) continue
+            val startMs = if (startSec > 1_000_000_000_000L) startSec else startSec * 1000L
+            val endMs = if (endSec > 1_000_000_000_000L) endSec else endSec * 1000L
+            if (endMs <= windowStart || startMs >= windowEnd) continue
+            val title = row.optString("title").ifBlank { "Untitled" }
+            val description = row.optString("description").ifBlank {
+                row.optString("desc")
+            }.trim()
+            val genre = normalizeShortEpgGenre(row.optString("category"))
+            out += ProgramEntity(
+                id = XmlTvParser.stableProgramId(channelEpgId, startMs),
+                channelEpgId = channelEpgId,
+                title = title,
+                description = description,
+                startTime = startMs,
+                endTime = endMs,
+                genre = genre
+            )
+        }
+        return out
+    }
+
+    private fun normalizeShortEpgGenre(value: String): String {
+        val lower = value.lowercase()
+        return when {
+            "news" in lower -> "NEWS"
+            "sport" in lower -> "SPORTS"
+            "movie" in lower || "film" in lower -> "MOVIES"
+            "kids" in lower || "children" in lower -> "KIDS"
+            else -> "GENERAL"
+        }
     }
 
     private fun optLongId(item: JSONObject, vararg keys: String): Long? {

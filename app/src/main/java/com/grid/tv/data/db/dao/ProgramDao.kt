@@ -27,6 +27,15 @@ interface ProgramDao {
     @Query(
         """
         SELECT * FROM programs
+        WHERE channelEpgId IN (:epgIds) AND startTime < :windowEnd AND endTime > :windowStart
+        ORDER BY startTime
+        """
+    )
+    fun observeWindow(epgIds: List<String>, windowStart: Long, windowEnd: Long): Flow<List<ProgramEntity>>
+
+    @Query(
+        """
+        SELECT * FROM programs
         WHERE LOWER(channelEpgId) IN (:epgIdsLower)
             AND startTime < :windowEnd AND endTime > :windowStart
         ORDER BY startTime
