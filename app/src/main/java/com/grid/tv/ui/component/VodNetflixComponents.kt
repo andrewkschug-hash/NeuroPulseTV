@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -716,6 +717,7 @@ fun VodContentFilterPanel(
                 onClick = { onFilterSelected(filter) },
                 modifier = chipModifier
                     .size(44.dp)
+                    .focusProperties { canFocus = false }
                     .then(
                         if (focused) {
                             Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
@@ -790,10 +792,7 @@ fun NetflixContentWallRow(
             items(row.items.size, key = { row.items[it].key }) { index ->
                 val item = row.items[index]
                 val externallyFocused = rowFocused && index == focusedColumn
-                val itemModifier = when {
-                    index == 0 && firstItemFocusRequester != null -> Modifier.focusRequester(firstItemFocusRequester)
-                    else -> Modifier
-                }
+                val itemModifier = Modifier.focusProperties { canFocus = false }
                 when (item) {
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item

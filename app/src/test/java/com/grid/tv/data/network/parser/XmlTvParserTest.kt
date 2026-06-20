@@ -3,6 +3,7 @@ package com.grid.tv.data.network.parser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -73,6 +74,31 @@ class XmlTvParserTest {
 
         assertEquals(fromString.channelsById, fromStream.channelsById)
         assertEquals(fromString.programs.single().title, fromStream.programs.single().title)
+    }
+
+    @Test
+    fun parseFile_matchesStringParse() {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tv>
+              <channel id="file.ch"><display-name>File</display-name></channel>
+              <programme channel="file.ch" start="20240616120000+0000" stop="20240616130000+0000">
+                <title>From disk</title>
+              </programme>
+            </tv>
+        """.trimIndent()
+
+        val temp = File.createTempFile("xmltv_test_", ".xml")
+        try {
+            temp.writeText(xml)
+            val fromFile = parser.parseFile(temp)
+            val fromString = parser.parse(xml)
+
+            assertEquals(fromString.channelsById, fromFile.channelsById)
+            assertEquals(fromString.programs.single().title, fromFile.programs.single().title)
+        } finally {
+            temp.delete()
+        }
     }
 
     @Test

@@ -1,12 +1,17 @@
 package com.grid.tv.data.network.parser
 
-import android.util.Xml
+import android.util.Log
 import com.grid.tv.data.db.entity.ProgramEntity
+import org.kxml2.io.KXmlParser
 import org.xmlpull.v1.XmlPullParser
+import java.io.BufferedInputStream
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.zip.GZIPInputStream
 
 class XmlTvParser {
 
@@ -18,13 +23,37 @@ class XmlTvParser {
     fun parse(xml: String): ParsedXmlTv =
         parse(xml.byteInputStream(Charsets.UTF_8), Charsets.UTF_8.name())
 
-    /** Incrementally parses XMLTV from a live HTTP response stream. */
+    /** Parses XMLTV from an in-memory or file-backed stream. */
     fun parse(input: InputStream, encoding: String = Charsets.UTF_8.name()): ParsedXmlTv {
-        val parser = Xml.newPullParser().apply {
-            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-            setInput(input, encoding)
+        input.use { stream ->
+            val parser = newPullParser().apply {
+                setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+                setInput(stream, encoding)
+            }
+            return parseDocument(parser)
         }
-        return parseDocument(parser)
+    }
+
+    /**
+     * Parses XMLTV from a disk cache file written during EPG download.
+     * Handles gzip Content-Encoding, `.gz` URLs, and gzip magic bytes in the file header.
+     */
+    fun parseFile(
+        file: File,
+        contentEncoding: String? = null,
+        sourceUrl: String? = null
+    ): ParsedXmlTv {
+        require(file.exists()) { "EPG cache file does not exist: ${file.absolutePath}" }
+        require(file.length() > 0L) { "EPG cache file is empty: ${file.absolutePath}" }
+        FileInputStream(file).use { fileStream ->
+            openDecompressedStream(BufferedInputStream(fileStream), contentEncoding, sourceUrl).use { decoded ->
+                val parser = newPullParser().apply {
+                    setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+                    setInput(decoded, Charsets.UTF_8.name())
+                }
+                return parseDocument(parser)
+            }
+        }
     }
 
     private fun parseDocument(parser: XmlPullParser): ParsedXmlTv {
@@ -126,6 +155,10 @@ class XmlTvParser {
     }
 
     companion object {
+        private const val TAG = "EpgFlow"
+        private const val GZIP_MAGIC_0: Byte = 0x1f
+        private const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
+
         /**
          * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`, `...Z`.
          */
@@ -144,6 +177,33 @@ class XmlTvParser {
             var hash = channelEpgId.lowercase().hashCode().toLong()
             hash = 31L * hash + startTime
             return hash and Long.MAX_VALUE
+        }
+
+        private fun newPullParser(): XmlPullParser = KXmlParser()
+
+        internal fun openDecompressedStream(
+            stream: InputStream,
+            contentEncoding: String?,
+            url: String?
+        ): InputStream {
+            if (contentEncoding?.contains("gzip", ignoreCase = true) == true ||
+                url?.endsWith(".gz", ignoreCase = true) == true ||
+                url?.contains(".xml.gz", ignoreCase = true) == true
+            ) {
+                Log.i(TAG, "EPG cache file for $url is gzip-encoded — decompressing from disk")
+                return GZIPInputStream(BufferedInputStream(stream))
+            }
+            val buffered = if (stream is BufferedInputStream) stream else BufferedInputStream(stream)
+            buffered.mark(2)
+            val first = buffered.read()
+            val second = buffered.read()
+            buffered.reset()
+            return if (first == GZIP_MAGIC_0.toInt() && second == GZIP_MAGIC_1.toInt()) {
+                Log.i(TAG, "EPG cache file for $url has gzip magic — decompressing from disk")
+                GZIPInputStream(buffered)
+            } else {
+                buffered
+            }
         }
     }
 }

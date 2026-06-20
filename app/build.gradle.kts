@@ -165,6 +165,7 @@ dependencies {
     implementation(libs.play.services.cast.framework)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    implementation("net.sf.kxml:kxml2:2.3.0")
 
     testImplementation(libs.junit4)
     testImplementation(libs.mockk)

@@ -106,6 +106,11 @@ class VodHubViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            if (!playlistImportCoordinator.isImportActive()) {
+                repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+            }
+        }
+        viewModelScope.launch {
             playlistImportCoordinator.importActive.collect { importing ->
                 if (!importing) {
                     repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)

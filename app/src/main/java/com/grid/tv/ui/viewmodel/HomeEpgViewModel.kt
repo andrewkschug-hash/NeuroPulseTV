@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -81,6 +82,7 @@ class HomeEpgViewModel @Inject constructor(
 
     private var guideBootstrapComplete = false
     private var epgLoadGeneration = 0
+    private var channelFilterGeneration = 0
 
     private var previewTuneJob: Job? = null
 
@@ -315,7 +317,22 @@ class HomeEpgViewModel @Inject constructor(
         }
         viewModelScope.launch {
             repository.epgDataRevision().collect {
-                if (it > 0L) reloadChannels()
+                if (it > 0L && guideBootstrapComplete) reloadChannels()
+            }
+        }
+        viewModelScope.launch {
+            combine(channelGroups, _guideFiltersConfigured) { groups, configured ->
+                groups to configured
+            }.collectLatest { (groups, configured) ->
+                if (!guideBootstrapComplete || !configured || groups.isEmpty()) return@collectLatest
+                val current = _guideFilter.value
+                if (!current.isActive) return@collectLatest
+                val valid = current.selectedGroups.intersect(groups.toSet())
+                if (valid == current.selectedGroups) return@collectLatest
+                val updated = GuideChannelFilter(valid)
+                _guideFilter.value = updated
+                persistGuideFilter(updated, configured = true)
+                reloadChannels()
             }
         }
         viewModelScope.launch {
@@ -335,13 +352,39 @@ class HomeEpgViewModel @Inject constructor(
         val settings = repository.loadSettings()
         _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
         _hideAdultContent.value = settings.hideAdultContent
-        _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+        val sanitizedFilter = sanitizeGuideFilter(
+            groups = settings.guideChannelGroups,
+            configured = settings.guideFiltersConfigured
+        )
+        _guideFilter.value = sanitizedFilter
         _guideFiltersConfigured.value = settings.guideFiltersConfigured
         _guideSettingsLoaded.value = true
         livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
         livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
         guideBootstrapComplete = true
-        reloadChannelsInternal()
+        reloadChannels()
+    }
+
+    /** Drop stale group names after playlist re-import so the SQL IN filter matches live groupName values. */
+    private suspend fun sanitizeGuideFilter(
+        groups: Set<String>,
+        configured: Boolean
+    ): GuideChannelFilter {
+        if (!configured || groups.isEmpty()) return GuideChannelFilter(groups)
+        val available = repository.groups().first()
+        if (available.isEmpty()) return GuideChannelFilter(groups)
+        val valid = groups.intersect(available.toSet())
+        if (valid == groups) return GuideChannelFilter(groups)
+        Log.w(
+            TAG,
+            "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
+                "(playlist groups may have changed since last save)"
+        )
+        val updated = GuideChannelFilter(valid)
+        if (configured) {
+            repository.saveGuideChannelFilter(valid, configured = true)
+        }
+        return updated
     }
 
     fun saveGuidePosition(position: EpgGuidePosition) {
@@ -373,13 +416,16 @@ class HomeEpgViewModel @Inject constructor(
     fun reloadGuideSettings() {
         viewModelScope.launch {
             val settings = repository.loadSettings()
-            val nextFilter = GuideChannelFilter(settings.guideChannelGroups)
+            val nextFilter = sanitizeGuideFilter(
+                groups = settings.guideChannelGroups,
+                configured = settings.guideFiltersConfigured
+            )
             val filterChanged = _guideFilter.value != nextFilter
             _guideFilter.value = nextFilter
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
             _guideSettingsLoaded.value = true
             if (filterChanged && guideBootstrapComplete) {
-                reloadChannelsInternal()
+                reloadChannels()
             }
         }
     }
@@ -563,31 +609,37 @@ class HomeEpgViewModel @Inject constructor(
 
     fun loadMoreChannels() {
         if (loadingChannels || !_hasMoreChannels.value) return
-        viewModelScope.launch { loadMoreChannelsInternal() }
+        val generation = channelFilterGeneration
+        viewModelScope.launch { loadMoreChannelsInternal(expectedGeneration = generation) }
     }
 
     private fun reloadChannels() {
         channelLoadJob?.cancel()
+        val generation = ++channelFilterGeneration
         channelLoadJob = viewModelScope.launch {
             _isReloadingChannels.value = true
             _channels.value = emptyList()
             _epgPrograms.value = emptyList()
             channelDbOffset = 0
             _hasMoreChannels.value = true
-            reloadChannelsInternal()
-            _isReloadingChannels.value = false
+            loadMoreChannelsInternal(expectedGeneration = generation)
+            if (generation == channelFilterGeneration) {
+                _isReloadingChannels.value = false
+            }
         }
     }
 
     private suspend fun reloadChannelsInternal() {
-        loadMoreChannelsInternal()
+        reloadChannels()
     }
 
-    private suspend fun loadMoreChannelsInternal() {
+    private suspend fun loadMoreChannelsInternal(expectedGeneration: Int = channelFilterGeneration) {
+        if (expectedGeneration != channelFilterGeneration) return
         if (!_hasMoreChannels.value) return
         loadingChannels = true
         try {
             val page = fetchFilteredChannelPage(channelDbOffset)
+            if (expectedGeneration != channelFilterGeneration) return
             channelDbOffset += page.size
             _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
             if (page.isEmpty()) return
@@ -617,7 +669,7 @@ class HomeEpgViewModel @Inject constructor(
             page.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         } else {
             page
-        }
+        }.filter { _guideFilter.value.appliesTo(it) }
     }
 
     private suspend fun appendProgramsForChannels(newChannels: List<Channel>) {

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,13 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -212,87 +209,21 @@ fun GuideGroupPickerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    GuidePickerActionButton(
+                    GridOutlinedButton(
                         text = "Cancel",
-                        focused = false,
-                        primary = false,
                         onClick = onDismiss,
-                        modifier = Modifier.focusRequester(cancelFocusRequester),
-                        tvFocusable = true
+                        modifier = Modifier.focusRequester(cancelFocusRequester)
                     )
-                    GuidePickerActionButton(
+                    GridPrimaryButton(
                         text = confirmLabel,
-                        focused = false,
-                        primary = true,
                         onClick = { onConfirm(selection) },
-                        modifier = Modifier.focusRequester(saveFocusRequester),
-                        tvFocusable = true
+                        modifier = Modifier.focusRequester(saveFocusRequester)
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun GuidePickerActionButton(
-    text: String,
-    focused: Boolean,
-    primary: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
-) {
-    var rowFocused by remember { mutableStateOf(false) }
-    val showFocus = focused || rowFocused
-    val shape = RoundedCornerShape(8.dp)
-    val background = when {
-        primary && showFocus -> Color(0xFF5AA3FF)
-        primary -> Color(0xFF3B8FFF)
-        showFocus -> Color(0xFF343446)
-        else -> Color(0xFF2E2E3E)
-    }
-    val borderColor = when {
-        showFocus -> EpgColors.FocusBorder
-        primary -> Color.Transparent
-        else -> Color(0xFF4B5563)
-    }
-    GridFocusSurface(
-        onClick = onClick,
-        modifier = modifier
-            .height(44.dp)
-            .then(
-                if (tvFocusable) {
-                    Modifier.onFocusChanged { rowFocused = it.isFocused }
-                } else {
-                    Modifier
-                }
-            ),
-        shape = ClickableSurfaceDefaults.shape(shape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = background,
-            focusedContainerColor = background
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .border(
-                    width = if (showFocus) 2.dp else if (primary) 0.dp else 1.dp,
-                    color = borderColor,
-                    shape = shape
-                )
-                .padding(horizontal = 20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = text,
-                color = Color.White,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
         }
     }
 }

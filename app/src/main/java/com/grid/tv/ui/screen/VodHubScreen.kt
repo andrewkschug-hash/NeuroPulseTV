@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -51,6 +52,8 @@ import com.grid.tv.ui.component.NetflixCategoryRow
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.VodContentFilterPanel
+import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodHeroSection
 import com.grid.tv.ui.component.VodSearchOverlay
 import com.grid.tv.ui.component.movieMetaSubtitle
@@ -94,7 +97,7 @@ fun VodHubScreen(
     moviesViewModel: MoviesViewModel = hiltViewModel(),
     seriesViewModel: SeriesViewModel = hiltViewModel()
 ) {
-    var focusZone by remember { mutableStateOf(VodFocusZone.CONTENT) }
+    var focusZone by remember { mutableStateOf(VodFocusZone.FILTER_PANEL) }
     var topBarFocusIndex by remember {
         mutableIntStateOf(GridNavTabs.indexOf(EpgNavTab.Vod).coerceAtLeast(0))
     }
@@ -130,6 +133,9 @@ fun VodHubScreen(
     val contentFilter by hubViewModel.contentFilter.collectAsStateWithLifecycle()
     val movieBrowseRows by moviesViewModel.browseRows.collectAsStateWithLifecycle()
     val seriesBrowseRows by seriesViewModel.browseRows.collectAsStateWithLifecycle()
+    val catalogProgress by moviesViewModel.catalogProgress.collectAsStateWithLifecycle()
+    val catalogLoading by moviesViewModel.catalogLoading.collectAsStateWithLifecycle()
+    val catalogTotalCount by moviesViewModel.catalogTotalCount.collectAsStateWithLifecycle()
     val recommendedForYou by hubViewModel.recommendedForYou.collectAsStateWithLifecycle()
     val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
@@ -206,6 +212,14 @@ fun VodHubScreen(
         contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
     }
 
+    LaunchedEffect(wallRows.size, heroMovie, searchQuery) {
+        if (searchQuery.isBlank() && wallRows.isEmpty() && heroMovie == null &&
+            focusZone == VodFocusZone.CONTENT
+        ) {
+            focusZone = VodFocusZone.FILTER_PANEL
+        }
+    }
+
     LaunchedEffect(focusZone, contentRowIndex) {
         if (focusZone == VodFocusZone.CONTENT && searchQuery.isBlank()) {
             val lazyIndex = if (heroMovie != null && searchQuery.isBlank()) contentRowIndex + 1 else contentRowIndex
@@ -213,7 +227,7 @@ fun VodHubScreen(
         }
     }
 
-    val topNavFocusRequester = remember { FocusRequester() }
+    val rootFocusRequester = remember { FocusRequester() }
     val filterPanelFocusRequester = remember { FocusRequester() }
     val heroPlayFocusRequester = remember { FocusRequester() }
     val heroMoreInfoFocusRequester = remember { FocusRequester() }
@@ -226,10 +240,9 @@ fun VodHubScreen(
                 focusZone = VodFocusZone.SEARCH_OVERLAY
                 searchOverlayFocusRequester.requestFocusSafelyAfterLayout()
             }
-            focusZone == VodFocusZone.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.FILTER_PANEL -> filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.HERO && heroMovie != null -> heroPlayFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.CONTENT -> contentFocusRequester.requestFocusSafelyAfterLayout()
+            focusZone == VodFocusZone.HERO && heroMovie != null ->
+                heroPlayFocusRequester.requestFocusSafelyAfterLayout()
+            else -> rootFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 
@@ -313,7 +326,11 @@ fun VodHubScreen(
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionUp -> {
-                filterFocusIndex = (filterFocusIndex - 1).coerceAtLeast(0)
+                if (filterFocusIndex == 0) {
+                    focusZone = VodFocusZone.TOP_BAR
+                } else {
+                    filterFocusIndex -= 1
+                }
                 true
             }
             Key.DirectionDown -> {
@@ -367,6 +384,19 @@ fun VodHubScreen(
     fun handleContentKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (wallRows.isEmpty()) {
+            return when (event.key) {
+                Key.DirectionLeft -> {
+                    focusZone = VodFocusZone.FILTER_PANEL
+                    true
+                }
+                Key.DirectionUp -> {
+                    focusZone = VodFocusZone.TOP_BAR
+                    true
+                }
+                else -> false
+            }
+        }
         val row = wallRows.getOrNull(contentRowIndex) ?: return false
         return when (event.key) {
             Key.DirectionLeft -> {
@@ -505,6 +535,8 @@ fun VodHubScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(VodNetflixColors.Background)
+            .focusRequester(rootFocusRequester)
+            .focusable()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
@@ -559,9 +591,7 @@ fun VodHubScreen(
                 miniPlayer = {},
                 vodSearchFocused = vodSearchFocused,
                 onVodSearchClick = { openSearchOverlay() },
-                modifier = Modifier
-                    .focusRequester(topNavFocusRequester)
-                    .focusable()
+                modifier = Modifier.fillMaxWidth()
             )
 
             Row(modifier = Modifier.weight(1f)) {
@@ -576,13 +606,11 @@ fun VodHubScreen(
                             applyContentFilter(VodContentFilter.entries.indexOf(filter).coerceAtLeast(0))
                         },
                         focusRequester = filterPanelFocusRequester,
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .focusRequester(filterPanelFocusRequester)
-                            .focusable()
+                        modifier = Modifier.fillMaxHeight()
                     )
                 }
 
+                val vodLoading = catalogLoading || (catalogProgress.isLoading && catalogTotalCount == 0)
                 LazyColumn(
                     state = columnListState,
                     modifier = Modifier
@@ -637,6 +665,22 @@ fun VodHubScreen(
                                         }
                                     )
                                 }
+                            }
+                        }
+                    } else if (wallRows.isEmpty()) {
+                        item(key = "vod_status") {
+                            if (vodLoading) {
+                                VodCatalogLoadingBanner(
+                                    baseMessage = "Loading your movie and series catalog…",
+                                    progress = catalogProgress,
+                                    isMovies = true
+                                )
+                            } else {
+                                VodEmptyState(
+                                    title = "Nothing to watch yet",
+                                    message = "Connect a playlist or wait for your catalog to finish syncing.",
+                                    onRetry = { moviesViewModel.refreshCatalog() }
+                                )
                             }
                         }
                     } else {

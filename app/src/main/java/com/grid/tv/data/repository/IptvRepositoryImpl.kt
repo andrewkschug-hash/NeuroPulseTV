@@ -1524,6 +1524,12 @@ class IptvRepositoryImpl @Inject constructor(
                     playlistId = playlist.id,
                     playlistName = playlist.name
                 )
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "EPG disk-backed fetch for ${playlist.name}: http=${fetchResult.httpCode}, " +
+                        "cachedBytes=${fetchResult.rawBytes}, channels=${fetchResult.parsed.channelsById.size}, " +
+                        "programmes=${fetchResult.parsed.programs.size}"
+                )
                 attempt = attempt.copy(
                     httpCode = fetchResult.httpCode,
                     bytesReceived = fetchResult.rawBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
