@@ -3,6 +3,7 @@ package com.grid.tv.data.network.parser
 import com.grid.tv.data.db.entity.ChannelEntity
 import com.grid.tv.data.db.entity.ProgramEntity
 import com.grid.tv.domain.model.EpgResolutionStatus
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
@@ -370,13 +371,15 @@ class XtreamParser {
             coverUrl = item.optString("cover").ifBlank { null },
             categoryId = item.optString("category_id").ifBlank { null },
             genre = item.optString("genre").ifBlank { null },
+            plot = item.optString("plot").ifBlank { null },
             playlistId = playlistId
         )
     }
 
-    fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): List<SeriesSeason> {
+    fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): SeriesDetail {
         val root = JSONObject(raw)
-        val episodes = root.optJSONObject("episodes") ?: return emptyList()
+        val plot = root.optJSONObject("info")?.optString("plot")?.ifBlank { null }
+        val episodes = root.optJSONObject("episodes") ?: return SeriesDetail(seasons = emptyList(), plot = plot)
         val seasons = mutableListOf<SeriesSeason>()
         val keys = episodes.keys()
         while (keys.hasNext()) {
@@ -406,7 +409,7 @@ class XtreamParser {
             val seasonNo = seasonKey.toIntOrNull() ?: (seasons.size + 1)
             seasons += SeriesSeason(number = seasonNo, episodes = episodeRows)
         }
-        return seasons.sortedBy { it.number }
+        return SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
     }
 
     fun parseSimpleDataTable(raw: String): List<Pair<Long, Long>> {

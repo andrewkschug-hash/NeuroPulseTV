@@ -305,7 +305,20 @@ fun VodHubScreen(
         return enrichment?.overview?.takeIf { it.isNotBlank() } ?: movie.plot?.takeIf { it.isNotBlank() }
     }
 
-    fun overviewForSeries(show: SeriesShow): String? = show.genre?.takeIf { it.isNotBlank() }
+    fun overviewForSeries(show: SeriesShow): String? {
+        val enrichment = if (show.playlistId > 0L) {
+            val key = com.grid.tv.feature.enrichment.TitleEnrichmentRepository.xtreamSeriesKey(
+                show.playlistId,
+                show.id
+            )
+            enrichmentMap[key]
+        } else {
+            null
+        }
+        return enrichment?.overview?.takeIf { it.isNotBlank() }
+            ?: show.plot?.takeIf { it.isNotBlank() }
+            ?: show.genre?.takeIf { it.isNotBlank() }
+    }
 
     fun playMovie(movie: VodItem) {
         hubViewModel.enrichOnBrowse(movie)

@@ -48,7 +48,22 @@ import com.grid.tv.domain.model.SubtitleFontSize
 import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.player.PictureInPictureController
+import com.grid.tv.player.devicePlaybackCapabilities
+import com.grid.tv.player.isCodecCapabilityError
+import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
+import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.theme.DmSansFamily
+import com.grid.tv.ui.theme.EpgColors
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
 import androidx.media3.common.util.UnstableApi
 
@@ -86,7 +101,9 @@ fun DirectPlayerScreen(
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume) { mutableStateOf(false) }
-    val playbackRetryCount = remember(url) { intArrayOf(0) }
+    var playbackRetryCount = remember(url) { intArrayOf(0) }
+    var playbackError by remember(url) { mutableStateOf<String?>(null) }
+    val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
 
     val player = remember(url) {
@@ -106,10 +123,18 @@ fun DirectPlayerScreen(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    if (error.isCodecCapabilityError()) {
+                        playbackError = error.playbackErrorMessage(isEmulator)
+                        this@apply.playWhenReady = false
+                        return
+                    }
                     if (playbackRetryCount[0] < 2) {
                         playbackRetryCount[0] += 1
                         prepare()
                         playWhenReady = true
+                    } else {
+                        playbackError = error.playbackErrorMessage(isEmulator)
+                        this@apply.playWhenReady = false
                     }
                 }
             })
@@ -619,6 +644,38 @@ fun DirectPlayerScreen(
                             modifier = Modifier.align(Alignment.CenterEnd)
                         )
                     }
+                }
+            }
+        }
+
+        if (playbackError != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.82f))
+                    .padding(48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 20.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = playbackError.orEmpty(),
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 16.dp, bottom = 24.dp)
+                )
+                GlowFocusButton(onClick = ::leaveScreen) {
+                    Text("Go back", fontFamily = DmSansFamily)
                 }
             }
         }

@@ -11,6 +11,7 @@ import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistConnectResult
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.Recommendation
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
@@ -136,6 +137,7 @@ interface IptvRepository {
     suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
     fun vodWatchProgress(): Flow<Map<Long, Long>>
     suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason>
+    suspend fun loadSeriesDetail(seriesId: Long): SeriesDetail
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)
     fun isFavorite(channelId: Long): Flow<Boolean>

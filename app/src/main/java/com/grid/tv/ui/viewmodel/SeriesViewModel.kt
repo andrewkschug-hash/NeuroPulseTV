@@ -10,10 +10,12 @@ import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.VodCatalogStatus
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -35,7 +37,8 @@ class SeriesViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val seriesRuleScheduler: SeriesRuleScheduler,
     private val continueWatchingRepository: ContinueWatchingRepository,
-    private val profileDao: ProfileDao
+    private val profileDao: ProfileDao,
+    private val titleEnrichmentRepository: TitleEnrichmentRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -101,6 +104,9 @@ class SeriesViewModel @Inject constructor(
 
     private val _selectedShow = MutableStateFlow<SeriesShow?>(null)
     val selectedShow: StateFlow<SeriesShow?> = _selectedShow.asStateFlow()
+
+    private val _selectedShowOverview = MutableStateFlow<String?>(null)
+    val selectedShowOverview: StateFlow<String?> = _selectedShowOverview.asStateFlow()
 
     private val _seasons = MutableStateFlow<List<SeriesSeason>>(emptyList())
     val seasons: StateFlow<List<SeriesSeason>> = _seasons.asStateFlow()
@@ -171,6 +177,7 @@ class SeriesViewModel @Inject constructor(
     fun selectShow(showId: Long, preferredSeason: Int? = null, preview: SeriesShow? = null) {
         _selectedShowId.value = showId
         _selectedShow.value = preview
+        _selectedShowOverview.value = null
         _seasons.value = emptyList()
         _selectedSeasonNumber.value = null
         viewModelScope.launch {
@@ -180,17 +187,39 @@ class SeriesViewModel @Inject constructor(
                 if (show != null) {
                     _selectedShow.value = show
                 }
-                val loaded = withContext(Dispatchers.IO) {
-                    runCatching { repository.seriesSeasons(showId) }
+                val detail = withContext(Dispatchers.IO) {
+                    runCatching { repository.loadSeriesDetail(showId) }
                         .onFailure { error ->
                             _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
                         }
-                        .getOrDefault(emptyList())
+                        .getOrDefault(SeriesDetail())
                 }
-                _seasons.value = loaded.sortedBy { it.number }
+                val resolvedShow = show?.copy(plot = detail.plot ?: show.plot) ?: show
+                if (resolvedShow != null) {
+                    _selectedShow.value = resolvedShow
+                }
+                _seasons.value = detail.seasons.sortedBy { it.number }
                 _selectedSeasonNumber.value = preferredSeason?.takeIf { season ->
-                    loaded.any { it.number == season }
-                } ?: loaded.firstOrNull()?.number
+                    detail.seasons.any { it.number == season }
+                } ?: detail.seasons.firstOrNull()?.number
+                val displayShow = resolvedShow ?: show
+                if (displayShow != null && displayShow.playlistId > 0L) {
+                    val enrichment = titleEnrichmentRepository.enrichOnDemand(
+                        providerKey = TitleEnrichmentRepository.xtreamSeriesKey(
+                            displayShow.playlistId,
+                            showId
+                        ),
+                        title = displayShow.name,
+                        releaseYear = parseYear(displayShow.name),
+                        isTv = true
+                    )
+                    _selectedShowOverview.value = enrichment?.overview?.takeIf { it.isNotBlank() }
+                        ?: detail.plot?.takeIf { it.isNotBlank() }
+                        ?: displayShow.plot?.takeIf { it.isNotBlank() }
+                } else {
+                    _selectedShowOverview.value = detail.plot?.takeIf { it.isNotBlank() }
+                        ?: displayShow?.plot?.takeIf { it.isNotBlank() }
+                }
             } finally {
                 _seasonsLoading.value = false
             }
@@ -200,6 +229,7 @@ class SeriesViewModel @Inject constructor(
     fun clearShowSelection() {
         _selectedShowId.value = null
         _selectedShow.value = null
+        _selectedShowOverview.value = null
         _seasons.value = emptyList()
         _selectedSeasonNumber.value = null
         _seasonsLoading.value = false
@@ -250,4 +280,9 @@ class SeriesViewModel @Inject constructor(
 
     private fun parseVodDurationMs(durationRaw: String?): Long? =
         com.grid.tv.ui.component.parseVodDurationMs(durationRaw)
+
+    private fun parseYear(value: String): Int? {
+        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
+        return match.value.toIntOrNull()
+    }
 }

@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
@@ -124,6 +127,7 @@ fun SeriesBrowserScreen(
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
     val selectedShow by viewModel.selectedShow.collectAsStateWithLifecycle()
+    val selectedShowOverview by viewModel.selectedShowOverview.collectAsStateWithLifecycle()
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
@@ -286,10 +290,12 @@ fun SeriesBrowserScreen(
             SeriesDetailHeader(
                 showName = show.name,
                 coverUrl = show.coverUrl,
+                description = resolveSeriesSynopsis(show, selectedShowOverview),
                 onBackToShows = { viewModel.clearShowSelection() },
                 onRecordSeries = { viewModel.recordSeries(show) },
                 showRecord = !isM3uOnly,
                 backFocusRequester = backFocusRequester,
+                useDarkTheme = false,
                 modifier = focusUpModifier(onMoveFocusUp)
             )
             if (seasonsLoading) {
@@ -368,9 +374,11 @@ fun SeriesBrowserScreen(
 private fun SeriesDetailHeader(
     showName: String,
     coverUrl: String?,
+    description: String,
     onBackToShows: () -> Unit,
     onRecordSeries: () -> Unit,
     showRecord: Boolean,
+    useDarkTheme: Boolean,
     modifier: Modifier = Modifier,
     backFocusRequester: FocusRequester? = null
 ) {
@@ -379,7 +387,7 @@ private fun SeriesDetailHeader(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         Box(
             modifier = Modifier
@@ -400,7 +408,7 @@ private fun SeriesDetailHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = showName,
-                color = EpgColors.TextPrimary,
+                color = if (useDarkTheme) VodNetflixColors.TextPrimary else EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -427,9 +435,44 @@ private fun SeriesDetailHeader(
                     }
                 }
             }
+            SeriesDetailSynopsis(
+                text = description,
+                useDarkTheme = useDarkTheme,
+                modifier = Modifier.padding(top = 10.dp)
+            )
         }
     }
 }
+
+@Composable
+private fun SeriesDetailSynopsis(
+    text: String,
+    useDarkTheme: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val synopsisColor = if (useDarkTheme) {
+        Color(0xB3FFFFFF)
+    } else {
+        EpgColors.TextSecondary
+    }
+    val scrollState = rememberScrollState()
+    Text(
+        text = text,
+        color = synopsisColor,
+        fontFamily = DmSansFamily,
+        fontSize = 15.sp,
+        lineHeight = 22.sp,
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 110.dp)
+            .verticalScroll(scrollState)
+    )
+}
+
+private fun resolveSeriesSynopsis(show: SeriesShow, overview: String?): String =
+    overview?.takeIf { it.isNotBlank() }
+        ?: show.plot?.takeIf { it.isNotBlank() }
+        ?: "No description available."
 
 @Composable
 private fun SeriesDetailLoadingPanel(useDarkTheme: Boolean) {
@@ -578,6 +621,7 @@ private fun SeriesDetailOverlay(
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
     val selectedShow by viewModel.selectedShow.collectAsStateWithLifecycle()
+    val selectedShowOverview by viewModel.selectedShowOverview.collectAsStateWithLifecycle()
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
@@ -651,10 +695,12 @@ private fun SeriesDetailOverlay(
             SeriesDetailHeader(
                 showName = resolvedShow.name,
                 coverUrl = resolvedShow.coverUrl,
+                description = resolveSeriesSynopsis(resolvedShow, selectedShowOverview),
                 onBackToShows = { viewModel.clearShowSelection() },
                 onRecordSeries = { viewModel.recordSeries(resolvedShow) },
                 showRecord = !isM3uOnly,
-                backFocusRequester = backFocusRequester
+                backFocusRequester = backFocusRequester,
+                useDarkTheme = true
             )
 
             if (seasonsLoading) {

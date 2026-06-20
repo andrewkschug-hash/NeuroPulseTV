@@ -56,10 +56,10 @@ class PlayerFactory @Inject constructor() {
             )
             .build()
 
-        val extensionMode = if (preferHardwareDecoding) {
-            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
-        } else {
-            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+        val extensionMode = when {
+            caps.isEmulator -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
+            preferHardwareDecoding -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+            else -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
         }
         val appContext = MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
         val renderersFactory = DefaultRenderersFactory(appContext)
@@ -67,11 +67,19 @@ class PlayerFactory @Inject constructor() {
             .setExtensionRendererMode(extensionMode)
 
         val trackSelector = DefaultTrackSelector(appContext)
-        if (caps.isLowEndDevice) {
-            trackSelector.parameters = trackSelector.buildUponParameters()
-                .setMaxVideoSize(1280, 720)
-                .setMaxVideoBitrate(2_500_000)
-                .build()
+        when {
+            caps.isEmulator -> {
+                trackSelector.parameters = trackSelector.buildUponParameters()
+                    .setMaxVideoSize(1920, 1080)
+                    .setMaxVideoBitrate(8_000_000)
+                    .build()
+            }
+            caps.isLowEndDevice -> {
+                trackSelector.parameters = trackSelector.buildUponParameters()
+                    .setMaxVideoSize(1280, 720)
+                    .setMaxVideoBitrate(2_500_000)
+                    .build()
+            }
         }
 
         val dataSourceFactory = DefaultHttpDataSource.Factory()

@@ -40,7 +40,13 @@ data class SeriesShow(
     val coverUrl: String?,
     val categoryId: String? = null,
     val genre: String? = null,
+    val plot: String? = null,
     val playlistId: Long = 0L
+)
+
+data class SeriesDetail(
+    val seasons: List<SeriesSeason> = emptyList(),
+    val plot: String? = null
 )
 
 data class SeriesSeason(

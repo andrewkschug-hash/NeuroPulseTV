@@ -81,6 +81,7 @@ import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ProgramGenre
 import com.grid.tv.domain.model.Recommendation
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
@@ -233,7 +234,7 @@ class IptvRepositoryImpl @Inject constructor(
     private var lastVodRefreshCompletedAtMs = 0L
     @Volatile
     private var activeVodRefresh: CompletableDeferred<Unit>? = null
-    private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
+    private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, SeriesDetail>()
 
     private suspend inline fun <T> withPlaylistImport(label: String, block: suspend () -> T): T {
         playlistImportCoordinator.beginImport(label)
@@ -2672,25 +2673,28 @@ class IptvRepositoryImpl @Inject constructor(
         seriesShowDao.distinctCategoryIds()
     }
 
-    override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> = withContext(Dispatchers.IO) {
-        val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return@withContext emptyList()
+    override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> =
+        loadSeriesDetail(seriesId).seasons
+
+    override suspend fun loadSeriesDetail(seriesId: Long): SeriesDetail = withContext(Dispatchers.IO) {
+        val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return@withContext SeriesDetail()
         val playlistId = show.playlistId
         val cacheKey = playlistId to seriesId
         seriesSeasonsCache[cacheKey]?.let { return@withContext it }
-        val playlist = playlistDao.getById(playlistId) ?: return@withContext emptyList()
-        val server = playlist.xtreamServerUrl ?: return@withContext emptyList()
-        val user = playlist.xtreamUsername ?: return@withContext emptyList()
-        val pass = resolveXtreamPassword(playlist) ?: return@withContext emptyList()
+        val playlist = playlistDao.getById(playlistId) ?: return@withContext SeriesDetail()
+        val server = playlist.xtreamServerUrl ?: return@withContext SeriesDetail()
+        val user = playlist.xtreamUsername ?: return@withContext SeriesDetail()
+        val pass = resolveXtreamPassword(playlist) ?: return@withContext SeriesDetail()
         val raw = remoteTextFetcher.tryFetch(
             buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
         )
         if (raw == null) {
             Log.w(VOD_FLOW_TAG, "get_series_info unavailable for seriesId=$seriesId playlist=$playlistId")
-            return@withContext emptyList()
+            return@withContext SeriesDetail()
         }
-        val seasons = xtreamParser.parseSeriesInfo(raw, user, pass, server)
-        seriesSeasonsCache[cacheKey] = seasons
-        return@withContext seasons
+        val detail = xtreamParser.parseSeriesInfo(raw, user, pass, server)
+        seriesSeasonsCache[cacheKey] = detail
+        return@withContext detail
     }
 
     override suspend fun toggleFavorite(channelId: Long, enabled: Boolean) {

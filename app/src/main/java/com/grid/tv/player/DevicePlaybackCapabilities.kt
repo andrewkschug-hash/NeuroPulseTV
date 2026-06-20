@@ -3,6 +3,7 @@ package com.grid.tv.player
 import android.app.ActivityManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import com.grid.tv.util.isTelevision
 
 /**
@@ -11,7 +12,8 @@ import com.grid.tv.util.isTelevision
 data class DevicePlaybackCapabilities(
     val isTelevision: Boolean,
     val isLowEndDevice: Boolean,
-    val isPhone: Boolean
+    val isPhone: Boolean,
+    val isEmulator: Boolean
 ) {
     val startupPriority: PlaybackStartupPriority = when {
         isTelevision -> PlaybackStartupPriority.STABLE
@@ -38,6 +40,24 @@ fun Context.devicePlaybackCapabilities(): DevicePlaybackCapabilities {
     return DevicePlaybackCapabilities(
         isTelevision = tv,
         isLowEndDevice = lowRam || lowMemory,
-        isPhone = phone
+        isPhone = phone,
+        isEmulator = isEmulator()
     )
+}
+
+/** Goldfish/ranchu/generic images cannot decode 4K HEVC/Dolby Vision reliably. */
+fun isEmulator(): Boolean {
+    val fingerprint = Build.FINGERPRINT.lowercase()
+    val hardware = Build.HARDWARE.lowercase()
+    val model = Build.MODEL.lowercase()
+    val product = Build.PRODUCT.lowercase()
+    return fingerprint.startsWith("generic") ||
+        fingerprint.contains("emulator") ||
+        fingerprint.contains("unknown") ||
+        hardware.contains("goldfish") ||
+        hardware.contains("ranchu") ||
+        model.contains("emulator") ||
+        model.contains("android sdk built for") ||
+        product.contains("sdk_gphone") ||
+        product.contains("simulator")
 }
