@@ -349,12 +349,9 @@ class SettingsViewModel @Inject constructor(
 
     fun updateGuideChannelGroups(groups: Set<String>) {
         viewModelScope.launch {
-            val updated = _settings.value.copy(
-                guideChannelGroups = groups,
-                guideFiltersConfigured = true
-            )
-            _settings.value = updated
-            repository.saveSettings(updated)
+            repository.saveGuideChannelFilter(groups, configured = true)
+            val latest = repository.loadSettings()
+            _settings.value = latest
         }
     }
 

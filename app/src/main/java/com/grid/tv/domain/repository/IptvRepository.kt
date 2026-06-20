@@ -119,6 +119,7 @@ interface IptvRepository {
 
     suspend fun loadSettings(): AppSettings
     suspend fun saveSettings(settings: AppSettings)
+    suspend fun saveGuideChannelFilter(groups: Set<String>, configured: Boolean)
     suspend fun lastFullScanAt(): Long?
     suspend fun updateLastFullScanAt(timestamp: Long)
     suspend fun preferredSearchInput(): SearchInputMode

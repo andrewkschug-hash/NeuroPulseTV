@@ -519,6 +519,7 @@ fun HomeEpgScreen(
 
     if (HomeEpgScreenLoadingGate(
             isInitializing = isInitializing,
+            guideSettingsLoaded = guideSettingsLoaded,
             showEmptyState = showEmptyState,
             onNavigateSettings = onNavigateSettings
         )
@@ -589,6 +590,12 @@ fun HomeEpgScreen(
             ui.hasRequestedInitialGridFocus = true
             controller.requestEpgZoneFocus(EpgFocusZone.GRID)
         }
+    }
+
+    LaunchedEffect(showPreviewSection, previewChannelId, ui.focusZone) {
+        if (!showPreviewSection || ui.focusZone != EpgFocusZone.PREVIEW) return@LaunchedEffect
+        controller.requestEpgZoneFocus(EpgFocusZone.PREVIEW)
+        ui.pendingPreviewFocus = false
     }
 
     Box(

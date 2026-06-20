@@ -106,6 +106,14 @@ internal class HomeEpgGuideController(
         deps.viewModel.previewChannel(deps.context, fullChannel)
     }
 
+    fun openPreviewForChannel(channel: Channel) {
+        if (deps.usePlaceholder || channel.streamUrl.isBlank()) return
+        selectChannelForPreview(channel)
+        ui.detailExpanded = true
+        ui.pendingPreviewFocus = true
+        focusEpgZone(EpgFocusZone.PREVIEW)
+    }
+
     fun liveScrollTarget(): Int {
         val offsetDp = EpgLayout.offsetForTime(deps.now, deps.windowStart, deps.windowDurationMs)
         val offsetPx = deps.density.run { offsetDp.toPx() }
@@ -141,10 +149,7 @@ internal class HomeEpgGuideController(
                 if (instant) {
                     watchChannel(full)
                 } else {
-                    selectChannelForPreview(full)
-                    ui.focusZone = EpgFocusZone.PREVIEW
-                    ui.detailActionIndex = 0
-                    ui.detailExpanded = true
+                    openPreviewForChannel(full)
                 }
             }
         }
@@ -163,10 +168,7 @@ internal class HomeEpgGuideController(
         ui.focusChannelIndex = channelIndex
         ui.focusOnChannelColumn = true
         deps.scope.launch { deps.listState.animateScrollToItem(channelIndex) }
-        selectChannelForPreview(channel)
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.detailActionIndex = 0
-        ui.detailExpanded = true
+        openPreviewForChannel(channel)
     }
 
     fun openProgramFromTouch(channelIndex: Int, programIndex: Int, program: Program) {
@@ -184,10 +186,7 @@ internal class HomeEpgGuideController(
             playProgram(channel, program, instant = true)
             return
         }
-        selectChannelForPreview(channel)
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.detailActionIndex = 0
-        ui.detailExpanded = true
+        openPreviewForChannel(channel)
     }
 
     fun programsForChannel(channel: Channel): List<Program> =
@@ -678,10 +677,7 @@ internal class HomeEpgGuideController(
                         return true
                     }
                 }
-                selectChannelForPreview(channel)
-                ui.focusZone = EpgFocusZone.PREVIEW
-                ui.detailActionIndex = 0
-                ui.detailExpanded = true
+                openPreviewForChannel(channel)
                 true
             }
             Key.Back, Key.Escape -> {

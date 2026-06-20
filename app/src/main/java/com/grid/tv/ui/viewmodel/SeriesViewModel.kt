@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingContentType
+import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
+import com.grid.tv.domain.model.buildSeriesBrowseRows
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
@@ -90,6 +92,13 @@ class SeriesViewModel @Inject constructor(
 
     private val _categories = MutableStateFlow(listOf("All"))
     val categories: StateFlow<List<String>> = _categories.asStateFlow()
+
+    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
+        repository.seriesShows(),
+        categories
+    ) { shows, cats ->
+        buildSeriesBrowseRows(shows, cats)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
     val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()

@@ -122,7 +122,7 @@ fun TvDialogTextField(
             .fillMaxWidth()
             .height(fieldHeight)
             .focusRequester(effectiveFocusRequester)
-            .tvFocusScrollIntoView()
+            .tvFocusScrollIntoView(minimalScroll = true)
             .onFocusChanged {
                 focused = it.isFocused
                 onHighlightChanged(it.isFocused)

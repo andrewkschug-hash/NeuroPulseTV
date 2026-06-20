@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -177,13 +178,19 @@ private fun EpgPreviewPlayerPane(
                             useController = false
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             this.player = player
+                            isFocusable = false
+                            isFocusableInTouchMode = false
                         }
                     },
                     update = { view ->
                         if (view.player != player) view.player = player
+                        view.isFocusable = false
+                        view.isFocusableInTouchMode = false
                     },
                     onRelease = { view -> view.player = null },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusProperties { canFocus = false }
                 )
             }
         }

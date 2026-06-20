@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.data.db.model.ChannelScanProbeRow
 import com.grid.tv.data.db.model.GroupChannelCountRow
 import kotlinx.coroutines.flow.Flow
 
@@ -133,6 +134,12 @@ interface ChannelDao {
         limit: Int,
         offset: Int
     ): List<ChannelEntity>
+
+    @Query("SELECT id, streamUrl FROM channels ORDER BY id LIMIT :limit OFFSET :offset")
+    suspend fun scanProbeBatch(limit: Int, offset: Int): List<ChannelScanProbeRow>
+
+    @Query("SELECT id, streamUrl FROM channels WHERE id IN (:ids)")
+    suspend fun scanProbeByIds(ids: List<Long>): List<ChannelScanProbeRow>
 
     @Query("SELECT * FROM channels ORDER BY number")
     suspend fun all(): List<ChannelEntity>

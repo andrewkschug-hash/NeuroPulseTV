@@ -90,10 +90,11 @@ import com.grid.tv.util.quitAppToHome
 @Composable
 internal fun HomeEpgScreenLoadingGate(
     isInitializing: Boolean,
+    guideSettingsLoaded: Boolean,
     showEmptyState: Boolean,
     onNavigateSettings: () -> Unit
 ): Boolean {
-    if (isInitializing) {
+    if (isInitializing || !guideSettingsLoaded) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -156,7 +157,17 @@ internal fun HomeEpgScreenMainColumn(
     hScroll: ScrollState,
     listState: LazyListState,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .onPreviewKeyEvent {
+                if (ui.focusZone == EpgFocusZone.PREVIEW) {
+                    controller.handlePreviewKey(it)
+                } else {
+                    false
+                }
+            }
+    ) {
         EpgTopBar(
             now = now,
             selectedTab = ui.selectedTab,
@@ -269,7 +280,6 @@ internal fun HomeEpgScreenMainColumn(
                 topNavFocusRequester = deps.topNavFocusRequester,
                 gridFilterFocusRequester = deps.gridFilterFocusRequester,
                 hasContinueWatching = deps.hasContinueWatching,
-                onPreviewKey = controller::handlePreviewKey,
                 onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
             )
         }
@@ -319,7 +329,11 @@ internal fun HomeEpgScreenMainColumn(
             },
             onGridFilterKey = controller::handleGridFilterKey,
             onGridFocused = { ui.focusZone = EpgFocusZone.GRID },
-            onGridFilterFocused = { ui.focusZone = EpgFocusZone.GRID_FILTER },
+            onGridFilterFocused = {
+                if (!ui.pendingPreviewFocus) {
+                    ui.focusZone = EpgFocusZone.GRID_FILTER
+                }
+            },
             listState = listState,
             displayChannels = deps.displayChannels,
             filteredEmptyMessage = when {
@@ -566,7 +580,6 @@ internal fun HomeEpgContinueWatchingRow(
     )
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun HomeEpgPreviewSection(
     channel: Channel?,
@@ -588,7 +601,6 @@ internal fun HomeEpgPreviewSection(
     topNavFocusRequester: FocusRequester,
     gridFilterFocusRequester: FocusRequester,
     hasContinueWatching: Boolean,
-    onPreviewKey: (KeyEvent) -> Boolean,
     onFocused: () -> Unit
 ) {
     val ch = channel ?: return
@@ -616,7 +628,6 @@ internal fun HomeEpgPreviewSection(
             }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
-            .onPreviewKeyEvent { previewFocused && onPreviewKey(it) }
     )
 }
 

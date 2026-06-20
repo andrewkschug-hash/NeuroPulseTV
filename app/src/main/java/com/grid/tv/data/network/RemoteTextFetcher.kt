@@ -33,13 +33,14 @@ class RemoteTextFetcher @Inject constructor(
 
     suspend fun fetchDetailed(rawUrl: String): RemoteFetchResult = withContext(Dispatchers.IO) {
         val url = normalizeRemoteUrl(rawUrl)
-        Log.i(EPG_FLOW_TAG, "HTTP GET $url")
+        val logTag = if (isVodCatalogUrl(url)) VOD_FLOW_TAG else EPG_FLOW_TAG
+        Log.i(logTag, "HTTP GET $url")
         var lastEof: EOFException? = null
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             try {
-                val result = executeFetch(url)
+                val result = executeFetch(url, logTag)
                 Log.i(
-                    EPG_FLOW_TAG,
+                    logTag,
                     "HTTP ${result.httpCode} for $url — ${result.rawBytes} raw bytes, " +
                         "${result.body.length} decoded chars"
                 )
@@ -49,7 +50,7 @@ class RemoteTextFetcher @Inject constructor(
                 Log.w(EPG_FLOW_TAG, "HTTP EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url", e)
                 if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
             } catch (e: Exception) {
-                Log.e(EPG_FLOW_TAG, "HTTP fetch failed for $url: ${e.message}", e)
+                Log.e(logTag, "HTTP fetch failed for $url: ${e.message}", e)
                 throw e
             }
         }
@@ -91,7 +92,7 @@ class RemoteTextFetcher @Inject constructor(
             throw lastEof ?: IllegalStateException("EPG fetch failed for $url")
         }
 
-    private fun executeFetch(url: String): RemoteFetchResult {
+    private fun executeFetch(url: String, logTag: String = EPG_FLOW_TAG): RemoteFetchResult {
         val requestBuilder = Request.Builder().url(url).get()
         if (isXtreamApiUrl(url)) {
             requestBuilder.header("Accept-Encoding", "identity")
@@ -101,7 +102,7 @@ class RemoteTextFetcher @Inject constructor(
             val code = response.code
             val bytes = response.body?.bytes() ?: byteArrayOf()
             if (!response.isSuccessful) {
-                Log.e(EPG_FLOW_TAG, "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes in body")
+                Log.e(logTag, "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes in body")
                 throw IllegalStateException("HTTP request failed ($code) for $url")
             }
             val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
@@ -249,6 +250,7 @@ class RemoteTextFetcher @Inject constructor(
 
     private companion object {
         const val EPG_FLOW_TAG = "EpgFlow"
+        const val VOD_FLOW_TAG = "VodCatalogPipeline"
         const val MAX_FETCH_ATTEMPTS = 3
         const val GZIP_MAGIC_0: Byte = 0x1f
         const val GZIP_MAGIC_1: Byte = 0x8b.toByte()

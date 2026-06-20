@@ -67,6 +67,7 @@ import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodEpisodeCard
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.theme.VodNetflixColors
 import com.grid.tv.ui.viewmodel.SeriesViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.ui.viewmodel.VodHubViewModel
@@ -81,10 +82,22 @@ fun SeriesBrowserScreen(
     hubSearchQuery: String = "",
     contentFocusRequester: FocusRequester? = null,
     onMoveFocusUp: (() -> Unit)? = null,
+    hubViewModel: VodHubViewModel = hiltViewModel(),
+    overlayDetail: Boolean = false,
     viewModel: SeriesViewModel = hiltViewModel(),
-    settingsViewModel: SettingsViewModel = hiltViewModel(),
-    hubViewModel: VodHubViewModel = hiltViewModel()
 ) {
+    if (overlayDetail) {
+        SeriesDetailOverlay(
+            initialSeriesId = initialSeriesId,
+            onPlayUrl = onPlayUrl,
+            hubSearchQuery = hubSearchQuery,
+            viewModel = viewModel,
+            hubViewModel = hubViewModel
+        )
+        return
+    }
+
+    val settingsViewModel: SettingsViewModel = hiltViewModel()
     val pagedCards by viewModel.pagedCards.collectAsStateWithLifecycle()
     val catalogTotalCount by viewModel.catalogTotalCount.collectAsStateWithLifecycle()
     val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
@@ -406,3 +419,143 @@ private fun focusUpModifier(onMoveFocusUp: (() -> Unit)?): Modifier =
     } else {
         Modifier
     }
+
+@Composable
+private fun SeriesDetailOverlay(
+    initialSeriesId: Long?,
+    onPlayUrl: (String, String, Boolean) -> Unit,
+    hubSearchQuery: String,
+    viewModel: SeriesViewModel,
+    hubViewModel: VodHubViewModel
+) {
+    val settingsViewModel: SettingsViewModel = hiltViewModel()
+    val seasons by viewModel.seasons.collectAsStateWithLifecycle()
+    val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
+    val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
+    val playlists by settingsViewModel.playlists.collectAsStateWithLifecycle()
+    val isM3uOnly = playlists.isNotEmpty() && playlists.all { it.type == PlaylistType.M3U }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(hubSearchQuery) {
+        viewModel.setSearchQuery(hubSearchQuery)
+    }
+
+    LaunchedEffect(initialSeriesId, continueWatchingItems) {
+        if (initialSeriesId == null) return@LaunchedEffect
+        val cw = continueWatchingItems.firstOrNull {
+            it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == initialSeriesId
+        }
+        viewModel.selectShow(initialSeriesId, cw?.seasonNumber)
+    }
+
+    if (message != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearMessage() },
+            title = { Text("Series recording") },
+            text = { Text(message.orEmpty()) },
+            confirmButton = {
+                GlowFocusButton(onClick = { viewModel.clearMessage() }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    if (seasons.isEmpty() || selectedShowId == null) return
+
+    val activeShow = remember(selectedShowId, continueWatchingItems) {
+        val showId = selectedShowId ?: return@remember null
+        viewModel.findShow(showId)
+            ?: continueWatchingItems.firstOrNull {
+                it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == showId
+            }?.let { cw ->
+                SeriesShow(
+                    id = showId,
+                    name = cw.title.substringBefore(" · ").trim().ifBlank { cw.title },
+                    coverUrl = cw.posterUrl
+                )
+            }
+    } ?: return
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VodNetflixColors.Background.copy(alpha = 0.96f))
+            .padding(horizontal = 48.dp, vertical = 24.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            SeriesDetailHeader(
+                showName = activeShow.name,
+                coverUrl = activeShow.coverUrl,
+                onBackToShows = { viewModel.clearShowSelection() },
+                onRecordSeries = { viewModel.recordSeries(activeShow) },
+                showRecord = !isM3uOnly
+            )
+
+            Text(
+                text = "Seasons",
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+            )
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                items(seasons, key = { it.number }) { season ->
+                    VodCategoryChip(
+                        label = "Season ${season.number}",
+                        selected = selectedSeasonNumber == season.number,
+                        focused = false,
+                        onClick = { viewModel.selectSeason(season.number) }
+                    )
+                }
+            }
+
+            val episodes = seasons.firstOrNull { it.number == selectedSeasonNumber }?.episodes
+                ?: seasons.firstOrNull()?.episodes
+                ?: emptyList()
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(episodes, key = { it.id }) { episode ->
+                    val episodeIndex = episode.episodeNumber ?: (episodes.indexOf(episode) + 1)
+                    val seasonNum = selectedSeasonNumber ?: seasons.firstOrNull()?.number ?: 1
+                    VodEpisodeCard(
+                        episodeNumber = episodeIndex,
+                        title = episode.title,
+                        duration = episode.duration,
+                        progressFraction = viewModel.episodeProgressFraction(episode.id, episode.duration),
+                        onClick = {
+                            scope.launch {
+                                val resume = viewModel.shouldResumeEpisode(
+                                    seriesId = activeShow.id,
+                                    seasonNumber = seasonNum,
+                                    episodeNumber = episodeIndex,
+                                    streamId = episode.id
+                                )
+                                VodPlaybackHelper.stageSeriesEpisode(
+                                    show = activeShow,
+                                    seasonNumber = seasonNum,
+                                    episodeNumber = episodeIndex,
+                                    streamId = episode.id
+                                )
+                                onPlayUrl(episode.title, episode.streamUrl, resume)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}

@@ -2,10 +2,12 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.buildMovieBrowseRows
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.parseVodDurationMs
@@ -67,6 +69,13 @@ class MoviesViewModel @Inject constructor(
 
     val categories: StateFlow<List<VodCategory>> = repository.vodCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
+        repository.vodStreams(),
+        categories
+    ) { movies, cats ->
+        buildMovieBrowseRows(movies, cats)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())

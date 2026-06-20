@@ -321,7 +321,6 @@ class HomeEpgViewModel @Inject constructor(
                 if (list.isEmpty()) {
                     _demoFavoriteIds.value = emptySet()
                     _favoriteGroupFilter.value = null
-                    _guideFilter.value = GuideChannelFilter.All
                 }
             }
         }
@@ -349,10 +348,13 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
+        val changed = _guideFilter.value != filter
         _guideFilter.value = filter
         if (markConfigured) {
             _guideFiltersConfigured.value = true
-            persistGuideFilter(filter, configured = true)
+        }
+        if (changed || markConfigured) {
+            persistGuideFilter(filter, configured = _guideFiltersConfigured.value)
         }
     }
 
@@ -366,25 +368,24 @@ class HomeEpgViewModel @Inject constructor(
     fun reloadGuideSettings() {
         viewModelScope.launch {
             val settings = repository.loadSettings()
-            _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+            val nextFilter = GuideChannelFilter(settings.guideChannelGroups)
+            val filterChanged = _guideFilter.value != nextFilter
+            _guideFilter.value = nextFilter
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
             _guideSettingsLoaded.value = true
+            if (filterChanged && guideBootstrapComplete) {
+                reloadChannelsInternal()
+            }
         }
     }
 
     fun clearGuideFilter() {
-        setGuideFilter(GuideChannelFilter.All)
+        setGuideFilter(GuideChannelFilter.All, markConfigured = true)
     }
 
     private fun persistGuideFilter(filter: GuideChannelFilter, configured: Boolean) {
         viewModelScope.launch {
-            val current = repository.loadSettings()
-            repository.saveSettings(
-                current.copy(
-                    guideChannelGroups = filter.selectedGroups,
-                    guideFiltersConfigured = configured
-                )
-            )
+            repository.saveGuideChannelFilter(filter.selectedGroups, configured)
         }
     }
 

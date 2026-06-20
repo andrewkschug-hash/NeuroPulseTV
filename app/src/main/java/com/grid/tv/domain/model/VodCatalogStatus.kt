@@ -85,9 +85,17 @@ fun VodCatalogEmptyReason.vodEmptyMessage(status: VodCatalogStatus, isMovies: Bo
     }
     VodCatalogEmptyReason.PARSE_ZERO ->
         if (isMovies) {
-            "Your provider returned an empty movie catalog."
+            if (status.moviesRawLength == 0) {
+                "Couldn't load movies — no data received from your provider. Check your connection and tap Retry."
+            } else {
+                "Your provider returned an empty movie catalog."
+            }
         } else {
-            "Your provider returned an empty series catalog."
+            if (status.seriesRawLength == 0) {
+                "Couldn't load series — no data received from your provider. Check your connection and tap Retry."
+            } else {
+                "Your provider returned an empty series catalog."
+            }
         }
     VodCatalogEmptyReason.FILTERED_EMPTY ->
         "Try another category or clear your search filter."

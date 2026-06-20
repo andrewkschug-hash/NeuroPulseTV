@@ -142,4 +142,33 @@ class XtreamParserTest {
         assertEquals(1, items.size)
         assertEquals(7L, items.first().streamId)
     }
+
+    @Test
+    fun parseVodBatchedAcceptsNestedDataWrapper() {
+        val raw = """{"data":{"vod_streams":[{"stream_id":"9","name":"Nested Movie","container_extension":"mp4"}]}}"""
+        val items = parser.parseVod(
+            raw = raw,
+            username = "user",
+            password = "pass",
+            serverUrl = "http://example.com:8080"
+        )
+        assertEquals(1, items.size)
+        assertEquals(9L, items.first().streamId)
+    }
+
+    @Test
+    fun diagnoseVodResponse_detectsHtml() {
+        assertEquals(
+            "Provider returned HTML instead of JSON (check server URL).",
+            parser.diagnoseVodResponse("<html><body>Login</body></html>")
+        )
+    }
+
+    @Test
+    fun diagnoseVodResponse_detectsEmptyBody() {
+        assertEquals(
+            "Provider returned an empty response body.",
+            parser.diagnoseVodResponse("   ")
+        )
+    }
 }

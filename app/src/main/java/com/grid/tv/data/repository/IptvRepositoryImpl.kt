@@ -101,6 +101,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.URLEncoder
 import java.net.URI
 import java.io.File
@@ -1533,10 +1534,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshVodSeriesCatalog() = withContext(Dispatchers.IO) {
-        if (!vodRefreshMutex.tryLock()) {
-            Log.i(VOD_FLOW_TAG, "VOD refresh already in progress — skipping duplicate request")
-            return@withContext
-        }
+        vodRefreshMutex.withLock {
         try {
             loadSettings()
             val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
@@ -1552,7 +1550,7 @@ class IptvRepositoryImpl @Inject constructor(
                     progress = progress,
                     hasXtreamPlaylist = false
                 )
-                return@withContext
+                return@withLock
             }
 
             vodCatalogLoading.value = true
@@ -1632,36 +1630,87 @@ class IptvRepositoryImpl @Inject constructor(
             )
         } finally {
             vodCatalogLoading.value = false
-            vodRefreshMutex.unlock()
+        }
+        }
+    }
+
+    private fun resolvePlaylistServerUrl(playlist: PlaylistEntity): String {
+        val stored = playlist.xtreamServerUrl?.takeIf { it.isNotBlank() } ?: playlist.url
+        return stored.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Missing server URL for ${playlist.name}")
+    }
+
+    private suspend fun resolveVodFetchCredentials(
+        playlist: PlaylistEntity
+    ): Triple<String, String, String>? {
+        val user = playlist.xtreamUsername?.takeIf { it.isNotBlank() } ?: return null
+        val pass = resolveXtreamPassword(playlist)?.takeIf { it.isNotBlank() } ?: return null
+        val storedServer = runCatching { resolvePlaylistServerUrl(playlist) }.getOrElse {
+            Log.w(VOD_FLOW_TAG, "VOD playlist ${playlist.id}: ${it.message}")
+            return null
+        }
+        return runCatching {
+            val authResult = remoteTextFetcher.fetchDetailed(
+                buildXtreamApiUrl(storedServer, user, pass)
+            )
+            Log.i(
+                VOD_FLOW_TAG,
+                "VOD auth preflight playlist=${playlist.id} http=${authResult.httpCode} " +
+                    "bytes=${authResult.rawBytes}"
+            )
+            if (!xtreamParser.isAuthSuccessful(authResult.body)) {
+                Log.w(VOD_FLOW_TAG, "VOD auth preflight rejected for playlist ${playlist.id}")
+                return@runCatching Triple(storedServer, user, pass)
+            }
+            val auth = xtreamParser.parseAuth(authResult.body)
+            val resolved = resolveXtreamServerUrl(storedServer, auth)
+            if (resolved != storedServer) {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "VOD resolved server playlist=${playlist.id}: $storedServer -> $resolved"
+                )
+            }
+            Triple(resolved, user, pass)
+        }.getOrElse { error ->
+            Log.w(
+                VOD_FLOW_TAG,
+                "VOD auth preflight failed playlist=${playlist.id}: ${error.message} — using stored URL"
+            )
+            Triple(storedServer, user, pass)
         }
     }
 
     private suspend fun refreshVodCatalogForPlaylist(
         playlist: PlaylistEntity
     ): VodPlaylistRefreshResult {
-        val server = playlist.xtreamServerUrl ?: playlist.url
-        val user = playlist.xtreamUsername
-        if (user.isNullOrBlank()) {
-            val reason = "Missing Xtream username for ${playlist.name}"
+        val credentials = resolveVodFetchCredentials(playlist)
+        if (credentials == null) {
+            val reason = when {
+                playlist.xtreamUsername.isNullOrBlank() ->
+                    "Missing Xtream username for ${playlist.name}"
+                else -> "Missing Xtream password for ${playlist.name}"
+            }
             Log.w(VOD_FLOW_TAG, "Skipping VOD playlist ${playlist.id}: $reason")
             return VodPlaylistRefreshResult(skippedReason = reason)
         }
-        val pass = resolveXtreamPassword(playlist)
-        if (pass.isNullOrBlank()) {
-            val reason = "Missing Xtream password for ${playlist.name}"
-            Log.w(VOD_FLOW_TAG, "Skipping VOD playlist ${playlist.id}: $reason")
-            return VodPlaylistRefreshResult(skippedReason = reason)
-        }
+        val (server, user, pass) = credentials
         val vodUrl = buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
         return runCatching {
-            val vodRaw = remoteTextFetcher.fetch(vodUrl)
+            val fetchResult = remoteTextFetcher.fetchDetailed(vodUrl)
+            val vodRaw = fetchResult.body
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD fetch playlist=${playlist.id} action=get_vod_streams " +
-                    "responseLength=${vodRaw.length} urlHost=${runCatching { URI(server).host }.getOrNull()}"
+                "VOD fetch playlist=${playlist.id} action=get_vod_streams http=${fetchResult.httpCode} " +
+                    "rawBytes=${fetchResult.rawBytes} decodedChars=${vodRaw.length} " +
+                    "urlHost=${runCatching { URI(server).host }.getOrNull()}"
             )
-            if (vodRaw.length < 500) {
-                Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(300)}")
+            if (vodRaw.length <= 500) {
+                Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(400)}")
+            } else {
+                Log.d(
+                    VOD_FLOW_TAG,
+                    "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(200)}…${vodRaw.takeLast(80)}"
+                )
             }
 
             val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
@@ -1682,11 +1731,20 @@ class IptvRepositoryImpl @Inject constructor(
                 )
             }
 
-            if (parsed.isEmpty() && arrayLength == 0) {
-                vodCacheByPlaylist.update { current ->
-                    current + (playlist.id to emptyList())
+            val diagnosis = xtreamParser.diagnoseVodResponse(vodRaw)
+            when {
+                parsed.isNotEmpty() && arrayLength == 0 && diagnosis != null -> {
+                    Log.w(
+                        VOD_FLOW_TAG,
+                        "VOD response unusable playlist=${playlist.id}: $diagnosis"
+                    )
                 }
-            } else if (parsed.isNotEmpty()) {
+                parsed.isEmpty() && arrayLength == 0 && vodRaw.isBlank() -> {
+                    Log.w(VOD_FLOW_TAG, "VOD empty HTTP body playlist=${playlist.id}")
+                }
+            }
+
+            if (parsed.isNotEmpty()) {
                 vodCacheByPlaylist.update { current ->
                     current + (playlist.id to parsed)
                 }
@@ -1695,14 +1753,27 @@ class IptvRepositoryImpl @Inject constructor(
                     VOD_FLOW_TAG,
                     "VOD parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
                 )
+            } else if (diagnosis == null && vodRaw.isNotBlank()) {
+                vodCacheByPlaylist.update { current ->
+                    current + (playlist.id to emptyList())
+                }
+            } else if (diagnosis == null && vodRaw.isBlank()) {
+                vodCacheByPlaylist.update { current ->
+                    current + (playlist.id to emptyList())
+                }
             }
 
             runCatching {
                 val vodCategoriesRaw = remoteTextFetcher.fetch(
                     buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
                 )
+                val categories = xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id)
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "VOD categories playlist=${playlist.id} count=${categories.size}"
+                )
                 vodCategoriesByPlaylist.update { current ->
-                    current + (playlist.id to xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id))
+                    current + (playlist.id to categories)
                 }
             }.onFailure { categoryError ->
                 Log.w(
@@ -1717,13 +1788,17 @@ class IptvRepositoryImpl @Inject constructor(
                 "VOD commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
-                rawLength = vodRaw.length,
+                rawLength = fetchResult.rawBytes,
                 parsedCount = parsed.size,
                 arrayLength = arrayLength,
-                error = if (arrayLength > 0 && parsed.isEmpty()) {
-                    "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
-                } else {
-                    null
+                error = when {
+                    parsed.isNotEmpty() -> null
+                    arrayLength > 0 ->
+                        "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
+                    diagnosis != null -> diagnosis
+                    vodRaw.isBlank() ->
+                        "Provider returned an empty response for ${playlist.name}. Check your connection and server URL."
+                    else -> null
                 }
             )
         }.getOrElse { error ->
@@ -1740,25 +1815,25 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun refreshSeriesCatalogForPlaylist(
         playlist: PlaylistEntity
     ): VodPlaylistRefreshResult {
-        val server = playlist.xtreamServerUrl ?: playlist.url
-        val user = playlist.xtreamUsername
-        if (user.isNullOrBlank()) {
-            val reason = "Missing Xtream username for ${playlist.name}"
+        val credentials = resolveVodFetchCredentials(playlist)
+        if (credentials == null) {
+            val reason = when {
+                playlist.xtreamUsername.isNullOrBlank() ->
+                    "Missing Xtream username for ${playlist.name}"
+                else -> "Missing Xtream password for ${playlist.name}"
+            }
             Log.w(VOD_FLOW_TAG, "Skipping series playlist ${playlist.id}: $reason")
             return VodPlaylistRefreshResult(skippedReason = reason)
         }
-        val pass = resolveXtreamPassword(playlist)
-        if (pass.isNullOrBlank()) {
-            val reason = "Missing Xtream password for ${playlist.name}"
-            Log.w(VOD_FLOW_TAG, "Skipping series playlist ${playlist.id}: $reason")
-            return VodPlaylistRefreshResult(skippedReason = reason)
-        }
+        val (server, user, pass) = credentials
         return runCatching {
             val seriesUrl = buildXtreamApiUrl(server, user, pass, action = "get_series")
-            val seriesRaw = remoteTextFetcher.fetch(seriesUrl)
+            val fetchResult = remoteTextFetcher.fetchDetailed(seriesUrl)
+            val seriesRaw = fetchResult.body
             Log.i(
                 VOD_FLOW_TAG,
-                "Series fetch playlist=${playlist.id} action=get_series responseLength=${seriesRaw.length}"
+                "Series fetch playlist=${playlist.id} action=get_series http=${fetchResult.httpCode} " +
+                    "rawBytes=${fetchResult.rawBytes} decodedChars=${seriesRaw.length}"
             )
             if (seriesRaw.length < 500) {
                 Log.d(VOD_FLOW_TAG, "Series raw preview playlist=${playlist.id}: ${seriesRaw.take(300)}")
@@ -1800,7 +1875,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "Series commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
-                rawLength = seriesRaw.length,
+                rawLength = fetchResult.rawBytes,
                 parsedCount = parsed.size,
                 arrayLength = arrayLength,
                 error = if (arrayLength > 0 && parsed.isEmpty()) {
@@ -2004,7 +2079,9 @@ class IptvRepositoryImpl @Inject constructor(
         ensureDefaultProfile()
         cachedSettings = settings
         appHttpClient.applySettings(settings)
-        val old = profileSettingsDao.get(activeProfileId)
+        val existing = profileSettingsDao.get(activeProfileId)
+        val guideGroupsEncoded = resolveGuideGroupsForSave(settings, existing)
+        val guideConfigured = resolveGuideConfiguredForSave(settings, existing)
         profileSettingsDao.upsert(
             ProfileSettingsEntity(
                 profileId = activeProfileId,
@@ -2012,10 +2089,10 @@ class IptvRepositoryImpl @Inject constructor(
                 epgRowHeight = settings.epgRowHeight.name,
                 streamRetries = settings.streamRetries,
                 previewEnabled = settings.miniPlayerAudioEnabled,
-                gameLockEnabled = old?.gameLockEnabled ?: false,
+                gameLockEnabled = existing?.gameLockEnabled ?: false,
                 lastSleepTimer = settings.sleepTimerMinutes,
-                recordingStoragePath = old?.recordingStoragePath,
-                lastSeenVersion = old?.lastSeenVersion,
+                recordingStoragePath = existing?.recordingStoragePath,
+                lastSeenVersion = existing?.lastSeenVersion,
                 sleepTimerMinutes = settings.sleepTimerMinutes,
                 hideAdultContent = settings.hideAdultContent,
                 sleepTimerAutoEnabled = settings.sleepTimerAutoEnabled,
@@ -2023,7 +2100,7 @@ class IptvRepositoryImpl @Inject constructor(
                 scanIntervalMinutes = settings.scanIntervalMinutes,
                 concurrentChecks = settings.concurrentChecks,
                 scanOnMetered = settings.scanOnMetered,
-                lastFullScanAt = old?.lastFullScanAt,
+                lastFullScanAt = existing?.lastFullScanAt,
                 preferredSearchInput = settings.preferredSearchInput.name,
                 parentalPinLockEnabled = settings.parentalPinLockEnabled,
                 maxContentRating = settings.maxContentRating.name,
@@ -2052,10 +2129,55 @@ class IptvRepositoryImpl @Inject constructor(
                 recordedPlaybackSpeed = settings.recordedPlaybackSpeed,
                 themeId = settings.themeId.name,
                 pictureInPictureEnabled = settings.pictureInPictureEnabled,
-                guideChannelGroups = GuideChannelFilter.encode(settings.guideChannelGroups),
-                guideFiltersConfigured = settings.guideFiltersConfigured
+                guideChannelGroups = guideGroupsEncoded,
+                guideFiltersConfigured = guideConfigured
             )
         )
+        cachedSettings = cachedSettings.copy(
+            guideChannelGroups = GuideChannelFilter.decode(guideGroupsEncoded),
+            guideFiltersConfigured = guideConfigured
+        )
+    }
+
+    override suspend fun saveGuideChannelFilter(groups: Set<String>, configured: Boolean) {
+        ensureDefaultProfile()
+        val existing = profileSettingsDao.get(activeProfileId) ?: ProfileSettingsEntity(profileId = activeProfileId)
+        val encoded = GuideChannelFilter.encode(groups)
+        profileSettingsDao.upsert(
+            existing.copy(
+                guideChannelGroups = encoded,
+                guideFiltersConfigured = configured
+            )
+        )
+        cachedSettings = cachedSettings.copy(
+            guideChannelGroups = groups,
+            guideFiltersConfigured = configured
+        )
+    }
+
+    /** Avoid wiping a persisted guide filter when unrelated settings are saved from stale UI state. */
+    private fun resolveGuideGroupsForSave(
+        settings: AppSettings,
+        existing: ProfileSettingsEntity?
+    ): String = when {
+        settings.guideChannelGroups.isNotEmpty() ->
+            GuideChannelFilter.encode(settings.guideChannelGroups)
+        settings.guideFiltersConfigured ->
+            GuideChannelFilter.encode(settings.guideChannelGroups)
+        !existing?.guideChannelGroups.isNullOrBlank() ->
+            existing.guideChannelGroups
+        else ->
+            GuideChannelFilter.encode(settings.guideChannelGroups)
+    }
+
+    private fun resolveGuideConfiguredForSave(
+        settings: AppSettings,
+        existing: ProfileSettingsEntity?
+    ): Boolean = when {
+        settings.guideFiltersConfigured -> true
+        settings.guideChannelGroups.isNotEmpty() -> true
+        existing?.guideFiltersConfigured == true -> true
+        else -> false
     }
 
     private inline fun <reified T : Enum<T>> enumValueOrDefault(raw: String, default: T): T =

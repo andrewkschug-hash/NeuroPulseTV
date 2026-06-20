@@ -48,6 +48,7 @@ import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.theme.VodNetflixColors
 import java.text.NumberFormat
 
 fun parseVodDurationMs(raw: String?): Long? {
@@ -516,7 +517,7 @@ fun VodHeroSection(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(400.dp)
+            .height(480.dp)
     ) {
         if (!backdropUrl.isNullOrBlank()) {
             AsyncImage(
@@ -529,7 +530,7 @@ fun VodHeroSection(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF1A1A28))
+                    .background(VodNetflixColors.CardPlaceholder)
             )
         }
 
@@ -539,10 +540,10 @@ fun VodHeroSection(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.15f),
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.92f),
-                            EpgColors.Background
+                            Color.Black.copy(alpha = 0.1f),
+                            Color.Black.copy(alpha = 0.45f),
+                            Color.Black.copy(alpha = 0.85f),
+                            VodNetflixColors.Background
                         )
                     )
                 )
@@ -552,14 +553,14 @@ fun VodHeroSection(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 48.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = displayTitle,
-                color = Color.White,
+                color = VodNetflixColors.TextPrimary,
                 fontFamily = DmSansFamily,
-                fontSize = 34.sp,
+                fontSize = 40.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
@@ -569,6 +570,15 @@ fun VodHeroSection(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (!year.isNullOrBlank()) {
+                    Text(
+                        text = year,
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 if (!rating.isNullOrBlank()) {
                     Text(
                         text = "★ $rating",
@@ -581,20 +591,12 @@ fun VodHeroSection(
                 if (!ageCert.isNullOrBlank()) {
                     Text(
                         text = ageCert,
-                        color = EpgColors.TextSecondary,
+                        color = VodNetflixColors.TextSecondary,
                         fontFamily = DmSansFamily,
                         fontSize = 12.sp,
                         modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
-                    )
-                }
-                if (!year.isNullOrBlank()) {
-                    Text(
-                        text = year,
-                        color = EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp
                     )
                 }
             }
@@ -604,12 +606,12 @@ fun VodHeroSection(
                     genres.forEach { genre ->
                         Text(
                             text = genre,
-                            color = EpgColors.TextPrimary,
+                            color = VodNetflixColors.TextPrimary,
                             fontFamily = DmSansFamily,
                             fontSize = 12.sp,
                             modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -618,47 +620,49 @@ fun VodHeroSection(
             if (overview.isNotBlank()) {
                 Text(
                     text = overview,
-                    color = EpgColors.TextSecondary,
+                    color = VodNetflixColors.TextSecondary,
                     fontFamily = DmSansFamily,
                     fontSize = 14.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp
+                    lineHeight = 20.sp,
+                    modifier = Modifier.fillMaxWidth(0.55f)
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GridFocusSurface(
                     onClick = onPlay,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = EpgColors.Accent,
-                        focusedContainerColor = EpgColors.Accent
+                        containerColor = VodNetflixColors.Accent,
+                        focusedContainerColor = VodNetflixColors.Accent
                     )
                 ) {
                     Text(
-                        text = "▶  Play",
+                        text = "▶  Watch",
                         color = Color.White,
                         fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
                     )
                 }
                 GridFocusSurface(
                     onClick = onMoreInfo,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.12f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.18f)
+                        containerColor = Color.White.copy(alpha = 0.2f),
+                        focusedContainerColor = Color.White.copy(alpha = 0.28f)
                     )
                 ) {
                     Text(
                         text = "More Info",
-                        color = EpgColors.TextPrimary,
+                        color = VodNetflixColors.TextPrimary,
                         fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
                     )
                 }
             }

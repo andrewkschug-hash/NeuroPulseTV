@@ -1,11 +1,13 @@
 package com.grid.tv.feature.scanner
 
+import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
 import com.grid.tv.data.db.entity.ChannelScanEntity
+import com.grid.tv.data.db.model.ChannelScanProbeRow
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ChannelScanStatus
 import com.grid.tv.domain.model.ScannerRuntimeState
@@ -61,8 +63,12 @@ class ChannelScanner @Inject constructor(
     @Volatile
     private var forceFullScan = false
 
+    /** Rotating offset for paginated scan batches — never loads the full channel table. */
+    @Volatile
+    private var scanBatchOffset = 0
+
     init {
-        scope.launch { hydrateFromDatabase() }
+        scope.launch { runSafely("hydrate") { hydrateFromDatabase() } }
         scope.launch { refreshSettingsLoop() }
         scope.launch { scanSchedulerLoop() }
     }
@@ -88,9 +94,11 @@ class ChannelScanner @Inject constructor(
         val status = if (isLive) ChannelScanStatus.LIVE else ChannelScanStatus.DEAD
         val snapshot = ChannelScanSnapshot(status = status, lastCheckedAt = System.currentTimeMillis())
         scope.launch {
-            persistSnapshot(channelId, snapshot)
-            _statuses.update { current -> current + (channelId to snapshot) }
-            refreshRuntimeCounts()
+            runSafely("reportPlayback") {
+                persistSnapshot(channelId, snapshot)
+                _statuses.update { current -> current + (channelId to snapshot) }
+                refreshRuntimeCounts()
+            }
         }
     }
 
@@ -108,8 +116,9 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun refreshSettingsLoop() {
+        var backoffMs = SETTINGS_POLL_MS
         while (true) {
-            runCatching {
+            val ok = runSafely("refreshSettings") {
                 val appSettings = repository.loadSettings()
                 updateSettings(
                     ScannerSettings(
@@ -120,35 +129,83 @@ class ChannelScanner @Inject constructor(
                     )
                 )
             }
-            delay(5_000)
+            val delayMs = if (ok) {
+                backoffMs = SETTINGS_POLL_MS
+                SETTINGS_POLL_MS
+            } else {
+                backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+                backoffMs
+            }
+            delaySafely(delayMs)
         }
     }
 
     private suspend fun scanSchedulerLoop() {
+        var backoffMs = SCAN_TICK_MS
         while (true) {
-            if (settings.autoScanEnabled && appInForeground && !isMeteredBlocked()) {
-                runScanCycle()
+            val ok = runSafely("scanScheduler") {
+                if (
+                    settings.autoScanEnabled &&
+                    appInForeground &&
+                    !isMeteredBlocked() &&
+                    !isLowOnMemory()
+                ) {
+                    runScanCycle()
+                }
             }
-            delay(2_000)
+            val delayMs = if (ok) {
+                backoffMs = SCAN_TICK_MS
+                SCAN_TICK_MS
+            } else {
+                backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
+                backoffMs
+            }
+            delaySafely(delayMs)
         }
     }
 
     private suspend fun runScanCycle() {
-        val channels = channelDao.all()
-        if (channels.isEmpty()) return
+        val total = channelDao.countTotal()
+        if (total == 0) return
 
         val now = System.currentTimeMillis()
         val currentStatuses = _statuses.value
-        val due = channels.filter { channel ->
-            forceFullScan || isDue(channel.id, currentStatuses[channel.id], now)
+        val maxProbe = settings.concurrentChecks.coerceAtLeast(1)
+        val toProbe = LinkedHashSet<ChannelScanProbeRow>(maxProbe)
+
+        if (priorityChannelIds.isNotEmpty()) {
+            val priorityRows = channelDao.scanProbeByIds(priorityChannelIds.toList())
+            for (row in priorityRows) {
+                if (forceFullScan || isDue(row.id, currentStatuses[row.id], now)) {
+                    toProbe.add(row)
+                    if (toProbe.size >= maxProbe) break
+                }
+            }
         }
 
-        val ordered = buildList {
-            due.filter { priorityChannelIds.contains(it.id) }.forEach { add(it) }
-            due.filterNot { priorityChannelIds.contains(it.id) }.forEach { add(it) }
+        if (toProbe.size < maxProbe) {
+            val pageSize = SCAN_PAGE_SIZE.coerceAtMost(total)
+            var pagesScanned = 0
+            val maxPages = ((total + pageSize - 1) / pageSize).coerceAtMost(MAX_PAGES_PER_CYCLE)
+
+            while (toProbe.size < maxProbe && pagesScanned < maxPages) {
+                val offset = scanBatchOffset
+                val batch = channelDao.scanProbeBatch(pageSize, offset)
+                scanBatchOffset = if (total <= pageSize) 0 else (offset + pageSize) % total
+                pagesScanned++
+                if (batch.isEmpty()) break
+
+                for (row in batch) {
+                    if (priorityChannelIds.contains(row.id)) continue
+                    if (forceFullScan || isDue(row.id, currentStatuses[row.id], now)) {
+                        toProbe.add(row)
+                        if (toProbe.size >= maxProbe) break
+                    }
+                }
+            }
         }
 
-        if (ordered.isEmpty()) {
+        if (toProbe.isEmpty()) {
             if (forceFullScan) {
                 forceFullScan = false
                 repository.updateLastFullScanAt(now)
@@ -158,17 +215,16 @@ class ChannelScanner @Inject constructor(
             return
         }
 
-        val batch = ordered.take(settings.concurrentChecks)
-        _runtime.update { it.copy(isScanning = true, totalCount = channels.size) }
+        _runtime.update { it.copy(isScanning = true, totalCount = total) }
 
         coroutineScope {
-            batch.map { channel ->
-                async { checkChannel(channel.id, channel.streamUrl) }
+            toProbe.map { row ->
+                async { checkChannel(row.id, row.streamUrl) }
             }.awaitAll()
         }
 
         refreshRuntimeCounts()
-        _runtime.update { it.copy(isScanning = batch.isNotEmpty() && ordered.size > batch.size) }
+        _runtime.update { it.copy(isScanning = false) }
     }
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
@@ -208,7 +264,7 @@ class ChannelScanner @Inject constructor(
     private suspend fun refreshRuntimeCounts() {
         val statuses = _statuses.value
         val live = statuses.values.count { it.status == ChannelScanStatus.LIVE }
-        val total = channelDao.all().size
+        val total = channelDao.countTotal()
         _runtime.update { it.copy(liveCount = live, totalCount = total) }
     }
 
@@ -236,5 +292,49 @@ class ChannelScanner @Inject constructor(
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED).not() &&
             caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI).not() &&
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET).not()
+    }
+
+    /** Skip background probes when the process is under memory pressure. */
+    private fun isLowOnMemory(): Boolean {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+        val info = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(info)
+        if (info.lowMemory) return true
+        val usedRatio = 1.0 - (info.availMem.toDouble() / info.totalMem.coerceAtLeast(1L).toDouble())
+        return usedRatio > LOW_MEMORY_USED_RATIO
+    }
+
+    private suspend fun delaySafely(ms: Long) {
+        try {
+            delay(ms)
+        } catch (_: OutOfMemoryError) {
+            runCatching { System.gc() }
+            Thread.sleep(ms.coerceAtMost(MAX_BACKOFF_MS))
+        }
+    }
+
+    /** Runs [block], backing off on OOM instead of crashing the process. */
+    private suspend fun runSafely(label: String, block: suspend () -> Unit): Boolean {
+        return try {
+            block()
+            true
+        } catch (oom: OutOfMemoryError) {
+            android.util.Log.e(TAG, "OOM in ChannelScanner.$label — backing off", oom)
+            runCatching { System.gc() }
+            false
+        } catch (t: Throwable) {
+            android.util.Log.w(TAG, "ChannelScanner.$label failed: ${t.message}", t)
+            true
+        }
+    }
+
+    private companion object {
+        private const val TAG = "ChannelScanner"
+        private const val SCAN_TICK_MS = 2_000L
+        private const val SETTINGS_POLL_MS = 5_000L
+        private const val MAX_BACKOFF_MS = 120_000L
+        private const val SCAN_PAGE_SIZE = 200
+        private const val MAX_PAGES_PER_CYCLE = 8
+        private const val LOW_MEMORY_USED_RATIO = 0.85
     }
 }

@@ -35,7 +35,7 @@ class TvFocusScrollTest {
     }
 
     @Test
-    fun `scrolls up when item is above safe zone`() {
+    fun `preferCenter nudges scroll when visible field sits high in viewport with large offset`() {
         val result = calculateFocusScrollTarget(
             currentScroll = 800,
             maxScroll = 2000,
@@ -45,7 +45,35 @@ class TvFocusScrollTest {
             safeZonePx = 80f,
             preferCenter = true
         )
-        assertEquals(0, result)
+        assertEquals(575, result)
+    }
+
+    @Test
+    fun `returns null for visible field in safe zone even with large scroll offset`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 800,
+            maxScroll = 2000,
+            viewportHeight = 600,
+            itemTop = 200f,
+            itemBottom = 250f,
+            safeZonePx = 80f,
+            preferCenter = true
+        )
+        assertNull(result)
+    }
+
+    @Test
+    fun `scrolls up when item is above safe zone`() {
+        val result = calculateFocusScrollTarget(
+            currentScroll = 800,
+            maxScroll = 2000,
+            viewportHeight = 600,
+            itemTop = -120f,
+            itemBottom = -70f,
+            safeZonePx = 80f,
+            preferCenter = true
+        )
+        assertEquals(405, result)
     }
 
     @Test
