@@ -1,6 +1,7 @@
 package com.grid.tv.player
 
 import android.content.Context
+import android.os.Looper
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -208,8 +209,10 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun setMiniAudioEnabled(enabled: Boolean) {
-        miniAudioEnabled = enabled
-        if (mode == Mode.MINI) applyVolume()
+        runOnPlayerThread {
+            miniAudioEnabled = enabled
+            if (mode == Mode.MINI) applyVolumeNow()
+        }
     }
 
     fun setAutoReconnectOnDrop(enabled: Boolean) {
@@ -439,16 +442,24 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun setVolumeFade(multiplier: Float) {
-        volumeFadeMultiplier = multiplier.coerceIn(0f, 1f)
-        applyVolume()
+        runOnPlayerThread {
+            volumeFadeMultiplier = multiplier.coerceIn(0f, 1f)
+            applyVolumeNow()
+        }
     }
 
     fun resetVolumeFade() {
-        volumeFadeMultiplier = 1f
-        applyVolume()
+        runOnPlayerThread {
+            volumeFadeMultiplier = 1f
+            applyVolumeNow()
+        }
     }
 
     private fun applyVolume() {
+        runOnPlayerThread { applyVolumeNow() }
+    }
+
+    private fun applyVolumeNow() {
         val exo = player ?: return
         val baseVolume = when (mode) {
             Mode.FULLSCREEN -> 1f
@@ -456,6 +467,14 @@ class LivePlayerManager @Inject constructor(
             Mode.IDLE -> 0f
         }
         exo.volume = baseVolume * volumeFadeMultiplier
+    }
+
+    private fun runOnPlayerThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            monitorScope.launch { block() }
+        }
     }
 
     fun activeChannelId(): Long? = currentChannelId

@@ -399,8 +399,10 @@ class HomeEpgViewModel @Inject constructor(
         _guideFilter.value = sanitizedFilter
         _guideFiltersConfigured.value = settings.guideFiltersConfigured
         _guideSettingsLoaded.value = true
-        livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
-        livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+        withContext(Dispatchers.Main.immediate) {
+            livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+            livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+        }
         guideBootstrapComplete = true
         reloadChannels()
     }
