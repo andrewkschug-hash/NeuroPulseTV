@@ -154,7 +154,11 @@ class SeriesViewModel @Inject constructor(
     fun selectShow(showId: Long, preferredSeason: Int? = null) {
         _selectedShowId.value = showId
         viewModelScope.launch {
-            val loaded = repository.seriesSeasons(showId)
+            val loaded = runCatching { repository.seriesSeasons(showId) }
+                .onFailure { error ->
+                    _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
+                }
+                .getOrDefault(emptyList())
             _seasons.value = loaded.sortedBy { it.number }
             _selectedSeasonNumber.value = preferredSeason?.takeIf { season ->
                 loaded.any { it.number == season }

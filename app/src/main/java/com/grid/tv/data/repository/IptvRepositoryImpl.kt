@@ -2672,21 +2672,25 @@ class IptvRepositoryImpl @Inject constructor(
         seriesShowDao.distinctCategoryIds()
     }
 
-    override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> {
-        val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return emptyList()
+    override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> = withContext(Dispatchers.IO) {
+        val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return@withContext emptyList()
         val playlistId = show.playlistId
         val cacheKey = playlistId to seriesId
-        seriesSeasonsCache[cacheKey]?.let { return it }
-        val playlist = playlistDao.getById(playlistId) ?: return emptyList()
-        val server = playlist.xtreamServerUrl ?: return emptyList()
-        val user = playlist.xtreamUsername ?: return emptyList()
-        val pass = resolveXtreamPassword(playlist) ?: return emptyList()
-        val raw = remoteTextFetcher.fetch(
+        seriesSeasonsCache[cacheKey]?.let { return@withContext it }
+        val playlist = playlistDao.getById(playlistId) ?: return@withContext emptyList()
+        val server = playlist.xtreamServerUrl ?: return@withContext emptyList()
+        val user = playlist.xtreamUsername ?: return@withContext emptyList()
+        val pass = resolveXtreamPassword(playlist) ?: return@withContext emptyList()
+        val raw = remoteTextFetcher.tryFetch(
             buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
         )
+        if (raw == null) {
+            Log.w(VOD_FLOW_TAG, "get_series_info unavailable for seriesId=$seriesId playlist=$playlistId")
+            return@withContext emptyList()
+        }
         val seasons = xtreamParser.parseSeriesInfo(raw, user, pass, server)
         seriesSeasonsCache[cacheKey] = seasons
-        return seasons
+        return@withContext seasons
     }
 
     override suspend fun toggleFavorite(channelId: Long, enabled: Boolean) {

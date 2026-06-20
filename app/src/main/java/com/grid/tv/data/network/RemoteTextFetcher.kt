@@ -46,6 +46,26 @@ class RemoteTextFetcher @Inject constructor(
     suspend fun fetch(rawUrl: String): String = fetchDetailed(rawUrl).body
 
     /**
+     * API fetch that returns null on HTTP/network failure without throwing.
+     * Use for on-demand UI loads (e.g. get_series_info) where a provider 5xx must not crash the app.
+     */
+    suspend fun tryFetch(rawUrl: String): String? = withContext(Dispatchers.IO) {
+        val url = normalizeRemoteUrl(rawUrl)
+        val logTag = if (isVodCatalogUrl(url)) VOD_FLOW_TAG else EPG_FLOW_TAG
+        when (val outcome = executeFetchOutcome(url, selectClient(url), logTag)) {
+            is SimpleFetchOutcome.Ok -> outcome.body
+            is SimpleFetchOutcome.Http -> {
+                logHttpError(logTag, outcome.httpCode, url, outcome.bodyPreview)
+                null
+            }
+            is SimpleFetchOutcome.Network -> {
+                logNetworkError(logTag, url, outcome.error)
+                null
+            }
+        }
+    }
+
+    /**
      * Viewport get_short_epg fetch — returns null on HTTP/network failure without throwing.
      * Uses a short-timeout client so provider 522s cannot block the guide for 20+ seconds.
      */
