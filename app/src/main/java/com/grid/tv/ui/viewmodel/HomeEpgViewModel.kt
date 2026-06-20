@@ -66,7 +66,6 @@ class HomeEpgViewModel @Inject constructor(
     private val channelScanner: ChannelScanner
 ) : ViewModel() {
 
-    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = channelScanner.statuses
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
 
     companion object {
@@ -169,6 +168,22 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
     val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
+
+    /** Only statuses for currently loaded guide rows — avoids recomposing on full 10k scan map updates. */
+    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = combine(
+        channelScanner.statuses,
+        channels
+    ) { allStatuses, visibleChannels ->
+        if (visibleChannels.isEmpty()) {
+            emptyMap()
+        } else {
+            buildMap {
+                visibleChannels.forEach { channel ->
+                    allStatuses[channel.id]?.let { put(channel.id, it) }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _hasMoreChannels = MutableStateFlow(true)
     val hasMoreChannels: StateFlow<Boolean> = _hasMoreChannels.asStateFlow()

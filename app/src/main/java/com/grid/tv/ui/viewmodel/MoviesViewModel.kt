@@ -2,6 +2,7 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.cachedIn
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
@@ -33,7 +34,6 @@ class MoviesViewModel @Inject constructor(
 
     private companion object {
         const val COMPLETION_THRESHOLD = 0.95
-        const val DB_PAGE_SIZE = 60
     }
 
     private val _searchQuery = MutableStateFlow("")
@@ -42,26 +42,25 @@ class MoviesViewModel @Inject constructor(
     private val _selectedCategoryId = MutableStateFlow<String?>(null)
     val selectedCategoryId: StateFlow<String?> = _selectedCategoryId.asStateFlow()
 
-    private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
-    val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()
-
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
-    private var loadedOffset = 0
-    private var endReached = false
-    private val loadedItems = ArrayList<VodItem>()
+    val pagedMovies = combine(
+        repository.vodCatalogRevision(),
+        _searchQuery,
+        _selectedCategoryId
+    ) { _, query, categoryId ->
+        query to categoryId
+    }.flatMapLatest { (query, categoryId) ->
+        repository.vodMoviesPaging(categoryId = categoryId, search = query)
+    }.cachedIn(viewModelScope)
 
     init {
         viewModelScope.launch {
-            combine(
-                repository.vodCatalogRevision(),
-                _searchQuery,
-                _selectedCategoryId
-            ) { _, query, categoryId ->
+            combine(_searchQuery, _selectedCategoryId) { query, categoryId ->
                 query to categoryId
             }.collect { (query, categoryId) ->
-                reloadFiltered(query, categoryId)
+                refreshFilteredCount(query, categoryId)
             }
         }
     }
@@ -93,48 +92,14 @@ class MoviesViewModel @Inject constructor(
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private suspend fun reloadFiltered(query: String, categoryId: String?) {
+    private suspend fun refreshFilteredCount(query: String, categoryId: String?) {
         withContext(Dispatchers.IO) {
-            loadedItems.clear()
-            loadedOffset = 0
-            endReached = false
             _filteredTotalCount.value = repository.vodFilteredCount(categoryId, query)
-            appendNextDbPage(query, categoryId)
         }
     }
-
-    private suspend fun appendNextDbPage(query: String, categoryId: String?) {
-        if (endReached) return
-        val page = repository.vodPage(
-            categoryId = categoryId,
-            search = query,
-            limit = DB_PAGE_SIZE,
-            offset = loadedOffset
-        )
-        if (page.isEmpty()) {
-            endReached = true
-            return
-        }
-        loadedItems.addAll(page)
-        loadedOffset += page.size
-        if (page.size < DB_PAGE_SIZE) {
-            endReached = true
-        }
-        _pagedCards.value = loadedItems.map { it.toGridCardModel() }
-    }
-
-    fun loadNextPage() {
-        if (endReached) return
-        viewModelScope.launch(Dispatchers.IO) {
-            appendNextDbPage(_searchQuery.value, _selectedCategoryId.value)
-        }
-    }
-
-    fun findMovie(playlistId: Long, streamId: Long): VodItem? =
-        loadedItems.find { it.playlistId == playlistId && it.streamId == streamId }
 
     suspend fun resolveMovie(playlistId: Long, streamId: Long): VodItem? =
-        findMovie(playlistId, streamId) ?: repository.findVodStream(playlistId, streamId)
+        repository.findVodStream(playlistId, streamId)
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -155,19 +120,22 @@ class MoviesViewModel @Inject constructor(
         }
     }
 
-    fun progressFraction(card: VodGridCardModel, progressByStreamId: Map<Long, Long>): Float? {
-        val item = findMovie(card.playlistId, card.streamId) ?: return null
+    fun progressFraction(item: VodItem, progressByStreamId: Map<Long, Long>): Float? {
         val durationMs = parseVodDurationMs(item.duration) ?: return null
         val progressMs = progressByStreamId[item.streamId] ?: return null
         if (durationMs <= 0L) return null
         return (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     }
 
-    suspend fun shouldResume(card: VodGridCardModel, progressByStreamId: Map<Long, Long>): Boolean {
-        val item = resolveMovie(card.playlistId, card.streamId) ?: return false
+    suspend fun shouldResume(item: VodItem, progressByStreamId: Map<Long, Long>): Boolean {
         val progressMs = progressByStreamId[item.streamId] ?: return false
         if (progressMs <= 5_000L) return false
         val durationMs = parseVodDurationMs(item.duration) ?: return progressMs > 5_000L
         return progressMs.toDouble() / durationMs < COMPLETION_THRESHOLD
+    }
+
+    suspend fun shouldResume(card: VodGridCardModel, progressByStreamId: Map<Long, Long>): Boolean {
+        val item = resolveMovie(card.playlistId, card.streamId) ?: return false
+        return shouldResume(item, progressByStreamId)
     }
 }

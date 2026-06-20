@@ -1,5 +1,6 @@
 package com.grid.tv.data.db.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -119,4 +120,14 @@ interface VodStreamDao {
         """
     )
     suspend fun samplePage(limit: Int, offset: Int): List<VodStreamEntity>
+
+    @Query(
+        """
+        SELECT * FROM vod_streams
+        WHERE (:categoryId IS NULL OR categoryId = :categoryId)
+          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+        ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
+        """
+    )
+    fun vodPagingSource(categoryId: String?, search: String): PagingSource<Int, VodStreamEntity>
 }

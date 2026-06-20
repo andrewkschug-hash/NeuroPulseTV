@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.VodCatalogEmptyReason
 import com.grid.tv.domain.model.VodPlaybackHelper
@@ -29,7 +30,6 @@ import com.grid.tv.domain.model.vodEmptyTitle
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodEmptyState
-import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.netflixMovieBrowseRows
 import com.grid.tv.ui.component.NetflixCategoryRow
 import com.grid.tv.ui.component.movieMetaSubtitle
@@ -50,7 +50,7 @@ fun MoviesBrowserScreen(
     onMovieBrowse: (com.grid.tv.domain.model.VodItem) -> Unit = {},
     viewModel: MoviesViewModel = hiltViewModel()
 ) {
-    val pagedCards by viewModel.pagedCards.collectAsStateWithLifecycle()
+    val moviePagingItems = viewModel.pagedMovies.collectAsLazyPagingItems()
     val catalogTotalCount by viewModel.catalogTotalCount.collectAsStateWithLifecycle()
     val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
     val browseRows by viewModel.browseRows.collectAsStateWithLifecycle()
@@ -75,22 +75,21 @@ fun MoviesBrowserScreen(
         searchQuery = activeSearch
     )
 
-    LaunchedEffect(emptyReason, pagedCards.size, filteredTotalCount, catalogTotalCount, selectedCategoryId, moviesLoading, catalogProgress.moviesPhaseFinished) {
+    LaunchedEffect(emptyReason, moviePagingItems.itemCount, filteredTotalCount, catalogTotalCount, selectedCategoryId, moviesLoading, catalogProgress.moviesPhaseFinished) {
         Log.i(
             "VodCatalogPipeline",
-            "Movies empty-state: reason=$emptyReason filter=Movies paged=${pagedCards.size} " +
+            "Movies empty-state: reason=$emptyReason filter=Movies paged=${moviePagingItems.itemCount} " +
                 "filtered=$filteredTotalCount catalog=$catalogTotalCount category=$selectedCategoryId " +
                 "loading=$moviesLoading phaseFinished=${catalogProgress.moviesPhaseFinished}"
         )
     }
 
-    fun playFromCard(card: com.grid.tv.ui.component.VodGridCardModel) {
-        val movie = viewModel.findMovie(card.playlistId, card.streamId) ?: return
+    fun playFromMovie(movie: com.grid.tv.domain.model.VodItem) {
         scope.launch {
             onMovieBrowse(movie)
-            val resume = viewModel.shouldResume(card, progress)
+            val resume = viewModel.shouldResume(movie, progress)
             VodPlaybackHelper.stageMovie(movie)
-            onPlayMovie(card.title, card.streamUrl, resume)
+            onPlayMovie(movie.title, movie.streamUrl, resume)
         }
     }
 
@@ -136,9 +135,7 @@ fun MoviesBrowserScreen(
 
         when {
             activeSearch.isNotBlank() -> {
-                val movies = pagedCards.mapNotNull { card ->
-                    viewModel.findMovie(card.playlistId, card.streamId)
-                }
+                val movies = moviePagingItems.itemSnapshotList.items
                 if (movies.isEmpty() && catalogProgress.moviesPhaseFinished && !moviesLoading) {
                     VodEmptyState(
                         title = emptyReason.vodEmptyTitle(isMovies = true),
@@ -151,23 +148,7 @@ fun MoviesBrowserScreen(
                             progressByStreamId = progress,
                             posterUrlFor = { it.posterUrl },
                             metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
-                            onPlayMovie = { movie ->
-                                onMovieBrowse(movie)
-                                scope.launch {
-                                    val card = com.grid.tv.ui.component.VodGridCardModel(
-                                        key = "${movie.playlistId}_${movie.streamId}",
-                                        title = movie.title,
-                                        group = movie.categoryId,
-                                        posterUrl = movie.posterUrl,
-                                        streamUrl = movie.streamUrl,
-                                        streamId = movie.streamId,
-                                        playlistId = movie.playlistId
-                                    )
-                                    val resume = viewModel.shouldResume(card, progress)
-                                    VodPlaybackHelper.stageMovie(movie)
-                                    onPlayMovie(movie.title, movie.streamUrl, resume)
-                                }
-                            }
+                            onPlayMovie = { movie -> playFromMovie(movie) }
                         )
                     }
                 }
@@ -192,23 +173,7 @@ fun MoviesBrowserScreen(
                         progressByStreamId = progress,
                         posterUrlFor = { it.posterUrl },
                         metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
-                        onPlayMovie = { movie ->
-                            onMovieBrowse(movie)
-                            scope.launch {
-                                val card = com.grid.tv.ui.component.VodGridCardModel(
-                                    key = "${movie.playlistId}_${movie.streamId}",
-                                    title = movie.title,
-                                    group = movie.categoryId,
-                                    posterUrl = movie.posterUrl,
-                                    streamUrl = movie.streamUrl,
-                                    streamId = movie.streamId,
-                                    playlistId = movie.playlistId
-                                )
-                                val resume = viewModel.shouldResume(card, progress)
-                                VodPlaybackHelper.stageMovie(movie)
-                                onPlayMovie(movie.title, movie.streamUrl, resume)
-                            }
-                        }
+                        onPlayMovie = { movie -> playFromMovie(movie) }
                     )
                 }
             }

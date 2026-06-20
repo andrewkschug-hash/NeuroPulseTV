@@ -17,6 +17,7 @@ import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgJobCoordinator
+import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,6 +51,7 @@ class ChannelScanner @Inject constructor(
     private val epgJobCoordinator: EpgJobCoordinator,
     private val hostFailureTracker: HostFailureTracker,
     private val epgDownloadTracker: EpgDownloadTracker,
+    private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val scanMetrics: ScanMetricsLogger
 ) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -88,10 +91,44 @@ class ChannelScanner @Inject constructor(
 
     private var scanCycleCount = 0
 
+    private var publishJob: Job? = null
+
+    @Volatile
+    private var maintenanceScanUnlocked = false
+
     init {
-        scope.launch { runSafely("hydrate") { hydrateFromDatabase() } }
         scope.launch { refreshSettingsLoop() }
-        scope.launch { scanSchedulerLoop() }
+        scope.launch {
+            awaitMaintenanceScanWindow()
+            runSafely("hydrate") { hydrateFromDatabase() }
+        }
+        scope.launch {
+            awaitMaintenanceScanWindow()
+            scanSchedulerLoop()
+        }
+    }
+
+    private suspend fun awaitMaintenanceScanWindow() {
+        delay(BOOT_MAINTENANCE_MIN_DELAY_MS)
+        while (isStartupBusy()) {
+            delay(MAINTENANCE_IDLE_POLL_MS)
+        }
+        maintenanceScanUnlocked = true
+        android.util.Log.i(
+            TAG,
+            "Maintenance scan unlocked after ${BOOT_MAINTENANCE_MIN_DELAY_MS}ms minimum delay " +
+                "and idle window (no import, no EPG download)"
+        )
+    }
+
+    private fun isStartupBusy(): Boolean =
+        playlistImportCoordinator.isImportActive() || epgDownloadTracker.isInProgress()
+
+    private fun unlockMaintenanceScan(reason: String) {
+        if (!maintenanceScanUnlocked) {
+            maintenanceScanUnlocked = true
+            android.util.Log.i(TAG, "Maintenance scan unlocked early: $reason")
+        }
     }
 
     fun setAppInForeground(visible: Boolean) {
@@ -108,10 +145,12 @@ class ChannelScanner @Inject constructor(
     }
 
     fun scanNow() {
+        unlockMaintenanceScan("manual scanNow")
         forceFullScan = true
     }
 
     override fun beginPostImportPriorityWorkflow() {
+        unlockMaintenanceScan("post-import priority validation")
         scope.launch {
             runSafely("postImportPriority") {
                 hostFailureTracker.resetSession()
@@ -211,7 +250,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun hydrateFromDatabase() {
-        val rows = channelScanDao.all()
+        val rows = channelScanDao.recentLimited(ChannelScanStatusCache.MAX_ENTRIES)
         if (rows.isEmpty()) return
         val loaded = rows.associate { row ->
             row.channelId to ChannelScanSnapshot(
@@ -220,8 +259,9 @@ class ChannelScanner @Inject constructor(
             )
         }
         statusCache.replaceAll(loaded)
+        channelScanDao.deleteOrphans()
         maybeEvictStatuses(includeOrphanCheck = true)
-        publishStatuses()
+        publishStatusesNow()
         refreshRuntimeCounts()
         _runtime.update { it.copy(lastFullScanAt = repository.lastFullScanAt()) }
     }
@@ -256,12 +296,14 @@ class ChannelScanner @Inject constructor(
         while (true) {
             val ok = runSafely("scanScheduler") {
                 if (
+                    maintenanceScanUnlocked &&
                     settings.autoScanEnabled &&
                     appInForeground &&
                     !priorityValidationRunning.get() &&
                     !isMeteredBlocked() &&
                     !isLowOnMemory() &&
-                    !epgDownloadTracker.isInProgress()
+                    !epgDownloadTracker.isInProgress() &&
+                    !playlistImportCoordinator.isImportActive()
                 ) {
                     runScanCycle()
                 }
@@ -375,7 +417,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun markChecking(channelId: Long) {
-        putStatus(
+        statusCache.put(
             channelId,
             ChannelScanSnapshot(
                 status = ChannelScanStatus.CHECKING,
@@ -386,26 +428,53 @@ class ChannelScanner @Inject constructor(
 
     private fun putStatus(channelId: Long, snapshot: ChannelScanSnapshot) {
         statusCache.put(channelId, snapshot)
-        publishStatuses()
+        if (snapshot.status != ChannelScanStatus.CHECKING) {
+            schedulePublishStatuses()
+        }
     }
 
-    private fun publishStatuses() {
+    private fun schedulePublishStatuses() {
+        publishJob?.cancel()
+        publishJob = scope.launch {
+            delay(PUBLISH_DEBOUNCE_MS)
+            _statuses.value = statusCache.snapshot()
+        }
+    }
+
+    private fun publishStatusesNow() {
+        publishJob?.cancel()
         _statuses.value = statusCache.snapshot()
     }
 
     private suspend fun maybeEvictStatuses(includeOrphanCheck: Boolean) {
-        val validIds = if (includeOrphanCheck) channelDao.allChannelIds().toSet() else null
-        val removed = statusCache.evict(
+        var removed = statusCache.evict(
             maxAgeMs = ChannelScanStatusCache.MAX_AGE_MS,
-            validChannelIds = validIds
+            validChannelIds = null
         )
+        if (includeOrphanCheck) {
+            removed += channelScanDao.deleteOrphans()
+            removed += evictOrphanCacheEntries()
+        }
         if (removed > 0) {
             android.util.Log.i(
                 TAG,
                 "Evicted $removed scan status entries (cacheSize=${statusCache.size()}, orphanCheck=$includeOrphanCheck)"
             )
-            publishStatuses()
+            publishStatusesNow()
         }
+    }
+
+    private suspend fun evictOrphanCacheEntries(): Int {
+        val keys = statusCache.keySet()
+        if (keys.isEmpty()) return 0
+        var removed = 0
+        keys.chunked(ORPHAN_CHECK_BATCH).forEach { batch ->
+            val existing = channelDao.filterExistingIds(batch).toSet()
+            batch.filter { it !in existing }.forEach { orphanId ->
+                if (statusCache.remove(orphanId)) removed++
+            }
+        }
+        return removed
     }
 
     private suspend fun persistSnapshot(channelId: Long, snapshot: ChannelScanSnapshot) {
@@ -440,7 +509,7 @@ class ChannelScanner @Inject constructor(
             ChannelScanStatus.UNKNOWN -> 0L
             ChannelScanStatus.CHECKING -> return false
         }
-        return now - last >= interval
+        return now - last >= interval.coerceAtLeast(VERIFIED_TTL_MS)
     }
 
     private fun isMeteredBlocked(): Boolean {
@@ -498,5 +567,11 @@ class ChannelScanner @Inject constructor(
         private const val VALIDATION_POLL_MS = 500L
         private const val LOW_MEMORY_USED_RATIO = 0.85
         private const val EVICT_EVERY_N_CYCLES = 10
+        private const val PUBLISH_DEBOUNCE_MS = 400L
+        private const val ORPHAN_CHECK_BATCH = 500
+        private const val BOOT_MAINTENANCE_MIN_DELAY_MS = 45_000L
+        private const val MAINTENANCE_IDLE_POLL_MS = 5_000L
+        /** Minimum time between stream probes once a channel has been verified. */
+        private const val VERIFIED_TTL_MS = 12L * 60L * 60L * 1000L
     }
 }

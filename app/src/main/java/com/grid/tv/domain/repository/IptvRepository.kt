@@ -23,6 +23,7 @@ import com.grid.tv.domain.model.XtreamAccountInfo
 import kotlinx.coroutines.flow.Flow
 import android.content.ContentResolver
 import android.net.Uri
+import androidx.paging.PagingData
 import java.io.File
 
 interface IptvRepository {
@@ -110,6 +111,7 @@ interface IptvRepository {
         limit: Int,
         offset: Int
     ): List<VodItem>
+    fun vodMoviesPaging(categoryId: String? = null, search: String = ""): Flow<PagingData<VodItem>>
     suspend fun vodFilteredCount(categoryId: String? = null, search: String = ""): Int
     suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
     suspend fun vodRecent(limit: Int): List<VodItem>
@@ -157,6 +159,9 @@ interface IptvRepository {
     suspend fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File): String
 
     suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger)
+
+    /** Loads VOD rows from local DB and warms the first channel page — no network. */
+    suspend fun warmLocalUiCache()
 
     suspend fun refreshVodSeriesCatalog(
         trigger: VodRefreshTrigger = VodRefreshTrigger.UNKNOWN,

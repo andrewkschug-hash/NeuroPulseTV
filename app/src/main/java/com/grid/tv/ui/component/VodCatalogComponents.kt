@@ -523,7 +523,7 @@ fun VodHeroSection(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(480.dp)
+            .height(320.dp)
     ) {
         if (!backdropUrl.isNullOrBlank()) {
             AsyncImage(
@@ -563,14 +563,14 @@ fun VodHeroSection(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 48.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = 56.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = "FEATURED",
                 color = VodNetflixColors.Accent,
                 fontFamily = DmSansFamily,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.2.sp
             )
@@ -578,9 +578,9 @@ fun VodHeroSection(
                 text = displayTitle,
                 color = VodNetflixColors.TextPrimary,
                 fontFamily = DmSansFamily,
-                fontSize = 40.sp,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
@@ -619,32 +619,16 @@ fun VodHeroSection(
                 }
             }
 
-            if (genres.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    genres.forEach { genre ->
-                        Text(
-                            text = genre,
-                            color = VodNetflixColors.TextPrimary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
             if (overview.isNotBlank()) {
                 Text(
                     text = overview,
                     color = VodNetflixColors.TextSecondary,
                     fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    maxLines = 2,
+                    fontSize = 13.sp,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp,
-                    modifier = Modifier.fillMaxWidth(0.55f)
+                    lineHeight = 18.sp,
+                    modifier = Modifier.fillMaxWidth(0.5f)
                 )
             }
 
@@ -703,19 +687,16 @@ fun VodHeroSection(
 
             if (carouselSize > 1) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     repeat(carouselSize) { index ->
                         Box(
                             modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .size(if (index == carouselIndex) 8.dp else 6.dp)
+                                .size(if (index == carouselIndex) 6.dp else 4.dp)
                                 .background(
-                                    if (index == carouselIndex) Color.White else Color.White.copy(alpha = 0.35f),
+                                    if (index == carouselIndex) Color.White else Color.White.copy(alpha = 0.3f),
                                     CircleShape
                                 )
                         )

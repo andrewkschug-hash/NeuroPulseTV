@@ -2,6 +2,7 @@ package com.grid.tv.data.db
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
 
 /**
  * Thread-safe lazy holder so Room opens on a background thread when prewarmed at startup,
@@ -27,6 +28,7 @@ internal object AppDatabaseHolder {
 
     private fun buildDatabase(context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "streamflow.db")
+            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .addMigrations(DbMigrations.MIGRATION_2_3)
             .addMigrations(DbMigrations.MIGRATION_3_4)
             .addMigrations(DbMigrations.MIGRATION_4_5)

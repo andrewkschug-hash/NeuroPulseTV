@@ -7,7 +7,7 @@ object VodNetflixColors {
     val TextPrimary = Color.White
     val TextSecondary = Color.White.copy(alpha = 0.72f)
     val Accent = Color(0xFFE50914)
-    val FocusBorder = Color.White
+    val FocusBorder = Accent
     val CardPlaceholder = Color(0xFF141414)
     val HeroGradientEnd = Color(0xFF000000)
 }

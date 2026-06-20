@@ -2,6 +2,7 @@ package com.grid.tv.data.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import com.grid.tv.data.db.dao.ContinueWatchingDao
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
@@ -164,4 +165,41 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun vodStreamDao(): VodStreamDao
     abstract fun vodCategoryDao(): VodCategoryDao
     abstract fun seriesShowDao(): SeriesShowDao
+
+    /** Single transaction for VOD playlist refresh — avoids per-batch WAL fsync churn. */
+    @Transaction
+    open suspend fun replaceVodStreamsForPlaylist(playlistId: Long, onInsert: suspend () -> Unit) {
+        vodStreamDao().clearByPlaylist(playlistId)
+        onInsert()
+    }
+
+    /** Single transaction for series playlist refresh. */
+    @Transaction
+    open suspend fun replaceSeriesShowsForPlaylist(playlistId: Long, onInsert: suspend () -> Unit) {
+        seriesShowDao().clearByPlaylist(playlistId)
+        onInsert()
+    }
+
+    /** Single transaction for EPG channel + programme bulk import per playlist. */
+    @Transaction
+    open suspend fun importEpgForPlaylist(
+        playlistId: Long,
+        sourceKey: String,
+        sourceChannels: List<EpgSourceChannelEntity>,
+        programs: List<ProgramEntity>,
+        playlist: PlaylistEntity,
+        refreshedAt: Long
+    ): Int {
+        var resetCount = 0
+        if (sourceChannels.isNotEmpty()) {
+            epgSourceChannelDao().clearBySource(sourceKey)
+            epgSourceChannelDao().insertAll(sourceChannels)
+            resetCount = channelDao().markUnlinkedEpgIdsUnresolved(playlistId, sourceKey)
+        }
+        if (programs.isNotEmpty()) {
+            programDao().insertAll(programs)
+            playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))
+        }
+        return resetCount
+    }
 }

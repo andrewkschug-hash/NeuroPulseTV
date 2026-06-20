@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.repository.ContinueWatchingRepository
+import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
+import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.buildVodWallRows
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
@@ -83,6 +86,13 @@ class VodHubViewModel @Inject constructor(
 
     private val _heroIndex = MutableStateFlow(0)
     val heroIndex: StateFlow<Int> = _heroIndex.asStateFlow()
+
+    private val _contentFilter = MutableStateFlow(VodContentFilter.ALL)
+    val contentFilter: StateFlow<VodContentFilter> = _contentFilter.asStateFlow()
+
+    fun setContentFilter(filter: VodContentFilter) {
+        _contentFilter.value = filter
+    }
 
     val heroMovie: StateFlow<VodItem?> =
         combine(featuredCarousel, _heroIndex) { carousel, index ->

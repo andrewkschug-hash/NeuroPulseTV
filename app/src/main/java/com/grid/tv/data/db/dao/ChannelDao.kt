@@ -147,8 +147,8 @@ interface ChannelDao {
     @Query("SELECT COUNT(*) FROM channels")
     suspend fun countTotal(): Int
 
-    @Query("SELECT id FROM channels")
-    suspend fun allChannelIds(): List<Long>
+    @Query("SELECT id FROM channels WHERE id IN (:ids)")
+    suspend fun filterExistingIds(ids: List<Long>): List<Long>
 
     @Query("SELECT COUNT(*) FROM channels WHERE epgResolutionStatus = :status")
     suspend fun countByStatus(status: String): Int

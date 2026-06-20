@@ -27,9 +27,10 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        applicationScope.launch(Dispatchers.IO) {
+        // Start Room open immediately on a background thread — do not wait for the coroutine dispatcher.
+        Thread({
             runDeferredStartup()
-        }
+        }, "app-deferred-startup").start()
         Coil.setImageLoader(
             ImageLoader.Builder(this)
                 .memoryCache {
@@ -47,17 +48,18 @@ class StreamFlowApplication : Application(), Configuration.Provider {
     }
 
     /**
-     * Room and WorkManager init are expensive (WorkDatabase verification alone can take >1s).
+     * Room and WorkManager init are expensive on large databases.
      * Keep them off the main thread; WorkManager uses [workManagerConfiguration] on first access.
      */
     private fun runDeferredStartup() {
         AppDatabaseHolder.prewarm(this)
         Log.i(TAG, "AppDatabase prewarmed on background thread")
-        val scheduler = EntryPointAccessors.fromApplication(this, StartupEntryPoint::class.java)
-            .epgScheduler()
+        val entryPoint = EntryPointAccessors.fromApplication(this, StartupEntryPoint::class.java)
+        entryPoint.startupCoordinator().warmCriticalLocalData()
+        val scheduler = entryPoint.epgScheduler()
         scheduler.scheduleAtLaunch()
         scheduler.scheduleStartupEpg()
-        Log.i(TAG, "EPG workers scheduled on background thread")
+        Log.i(TAG, "Startup tasks scheduled (local UI warm, EPG delayed 5s, scanner deferred)")
     }
 
     override val workManagerConfiguration: Configuration

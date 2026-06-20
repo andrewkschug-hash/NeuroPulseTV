@@ -27,6 +27,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,7 +60,10 @@ import coil.size.Size
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
+import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodWallItem
+import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
 
@@ -97,47 +108,123 @@ fun movieMetaSubtitle(movie: VodItem, rating: String?): String {
 }
 
 @Composable
+fun VodFocusInfoPopup(
+    title: String,
+    rating: String?,
+    meta: String?,
+    overview: String?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .width(PosterWidth + 40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF1A1A1A).copy(alpha = 0.96f))
+            .border(1.dp, VodNetflixColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = title,
+            color = VodNetflixColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        val metaLine = listOfNotNull(
+            rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+            meta?.takeIf { it.isNotBlank() }
+        ).joinToString(" · ")
+        if (metaLine.isNotBlank()) {
+            Text(
+                text = metaLine,
+                color = Color(0xFFFFD54F),
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp
+            )
+        }
+        if (!overview.isNullOrBlank()) {
+            Text(
+                text = overview,
+                color = VodNetflixColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp
+            )
+        }
+    }
+}
+
+@Composable
 fun NetflixPosterCard(
     title: String,
     posterUrl: String?,
     progressFraction: Float?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRating: String? = null,
+    focusMeta: String? = null,
+    focusOverview: String? = null,
+    externallyFocused: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val focused by interactionSource.collectIsFocusedAsState()
+    val interactionFocused by interactionSource.collectIsFocusedAsState()
+    val focused = interactionFocused || externallyFocused
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.1f else 1f,
+        targetValue = if (focused) 1.08f else 1f,
         animationSpec = tween(150),
         label = "posterScale"
     )
     val border = if (focused) {
         ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, VodNetflixColors.FocusBorder)
+                border = androidx.compose.foundation.BorderStroke(3.dp, VodNetflixColors.FocusBorder)
             )
         )
     } else {
         TvFocusDefaults.noBorder()
     }
 
-    Surface(
-        onClick = onClick,
+    Box(
         modifier = modifier
             .width(PosterWidth)
-            .height(PosterHeight)
-            .scale(scale)
-            .zIndex(if (focused) 1f else 0f),
-        interactionSource = interactionSource,
-        shape = ClickableSurfaceDefaults.shape(PosterShape),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = VodNetflixColors.CardPlaceholder,
-            focusedContainerColor = VodNetflixColors.CardPlaceholder
-        ),
-        scale = TvFocusDefaults.NoScale,
-        border = border,
-        glow = TvFocusDefaults.noGlow()
+            .height(PosterHeight + if (focused && !focusOverview.isNullOrBlank()) 72.dp else 0.dp)
     ) {
+        if (focused && (!focusOverview.isNullOrBlank() || !focusRating.isNullOrBlank())) {
+            VodFocusInfoPopup(
+                title = title,
+                rating = focusRating,
+                meta = focusMeta,
+                overview = focusOverview,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-76).dp)
+                    .zIndex(2f)
+            )
+        }
+
+        Surface(
+            onClick = onClick,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .width(PosterWidth)
+                .height(PosterHeight)
+                .scale(scale)
+                .zIndex(if (focused) 1f else 0f),
+            interactionSource = interactionSource,
+            shape = ClickableSurfaceDefaults.shape(PosterShape),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = VodNetflixColors.CardPlaceholder,
+                focusedContainerColor = VodNetflixColors.CardPlaceholder
+            ),
+            scale = TvFocusDefaults.NoScale,
+            border = border,
+            glow = TvFocusDefaults.noGlow()
+        ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (!posterUrl.isNullOrBlank()) {
                 val context = LocalContext.current
@@ -172,48 +259,42 @@ fun NetflixPosterCard(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .height(3.dp)
-                        .background(Color.Black.copy(alpha = 0.5f))
+                        .height(4.dp)
+                        .background(Color.Black.copy(alpha = 0.55f))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fraction)
-                            .height(3.dp)
+                            .height(4.dp)
                             .background(VodNetflixColors.Accent)
                     )
                 }
             }
 
-            AnimatedVisibility(
-                visible = focused,
-                enter = fadeIn(tween(120)),
-                exit = fadeOut(tween(80)),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
+            if (!focused) {
                 Box(
                     modifier = Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.85f)
-                                )
+                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
                             )
                         )
-                        .padding(horizontal = 8.dp, vertical = 10.dp)
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = title,
                         color = VodNetflixColors.TextPrimary,
                         fontFamily = DmSansFamily,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
             }
+        }
         }
     }
 }
@@ -591,6 +672,177 @@ fun LazyListScope.netflixSeriesBrowseRows(
                     onOpenSeries = onOpenSeries,
                     firstItemFocusRequester = if (index == 0) firstRowFocusRequester else null
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun VodContentFilterPanel(
+    selectedFilter: VodContentFilter,
+    focusedFilter: VodContentFilter,
+    panelFocused: Boolean,
+    onFilterSelected: (VodContentFilter) -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    val filters = VodContentFilter.entries
+    Column(
+        modifier = modifier
+            .width(56.dp)
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        filters.forEach { filter ->
+            val selected = filter == selectedFilter
+            val focused = panelFocused && filter == focusedFilter
+            val icon = when (filter) {
+                VodContentFilter.ALL -> "☰"
+                VodContentFilter.MOVIES -> "▣"
+                VodContentFilter.SERIES -> "▤"
+            }
+            val label = when (filter) {
+                VodContentFilter.ALL -> "All"
+                VodContentFilter.MOVIES -> "Movies"
+                VodContentFilter.SERIES -> "Series"
+            }
+            val chipModifier = if (filter == filters.first() && focusRequester != null) {
+                Modifier.focusRequester(focusRequester)
+            } else {
+                Modifier
+            }
+            GridFocusSurface(
+                onClick = { onFilterSelected(filter) },
+                modifier = chipModifier
+                    .size(44.dp)
+                    .then(
+                        if (focused) {
+                            Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
+                        } else if (selected) {
+                            Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        } else {
+                            Modifier
+                        }
+                    ),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) Color(0xFF2A2A2A) else Color(0xFF141414),
+                    focusedContainerColor = Color(0xFF333333)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = icon,
+                        color = if (focused || selected) VodNetflixColors.Accent else VodNetflixColors.TextSecondary,
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = label,
+                        color = if (focused || selected) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 8.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun NetflixContentWallRow(
+    row: VodWallRow,
+    rowIndex: Int,
+    focusedColumn: Int,
+    rowFocused: Boolean,
+    listState: LazyListState,
+    progressByStreamId: Map<Long, Long>,
+    posterUrlForMovie: (VodItem) -> String?,
+    ratingForMovie: (VodItem) -> String?,
+    metaForMovie: (VodItem) -> String?,
+    overviewForMovie: (VodItem) -> String?,
+    overviewForSeries: (SeriesShow) -> String?,
+    onActivateItem: (VodWallItem) -> Unit,
+    modifier: Modifier = Modifier,
+    firstItemFocusRequester: FocusRequester? = null
+) {
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(rowFocused, focusedColumn) {
+        if (rowFocused && focusedColumn in row.items.indices) {
+            listState.animateScrollToItem(focusedColumn.coerceAtLeast(0))
+        }
+    }
+
+    NetflixCategoryRow(title = row.title, modifier = modifier) {
+        LazyRow(
+            state = listState,
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 56.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(row.items.size, key = { row.items[it].key }) { index ->
+                val item = row.items[index]
+                val externallyFocused = rowFocused && index == focusedColumn
+                val itemModifier = when {
+                    index == 0 && firstItemFocusRequester != null -> Modifier.focusRequester(firstItemFocusRequester)
+                    else -> Modifier
+                }
+                when (item) {
+                    is VodWallItem.ContinueItem -> {
+                        val cw = item.item
+                        NetflixPosterCard(
+                            title = cw.title,
+                            posterUrl = cw.posterUrl,
+                            progressFraction = cw.progressFraction.takeIf { it in 0.01f..0.98f },
+                            onClick = { onActivateItem(item) },
+                            focusMeta = formatContinueWatchingSubtitle(cw),
+                            focusOverview = cw.subtitle.ifBlank { "Continue watching" },
+                            externallyFocused = externallyFocused,
+                            modifier = itemModifier
+                        )
+                    }
+                    is VodWallItem.MovieItem -> {
+                        val movie = item.movie
+                        val durationMs = parseVodDurationMs(movie.duration)
+                        val progressMs = progressByStreamId[movie.streamId]
+                        val fraction = if (durationMs != null && progressMs != null && durationMs > 0L) {
+                            (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            null
+                        }
+                        NetflixPosterCard(
+                            title = movie.title,
+                            posterUrl = posterUrlForMovie(movie),
+                            progressFraction = fraction,
+                            onClick = { onActivateItem(item) },
+                            focusRating = ratingForMovie(movie),
+                            focusMeta = metaForMovie(movie),
+                            focusOverview = overviewForMovie(movie) ?: movie.plot,
+                            externallyFocused = externallyFocused,
+                            modifier = itemModifier
+                        )
+                    }
+                    is VodWallItem.SeriesItem -> {
+                        val show = item.show
+                        NetflixPosterCard(
+                            title = show.name,
+                            posterUrl = show.coverUrl,
+                            progressFraction = null,
+                            onClick = { onActivateItem(item) },
+                            focusMeta = "Series",
+                            focusOverview = overviewForSeries(show) ?: show.genre,
+                            externallyFocused = externallyFocused,
+                            modifier = itemModifier
+                        )
+                    }
+                }
             }
         }
     }

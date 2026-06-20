@@ -76,7 +76,7 @@ class EpgJobCoordinator @Inject constructor(
             cancelUniqueWork(IMMEDIATE_REFRESH_WORK, "startup_superseded_by_import")
             return
         }
-        scheduleImmediateRefresh(EpgJobSource.STARTUP)
+        scheduleDelayedRefresh(EpgJobSource.STARTUP, STARTUP_EPG_INITIAL_DELAY_SEC)
     }
 
     /** After playlist import — priority validation complete; supersedes any startup EPG. */
@@ -111,17 +111,28 @@ class EpgJobCoordinator @Inject constructor(
     }
 
     private fun scheduleImmediateRefresh(source: EpgJobSource) {
+        enqueueRefresh(source, initialDelaySec = 0L)
+    }
+
+    private fun scheduleDelayedRefresh(source: EpgJobSource, initialDelaySec: Long) {
+        enqueueRefresh(source, initialDelaySec = initialDelaySec)
+    }
+
+    private fun enqueueRefresh(source: EpgJobSource, initialDelaySec: Long) {
         Log.i(
             TAG,
-            "EPG_JOB_SCHEDULED source=$source work=$IMMEDIATE_REFRESH_WORK policy=REPLACE"
+            "EPG_JOB_SCHEDULED source=$source work=$IMMEDIATE_REFRESH_WORK policy=REPLACE " +
+                "initialDelaySec=$initialDelaySec"
         )
-        val request = OneTimeWorkRequestBuilder<EpgRefreshWorker>()
+        val builder = OneTimeWorkRequestBuilder<EpgRefreshWorker>()
             .setInputData(workDataOf(EpgRefreshWorker.KEY_SOURCE to source.name))
-            .build()
+        if (initialDelaySec > 0L) {
+            builder.setInitialDelay(initialDelaySec, TimeUnit.SECONDS)
+        }
         workManager.enqueueUniqueWork(
             IMMEDIATE_REFRESH_WORK,
             ExistingWorkPolicy.REPLACE,
-            request
+            builder.build()
         )
         logUniqueWorkState(IMMEDIATE_REFRESH_WORK)
     }
@@ -168,5 +179,6 @@ class EpgJobCoordinator @Inject constructor(
         private const val PERIODIC_REFRESH_WORK = "epg_refresh_work"
         private const val PERIODIC_RESOLVER_WORK = "epg_resolver_weekly_work"
         const val RESOLVER_AFTER_REFRESH_WORK = "epg_resolver_after_refresh"
+        private const val STARTUP_EPG_INITIAL_DELAY_SEC = 5L
     }
 }
