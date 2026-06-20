@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -138,7 +139,6 @@ internal fun HomeEpgScreenMainColumn(
     onNavigateRecordings: () -> Unit,
     onNavigateProfile: () -> Unit,
     onNavigateSettings: () -> Unit,
-    upcomingPrograms: List<Program>,
     previewPlayer: androidx.media3.exoplayer.ExoPlayer?,
     previewStreamStatus: StreamPlaybackStatus?,
     previewSurfaceAttached: Boolean,
@@ -232,20 +232,26 @@ internal fun HomeEpgScreenMainColumn(
             )
         }
 
-        if (deps.showPreviewSection) {
+        if (deps.showPreviewSection && deps.previewChannel != null) {
+            val previewChannel = deps.previewChannel
+            val initialPreviewFavorite = if (previewChannel.id < 0) {
+                previewChannel.id in deps.demoFavoriteIds
+            } else {
+                previewChannel.isFavorite
+            }
+            val previewIsFavorite by deps.viewModel
+                .observeChannelFavorite(previewChannel.id)
+                .collectAsStateWithLifecycle(initialValue = initialPreviewFavorite)
             HomeEpgPreviewSection(
-                channel = deps.previewChannel,
+                channel = previewChannel,
                 program = deps.previewProgram,
-                upcomingPrograms = upcomingPrograms,
                 now = now,
                 player = previewPlayer,
                 streamStatus = previewStreamStatus,
                 detailActionIndex = ui.detailActionIndex,
                 previewFocused = ui.focusZone == EpgFocusZone.PREVIEW,
                 attachSurface = previewSurfaceAttached,
-                isFavorite = deps.previewChannel?.let { ch ->
-                    if (ch.id < 0) ch.id in deps.demoFavoriteIds else ch.isFavorite
-                } ?: false,
+                isFavorite = previewIsFavorite,
                 primaryActionLabel = controller.primaryActionLabel(deps.previewChannel, deps.previewProgram),
                 onWatch = {
                     ui.detailActionIndex = 0
@@ -564,7 +570,6 @@ internal fun HomeEpgContinueWatchingRow(
 internal fun HomeEpgPreviewSection(
     channel: Channel?,
     program: Program?,
-    upcomingPrograms: List<Program>,
     now: Long,
     player: androidx.media3.exoplayer.ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
@@ -590,7 +595,6 @@ internal fun HomeEpgPreviewSection(
     EpgPreviewSection(
         channel = ch,
         program = program,
-        upcomingPrograms = upcomingPrograms,
         now = now,
         player = player,
         streamStatus = streamStatus,

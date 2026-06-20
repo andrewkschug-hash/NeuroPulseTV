@@ -502,17 +502,30 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun toggleFavorite(channelId: Long, currentlyFavorite: Boolean) {
-        viewModelScope.launch {
-            if (channelId < 0) {
-                _demoFavoriteIds.value = if (currentlyFavorite) {
-                    _demoFavoriteIds.value - channelId
-                } else {
-                    _demoFavoriteIds.value + channelId
-                }
+        val newState = !currentlyFavorite
+        if (channelId < 0) {
+            _demoFavoriteIds.value = if (currentlyFavorite) {
+                _demoFavoriteIds.value - channelId
             } else {
-                repository.toggleFavorite(channelId, !currentlyFavorite)
+                _demoFavoriteIds.value + channelId
+            }
+        } else {
+            _channels.value = _channels.value.map { channel ->
+                if (channel.id == channelId) channel.copy(isFavorite = newState) else channel
             }
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (channelId >= 0) {
+                repository.toggleFavorite(channelId, newState)
+            }
+        }
+    }
+
+    fun observeChannelFavorite(channelId: Long): kotlinx.coroutines.flow.Flow<Boolean> {
+        if (channelId < 0) {
+            return _demoFavoriteIds.map { channelId in it }
+        }
+        return repository.isFavorite(channelId)
     }
 
     fun createFavoriteGroup(name: String) {

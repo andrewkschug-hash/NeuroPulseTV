@@ -16,8 +16,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
+import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -65,8 +65,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
-import kotlinx.coroutines.delay
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.delay
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -76,6 +78,7 @@ fun DirectPlayerScreen(
     recordingId: Long = 0L,
     recordedAt: Long = 0L,
     resume: Boolean = false,
+    resumePositionMs: Long = 0L,
     onBack: () -> Unit,
     onJumpToLive: (Long) -> Unit = {},
     viewModel: DirectPlayerViewModel = hiltViewModel()
@@ -94,6 +97,51 @@ fun DirectPlayerScreen(
     val streamId = pendingVodMeta.streamId ?: remember(url) {
         Regex("""/(\d+)\.\w+$""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
     }
+    val resumeSeekState = remember(resume, url) { ResumeSeekState() }
+    val immediateResumeMs = remember(resume, resumePositionMs, pendingVodMeta) {
+        if (!resume) {
+            0L
+        } else {
+            when {
+                resumePositionMs > 0L -> resumePositionMs
+                pendingVodMeta.resumePositionMs > 0L -> pendingVodMeta.resumePositionMs
+                else -> 0L
+            }
+        }
+    }
+
+    SideEffect {
+        if (!isRecordedPlayback && !isCatchupPlayback) {
+            viewModel.setVodMetadata(pendingVodMeta)
+        }
+    }
+
+    LaunchedEffect(resume, immediateResumeMs, resumePositionMs, pendingVodMeta, streamId, url) {
+        if (!resume || isRecordedPlayback || isCatchupPlayback) {
+            resumeSeekState.pendingMs = 0L
+            resumeSeekState.applied = true
+            return@LaunchedEffect
+        }
+        if (immediateResumeMs > 0L) {
+            resumeSeekState.pendingMs = immediateResumeMs
+            resumeSeekState.applied = true
+            Log.d(
+                "DirectPlayer",
+                "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY}=$immediateResumeMs " +
+                    "(navigation=$resumePositionMs staged=${pendingVodMeta.resumePositionMs})"
+            )
+            return@LaunchedEffect
+        }
+        resumeSeekState.applied = false
+        val resolved = viewModel.resolveResumePositionMs(
+            streamId = streamId,
+            url = url,
+            resume = true,
+            navigationResumeMs = resumePositionMs,
+            stagedResumeMs = pendingVodMeta.resumePositionMs
+        )
+        resumeSeekState.pendingMs = resolved
+    }
 
     LaunchedEffect(recordingId) {
         if (recordingId > 0L) viewModel.loadRecordedMedia(recordingId)
@@ -107,21 +155,42 @@ fun DirectPlayerScreen(
     var positionMs by remember(url) { mutableLongStateOf(0L) }
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
-    var hasSeekedToResume by remember(recordingId, resume) { mutableStateOf(false) }
+    var hasSeekedToResume by remember(recordingId, resume, url) { mutableStateOf(false) }
     var playbackRetryCount = remember(url) { intArrayOf(0) }
     var playbackError by remember(url) { mutableStateOf<String?>(null) }
     val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
 
-    val player = remember(url) {
+    val player = remember(url, immediateResumeMs) {
+        resumeSeekState.applied = immediateResumeMs > 0L
+        resumeSeekState.pendingMs = immediateResumeMs
         viewModel.createPlayer(context).apply {
-            setMediaItem(MediaItem.fromUri(url))
+            val mediaItem = MediaItem.fromUri(url)
+            if (immediateResumeMs > 0L) {
+                setMediaItem(mediaItem, immediateResumeMs)
+                Log.d(
+                    "DirectPlayer",
+                    "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY} startPosition=$immediateResumeMs"
+                )
+            } else {
+                setMediaItem(mediaItem)
+            }
             prepare()
             playWhenReady = true
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY) {
                         if (durationMs <= 0L) durationMs = duration.coerceAtLeast(0L)
+                    }
+                    if (!isRecordedPlayback && !isCatchupPlayback) {
+                        applyPendingResumeSeek(
+                            player = this@apply,
+                            playbackState = playbackState,
+                            resumeSeekState = resumeSeekState
+                        )
+                        if (resumeSeekState.applied) {
+                            hasSeekedToResume = true
+                        }
                     }
                 }
 
@@ -148,12 +217,6 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(pendingVodMeta, isRecordedPlayback, isCatchupPlayback) {
-        if (!isRecordedPlayback && !isCatchupPlayback) {
-            viewModel.setVodMetadata(pendingVodMeta)
-        }
-    }
-
     LaunchedEffect(player.playbackState, url, isRecordedPlayback, isCatchupPlayback, subtitlesAttached) {
         if (isRecordedPlayback || isCatchupPlayback || subtitlesAttached) return@LaunchedEffect
         if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
@@ -166,12 +229,19 @@ fun DirectPlayerScreen(
         viewModel.applySubtitleStyle(playerViewRef[0], subtitleSettings)
     }
 
-    LaunchedEffect(url, resume, isRecordedPlayback, isCatchupPlayback, streamId, player.playbackState) {
-        if (isRecordedPlayback || isCatchupPlayback || hasSeekedToResume) return@LaunchedEffect
-        if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
-        val startMs = viewModel.resumePositionMs(streamId, url, resume)
-        if (startMs > 0L) player.seekTo(startMs)
-        hasSeekedToResume = true
+    LaunchedEffect(
+        resumeSeekState.pendingMs,
+        player.playbackState,
+        resume,
+        isRecordedPlayback,
+        isCatchupPlayback
+    ) {
+        if (isRecordedPlayback || isCatchupPlayback || !resume || resumeSeekState.applied) return@LaunchedEffect
+        if (resumeSeekState.pendingMs <= 0L) return@LaunchedEffect
+        applyPendingResumeSeek(player, player.playbackState, resumeSeekState)
+        if (resumeSeekState.applied) {
+            hasSeekedToResume = true
+        }
     }
 
     LaunchedEffect(isRecordedPlayback, isCatchupPlayback) {
@@ -179,16 +249,20 @@ fun DirectPlayerScreen(
         viewModel.pipController.setPlaybackActive(true)
     }
 
-    LaunchedEffect(recordedMedia, resume, isRecordedPlayback) {
+    LaunchedEffect(recordedMedia, resume, isRecordedPlayback, player.playbackState) {
         if (!isRecordedPlayback || hasSeekedToResume) return@LaunchedEffect
         val media = recordedMedia ?: return@LaunchedEffect
-        if (player.playbackState == Player.STATE_READY) {
-            val startMs = if (resume && media.playbackPositionMs > 30_000) {
-                media.playbackPositionMs
-            } else {
-                0L
-            }
-            if (startMs > 0L) player.seekTo(startMs)
+        val startMs = if (resume && media.playbackPositionMs > 30_000) {
+            media.playbackPositionMs
+        } else {
+            0L
+        }
+        if (startMs <= 0L) {
+            hasSeekedToResume = true
+            return@LaunchedEffect
+        }
+        if (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING) {
+            player.seekTo(startMs)
             hasSeekedToResume = true
         }
     }
@@ -700,4 +774,27 @@ fun DirectPlayerScreen(
             )
         }
     }
+}
+
+private class ResumeSeekState {
+    var pendingMs: Long = 0L
+    var applied: Boolean = false
+}
+
+private fun applyPendingResumeSeek(
+    player: ExoPlayer,
+    playbackState: Int,
+    resumeSeekState: ResumeSeekState
+) {
+    if (resumeSeekState.applied || resumeSeekState.pendingMs <= 0L) return
+    val canSeek = playbackState == Player.STATE_READY ||
+        (playbackState == Player.STATE_BUFFERING && player.currentPosition <= 1_000L)
+    if (!canSeek) return
+    player.seekTo(resumeSeekState.pendingMs)
+    resumeSeekState.applied = true
+    Log.d(
+        "DirectPlayer",
+        "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY} seek applied at ${resumeSeekState.pendingMs}ms " +
+            "(state=$playbackState)"
+    )
 }

@@ -33,6 +33,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
+import com.grid.tv.R
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Path
@@ -46,6 +48,7 @@ import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
+import androidx.compose.material3.Icon
 import coil.compose.AsyncImage
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.player.StreamPlaybackStatus
@@ -802,12 +805,11 @@ fun EpgDetailPanel(
                 onClick = onWatch,
                 compact = true
             )
-            EpgActionButton(
-                label = if (isFavorite) "★ Favourite" else "☆ Favourite",
+            EpgFavoriteActionButton(
+                isFavorite = isFavorite,
                 isFocused = detailActionFocused == 1,
                 onClick = onFavorite,
-                compact = true,
-                labelColor = if (isFavorite) EpgColors.FavoriteStar else null
+                compact = true
             )
             EpgActionButton(
                 label = "⏺ Record",
@@ -863,6 +865,59 @@ internal fun EpgActionButton(
                 fontSize = if (compact) 11.sp else 13.sp,
                 fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
                 color = labelColor ?: EpgColors.TextPrimary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+private val FavoriteGold = Color(0xFFFFD700)
+
+@Composable
+internal fun EpgFavoriteActionButton(
+    isFavorite: Boolean,
+    isFocused: Boolean,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(6.dp)
+    val starTint by animateColorAsState(
+        targetValue = if (isFavorite) FavoriteGold else EpgColors.TextSecondary,
+        animationSpec = tween(150),
+        label = "favoriteStarTint"
+    )
+    GridFocusSurface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = EpgColors.GridBg,
+            focusedContainerColor = EpgColors.GridBg
+        ),
+        modifier = modifier
+            .height(if (compact) 32.dp else 36.dp)
+            .tvFocusBorder(focused = isFocused, shape = shape)
+            .focusProperties { canFocus = false }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = if (compact) 6.dp else 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                painter = painterResource(
+                    if (isFavorite) R.drawable.ic_star_filled else R.drawable.ic_star_border
+                ),
+                contentDescription = if (isFavorite) "Remove from favourites" else "Add to favourites",
+                tint = starTint,
+                modifier = Modifier.size(if (compact) 14.dp else 16.dp)
+            )
+            Text(
+                text = "Favourite",
+                fontFamily = DmSansFamily,
+                fontSize = if (compact) 11.sp else 13.sp,
+                fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isFavorite) FavoriteGold else EpgColors.TextPrimary,
                 maxLines = 1
             )
         }

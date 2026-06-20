@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,7 +46,6 @@ import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.component.formatEpgTime
 
 private val LiveRed = Color(0xFFEF4444)
-private val LiveGreen = Color(0xFF4ADE80)
 
 fun channelQualityLabel(channel: Channel): String {
     Regex("""\((\d+p)\)""", RegexOption.IGNORE_CASE).find(channel.name)?.groupValues?.get(1)?.let {
@@ -66,7 +64,6 @@ fun channelQualityLabel(channel: Channel): String {
 fun EpgPreviewSection(
     channel: Channel,
     program: Program?,
-    upcomingPrograms: List<Program>,
     now: Long,
     player: ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
@@ -117,7 +114,6 @@ fun EpgPreviewSection(
         EpgPreviewInfoSidebar(
             channel = channel,
             program = program,
-            upcomingPrograms = upcomingPrograms,
             now = now,
             streamStatus = streamStatus,
             modifier = Modifier.width(EpgLayout.PreviewInfoWidth)
@@ -306,12 +302,11 @@ private fun EpgPreviewPlayerPane(
                         onClick = onWatch,
                         compact = true
                     )
-                    EpgActionButton(
-                        label = if (isFavorite) "★ Favourite" else "☆ Favourite",
+                    EpgFavoriteActionButton(
+                        isFavorite = isFavorite,
                         isFocused = detailActionFocused == 1,
                         onClick = onFavorite,
-                        compact = true,
-                        labelColor = if (isFavorite) EpgColors.FavoriteStar else null
+                        compact = true
                     )
                     EpgActionButton(
                         label = "⏺ Record",
@@ -329,7 +324,6 @@ private fun EpgPreviewPlayerPane(
 private fun EpgPreviewInfoSidebar(
     channel: Channel,
     program: Program?,
-    upcomingPrograms: List<Program>,
     now: Long,
     streamStatus: StreamPlaybackStatus?,
     modifier: Modifier = Modifier
@@ -345,44 +339,20 @@ private fun EpgPreviewInfoSidebar(
             .background(Color(0xFF12121C))
             .border(1.dp, EpgColors.BorderSubtle, shape)
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         EpgInfoField(label = "CHANNEL", value = channel.name)
         EpgInfoField(label = "QUALITY", value = "$quality HD")
-        EpgInfoField(
-            label = "STATUS",
-            value = if (isLiveNow) "● Live now" else "Scheduled",
-            valueColor = if (isLiveNow) LiveGreen else EpgColors.TextSecondary
-        )
+        if (!isLiveNow) {
+            EpgInfoField(
+                label = "STATUS",
+                value = "Scheduled",
+                valueColor = EpgColors.TextSecondary
+            )
+        }
         streamStatus?.let { status ->
             if (status.userLabel().isNotBlank()) {
                 StreamStatusBadge(status = status, compact = true)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Up Next",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.5.sp
-        )
-
-        if (upcomingPrograms.isEmpty()) {
-            repeat(3) { index ->
-                EpgUpNextRow(
-                    time = formatEpgTime(now + (index + 1) * 30 * 60 * 1000L),
-                    title = "No data"
-                )
-            }
-        } else {
-            upcomingPrograms.take(4).forEach { upcoming ->
-                EpgUpNextRow(
-                    time = formatEpgTime(upcoming.startTime),
-                    title = upcoming.title
-                )
             }
         }
     }
@@ -411,32 +381,6 @@ private fun EpgInfoField(
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun EpgUpNextRow(time: String, title: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = time,
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.width(72.dp)
-        )
-        Text(
-            text = title,
-            color = if (title == "No data") EpgColors.TextDimmed else EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
         )
     }
 }

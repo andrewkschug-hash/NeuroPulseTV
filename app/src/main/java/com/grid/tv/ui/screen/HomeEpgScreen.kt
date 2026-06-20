@@ -476,15 +476,6 @@ fun HomeEpgScreen(
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
     val hasContinueWatching = false
 
-    val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
-        val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
-        if (anchor != null) {
-            previewChannelPrograms.filter { it.startTime > anchor.startTime }.take(4)
-        } else {
-            previewChannelPrograms.filter { it.startTime > now }.take(4)
-        }
-    }
-
     LaunchedEffect(liveChannelId, playbackStatus) {
         liveChannelId?.let { viewModel.reportPlaybackHealth(it, playbackStatus) }
     }
@@ -638,7 +629,6 @@ fun HomeEpgScreen(
             onNavigateRecordings = onNavigateRecordings,
             onNavigateProfile = onNavigateProfile,
             onNavigateSettings = onNavigateSettings,
-            upcomingPrograms = upcomingPrograms,
             previewPlayer = previewPlayer,
             previewStreamStatus = previewStreamStatus,
             previewSurfaceAttached = previewSurfaceAttached,

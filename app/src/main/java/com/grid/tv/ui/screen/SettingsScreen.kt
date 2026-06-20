@@ -533,7 +533,17 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(EpgColors.Background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (showManageProfilesOverlay) {
+                        Modifier.focusProperties { canFocus = false }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
             EpgTopBar(
                 now = now,
                 selectedTab = EpgNavTab.Settings,

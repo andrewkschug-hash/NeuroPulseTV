@@ -301,10 +301,8 @@ fun VodHubScreen(
 
     fun resumeItem(item: ContinueWatchingItem) {
         VodPlaybackHelper.stageContinueWatching(item)
-        val resume = item.positionMs > 5_000L &&
-            item.durationMs > 0L &&
-            item.positionMs.toDouble() / item.durationMs.toDouble() < 0.95
-        onPlayUrl(item.title, item.streamUrl, resume)
+        val resumeMs = VodPlaybackHelper.resumePositionFor(item)
+        onPlayUrl(item.title, item.streamUrl, resumeMs > 0L)
     }
 
     fun openMovieDetail(movie: VodItem) {
@@ -331,9 +329,24 @@ fun VodHubScreen(
         playMovie(movie)
     }
 
+    fun openSearchOverlay() {
+        showSearchOverlay = true
+        vodSearchFocused = false
+        topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Vod).coerceAtLeast(0)
+        focusZone = VodFocusZone.SEARCH_OVERLAY
+    }
+
+    fun closeSearchOverlay() {
+        showSearchOverlay = false
+        focusZone = VodFocusZone.TOP_BAR
+        vodSearchFocused = true
+        topBarFocusIndex = -1
+    }
+
     fun activateNavTab(tabItem: EpgNavTab) {
         when (tabItem) {
-            EpgNavTab.Guide, EpgNavTab.Home, EpgNavTab.Search -> onNavigateHome()
+            EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
+            EpgNavTab.Search -> openSearchOverlay()
             EpgNavTab.Vod, EpgNavTab.Movies -> onNavigateVod(0)
             EpgNavTab.Series -> onNavigateVod(2)
             EpgNavTab.Recordings -> onNavigateRecordings()
@@ -373,16 +386,6 @@ fun VodHubScreen(
             else -> Unit
         }
         focusZone = VodFocusZone.CONTENT
-    }
-
-    fun openSearchOverlay() {
-        showSearchOverlay = true
-        vodSearchFocused = false
-    }
-
-    fun closeSearchOverlay() {
-        showSearchOverlay = false
-        focusZone = VodFocusZone.TOP_BAR
     }
 
     fun ratingFor(movie: VodItem): String? =
@@ -763,9 +766,13 @@ fun VodHubScreen(
                 onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
                 onTabSelected = { tabItem ->
-                    focusZone = VodFocusZone.TOP_BAR
-                    topBarFocusIndex = GridNavTabs.indexOf(tabItem).coerceAtLeast(0)
-                    activateNavTab(tabItem)
+                    if (tabItem == EpgNavTab.Search) {
+                        openSearchOverlay()
+                    } else {
+                        focusZone = VodFocusZone.TOP_BAR
+                        topBarFocusIndex = GridNavTabs.indexOf(tabItem).coerceAtLeast(0)
+                        activateNavTab(tabItem)
+                    }
                 },
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
