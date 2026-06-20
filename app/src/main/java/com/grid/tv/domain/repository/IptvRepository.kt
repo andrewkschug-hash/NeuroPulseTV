@@ -115,6 +115,7 @@ interface IptvRepository {
         offset: Int
     ): List<VodItem>
     fun vodMoviesPaging(categoryId: String? = null, search: String = ""): Flow<PagingData<VodItem>>
+    fun seriesShowsPaging(category: String = "All", search: String = ""): Flow<PagingData<SeriesShow>>
     suspend fun vodFilteredCount(categoryId: String? = null, search: String = ""): Int
     suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
     suspend fun vodRecent(limit: Int): List<VodItem>

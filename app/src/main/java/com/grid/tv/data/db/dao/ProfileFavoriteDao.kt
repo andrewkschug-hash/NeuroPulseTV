@@ -42,6 +42,14 @@ interface ProfileFavoriteDao {
     @Query("SELECT channelId FROM profile_favorites WHERE profileId = :profileId")
     suspend fun allChannelIdsForProfile(profileId: Long): List<Long>
 
+    @Query(
+        """
+        SELECT channelId FROM profile_favorites
+        WHERE profileId = :profileId AND channelId IN (:channelIds)
+        """
+    )
+    suspend fun favoriteIdsAmong(profileId: Long, channelIds: List<Long>): List<Long>
+
     @Query("SELECT * FROM profile_favorites WHERE profileId = :profileId")
     suspend fun allForProfile(profileId: Long): List<ProfileFavoriteEntity>
 

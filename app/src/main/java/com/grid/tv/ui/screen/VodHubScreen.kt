@@ -139,7 +139,7 @@ fun VodHubScreen(
     val recommendedForYou by hubViewModel.recommendedForYou.collectAsStateWithLifecycle()
     val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
-    val seriesSearchResults by seriesViewModel.pagedCards.collectAsStateWithLifecycle()
+    val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
     val selectedShowId by seriesViewModel.selectedShowId.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val columnListState = rememberLazyListState()
@@ -641,9 +641,7 @@ fun VodHubScreen(
                     if (searchQuery.isNotBlank()) {
                         item(key = "search_results") {
                             val movies = moviePagingItems.itemSnapshotList.items
-                            val shows = seriesSearchResults.mapNotNull { card ->
-                                seriesViewModel.findShow(card.showId)
-                            }
+                            val shows = seriesPagingItems.itemSnapshotList.items
                             if (movies.isNotEmpty()) {
                                 NetflixCategoryRow(title = "Movies") {
                                     NetflixMovieRow(

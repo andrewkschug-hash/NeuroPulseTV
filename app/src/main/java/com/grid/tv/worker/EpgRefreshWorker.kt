@@ -58,7 +58,7 @@ class EpgRefreshWorker @AssistedInject constructor(
             Log.i(TAG, "EpgRefreshWorker finished OK source=$source")
             Result.success()
         } catch (e: CancellationException) {
-            Log.w(TAG, "EpgRefreshWorker cancelled source=$source", e)
+            Log.i(TAG, "EpgRefreshWorker superseded or stopped source=$source")
             throw e
         } catch (e: Exception) {
             EpgFlowLogger.importFailed(playlistId = -1L, playlistName = "all", url = null, error = e)

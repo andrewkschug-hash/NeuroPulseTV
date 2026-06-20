@@ -17,11 +17,10 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 /**
  * Single entry point for scheduling EPG refresh/resolver work.
- * Ensures only one immediate EPG download runs at a time and import jobs supersede startup jobs.
+ * Uses unique work names with KEEP for startup so cold-start jobs are not cancelled by duplicate enqueues.
  */
 @Singleton
 class EpgJobCoordinator @Inject constructor(
@@ -33,10 +32,9 @@ class EpgJobCoordinator @Inject constructor(
     }
 
     private val importEpgScheduled = AtomicBoolean(false)
-    private val startupEpgSuppressed = AtomicBoolean(false)
 
     fun schedulePeriodicWorkers() {
-        Log.i(TAG, "EPG_JOB_SCHEDULED source=PERIODIC action=register_periodic_workers")
+        Log.i(TAG, "EPG_JOB_SCHEDULED source=PERIODIC action=register_periodic_workers policy=KEEP")
         val refreshRequest = androidx.work.PeriodicWorkRequestBuilder<EpgRefreshWorker>(6, TimeUnit.HOURS)
             .setConstraints(
                 androidx.work.Constraints.Builder()
@@ -47,7 +45,7 @@ class EpgJobCoordinator @Inject constructor(
             .build()
         workManager.enqueueUniquePeriodicWork(
             PERIODIC_REFRESH_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             refreshRequest
         )
 
@@ -60,7 +58,7 @@ class EpgJobCoordinator @Inject constructor(
             .build()
         workManager.enqueueUniquePeriodicWork(
             PERIODIC_RESOLVER_WORK,
-            ExistingPeriodicWorkPolicy.UPDATE,
+            ExistingPeriodicWorkPolicy.KEEP,
             resolverRequest
         )
     }
@@ -68,29 +66,32 @@ class EpgJobCoordinator @Inject constructor(
     /** Cold-start EPG — skipped if an import-triggered job is already queued. */
     fun scheduleStartupEpg() {
         if (importEpgScheduled.get()) {
-            startupEpgSuppressed.set(true)
-            Log.i(
-                TAG,
-                "EPG_JOB_CANCELLED source=STARTUP reason=import_epg_pending"
-            )
-            cancelUniqueWork(IMMEDIATE_REFRESH_WORK, "startup_superseded_by_import")
+            Log.i(TAG, "EPG startup skipped — import EPG already queued")
             return
         }
-        scheduleDelayedRefresh(EpgJobSource.STARTUP, STARTUP_EPG_INITIAL_DELAY_SEC)
+        enqueueRefresh(
+            source = EpgJobSource.STARTUP,
+            initialDelaySec = STARTUP_EPG_INITIAL_DELAY_SEC,
+            policy = ExistingWorkPolicy.KEEP
+        )
     }
 
-    /** After playlist import — priority validation complete; supersedes any startup EPG. */
+    /** After playlist import — supersedes any queued startup EPG refresh. */
     fun scheduleImportEpg() {
         importEpgScheduled.set(true)
-        if (startupEpgSuppressed.compareAndSet(true, false)) {
-            Log.i(TAG, "EPG_JOB_CANCELLED source=STARTUP reason=replaced_by_import")
-        }
-        cancelUniqueWork(IMMEDIATE_REFRESH_WORK, "replaced_by_import")
-        scheduleImmediateRefresh(EpgJobSource.IMPORT)
+        enqueueRefresh(
+            source = EpgJobSource.IMPORT,
+            initialDelaySec = 0L,
+            policy = ExistingWorkPolicy.REPLACE
+        )
     }
 
     fun scheduleManualEpg() {
-        scheduleImmediateRefresh(EpgJobSource.MANUAL)
+        enqueueRefresh(
+            source = EpgJobSource.MANUAL,
+            initialDelaySec = 0L,
+            policy = ExistingWorkPolicy.APPEND_OR_REPLACE
+        )
     }
 
     fun onImportEpgWorkerFinished() {
@@ -98,30 +99,22 @@ class EpgJobCoordinator @Inject constructor(
     }
 
     fun scheduleResolverAfterImport(createdAfter: Long = 0L) {
-        Log.i(TAG, "EPG_JOB_SCHEDULED source=IMPORT action=resolver createdAfter=$createdAfter")
+        Log.i(TAG, "EPG_JOB_SCHEDULED source=IMPORT action=resolver createdAfter=$createdAfter policy=KEEP")
         val request = OneTimeWorkRequestBuilder<EpgResolverWorker>()
             .setInputData(workDataOf(EpgResolverWorker.KEY_CREATED_AFTER to createdAfter))
             .build()
         workManager.enqueueUniqueWork(
             RESOLVER_AFTER_REFRESH_WORK,
-            ExistingWorkPolicy.REPLACE,
+            ExistingWorkPolicy.KEEP,
             request
         )
         logUniqueWorkState(RESOLVER_AFTER_REFRESH_WORK)
     }
 
-    private fun scheduleImmediateRefresh(source: EpgJobSource) {
-        enqueueRefresh(source, initialDelaySec = 0L)
-    }
-
-    private fun scheduleDelayedRefresh(source: EpgJobSource, initialDelaySec: Long) {
-        enqueueRefresh(source, initialDelaySec = initialDelaySec)
-    }
-
-    private fun enqueueRefresh(source: EpgJobSource, initialDelaySec: Long) {
+    private fun enqueueRefresh(source: EpgJobSource, initialDelaySec: Long, policy: ExistingWorkPolicy) {
         Log.i(
             TAG,
-            "EPG_JOB_SCHEDULED source=$source work=$IMMEDIATE_REFRESH_WORK policy=REPLACE " +
+            "EPG_JOB_SCHEDULED source=$source work=$IMMEDIATE_REFRESH_WORK policy=$policy " +
                 "initialDelaySec=$initialDelaySec"
         )
         val builder = OneTimeWorkRequestBuilder<EpgRefreshWorker>()
@@ -131,21 +124,10 @@ class EpgJobCoordinator @Inject constructor(
         }
         workManager.enqueueUniqueWork(
             IMMEDIATE_REFRESH_WORK,
-            ExistingWorkPolicy.REPLACE,
+            policy,
             builder.build()
         )
         logUniqueWorkState(IMMEDIATE_REFRESH_WORK)
-    }
-
-    private fun cancelUniqueWork(uniqueName: String, reason: String) {
-        scope.launch {
-            runCatching {
-                workManager.cancelUniqueWork(uniqueName)
-                Log.i(TAG, "EPG_JOB_CANCELLED work=$uniqueName reason=$reason")
-            }.onFailure {
-                Log.w(TAG, "EPG_JOB_CANCEL_FAILED work=$uniqueName reason=$reason", it)
-            }
-        }
     }
 
     private fun logUniqueWorkState(uniqueWorkName: String) {

@@ -2,6 +2,7 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.cachedIn
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingContentType
@@ -13,9 +14,6 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
-import com.grid.tv.ui.component.VodGridCardModel
-import com.grid.tv.ui.component.parseVodDurationMs
-import com.grid.tv.ui.component.toGridCardModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
@@ -39,36 +37,31 @@ class SeriesViewModel @Inject constructor(
     private val profileDao: ProfileDao
 ) : ViewModel() {
 
-    private companion object {
-        const val DB_PAGE_SIZE = 60
-    }
-
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
-    private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
-    val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()
-
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
-    private val loadedItems = ArrayList<SeriesShow>()
-    private var loadedOffset = 0
-    private var endReached = false
+    val pagedSeries = combine(
+        repository.vodCatalogRevision(),
+        _searchQuery,
+        _selectedCategory
+    ) { _, query, category ->
+        query to category
+    }.flatMapLatest { (query, category) ->
+        repository.seriesShowsPaging(category = category, search = query)
+    }.cachedIn(viewModelScope)
 
     init {
         viewModelScope.launch {
-            combine(
-                repository.vodCatalogRevision(),
-                _searchQuery,
-                _selectedCategory
-            ) { _, query, category ->
+            combine(_searchQuery, _selectedCategory) { query, category ->
                 query to category
             }.collect { (query, category) ->
-                reloadFiltered(query, category)
+                refreshFilteredCount(query, category)
             }
         }
     }
@@ -130,48 +123,14 @@ class SeriesViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private suspend fun reloadFiltered(query: String, category: String) {
+    private suspend fun refreshFilteredCount(query: String, category: String) {
         withContext(Dispatchers.IO) {
-            loadedItems.clear()
-            loadedOffset = 0
-            endReached = false
             _filteredTotalCount.value = repository.seriesFilteredCount(category, query)
-            appendNextDbPage(query, category)
         }
     }
-
-    private suspend fun appendNextDbPage(query: String, category: String) {
-        if (endReached) return
-        val page = repository.seriesPage(
-            category = category,
-            search = query,
-            limit = DB_PAGE_SIZE,
-            offset = loadedOffset
-        )
-        if (page.isEmpty()) {
-            endReached = true
-            return
-        }
-        loadedItems.addAll(page)
-        loadedOffset += page.size
-        if (page.size < DB_PAGE_SIZE) {
-            endReached = true
-        }
-        _pagedCards.value = loadedItems.map { it.toGridCardModel() }
-    }
-
-    fun loadNextPage() {
-        if (endReached) return
-        viewModelScope.launch(Dispatchers.IO) {
-            appendNextDbPage(_searchQuery.value, _selectedCategory.value)
-        }
-    }
-
-    fun findShow(showId: Long): SeriesShow? =
-        loadedItems.find { it.id == showId }
 
     suspend fun resolveShow(showId: Long): SeriesShow? =
-        findShow(showId) ?: repository.findSeriesShow(showId)
+        repository.findSeriesShow(showId)
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -251,4 +210,7 @@ class SeriesViewModel @Inject constructor(
         }
         return continueWatchingRepository.hasResumeProgress(profileId, streamId)
     }
+
+    private fun parseVodDurationMs(durationRaw: String?): Long? =
+        com.grid.tv.ui.component.parseVodDurationMs(durationRaw)
 }

@@ -12,6 +12,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.paging.compose.LazyPagingItems
+import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.ui.viewmodel.VodCatalogPager
 import kotlinx.coroutines.flow.distinctUntilChanged
 
@@ -61,4 +64,41 @@ fun VodPagedVerticalGrid(
       )
     }
   }
+}
+
+@Composable
+fun VodPagedVerticalGrid(
+    pagingItems: LazyPagingItems<SeriesShow>,
+    progressByStreamId: Map<Long, Long>,
+    progressFraction: (VodGridCardModel, Map<Long, Long>) -> Float?,
+    onItemClick: (VodGridCardModel) -> Unit,
+    modifier: Modifier = Modifier,
+    gridState: LazyGridState = rememberLazyGridState(),
+    minCellSize: androidx.compose.ui.unit.Dp = 112.dp
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = minCellSize),
+        state = gridState,
+        contentPadding = PaddingValues(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = modifier
+    ) {
+        items(
+            count = pagingItems.itemCount,
+            key = { index ->
+                pagingItems[index]?.let { "${it.playlistId}_${it.id}" } ?: "placeholder_$index"
+            }
+        ) { index ->
+            val show = pagingItems[index] ?: return@items
+            val card = show.toGridCardModel()
+            VodPosterCard(
+                title = card.title,
+                posterUrl = card.posterUrl,
+                progressFraction = progressFraction(card, progressByStreamId),
+                showHdBadge = card.showHdBadge,
+                onClick = { onItemClick(card) }
+            )
+        }
+    }
 }

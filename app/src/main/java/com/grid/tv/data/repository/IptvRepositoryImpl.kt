@@ -204,6 +204,8 @@ class IptvRepositoryImpl @Inject constructor(
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
         private const val VIEWPORT_EPG_SHORT_LIMIT = 16
         private const val VIEWPORT_EPG_MAX_CONCURRENT_REQUESTS = 2
+        /** Room SQLite bind-arg limit for IN (...) clauses — chunk larger page lookups. */
+        private const val ROOM_IN_CHUNK = 500
         /** Only purge programmes that ended more than a week ago — never today's grid cache. */
         private const val EPG_PURGE_GRACE_MS = 7L * 24L * 60L * 60L * 1000L
     }
@@ -233,21 +235,6 @@ class IptvRepositoryImpl @Inject constructor(
     @Volatile
     private var activeVodRefresh: CompletableDeferred<Unit>? = null
     private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
-
-    init {
-        vodRepositoryScope.launch {
-            warmLocalUiCache()
-            if (playlistImportCoordinator.isImportActive()) {
-                playlistImportCoordinator.deferVodRefresh("repository_init_during_import")
-                return@launch
-            }
-            if (!isVodCatalogFresh()) {
-                runCatching {
-                    refreshVodSeriesCatalog(trigger = VodRefreshTrigger.REPOSITORY_INIT, force = false)
-                }
-            }
-        }
-    }
 
     private suspend inline fun <T> withPlaylistImport(label: String, block: suspend () -> T): T {
         playlistImportCoordinator.beginImport(label)
@@ -372,12 +359,27 @@ class IptvRepositoryImpl @Inject constructor(
         if (entities.isEmpty()) return emptyList()
         val playlistNames = playlistNameMap()
         val playlists = playlistDao.all().associateBy { it.id }
-        val health = streamHealthDao.observeAll().first().associateBy { it.channelId }
-        val favIds = profileFavoriteDao.observeForProfile(activeProfileId).first().map { it.channelId }.toSet()
+        val channelIds = entities.map { it.id }
+        val health = healthForChannelIds(channelIds)
+        val favIds = favoriteIdsForChannelIds(channelIds)
         val resolved = entities.map { entity ->
             resolveXtreamPlaybackEntity(entity, playlists[entity.playlistId])
         }
         return mapChannelsWithPlaylists(resolved, playlistNames, health, favIds)
+    }
+
+    private suspend fun healthForChannelIds(channelIds: List<Long>): Map<Long, StreamHealthEntity> {
+        if (channelIds.isEmpty()) return emptyMap()
+        return channelIds.chunked(ROOM_IN_CHUNK).flatMap { chunk ->
+            streamHealthDao.getForChannelIds(chunk)
+        }.associateBy { it.channelId }
+    }
+
+    private suspend fun favoriteIdsForChannelIds(channelIds: List<Long>): Set<Long> {
+        if (channelIds.isEmpty()) return emptySet()
+        return channelIds.chunked(ROOM_IN_CHUNK).flatMap { chunk ->
+            profileFavoriteDao.favoriteIdsAmong(activeProfileId, chunk)
+        }.toSet()
     }
 
     private fun resolveXtreamPlaybackEntity(
@@ -1885,23 +1887,38 @@ class IptvRepositoryImpl @Inject constructor(
         withContext(Dispatchers.IO) {
             ensureDefaultProfile()
             loadSettings()
-            ensureVodDiskCacheLoaded()
-            publishVodProgressFromDb(trigger = VodRefreshTrigger.REPOSITORY_INIT)
             val channelCount = channelDao.countTotal()
+            val moviesCount = vodStreamDao.countTotal()
+            val seriesCount = seriesShowDao.countTotal()
+            vodDiskCacheLoaded = true
+            if (moviesCount > 0 || seriesCount > 0) {
+                if (lastVodRefreshCompletedAtMs <= 0L) {
+                    lastVodRefreshCompletedAtMs = System.currentTimeMillis()
+                }
+            }
+            publishVodCatalogCounts(
+                trigger = VodRefreshTrigger.REPOSITORY_INIT,
+                moviesCount = moviesCount,
+                seriesCount = seriesCount
+            )
             if (channelCount > 0) {
-                channelDao.channelsPage(
-                    groupName = null,
-                    search = "",
-                    onlyFavorites = false,
-                    profileId = activeProfileId,
-                    favoriteGroupId = -1L,
-                    limit = CHANNEL_PAGE_SIZE,
-                    offset = 0
+                // Warm SQLite page cache for the first guide page only — never load the full channel table.
+                mapChannelEntities(
+                    channelDao.channelsPage(
+                        groupName = null,
+                        search = "",
+                        onlyFavorites = false,
+                        profileId = activeProfileId,
+                        favoriteGroupId = -1L,
+                        limit = CHANNEL_PAGE_SIZE,
+                        offset = 0
+                    )
                 )
             }
             Log.i(
                 IPTV_REPO_LOG_TAG,
-                "warmLocalUiCache complete profileId=$activeProfileId channels=$channelCount"
+                "warmLocalUiCache complete profileId=$activeProfileId channels=$channelCount " +
+                    "(counts only; movies=$moviesCount series=$seriesCount — UI loads pages on demand)"
             )
         }
     }
@@ -1982,9 +1999,8 @@ class IptvRepositoryImpl @Inject constructor(
                 }
                 Log.i(
                     VOD_FLOW_TAG,
-                    "VOD catalog loaded from DB movies=$dbMovies series=$dbSeries"
+                    "VOD catalog available in DB movies=$dbMovies series=$dbSeries (lazy paging — no bulk load)"
                 )
-                publishVodProgressFromDb(trigger = VodRefreshTrigger.REPOSITORY_INIT)
             }
         }
     }
@@ -1997,8 +2013,18 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun publishVodProgressFromDb(trigger: VodRefreshTrigger) {
-        val moviesCount = vodStreamDao.countTotal()
-        val seriesCount = seriesShowDao.countTotal()
+        publishVodCatalogCounts(
+            trigger = trigger,
+            moviesCount = vodStreamDao.countTotal(),
+            seriesCount = seriesShowDao.countTotal()
+        )
+    }
+
+    private fun publishVodCatalogCounts(
+        trigger: VodRefreshTrigger,
+        moviesCount: Int,
+        seriesCount: Int
+    ) {
         val progress = VodCatalogProgress(
             moviesLoaded = moviesCount,
             moviesTotal = moviesCount,
@@ -2018,8 +2044,8 @@ class IptvRepositoryImpl @Inject constructor(
         )
         Log.i(
             VOD_FLOW_TAG,
-            "Serving DB-backed catalog trigger=$trigger movies=$moviesCount series=$seriesCount " +
-                "cacheAgeMs=${System.currentTimeMillis() - lastVodRefreshCompletedAtMs}"
+            "VOD catalog counts trigger=$trigger movies=$moviesCount series=$seriesCount " +
+                "(lazy paging — rows are not loaded into memory)"
         )
     }
 
@@ -2478,6 +2504,19 @@ class IptvRepositoryImpl @Inject constructor(
         ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
     }
 
+    override fun seriesShowsPaging(category: String, search: String): Flow<PagingData<SeriesShow>> {
+        val trimmedSearch = search.trim()
+        val normalizedCategory = category.ifBlank { "All" }
+        return Pager(
+            config = PagingConfig(
+                pageSize = VOD_PAGING_PAGE_SIZE,
+                prefetchDistance = VOD_PAGING_PREFETCH,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { seriesShowDao.seriesPagingSource(normalizedCategory, trimmedSearch) }
+        ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
+    }
+
     override suspend fun vodFilteredCount(categoryId: String?, search: String): Int =
         withContext(Dispatchers.IO) {
             vodStreamDao.countFiltered(categoryId, search.trim())
@@ -2521,9 +2560,7 @@ class IptvRepositoryImpl @Inject constructor(
             vodStreamDao.fourK(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
                 rows += VodBrowseRow("4k", "4K Movies", movies = it.map { e -> e.toDomain() })
             }
-            vodCategoryDao.all().distinctBy { it.categoryId }
-                .sortedBy { it.name.lowercase() }
-                .forEach { category ->
+            vodCategoryDao.topCategories(maxRows).forEach { category ->
                     val items = vodStreamDao.byCategory(category.categoryId, itemsPerRow)
                     if (items.isNotEmpty()) {
                         rows += VodBrowseRow(

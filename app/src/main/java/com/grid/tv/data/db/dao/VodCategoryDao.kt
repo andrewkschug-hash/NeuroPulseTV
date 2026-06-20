@@ -23,4 +23,7 @@ interface VodCategoryDao {
 
     @Query("SELECT * FROM vod_categories ORDER BY name COLLATE NOCASE")
     suspend fun all(): List<VodCategoryEntity>
+
+    @Query("SELECT * FROM vod_categories ORDER BY name COLLATE NOCASE LIMIT :limit")
+    suspend fun topCategories(limit: Int): List<VodCategoryEntity>
 }

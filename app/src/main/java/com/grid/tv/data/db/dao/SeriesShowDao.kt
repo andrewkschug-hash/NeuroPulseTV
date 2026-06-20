@@ -1,5 +1,6 @@
 package com.grid.tv.data.db.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -112,4 +113,14 @@ interface SeriesShowDao {
         """
     )
     suspend fun distinctCategoryIds(): List<String>
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        ORDER BY name COLLATE NOCASE
+        """
+    )
+    fun seriesPagingSource(category: String, search: String): PagingSource<Int, SeriesShowEntity>
 }

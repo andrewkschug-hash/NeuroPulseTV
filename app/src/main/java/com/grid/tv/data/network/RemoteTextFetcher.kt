@@ -100,8 +100,8 @@ class RemoteTextFetcher @Inject constructor(
                         is InternalEpgFetch.Http -> {
                             Log.w(
                                 EPG_FLOW_TAG,
-                                "EPG HTTP ${outcome.httpCode} for $url — skipping import " +
-                                    "(bodyPreview=${outcome.bodyPreview?.take(120)})"
+                                "EPG unavailable HTTP ${outcome.httpCode} for $url — skipping import " +
+                                    "(${outcome.bodyPreview ?: "no body"})"
                             )
                             return@withContext EpgXmlTvFetchOutcome.HttpError(
                                 httpCode = outcome.httpCode,
@@ -140,26 +140,13 @@ class RemoteTextFetcher @Inject constructor(
         val request = requestBuilder.build()
         return selectClient(url).newCall(request).execute().use { response ->
             val code = response.code
-            val bytes = response.body?.bytes() ?: byteArrayOf()
             if (!response.isSuccessful) {
-                val bodyPreview = bytes.decodeToString().take(200)
-                when (code) {
-                    429 -> Log.e(
-                        logTag,
-                        "HTTP 429 rate-limited for $url — provider may be throttling repeated VOD requests. " +
-                            "bodyPreview=$bodyPreview"
-                    )
-                    in 500..599 -> Log.e(
-                        logTag,
-                        "HTTP $code server error for $url — ${bytes.size} bytes, bodyPreview=$bodyPreview"
-                    )
-                    else -> Log.e(
-                        logTag,
-                        "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes, bodyPreview=$bodyPreview"
-                    )
-                }
+                val contentEncoding = response.header("Content-Encoding")
+                val preview = readAndCloseErrorBody(response.body, contentEncoding)
+                logHttpError(logTag, code, url, preview)
                 throw IllegalStateException("HTTP request failed ($code) for $url")
             }
+            val bytes = response.body?.bytes() ?: byteArrayOf()
             val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
             RemoteFetchResult(httpCode = code, rawBytes = bytes.size, body = body)
         }
@@ -192,14 +179,9 @@ class RemoteTextFetcher @Inject constructor(
             appHttpClient.epgClient().newCall(request).execute().use { response ->
                 httpCode = response.code
                 if (!response.isSuccessful) {
-                    val errorBytes = response.body?.bytes() ?: byteArrayOf()
-                    val bodyPreview = errorBytes.decodeToString().take(200)
-                    Log.e(
-                        EPG_FLOW_TAG,
-                        "HTTP $httpCode (unsuccessful) for $url — ${errorBytes.size} bytes, " +
-                            "bodyPreview=$bodyPreview"
-                    )
-                    return@withContext InternalEpgFetch.Http(httpCode, bodyPreview)
+                    val preview = readAndCloseErrorBody(response.body, response.header("Content-Encoding"))
+                    logHttpError(EPG_FLOW_TAG, httpCode, url, preview)
+                    return@withContext InternalEpgFetch.Http(httpCode, preview)
                 }
                 val body = response.body
                     ?: throw IllegalStateException("Empty HTTP body for $url")
@@ -347,6 +329,34 @@ class RemoteTextFetcher @Inject constructor(
             GZIPInputStream(bytes.inputStream()).bufferedReader().use { it.readText() }
         } else {
             bytes.toString(Charsets.UTF_8)
+        }
+    }
+
+    private fun readAndCloseErrorBody(body: ResponseBody?, contentEncoding: String?): String {
+        if (body == null) return "(empty body)"
+        return body.use { responseBody ->
+            formatHttpErrorPreview(responseBody.bytes(), contentEncoding)
+        }
+    }
+
+    private fun formatHttpErrorPreview(bytes: ByteArray, contentEncoding: String?): String {
+        if (bytes.isEmpty()) return "(empty body)"
+        if (looksLikeGzip(bytes, contentEncoding)) {
+            return "(gzip-compressed error body, ${bytes.size} bytes)"
+        }
+        return bytes.decodeToString().take(200).ifBlank { "(binary error body, ${bytes.size} bytes)" }
+    }
+
+    private fun looksLikeGzip(bytes: ByteArray, contentEncoding: String?): Boolean =
+        contentEncoding?.contains("gzip", ignoreCase = true) == true ||
+            (bytes.size >= 2 && bytes[0] == GZIP_MAGIC_0 && bytes[1] == GZIP_MAGIC_1)
+
+    private fun logHttpError(logTag: String, code: Int, url: String, preview: String) {
+        when (code) {
+            404 -> Log.w(logTag, "HTTP 404 Not Found for $url — endpoint unavailable ($preview)")
+            429 -> Log.e(logTag, "HTTP 429 rate-limited for $url — $preview")
+            in 500..599 -> Log.e(logTag, "HTTP $code server error for $url — $preview")
+            else -> Log.w(logTag, "HTTP $code for $url — $preview")
         }
     }
 
