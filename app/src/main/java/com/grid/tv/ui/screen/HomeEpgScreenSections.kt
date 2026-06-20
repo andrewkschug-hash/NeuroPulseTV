@@ -48,9 +48,6 @@ import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
-import com.grid.tv.domain.model.VodItem
-import com.grid.tv.domain.model.VodPlaybackHelper
-import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.recording.RecordingHealth
 import com.grid.tv.feature.recording.RecordingStatus
@@ -72,10 +69,8 @@ import com.grid.tv.ui.component.GridNavTabs
 import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.GuideGroupFilterMenu
 import com.grid.tv.ui.component.GuideGroupPickerDialog
-import com.grid.tv.ui.component.MoviesHomeRow
 import com.grid.tv.ui.component.RecordingPrecheckDialog
 import com.grid.tv.ui.component.SearchOverlay
-import com.grid.tv.ui.component.SeriesHomeRow
 import com.grid.tv.ui.component.StorageLocationPicker
 import com.grid.tv.ui.component.formatEpgDay
 import com.grid.tv.ui.component.formatLastChecked
@@ -146,8 +141,6 @@ internal fun HomeEpgScreenMainColumn(
     previewPlayer: androidx.media3.exoplayer.ExoPlayer?,
     previewStreamStatus: StreamPlaybackStatus?,
     previewSurfaceAttached: Boolean,
-    featuredMovies: List<VodItem>,
-    featuredSeries: List<SeriesShow>,
     channelGroups: List<String>,
     channelScanStatuses: Map<Long, ChannelScanSnapshot>,
     scheduled: List<ScheduledRecordingEntity>,
@@ -228,26 +221,6 @@ internal fun HomeEpgScreenMainColumn(
             )
         }
 
-        if (deps.hasContinueWatching) {
-            HomeEpgContinueWatchingRow(
-                continueWatchingItems = deps.continueWatchingItems,
-                focusedContinueIndex = ui.focusedContinueIndex,
-                continueWatchingFocused = ui.focusZone == EpgFocusZone.CONTINUE_WATCHING,
-                onContinueSelect = { item ->
-                    if (deps.viewModel.isProfileAccessAllowed()) {
-                        deps.onResumeContinueWatching(item)
-                    }
-                },
-                continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-                topNavFocusRequester = deps.topNavFocusRequester,
-                previewFocusRequester = deps.previewFocusRequester,
-                gridFilterFocusRequester = deps.gridFilterFocusRequester,
-                showPreviewSection = deps.showPreviewSection,
-                onContinueWatchingKey = controller::handleContinueWatchingKey,
-                onFocused = { ui.focusZone = EpgFocusZone.CONTINUE_WATCHING }
-            )
-        }
-
         if (deps.showPreviewSection) {
             HomeEpgPreviewSection(
                 channel = deps.previewChannel,
@@ -281,24 +254,6 @@ internal fun HomeEpgScreenMainColumn(
                 gridFilterFocusRequester = deps.gridFilterFocusRequester,
                 hasContinueWatching = deps.hasContinueWatching,
                 onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
-            )
-        }
-
-        if (featuredMovies.isNotEmpty() && !deps.showPreviewSection) {
-            MoviesHomeRow(
-                movies = featuredMovies,
-                progressByStreamId = deps.vodProgress,
-                onPlayMovie = { movie ->
-                    VodPlaybackHelper.stageMovie(movie)
-                    val resume = (deps.vodProgress[movie.streamId] ?: 0L) > 5_000L
-                    deps.onPlayVod(movie.streamUrl, movie.title, resume)
-                },
-                onSeeAll = { deps.onNavigateVod(0) }
-            )
-            SeriesHomeRow(
-                shows = featuredSeries,
-                onOpenSeries = { show -> deps.onNavigateSeries(show.id) },
-                onSeeAll = { deps.onNavigateVod(1) }
             )
         }
 

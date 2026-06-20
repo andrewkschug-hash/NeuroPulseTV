@@ -648,14 +648,18 @@ class IptvRepositoryImpl @Inject constructor(
             val xmlTvIdsToQuery = linkedSetOf<String>()
 
             channels.forEach { channel ->
-                val playlistKey = channel.programmeLookupKeys().firstOrNull() ?: return@forEach
+                val lookupKeys = channel.programmeLookupKeys()
+                if (lookupKeys.isEmpty()) return@forEach
                 val link = resolver.resolve(channel.epgId, channel.name)
                 val xmlTvIds = linkedSetOf<String>()
                 link.xmlTvChannelId?.let { xmlTvIds += it }
                 channel.epgId?.trim()?.takeIf { it.isNotEmpty() }?.let { xmlTvIds += it }
                 xmlTvIds.forEach { xmlTvId ->
                     xmlTvIdsToQuery += xmlTvId
-                    xmlTvToPlaylist.getOrPut(xmlTvId) { mutableListOf() }.add(playlistKey)
+                    val playlistKeys = xmlTvToPlaylist.getOrPut(xmlTvId) { mutableListOf() }
+                    lookupKeys.forEach { key ->
+                        if (key !in playlistKeys) playlistKeys.add(key)
+                    }
                 }
             }
 
@@ -669,7 +673,7 @@ class IptvRepositoryImpl @Inject constructor(
                 return@withContext emptyList()
             }
 
-            val key = "${start / 1000}-${end / 1000}-ch${channels.size}-${xmlTvIdsToQuery.hashCode()}"
+            val key = "${_epgDataRevision.value}-${start / 1000}-${end / 1000}-ch${channels.size}-${xmlTvIdsToQuery.hashCode()}"
             val cached = epgCache.get(key)
             val rawPrograms = if (cached != null) {
                 cached
@@ -779,6 +783,12 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun epgDataRevision(): Flow<Long> = _epgDataRevision.asStateFlow()
+
+    override suspend fun notifyEpgLinksUpdated() = withContext(Dispatchers.IO) {
+        epgCache.clear()
+        epgLinkResolver = null
+        _epgDataRevision.update { it + 1 }
+    }
 
     override fun profiles(): Flow<List<UserProfile>> = profileDao.observeProfiles().map { rows ->
         rows

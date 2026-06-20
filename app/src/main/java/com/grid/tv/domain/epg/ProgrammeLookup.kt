@@ -13,7 +13,11 @@ fun Channel.programmeLookupKeys(): List<String> = buildList {
 fun programmesForChannel(channel: Channel, programs: List<Program>): List<Program> {
     val keys = channel.programmeLookupKeys()
     if (keys.isEmpty()) return emptyList()
+    val normalizedKeys = keys.map { EpgIdNormalizer.normalize(it) }.filter { it.isNotEmpty() }.toSet()
     return programs
-        .filter { prog -> keys.any { key -> prog.channelEpgId.equals(key, ignoreCase = true) } }
+        .filter { prog ->
+            keys.any { key -> prog.channelEpgId.equals(key, ignoreCase = true) } ||
+                normalizedKeys.any { norm -> EpgIdNormalizer.normalize(prog.channelEpgId) == norm }
+        }
         .sortedBy { it.startTime }
 }

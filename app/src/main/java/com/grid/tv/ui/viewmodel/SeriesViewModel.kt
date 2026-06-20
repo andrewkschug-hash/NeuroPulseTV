@@ -49,6 +49,12 @@ class SeriesViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
+    val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()
+
+    private val _filteredTotalCount = MutableStateFlow(0)
+    val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
+
     private val loadedItems = ArrayList<SeriesShow>()
     private var loadedOffset = 0
     private var endReached = false
@@ -95,12 +101,6 @@ class SeriesViewModel @Inject constructor(
             flow { emit(repository.loadSeriesBrowseRows()) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private val _pagedCards = MutableStateFlow<List<VodGridCardModel>>(emptyList())
-    val pagedCards: StateFlow<List<VodGridCardModel>> = _pagedCards.asStateFlow()
-
-    private val _filteredTotalCount = MutableStateFlow(0)
-    val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()

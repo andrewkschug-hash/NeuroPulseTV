@@ -120,9 +120,6 @@ fun HomeEpgScreen(
     val hasConnection by viewModel.hasConnection.collectAsStateWithLifecycle()
     val channels by viewModel.channels.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
-    val continueWatchingItems by viewModel.continueWatchingItems.collectAsStateWithLifecycle()
-    val featuredMovies by viewModel.featuredMovies.collectAsStateWithLifecycle()
-    val featuredSeries by viewModel.featuredSeries.collectAsStateWithLifecycle()
     val vodProgress by viewModel.vodProgress.collectAsStateWithLifecycle()
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
@@ -422,12 +419,6 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(continueWatchingItems.size) {
-        if (ui.focusedContinueIndex > continueWatchingItems.lastIndex) {
-            ui.focusedContinueIndex = continueWatchingItems.lastIndex.coerceAtLeast(0)
-        }
-    }
-
     val focusedChannel = displayChannels.getOrNull(ui.focusChannelIndex)
     val channelPrograms = remember(focusedChannel, displayPrograms) {
         focusedChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
@@ -467,7 +458,7 @@ fun HomeEpgScreen(
         com.grid.tv.player.StreamPlaybackStatus.LOADING
     }
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
-    val hasContinueWatching = continueWatchingItems.isNotEmpty()
+    val hasContinueWatching = false
 
     val upcomingPrograms = remember(previewProgram, previewChannelPrograms, now) {
         val anchor = previewProgram ?: previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
@@ -555,7 +546,7 @@ fun HomeEpgScreen(
         guideFilter = guideFilter,
         demoFavoriteIds = demoFavoriteIds,
         vodProgress = vodProgress,
-        continueWatchingItems = continueWatchingItems,
+        continueWatchingItems = emptyList(),
         showPreviewSection = showPreviewSection,
         hasContinueWatching = hasContinueWatching,
         usePlaceholder = usePlaceholder,
@@ -623,8 +614,6 @@ fun HomeEpgScreen(
             previewPlayer = previewPlayer,
             previewStreamStatus = previewStreamStatus,
             previewSurfaceAttached = previewSurfaceAttached,
-            featuredMovies = featuredMovies,
-            featuredSeries = featuredSeries,
             channelGroups = channelGroups,
             channelScanStatuses = channelScanStatuses,
             scheduled = scheduled,

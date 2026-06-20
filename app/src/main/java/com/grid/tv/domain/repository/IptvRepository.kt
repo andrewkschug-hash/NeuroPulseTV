@@ -94,6 +94,7 @@ interface IptvRepository {
     suspend fun refreshEpgNow(): EpgRefreshReport
     suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>>
     fun epgDataRevision(): Flow<Long>
+    suspend fun notifyEpgLinksUpdated()
 
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
     fun vodCatalogRevision(): Flow<Long>

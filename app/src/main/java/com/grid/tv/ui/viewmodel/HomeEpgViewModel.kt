@@ -18,9 +18,7 @@ import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.Recommendation
-import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.UserProfile
-import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
@@ -42,8 +40,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -210,14 +206,6 @@ class HomeEpgViewModel @Inject constructor(
     val recentlyAdded: StateFlow<List<Channel>> = repository.recentlyAdded(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val featuredMovies: StateFlow<List<VodItem>> = repository.vodCatalogRevision()
-        .flatMapLatest { flow { emit(repository.vodRecent(limit = 20)) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val featuredSeries: StateFlow<List<SeriesShow>> = repository.vodCatalogRevision()
-        .flatMapLatest { flow { emit(repository.seriesPage(limit = 20, offset = 0)) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
@@ -296,6 +284,13 @@ class HomeEpgViewModel @Inject constructor(
                 .collectLatest { loadWindow() }
         }
         viewModelScope.launch {
+            _channels.collectLatest { channels ->
+                if (guideBootstrapComplete && channels.isNotEmpty()) {
+                    loadWindow()
+                }
+            }
+        }
+        viewModelScope.launch {
             combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent) { _, _, _ -> }
                 .collectLatest {
                     if (!guideBootstrapComplete) return@collectLatest
@@ -304,7 +299,7 @@ class HomeEpgViewModel @Inject constructor(
         }
         viewModelScope.launch {
             repository.epgDataRevision().collect {
-                if (it > 0L) loadWindow()
+                if (it > 0L) reloadChannels()
             }
         }
         viewModelScope.launch {
