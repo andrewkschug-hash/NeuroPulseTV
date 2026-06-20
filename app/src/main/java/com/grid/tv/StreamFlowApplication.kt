@@ -56,7 +56,7 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         val scheduler = EntryPointAccessors.fromApplication(this, StartupEntryPoint::class.java)
             .epgScheduler()
         scheduler.scheduleAtLaunch()
-        scheduler.runEpgRefreshNow()
+        scheduler.scheduleStartupEpg()
         Log.i(TAG, "EPG workers scheduled on background thread")
     }
 

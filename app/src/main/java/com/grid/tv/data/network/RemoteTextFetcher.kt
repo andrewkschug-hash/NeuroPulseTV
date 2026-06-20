@@ -3,6 +3,8 @@ package com.grid.tv.data.network
 import android.util.Log
 import com.grid.tv.data.network.parser.ParsedXmlTv
 import com.grid.tv.data.network.parser.XmlTvParser
+import com.grid.tv.feature.epg.EpgCoroutineDispatchers
+import com.grid.tv.feature.epg.EpgFlowLogger
 import java.io.BufferedInputStream
 import java.io.EOFException
 import java.io.InputStream
@@ -27,7 +29,8 @@ data class EpgParsedFetchResult(
 
 @Singleton
 class RemoteTextFetcher @Inject constructor(
-    private val appHttpClient: AppHttpClient
+    private val appHttpClient: AppHttpClient,
+    private val epgDispatchers: EpgCoroutineDispatchers
 ) {
     suspend fun fetch(rawUrl: String): String = fetchDetailed(rawUrl).body
 
@@ -61,19 +64,24 @@ class RemoteTextFetcher @Inject constructor(
      * Downloads XMLTV over the EPG-tuned HTTP client and parses incrementally from the response
      * stream (no full-body [String] allocation).
      */
-    suspend fun fetchEpgXmlTv(rawUrl: String, parser: XmlTvParser): EpgParsedFetchResult =
-        withContext(Dispatchers.IO) {
+    suspend fun fetchEpgXmlTv(
+        rawUrl: String,
+        parser: XmlTvParser,
+        playlistId: Long,
+        playlistName: String
+    ): EpgParsedFetchResult =
+        withContext(epgDispatchers.io) {
             val url = normalizeRemoteUrl(rawUrl)
-            Log.i(EPG_FLOW_TAG, "HTTP GET (EPG stream) $url")
+            EpgFlowLogger.downloadStarted(playlistId, playlistName, url)
             var lastEof: EOFException? = null
             repeat(MAX_FETCH_ATTEMPTS) { attempt ->
                 try {
-                    val result = executeEpgFetch(url, parser)
-                    Log.i(
-                        EPG_FLOW_TAG,
-                        "HTTP ${result.httpCode} for $url — ${result.rawBytes} raw bytes streamed, " +
-                            "${result.parsed.channelsById.size} channels, " +
-                            "${result.parsed.programs.size} programmes parsed"
+                    val result = executeEpgFetch(url, parser, playlistId, playlistName)
+                    EpgFlowLogger.downloadCompleted(
+                        playlistId,
+                        playlistName,
+                        result.httpCode,
+                        result.rawBytes
                     )
                     return@withContext result
                 } catch (e: EOFException) {
@@ -83,13 +91,19 @@ class RemoteTextFetcher @Inject constructor(
                         "EPG stream EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url",
                         e
                     )
-                    if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
+                    if (attempt == MAX_FETCH_ATTEMPTS - 1) {
+                        EpgFlowLogger.importFailed(playlistId, playlistName, url, e)
+                        throw e
+                    }
                 } catch (e: Exception) {
                     Log.e(EPG_FLOW_TAG, "EPG stream fetch failed for $url: ${e.message}", e)
+                    EpgFlowLogger.importFailed(playlistId, playlistName, url, e)
                     throw e
                 }
             }
-            throw lastEof ?: IllegalStateException("EPG fetch failed for $url")
+            val failure = lastEof ?: IllegalStateException("EPG fetch failed for $url")
+            EpgFlowLogger.importFailed(playlistId, playlistName, url, failure)
+            throw failure
         }
 
     private fun executeFetch(url: String, logTag: String = EPG_FLOW_TAG): RemoteFetchResult {
@@ -125,7 +139,12 @@ class RemoteTextFetcher @Inject constructor(
         }
     }
 
-    private fun executeEpgFetch(url: String, parser: XmlTvParser): EpgParsedFetchResult {
+    private fun executeEpgFetch(
+        url: String,
+        parser: XmlTvParser,
+        playlistId: Long,
+        playlistName: String
+    ): EpgParsedFetchResult {
         val request = Request.Builder().url(url).get().build()
         return appHttpClient.epgClient().newCall(request).execute().use { response ->
             val code = response.code
@@ -142,7 +161,14 @@ class RemoteTextFetcher @Inject constructor(
                 ?: throw IllegalStateException("Empty HTTP body for $url")
             val countingStream = ByteProgressInputStream(body.byteStream(), url)
             val decodedStream = openDecompressedStream(countingStream, response.header("Content-Encoding"), url)
+            EpgFlowLogger.parseStarted(playlistId, playlistName, url)
             val parsed = parser.parse(decodedStream)
+            EpgFlowLogger.parseCompleted(
+                playlistId,
+                playlistName,
+                parsed.channelsById.size,
+                parsed.programs.size
+            )
             EpgParsedFetchResult(
                 httpCode = code,
                 rawBytes = countingStream.bytesRead,

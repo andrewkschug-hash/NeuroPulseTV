@@ -92,14 +92,20 @@ import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
+import com.grid.tv.feature.epg.EpgCoroutineDispatchers
+import com.grid.tv.feature.epg.EpgFlowLogger
+import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.epg.GuideChannelFilter
+import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.feature.backup.GridBackupManager
 import com.grid.tv.feature.health.StreamHealthEngine
 import com.grid.tv.feature.recommendation.RecommendationEngine
 import com.grid.tv.feature.recommendation.WatchStat
 import com.grid.tv.feature.tivimate.TiviMateImporter
-import com.grid.tv.worker.EpgScheduler
+import com.grid.tv.feature.scanner.ChannelScanGate
+import com.grid.tv.feature.scanner.EpgDownloadTracker
+import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -149,7 +155,9 @@ class IptvRepositoryImpl @Inject constructor(
     private val xtreamParser: XtreamParser,
     private val xmlTvParser: XmlTvParser,
     private val tiviMateImporter: TiviMateImporter,
-    private val epgScheduler: EpgScheduler,
+    private val epgJobCoordinator: EpgJobCoordinator,
+    private val channelScanGate: Lazy<ChannelScanGate>,
+    private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val secureCredentialStore: SecureCredentialStore,
     private val stalkerPortalClient: StalkerPortalClient,
     private val gridBackupManager: GridBackupManager,
@@ -159,7 +167,9 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodStreamDao: VodStreamDao,
     private val vodCategoryDao: VodCategoryDao,
     private val seriesShowDao: SeriesShowDao,
-    private val vodCatalogDiskCache: VodCatalogDiskCache
+    private val vodCatalogDiskCache: VodCatalogDiskCache,
+    private val epgDownloadTracker: EpgDownloadTracker,
+    private val epgDispatchers: EpgCoroutineDispatchers
 ) : IptvRepository {
 
     companion object {
@@ -188,6 +198,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodCatalogProgress = MutableStateFlow(VodCatalogProgress())
     private val vodCatalogStatus = MutableStateFlow(VodCatalogStatus())
     private val vodRefreshMutex = Mutex()
+    private val epgRefreshMutex = Mutex()
     private val vodDiskLoadMutex = Mutex()
     private val vodRepositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile
@@ -201,12 +212,38 @@ class IptvRepositoryImpl @Inject constructor(
     init {
         vodRepositoryScope.launch {
             ensureVodDiskCacheLoaded()
+            if (playlistImportCoordinator.isImportActive()) {
+                playlistImportCoordinator.deferVodRefresh("repository_init_during_import")
+                return@launch
+            }
             if (!isVodCatalogFresh()) {
                 runCatching {
                     refreshVodSeriesCatalog(trigger = VodRefreshTrigger.REPOSITORY_INIT, force = false)
                 }
             } else {
                 publishVodProgressFromDb(trigger = VodRefreshTrigger.REPOSITORY_INIT)
+            }
+        }
+    }
+
+    private suspend inline fun <T> withPlaylistImport(label: String, block: suspend () -> T): T {
+        playlistImportCoordinator.beginImport(label)
+        return try {
+            block()
+        } finally {
+            if (playlistImportCoordinator.endImport(label)) {
+                runDeferredPostImportWork()
+            }
+        }
+    }
+
+    private fun runDeferredPostImportWork() {
+        vodRepositoryScope.launch {
+            val shouldRefresh = playlistImportCoordinator.consumeDeferredVodRefresh() || !isVodCatalogFresh()
+            if (shouldRefresh) {
+                runCatching {
+                    refreshVodSeriesCatalog(trigger = VodRefreshTrigger.REPOSITORY_INIT, force = false)
+                }
             }
         }
     }
@@ -540,8 +577,10 @@ class IptvRepositoryImpl @Inject constructor(
     override fun recommendedChannels(limit: Int): Flow<List<Recommendation>> {
         return combine(
             profileWatchHistoryDao.observeTop(activeProfileId, 500),
-            playlistDao.observeAll()
-        ) { hist, playlists ->
+            playlistDao.observeAll(),
+            playlistImportCoordinator.importActive
+        ) { hist, playlists, importing ->
+            if (importing) return@combine emptyList()
             val stats = hist.groupBy { it.channelId }.mapValues { (_, items) ->
                 WatchStat(items.size, items.map { it.hourBucket }.average().toInt(), items.firstOrNull()?.genreHint)
             }
@@ -1084,28 +1123,28 @@ class IptvRepositoryImpl @Inject constructor(
     private fun scheduleEpgImportWork(startedAt: Long) {
         Log.i(
             EPG_FLOW_TAG,
-            "scheduleEpgImportWork startedAt=$startedAt → EpgRefreshWorker (xmltv.php / playlist EPG URL); " +
-                "resolver runs after EPG import completes"
+            "scheduleEpgImportWork startedAt=$startedAt → priority validation, then EPG, then background scan"
         )
-        epgScheduler.runEpgRefreshNow()
+        channelScanGate.get().beginPostImportPriorityWorkflow()
     }
 
-    private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long {
-        val startedAt = System.currentTimeMillis()
-        val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
-        val playlistId = playlistDao.insert(
-            PlaylistEntity(
-                name = name,
-                url = normalizedUrl,
-                epgUrl = epgUrl,
-                refreshIntervalHours = refreshHours,
-                type = PlaylistType.M3U.name
+    private suspend fun insertM3uPlaylist(name: String, url: String, epgUrl: String?, refreshHours: Int): Long =
+        withPlaylistImport("m3u_insert") {
+            val startedAt = System.currentTimeMillis()
+            val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
+            val playlistId = playlistDao.insert(
+                PlaylistEntity(
+                    name = name,
+                    url = normalizedUrl,
+                    epgUrl = epgUrl,
+                    refreshIntervalHours = refreshHours,
+                    type = PlaylistType.M3U.name
+                )
             )
-        )
-        importM3uChannels(playlistId, url)
-        scheduleEpgImportWork(startedAt)
-        return playlistId
-    }
+            importM3uChannels(playlistId, url)
+            scheduleEpgImportWork(startedAt)
+            playlistId
+        }
 
     override suspend fun updateM3uPlaylist(
         playlistId: Long,
@@ -1114,20 +1153,22 @@ class IptvRepositoryImpl @Inject constructor(
         epgUrl: String?,
         refreshHours: Int
     ) = withContext(Dispatchers.IO) {
-        val existing = playlistDao.getById(playlistId)
-            ?: throw IllegalArgumentException("Playlist not found")
-        val startedAt = System.currentTimeMillis()
-        val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
-        playlistDao.update(
-            existing.copy(
-                name = name,
-                url = normalizedUrl,
-                epgUrl = epgUrl,
-                refreshIntervalHours = refreshHours
+        withPlaylistImport("m3u_update") {
+            val existing = playlistDao.getById(playlistId)
+                ?: throw IllegalArgumentException("Playlist not found")
+            val startedAt = System.currentTimeMillis()
+            val normalizedUrl = remoteTextFetcher.normalizeRemoteUrl(url)
+            playlistDao.update(
+                existing.copy(
+                    name = name,
+                    url = normalizedUrl,
+                    epgUrl = epgUrl,
+                    refreshIntervalHours = refreshHours
+                )
             )
-        )
-        importM3uChannels(playlistId, url)
-        scheduleEpgImportWork(startedAt)
+            importM3uChannels(playlistId, url)
+            scheduleEpgImportWork(startedAt)
+        }
     }
 
     private suspend fun importXtreamCatalog(
@@ -1203,7 +1244,7 @@ class IptvRepositoryImpl @Inject constructor(
         password: String,
         epgUrl: String?,
         refreshHours: Int
-    ): Long {
+    ): Long = withPlaylistImport("xtream_insert") {
         val startedAt = System.currentTimeMillis()
         val authUrl = buildXtreamApiUrl(serverUrl, username, password)
         val authRaw = remoteTextFetcher.fetch(authUrl)
@@ -1245,7 +1286,7 @@ class IptvRepositoryImpl @Inject constructor(
             throw e
         }
         scheduleEpgImportWork(startedAt)
-        return playlistId
+        playlistId
     }
 
     override suspend fun updateXtreamPlaylist(
@@ -1257,29 +1298,31 @@ class IptvRepositoryImpl @Inject constructor(
         epgUrl: String?,
         refreshHours: Int
     ) = withContext(Dispatchers.IO) {
-        val existing = playlistDao.getById(playlistId)
-            ?: throw IllegalArgumentException("Playlist not found")
-        val startedAt = System.currentTimeMillis()
-        val authRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(serverUrl, username, password))
-        if (!xtreamParser.isAuthSuccessful(authRaw)) {
-            throw IllegalStateException(CONNECT_ERROR)
-        }
-        val auth = xtreamParser.parseAuth(authRaw)
-        if (auth.status.equals("Expired", ignoreCase = true)) {
-            throw IllegalStateException("Xtream account is expired")
-        }
-        val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
-        val updatedMeta = importXtreamCatalog(playlistId, normalizedServer, username, password, auth)
-        secureCredentialStore.saveXtreamPassword(playlistId, password)
-        playlistDao.update(
-            updatedMeta.copy(
-                name = name,
-                epgUrl = epgUrl,
-                refreshIntervalHours = refreshHours,
-                type = PlaylistType.XTREAM.name
+        withPlaylistImport("xtream_update") {
+            val existing = playlistDao.getById(playlistId)
+                ?: throw IllegalArgumentException("Playlist not found")
+            val startedAt = System.currentTimeMillis()
+            val authRaw = remoteTextFetcher.fetch(buildXtreamApiUrl(serverUrl, username, password))
+            if (!xtreamParser.isAuthSuccessful(authRaw)) {
+                throw IllegalStateException(CONNECT_ERROR)
+            }
+            val auth = xtreamParser.parseAuth(authRaw)
+            if (auth.status.equals("Expired", ignoreCase = true)) {
+                throw IllegalStateException("Xtream account is expired")
+            }
+            val normalizedServer = resolveXtreamServerUrl(serverUrl, auth)
+            val updatedMeta = importXtreamCatalog(playlistId, normalizedServer, username, password, auth)
+            secureCredentialStore.saveXtreamPassword(playlistId, password)
+            playlistDao.update(
+                updatedMeta.copy(
+                    name = name,
+                    epgUrl = epgUrl,
+                    refreshIntervalHours = refreshHours,
+                    type = PlaylistType.XTREAM.name
+                )
             )
-        )
-        scheduleEpgImportWork(startedAt)
+            scheduleEpgImportWork(startedAt)
+        }
     }
 
     private suspend fun insertStalkerPlaylist(
@@ -1287,7 +1330,7 @@ class IptvRepositoryImpl @Inject constructor(
         portalUrl: String,
         macAddress: String,
         refreshHours: Int
-    ): Long {
+    ): Long = withPlaylistImport("stalker_insert") {
         val startedAt = System.currentTimeMillis()
         val normalizedMac = macAddress.uppercase()
         val session = stalkerPortalClient.connect(portalUrl, normalizedMac)
@@ -1314,34 +1357,36 @@ class IptvRepositoryImpl @Inject constructor(
             throw IllegalStateException("No channels in playlist")
         }
         scheduleEpgImportWork(startedAt)
-        return playlistId
+        playlistId
     }
 
     override suspend fun addPlaylistFromLocal(name: String, content: String, epgUrl: String?, refreshHours: Int) =
         withContext(Dispatchers.IO) {
-            val startedAt = System.currentTimeMillis()
-            val resolvedEpgUrl = epgUrl?.takeIf { it.isNotBlank() } ?: m3uParser.parseHeaderEpgUrl(content)
-            val playlistId = playlistDao.insert(
-                PlaylistEntity(
-                    name = name,
-                    url = "local://$name",
-                    epgUrl = resolvedEpgUrl,
-                    refreshIntervalHours = refreshHours,
-                    isLocalFile = true,
-                    type = PlaylistType.M3U.name
+            withPlaylistImport("local_m3u") {
+                val startedAt = System.currentTimeMillis()
+                val resolvedEpgUrl = epgUrl?.takeIf { it.isNotBlank() } ?: m3uParser.parseHeaderEpgUrl(content)
+                val playlistId = playlistDao.insert(
+                    PlaylistEntity(
+                        name = name,
+                        url = "local://$name",
+                        epgUrl = resolvedEpgUrl,
+                        refreshIntervalHours = refreshHours,
+                        isLocalFile = true,
+                        type = PlaylistType.M3U.name
+                    )
                 )
-            )
-            channelDao.clearByPlaylist(playlistId)
-            val seenUrls = linkedSetOf<String>()
-            val seenNames = linkedSetOf<String>()
-            var totalInserted = 0
-            m3uParser.parseAsFlow(playlistId, content).collect { progress ->
-                totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, progress.batch)
-                if (progress.done && totalInserted == 0) {
-                    throw IllegalStateException("No channels in playlist")
+                channelDao.clearByPlaylist(playlistId)
+                val seenUrls = linkedSetOf<String>()
+                val seenNames = linkedSetOf<String>()
+                var totalInserted = 0
+                m3uParser.parseAsFlow(playlistId, content).collect { progress ->
+                    totalInserted += insertParsedChannelBatches(playlistId, seenUrls, seenNames, progress.batch)
+                    if (progress.done && totalInserted == 0) {
+                        throw IllegalStateException("No channels in playlist")
+                    }
                 }
+                scheduleEpgImportWork(startedAt)
             }
-            scheduleEpgImportWork(startedAt)
         }
 
     override suspend fun connectionFormForPlaylist(playlist: Playlist): ConnectionFormFields =
@@ -1392,8 +1437,11 @@ class IptvRepositoryImpl @Inject constructor(
         bumpVodCatalogRevision()
     }
 
-    override suspend fun refreshEpgNow(): EpgRefreshReport = withContext(Dispatchers.IO) {
-        Log.i(EPG_FLOW_TAG, "refreshEpgNow started")
+    override suspend fun refreshEpgNow(): EpgRefreshReport = epgRefreshMutex.withLock {
+        withContext(epgDispatchers.io) {
+        epgDownloadTracker.setInProgress(true)
+        try {
+        Log.i(EPG_FLOW_TAG, "refreshEpgNow started on ${Thread.currentThread().name}")
         epgCache.clear()
         epgLinkResolver = null
         val now = System.currentTimeMillis()
@@ -1464,21 +1512,22 @@ class IptvRepositoryImpl @Inject constructor(
                 url = resolvedEpgUrl
             )
             try {
-                val fetchResult = remoteTextFetcher.fetchEpgXmlTv(resolvedEpgUrl, xmlTvParser)
+                val fetchResult = remoteTextFetcher.fetchEpgXmlTv(
+                    rawUrl = resolvedEpgUrl,
+                    parser = xmlTvParser,
+                    playlistId = playlist.id,
+                    playlistName = playlist.name
+                )
                 attempt = attempt.copy(
                     httpCode = fetchResult.httpCode,
                     bytesReceived = fetchResult.rawBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                )
-                Log.i(
-                    EPG_FLOW_TAG,
-                    "EPG fetch OK for ${playlist.name}: HTTP ${fetchResult.httpCode}, " +
-                        "${fetchResult.rawBytes} bytes streamed"
                 )
                 val parsed = fetchResult.parsed
                 attempt = attempt.copy(
                     channelsParsed = parsed.channelsById.size,
                     programmesParsed = parsed.programs.size
                 )
+                EpgFlowLogger.dbWriteStarted(playlist.id, playlist.name)
                 val sourceKey = "xmltv:${playlist.id}"
                 var channelsStored = 0
                 if (parsed.channelsById.isNotEmpty()) {
@@ -1496,10 +1545,10 @@ class IptvRepositoryImpl @Inject constructor(
                     epgSourceChannelDao.insertAll(sourceChannels)
                     channelsStored = sourceChannels.size
                     val resetCount = channelDao.markUnlinkedEpgIdsUnresolved(playlist.id, sourceKey)
+                    EpgFlowLogger.channelsImported(playlist.id, playlist.name, channelsStored, sourceKey)
                     Log.i(
                         EPG_FLOW_TAG,
-                        "Stored $channelsStored XMLTV channel refs for ${playlist.name} (source=$sourceKey); " +
-                            "marked $resetCount channels with unlinked tvg-ids for re-resolution"
+                        "Marked $resetCount channels with unlinked tvg-ids for re-resolution"
                     )
                 } else {
                     Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
@@ -1509,26 +1558,23 @@ class IptvRepositoryImpl @Inject constructor(
                     programDao.insertAll(parsed.programs)
                     playlistDao.update(playlist.copy(lastRefreshed = now))
                     programmesStored = parsed.programs.size
-                    Log.i(
-                        EPG_FLOW_TAG,
-                        "Stored $programmesStored programmes for ${playlist.name} " +
-                            "(${parsed.channelsById.size} XMLTV channels in file)"
-                    )
+                    EpgFlowLogger.programsImported(playlist.id, playlist.name, programmesStored)
                 } else {
                     Log.w(EPG_FLOW_TAG, "No programmes parsed from $resolvedEpgUrl for ${playlist.name}")
                 }
+                EpgFlowLogger.dbWriteCompleted(playlist.id, playlist.name)
                 attempt = attempt.copy(
                     channelsStored = channelsStored,
                     programmesStored = programmesStored
                 )
             } catch (error: Exception) {
-                Log.e(EPG_FLOW_TAG, "EPG refresh failed for ${playlist.name}: ${error.message}", error)
+                EpgFlowLogger.importFailed(playlist.id, playlist.name, resolvedEpgUrl, error)
                 attempt = attempt.copy(error = error.message ?: error.javaClass.simpleName)
             }
             attempts += attempt
         }
         rebuildEpgLinkResolver()
-        epgScheduler.runResolverNow()
+        epgJobCoordinator.scheduleResolverAfterImport(createdAfter = 0L)
         val programChannelCount = programDao.distinctChannelEpgIds().size
         Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; $programChannelCount distinct programme channel ids in DB")
         val sampleChannels = mapChannelEntities(
@@ -1557,6 +1603,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         _epgDataRevision.update { it + 1 }
+        EpgFlowLogger.revisionBumped(_epgDataRevision.value)
         val report = EpgRefreshReport(playlistsTotal = playlists.size, attempts = attempts)
         Log.i(
             EPG_FLOW_TAG,
@@ -1566,6 +1613,10 @@ class IptvRepositoryImpl @Inject constructor(
                 "failures=${report.failures.size} epgDataRevision=${_epgDataRevision.value}"
         )
         report
+        } finally {
+            epgDownloadTracker.setInProgress(false)
+        }
+        }
     }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {
@@ -1625,6 +1676,15 @@ class IptvRepositoryImpl @Inject constructor(
         )
 
         ensureVodDiskCacheLoaded()
+
+        if (playlistImportCoordinator.isImportActive() && !force) {
+            playlistImportCoordinator.deferVodRefresh("import_active trigger=$trigger")
+            Log.i(
+                VOD_FLOW_TAG,
+                "Deferring VOD refresh until import completes trigger=$trigger"
+            )
+            return@withContext
+        }
 
         activeVodRefresh?.takeIf { it.isActive }?.let { inFlight ->
             Log.i(VOD_FLOW_TAG, "Coalescing duplicate refresh trigger=$trigger with in-flight request")

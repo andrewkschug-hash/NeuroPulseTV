@@ -6,14 +6,19 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
+import com.grid.tv.data.db.dao.ProfileFavoriteDao
+import com.grid.tv.data.db.dao.ProfileWatchHistoryDao
 import com.grid.tv.data.db.entity.ChannelScanEntity
 import com.grid.tv.data.db.model.ChannelScanProbeRow
+import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ChannelScanStatus
 import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.epg.EpgJobCoordinator
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -30,26 +35,39 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.grid.tv.data.network.AppHttpClient
+import kotlinx.coroutines.yield
 
 @Singleton
 class ChannelScanner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val channelDao: ChannelDao,
     private val channelScanDao: ChannelScanDao,
+    private val profileFavoriteDao: ProfileFavoriteDao,
+    private val profileWatchHistoryDao: ProfileWatchHistoryDao,
     private val repository: IptvRepository,
-    private val appHttpClient: AppHttpClient
-) {
+    private val appHttpClient: AppHttpClient,
+    private val epgJobCoordinator: EpgJobCoordinator,
+    private val hostFailureTracker: HostFailureTracker,
+    private val epgDownloadTracker: EpgDownloadTracker,
+    private val scanMetrics: ScanMetricsLogger
+) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private fun probeFor(url: String): ProbeResult = ChannelProbe(appHttpClient.client()).probe(url)
-    private val limiter = ScanConcurrencyLimiter()
+
+    private val probe by lazy {
+        ChannelProbe(appHttpClient.probeClient(), hostFailureTracker, scanMetrics)
+    }
+    private val limiter = ScanConcurrencyLimiter(ScanConcurrencyLimiter.MAX_CONCURRENCY)
     private val stateMutex = Mutex()
+    private val statusCache = ChannelScanStatusCache()
 
     private val _statuses = MutableStateFlow<Map<Long, ChannelScanSnapshot>>(emptyMap())
     val statuses: StateFlow<Map<Long, ChannelScanSnapshot>> = _statuses.asStateFlow()
 
     private val _runtime = MutableStateFlow(ScannerRuntimeState())
     val runtime: StateFlow<ScannerRuntimeState> = _runtime.asStateFlow()
+
+    private val _validationActive = MutableStateFlow(false)
+    override val isValidationActive: StateFlow<Boolean> = _validationActive.asStateFlow()
 
     @Volatile
     private var settings = ScannerSettings()
@@ -63,9 +81,12 @@ class ChannelScanner @Inject constructor(
     @Volatile
     private var forceFullScan = false
 
-    /** Rotating offset for paginated scan batches — never loads the full channel table. */
+    private val priorityValidationRunning = AtomicBoolean(false)
+
     @Volatile
     private var scanBatchOffset = 0
+
+    private var scanCycleCount = 0
 
     init {
         scope.launch { runSafely("hydrate") { hydrateFromDatabase() } }
@@ -90,27 +111,117 @@ class ChannelScanner @Inject constructor(
         forceFullScan = true
     }
 
+    override fun beginPostImportPriorityWorkflow() {
+        scope.launch {
+            runSafely("postImportPriority") {
+                hostFailureTracker.resetSession()
+                val priorityIds = collectPriorityChannelIds(ChannelScanGate.PRIORITY_VALIDATION_LIMIT)
+                android.util.Log.i(
+                    TAG,
+                    "Phase 1: priority validation for ${priorityIds.size} channels " +
+                        "(favorites + recent + visible, max ${ChannelScanGate.PRIORITY_VALIDATION_LIMIT})"
+                )
+                if (priorityIds.isEmpty()) {
+                    scheduleEpgPhase2()
+                    forceFullScan = true
+                    return@runSafely
+                }
+                runPriorityValidationBurst(priorityIds)
+                scheduleEpgPhase2()
+                forceFullScan = true
+                android.util.Log.i(TAG, "Phase 3: background full-catalog validation enabled")
+            }
+        }
+    }
+
+    override suspend fun awaitValidationIdle(maxWaitMs: Long) {
+        val deadline = System.currentTimeMillis() + maxWaitMs
+        while (System.currentTimeMillis() < deadline) {
+            if (!priorityValidationRunning.get() && !_validationActive.value) return
+            delay(VALIDATION_POLL_MS)
+        }
+        android.util.Log.w(TAG, "awaitValidationIdle timed out after ${maxWaitMs}ms")
+    }
+
     fun reportPlaybackResult(channelId: Long, isLive: Boolean) {
         val status = if (isLive) ChannelScanStatus.LIVE else ChannelScanStatus.DEAD
         val snapshot = ChannelScanSnapshot(status = status, lastCheckedAt = System.currentTimeMillis())
         scope.launch {
             runSafely("reportPlayback") {
                 persistSnapshot(channelId, snapshot)
-                _statuses.update { current -> current + (channelId to snapshot) }
+                putStatus(channelId, snapshot)
                 refreshRuntimeCounts()
             }
         }
     }
 
+    private suspend fun collectPriorityChannelIds(limit: Int): LinkedHashSet<Long> {
+        val ordered = LinkedHashSet<Long>(limit)
+        val profileId = repository.activeProfile()?.id ?: 1L
+
+        profileFavoriteDao.allChannelIdsForProfile(profileId).forEach { id ->
+            if (ordered.size >= limit) return@forEach
+            ordered.add(id)
+        }
+
+        profileWatchHistoryDao.recentLiveChannelIds(profileId, limit = limit).forEach { id ->
+            if (ordered.size >= limit) return@forEach
+            ordered.add(id)
+        }
+
+        val visibleBatch = channelDao.scanProbeBatch(limit = limit, offset = 0)
+        visibleBatch.forEach { row ->
+            if (ordered.size >= limit) return@forEach
+            ordered.add(row.id)
+        }
+
+        return ordered
+    }
+
+    private suspend fun runPriorityValidationBurst(priorityIds: Set<Long>) {
+        if (priorityIds.isEmpty()) return
+        priorityValidationRunning.set(true)
+        _validationActive.value = true
+        _runtime.update { it.copy(isScanning = true, totalCount = channelDao.countTotal()) }
+        try {
+            val rows = channelDao.scanProbeByIds(priorityIds.toList())
+            rows.chunked(SCAN_BATCH_SIZE).forEachIndexed { batchIndex, batch ->
+                scanMetrics.logBatchStart(batchIndex, batch.size, rows.size - batchIndex * SCAN_BATCH_SIZE)
+                coroutineScope {
+                    batch.map { row ->
+                        async {
+                            limiter.withPermit { checkChannel(row.id, row.streamUrl) }
+                        }
+                    }.awaitAll()
+                }
+                scanMetrics.logBatchEnd(batchIndex, batch.size)
+                yield()
+                delay(BATCH_PAUSE_MS)
+            }
+        } finally {
+            priorityValidationRunning.set(false)
+            _validationActive.value = false
+            _runtime.update { it.copy(isScanning = false) }
+        }
+    }
+
+    private fun scheduleEpgPhase2() {
+        android.util.Log.i(TAG, "Phase 2: scheduling EPG download")
+        epgJobCoordinator.scheduleImportEpg()
+    }
+
     private suspend fun hydrateFromDatabase() {
         val rows = channelScanDao.all()
         if (rows.isEmpty()) return
-        _statuses.value = rows.associate { row ->
+        val loaded = rows.associate { row ->
             row.channelId to ChannelScanSnapshot(
                 status = ChannelScanStatus.fromStored(row.status),
                 lastCheckedAt = row.lastCheckedAt
             )
         }
+        statusCache.replaceAll(loaded)
+        maybeEvictStatuses(includeOrphanCheck = true)
+        publishStatuses()
         refreshRuntimeCounts()
         _runtime.update { it.copy(lastFullScanAt = repository.lastFullScanAt()) }
     }
@@ -147,8 +258,10 @@ class ChannelScanner @Inject constructor(
                 if (
                     settings.autoScanEnabled &&
                     appInForeground &&
+                    !priorityValidationRunning.get() &&
                     !isMeteredBlocked() &&
-                    !isLowOnMemory()
+                    !isLowOnMemory() &&
+                    !epgDownloadTracker.isInProgress()
                 ) {
                     runScanCycle()
                 }
@@ -168,15 +281,19 @@ class ChannelScanner @Inject constructor(
         val total = channelDao.countTotal()
         if (total == 0) return
 
+        scanCycleCount++
+        if (scanCycleCount % EVICT_EVERY_N_CYCLES == 0) {
+            maybeEvictStatuses(includeOrphanCheck = scanCycleCount % (EVICT_EVERY_N_CYCLES * 5) == 0)
+        }
+
         val now = System.currentTimeMillis()
-        val currentStatuses = _statuses.value
-        val maxProbe = settings.concurrentChecks.coerceAtLeast(1)
+        val maxProbe = SCAN_BATCH_SIZE
         val toProbe = LinkedHashSet<ChannelScanProbeRow>(maxProbe)
 
         if (priorityChannelIds.isNotEmpty()) {
             val priorityRows = channelDao.scanProbeByIds(priorityChannelIds.toList())
             for (row in priorityRows) {
-                if (forceFullScan || isDue(row.id, currentStatuses[row.id], now)) {
+                if (forceFullScan || isDue(row.id, statusCache.get(row.id), now)) {
                     toProbe.add(row)
                     if (toProbe.size >= maxProbe) break
                 }
@@ -197,7 +314,7 @@ class ChannelScanner @Inject constructor(
 
                 for (row in batch) {
                     if (priorityChannelIds.contains(row.id)) continue
-                    if (forceFullScan || isDue(row.id, currentStatuses[row.id], now)) {
+                    if (forceFullScan || isDue(row.id, statusCache.get(row.id), now)) {
                         toProbe.add(row)
                         if (toProbe.size >= maxProbe) break
                     }
@@ -211,40 +328,83 @@ class ChannelScanner @Inject constructor(
                 repository.updateLastFullScanAt(now)
                 _runtime.update { it.copy(lastFullScanAt = now, isScanning = false) }
             }
+            _validationActive.value = false
             refreshRuntimeCounts()
             return
         }
 
+        _validationActive.value = true
         _runtime.update { it.copy(isScanning = true, totalCount = total) }
 
-        coroutineScope {
-            toProbe.map { row ->
-                async { checkChannel(row.id, row.streamUrl) }
-            }.awaitAll()
+        val probeList = toProbe.toList()
+        probeList.chunked(SCAN_BATCH_SIZE).forEachIndexed { batchIndex, batch ->
+            val remaining = (probeList.size - (batchIndex * SCAN_BATCH_SIZE)).coerceAtLeast(0)
+            scanMetrics.logBatchStart(batchIndex, batch.size, remaining)
+            coroutineScope {
+                batch.map { row ->
+                    async {
+                        limiter.withPermit { checkChannel(row.id, row.streamUrl) }
+                    }
+                }.awaitAll()
+            }
+            scanMetrics.logBatchEnd(batchIndex, batch.size)
+            yield()
+            delay(BATCH_PAUSE_MS)
         }
 
         refreshRuntimeCounts()
         _runtime.update { it.copy(isScanning = false) }
+        _validationActive.value = false
     }
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
         markChecking(channelId)
-        val result = limiter.withPermit { probeFor(streamUrl) }
+        val detail = probe.probe(streamUrl)
         val snapshot = ChannelScanSnapshot(
-            status = when (result) {
+            status = when (detail.result) {
                 ProbeResult.LIVE -> ChannelScanStatus.LIVE
                 ProbeResult.DEAD -> ChannelScanStatus.DEAD
                 ProbeResult.UNKNOWN -> ChannelScanStatus.UNKNOWN
             },
-            lastCheckedAt = System.currentTimeMillis()
+            lastCheckedAt = System.currentTimeMillis(),
+            responseCode = detail.responseCode,
+            latencyMs = detail.latencyMs
         )
         persistSnapshot(channelId, snapshot)
-        _statuses.update { current -> current + (channelId to snapshot) }
+        putStatus(channelId, snapshot)
     }
 
     private suspend fun markChecking(channelId: Long) {
-        _statuses.update { current ->
-            current + (channelId to ChannelScanSnapshot(ChannelScanStatus.CHECKING, current[channelId]?.lastCheckedAt))
+        putStatus(
+            channelId,
+            ChannelScanSnapshot(
+                status = ChannelScanStatus.CHECKING,
+                lastCheckedAt = statusCache.get(channelId)?.lastCheckedAt
+            )
+        )
+    }
+
+    private fun putStatus(channelId: Long, snapshot: ChannelScanSnapshot) {
+        statusCache.put(channelId, snapshot)
+        publishStatuses()
+    }
+
+    private fun publishStatuses() {
+        _statuses.value = statusCache.snapshot()
+    }
+
+    private suspend fun maybeEvictStatuses(includeOrphanCheck: Boolean) {
+        val validIds = if (includeOrphanCheck) channelDao.allChannelIds().toSet() else null
+        val removed = statusCache.evict(
+            maxAgeMs = ChannelScanStatusCache.MAX_AGE_MS,
+            validChannelIds = validIds
+        )
+        if (removed > 0) {
+            android.util.Log.i(
+                TAG,
+                "Evicted $removed scan status entries (cacheSize=${statusCache.size()}, orphanCheck=$includeOrphanCheck)"
+            )
+            publishStatuses()
         }
     }
 
@@ -262,7 +422,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun refreshRuntimeCounts() {
-        val statuses = _statuses.value
+        val statuses = statusCache.snapshot()
         val live = statuses.values.count { it.status == ChannelScanStatus.LIVE }
         val total = channelDao.countTotal()
         _runtime.update { it.copy(liveCount = live, totalCount = total) }
@@ -294,7 +454,6 @@ class ChannelScanner @Inject constructor(
             caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET).not()
     }
 
-    /** Skip background probes when the process is under memory pressure. */
     private fun isLowOnMemory(): Boolean {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
         val info = ActivityManager.MemoryInfo()
@@ -313,7 +472,6 @@ class ChannelScanner @Inject constructor(
         }
     }
 
-    /** Runs [block], backing off on OOM instead of crashing the process. */
     private suspend fun runSafely(label: String, block: suspend () -> Unit): Boolean {
         return try {
             block()
@@ -335,6 +493,10 @@ class ChannelScanner @Inject constructor(
         private const val MAX_BACKOFF_MS = 120_000L
         private const val SCAN_PAGE_SIZE = 200
         private const val MAX_PAGES_PER_CYCLE = 8
+        private const val SCAN_BATCH_SIZE = 25
+        private const val BATCH_PAUSE_MS = 100L
+        private const val VALIDATION_POLL_MS = 500L
         private const val LOW_MEMORY_USED_RATIO = 0.85
+        private const val EVICT_EVERY_N_CYCLES = 10
     }
 }

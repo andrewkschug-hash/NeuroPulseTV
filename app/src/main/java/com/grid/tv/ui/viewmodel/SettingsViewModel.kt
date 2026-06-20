@@ -24,10 +24,10 @@ import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.feature.dashboard.DashboardController
 import com.grid.tv.feature.recording.RecordingStorageManager
-import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,7 +55,7 @@ class SettingsViewModel @Inject constructor(
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
     private val channelScanner: ChannelScanner,
-    private val seriesRuleScheduler: SeriesRuleScheduler,
+    private val epgScheduler: EpgScheduler,
     private val themeManager: ThemeManager,
     private val pipController: PictureInPictureController,
     private val livePlayerManager: LivePlayerManager
@@ -298,10 +298,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshEpg() {
-        viewModelScope.launch {
-            repository.refreshEpgNow()
-            seriesRuleScheduler.applyRulesAfterEpgRefresh()
-        }
+        epgScheduler.scheduleManualEpg()
     }
 
     private fun syncScannerSettings() {

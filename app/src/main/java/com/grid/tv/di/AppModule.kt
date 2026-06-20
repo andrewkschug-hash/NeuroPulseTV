@@ -45,6 +45,9 @@ import com.grid.tv.data.db.dao.SubtitleCacheDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
 import com.grid.tv.data.sync.CloudSyncClient
 import com.grid.tv.data.sync.LocalOnlyCloudSyncClient
+import com.grid.tv.feature.scanner.ChannelScanGate
+import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.feature.scanner.HostFailureTracker
 import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
@@ -202,6 +205,10 @@ object AppProvidesModule {
 
     @Provides
     fun provideSeriesShowDao(db: AppDatabase): SeriesShowDao = db.seriesShowDao()
+
+    @Provides
+    @Singleton
+    fun provideHostFailureTracker(): HostFailureTracker = HostFailureTracker()
 }
 
 @Module
@@ -212,4 +219,8 @@ abstract class AppBindsModule {
 
     @Binds
     abstract fun bindCloudSync(impl: LocalOnlyCloudSyncClient): CloudSyncClient
+
+    @Binds
+    @Singleton
+    abstract fun bindChannelScanGate(scanner: ChannelScanner): ChannelScanGate
 }

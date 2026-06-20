@@ -23,6 +23,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
+import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.ui.component.EpgLayout
@@ -652,6 +653,11 @@ class HomeEpgViewModel @Inject constructor(
             _epgPrograms.value = programs
             recomputeReplayUrls(programs)
             _epgLoading.value = false
+            EpgFlowLogger.guideLoaded(
+                programCount = programs.size,
+                channelCount = priorityChannels.size,
+                matchedChannelCount = programs.map { it.channelEpgId }.distinct().size
+            )
             return
         }
 
@@ -692,6 +698,11 @@ class HomeEpgViewModel @Inject constructor(
         val matchedChannels = channelsForLookup.count { ch ->
             ch.epgId != null && channelsWithPrograms.any { it.equals(ch.epgId, ignoreCase = true) }
         }
+        EpgFlowLogger.guideLoaded(
+            programCount = programs.size,
+            channelCount = channelsForLookup.size,
+            matchedChannelCount = matchedChannels
+        )
         Log.i(
             TAG,
             "loadWindow: ${programs.size} programme rows, $matchedChannels/${channelsForLookup.size} " +

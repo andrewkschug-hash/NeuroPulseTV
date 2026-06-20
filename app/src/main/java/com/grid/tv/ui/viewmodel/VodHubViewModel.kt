@@ -9,6 +9,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -26,7 +27,8 @@ import kotlinx.coroutines.launch
 class VodHubViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val continueWatchingRepository: ContinueWatchingRepository,
-    private val titleEnrichmentRepository: TitleEnrichmentRepository
+    private val titleEnrichmentRepository: TitleEnrichmentRepository,
+    private val playlistImportCoordinator: PlaylistImportCoordinator
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
 
@@ -94,23 +96,31 @@ class VodHubViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+            playlistImportCoordinator.importActive.collect { importing ->
+                if (!importing) {
+                    repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+                }
+            }
         }
         viewModelScope.launch {
             continueWatchingItems.collect { items ->
-                prefetchEnrichmentForContinueWatching(items)
+                if (!playlistImportCoordinator.isImportActive()) {
+                    prefetchEnrichmentForContinueWatching(items)
+                }
             }
         }
         viewModelScope.launch {
             recommendationSample.collect { catalog ->
-                if (catalog.isNotEmpty()) {
+                if (catalog.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
                     prefetchEnrichmentForCatalog(catalog.take(40))
                 }
             }
         }
         viewModelScope.launch {
             featuredCarousel.collect { carousel ->
-                carousel.forEach { prefetchEnrichmentForItem(it) }
+                if (!playlistImportCoordinator.isImportActive()) {
+                    carousel.forEach { prefetchEnrichmentForItem(it) }
+                }
             }
         }
     }

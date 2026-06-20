@@ -8,6 +8,7 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 
@@ -24,7 +25,13 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var vodClient: OkHttpClient = buildVodClient(AppSettings())
 
+    /** Bounded-concurrency client for IPTV channel HEAD/range probes. */
+    @Volatile
+    private var probeClient: OkHttpClient = buildProbeClient(AppSettings())
+
     fun client(): OkHttpClient = client
+
+    fun probeClient(): OkHttpClient = probeClient
 
     fun epgClient(): OkHttpClient = epgClient
 
@@ -33,8 +40,22 @@ class AppHttpClient @Inject constructor() {
 
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
+        probeClient = buildProbeClient(settings)
         epgClient = buildEpgClient(settings)
         vodClient = buildVodClient(settings)
+    }
+
+    private fun buildProbeClient(settings: AppSettings): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = PROBE_MAX_REQUESTS
+            maxRequestsPerHost = PROBE_MAX_REQUESTS_PER_HOST
+        }
+        return baseBuilder(settings, connectTimeoutSeconds = 5)
+            .dispatcher(dispatcher)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
+            .build()
     }
 
     private fun buildClient(settings: AppSettings): OkHttpClient {
@@ -86,6 +107,8 @@ class AppHttpClient @Inject constructor() {
         const val EPG_READ_TIMEOUT_MINUTES = 5L
         const val VOD_CALL_TIMEOUT_MINUTES = 10L
         const val VOD_READ_TIMEOUT_MINUTES = 10L
+        const val PROBE_MAX_REQUESTS = 8
+        const val PROBE_MAX_REQUESTS_PER_HOST = 4
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {
