@@ -42,6 +42,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -208,24 +210,16 @@ class HomeEpgViewModel @Inject constructor(
     val recentlyAdded: StateFlow<List<Channel>> = repository.recentlyAdded(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val vod: StateFlow<List<VodItem>> = repository.vodStreams()
+    val featuredMovies: StateFlow<List<VodItem>> = repository.vodCatalogRevision()
+        .flatMapLatest { flow { emit(repository.vodRecent(limit = 20)) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val series: StateFlow<List<SeriesShow>> = repository.seriesShows()
+    val featuredSeries: StateFlow<List<SeriesShow>> = repository.vodCatalogRevision()
+        .flatMapLatest { flow { emit(repository.seriesPage(limit = 20, offset = 0)) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-
-    val featuredMovies: StateFlow<List<VodItem>> = vod
-        .map { items ->
-            items.sortedByDescending { it.addedEpochSec ?: 0L }.take(20)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val featuredSeries: StateFlow<List<SeriesShow>> = series
-        .map { items -> items.take(20) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val now = MutableStateFlow(System.currentTimeMillis())
 

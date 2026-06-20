@@ -32,6 +32,7 @@ import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.netflixMovieBrowseRows
 import com.grid.tv.ui.component.NetflixCategoryRow
+import com.grid.tv.ui.component.movieMetaSubtitle
 import com.grid.tv.ui.component.NetflixMovieRow
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
@@ -149,6 +150,7 @@ fun MoviesBrowserScreen(
                             movies = movies,
                             progressByStreamId = progress,
                             posterUrlFor = { it.posterUrl },
+                            metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
                             onPlayMovie = { movie ->
                                 onMovieBrowse(movie)
                                 scope.launch {
@@ -189,6 +191,7 @@ fun MoviesBrowserScreen(
                         rows = browseRows,
                         progressByStreamId = progress,
                         posterUrlFor = { it.posterUrl },
+                        metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
                         onPlayMovie = { movie ->
                             onMovieBrowse(movie)
                             scope.launch {

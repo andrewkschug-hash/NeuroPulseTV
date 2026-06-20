@@ -742,4 +742,69 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_26_27 = object : Migration(26, 27) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_streams (
+                    rowId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    playlistId INTEGER NOT NULL,
+                    streamId INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    streamUrl TEXT NOT NULL,
+                    posterUrl TEXT,
+                    plot TEXT,
+                    cast TEXT,
+                    director TEXT,
+                    genre TEXT,
+                    rating TEXT,
+                    duration TEXT,
+                    categoryId TEXT,
+                    addedEpochSec INTEGER,
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_playlistId ON vod_streams(playlistId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_streamId ON vod_streams(streamId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_categoryId ON vod_streams(categoryId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_addedEpochSec ON vod_streams(addedEpochSec)")
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_vod_streams_playlistId_streamId ON vod_streams(playlistId, streamId)"
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_categories (
+                    playlistId INTEGER NOT NULL,
+                    categoryId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    PRIMARY KEY(playlistId, categoryId),
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_categories_playlistId ON vod_categories(playlistId)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_shows (
+                    rowId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    playlistId INTEGER NOT NULL,
+                    seriesId INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    coverUrl TEXT,
+                    categoryId TEXT,
+                    genre TEXT,
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_series_shows_playlistId ON series_shows(playlistId)")
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_series_shows_playlistId_seriesId ON series_shows(playlistId, seriesId)"
+            )
+        }
+    }
 }

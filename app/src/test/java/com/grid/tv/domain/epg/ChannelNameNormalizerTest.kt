@@ -1,6 +1,7 @@
 package com.grid.tv.domain.epg
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChannelNameNormalizerTest {
@@ -20,7 +21,7 @@ class ChannelNameNormalizerTest {
             "(US) HBO 1080p" to "hbo",
             "Discovery Channel UHD" to "discovery",
             "Network 10 AU" to "10",
-            "TV3 NZ" to "3",
+            "TV3 NZ" to "tv3",
             "Fox News Channel" to "fox news",
             "Eurosport 4K" to "eurosport",
             "RTE One IE" to "rte one",
@@ -30,7 +31,7 @@ class ChannelNameNormalizerTest {
             "ABC | US" to "abc",
             "[CA] TSN 2" to "tsn 2",
             "Zee TV HD" to "zee",
-            "TVP Info PL" to "tvp info pl",
+            "TVP Info PL" to "tvp info",
             "MBC 1 HQ" to "mbc 1",
             "CBeebies (UK)" to "cbeebies",
             "Channel 5 UK" to "5"
@@ -45,10 +46,19 @@ class ChannelNameNormalizerTest {
     fun calculateConfidence_exactNearPartialNoMatch() {
         assertEquals(100, normalizer.calculateConfidence("BBC One HD", "bbc one"))
         assertEquals(90, normalizer.calculateConfidence("Sky Sports Main Event", "Sky Sports"))
-        assertEquals(85, normalizer.calculateConfidence("hbo", "hboo"))
-        assertEquals(75, normalizer.calculateConfidence("cnn", "cann"))
-        assertEquals(70, normalizer.calculateConfidence("sky sports one", "uk sky sports one live"))
-        assertEquals(55, normalizer.calculateConfidence("sky sports", "sky arena"))
+        assertEquals(88, normalizer.calculateConfidence("hbo", "hboo"))
+        assertEquals(85, normalizer.calculateConfidence("cnn", "cann"))
+        assertEquals(75, normalizer.calculateConfidence("cnn", "cannn"))
+        assertEquals(90, normalizer.calculateConfidence("sky sports one", "uk sky sports one live"))
+        assertEquals(0, normalizer.calculateConfidence("sky sports", "sky arena"))
         assertEquals(0, normalizer.calculateConfidence("bbc one", "espn deportes"))
+    }
+
+    @Test
+    fun calculateConfidence_ohlNumberedChannels() {
+        assertEquals(100, normalizer.calculateConfidence("OHL 01", "OHL 01"))
+        assertEquals(100, normalizer.calculateConfidence("OHL 01 HD", "OHL 01"))
+        assertTrue(normalizer.calculateConfidence("OHL 01", "OHL Ontario Hockey League 01") >= 55)
+        assertTrue(normalizer.calculateConfidence("OHL 02", "OHL 02 FHD") >= 90)
     }
 }

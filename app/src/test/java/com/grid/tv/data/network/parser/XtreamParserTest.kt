@@ -1,5 +1,6 @@
 package com.grid.tv.data.network.parser
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -89,7 +90,7 @@ class XtreamParserTest {
     }
 
     @Test
-    fun parseVodBatchedEmitsIncrementalBatches() {
+    fun parseVodBatchedEmitsIncrementalBatches() = runBlocking {
         val raw = buildString {
             append('[')
             repeat(120) { index ->
@@ -118,7 +119,7 @@ class XtreamParserTest {
     }
 
     @Test
-    fun parseVodBatchedAcceptsNumericStreamId() {
+    fun parseVodBatchedAcceptsNumericStreamId() = runBlocking {
         val raw = """[{"stream_id":42,"name":"Numeric Movie","container_extension":"mp4"}]"""
         val items = parser.parseVod(
             raw = raw,
@@ -131,7 +132,7 @@ class XtreamParserTest {
     }
 
     @Test
-    fun parseVodBatchedAcceptsWrappedArray() {
+    fun parseVodBatchedAcceptsWrappedArray() = runBlocking {
         val raw = """{"vod_streams":[{"stream_id":"7","name":"Wrapped Movie","container_extension":"mp4"}]}"""
         val items = parser.parseVod(
             raw = raw,
@@ -144,7 +145,7 @@ class XtreamParserTest {
     }
 
     @Test
-    fun parseVodBatchedAcceptsNestedDataWrapper() {
+    fun parseVodBatchedAcceptsNestedDataWrapper() = runBlocking {
         val raw = """{"data":{"vod_streams":[{"stream_id":"9","name":"Nested Movie","container_extension":"mp4"}]}}"""
         val items = parser.parseVod(
             raw = raw,

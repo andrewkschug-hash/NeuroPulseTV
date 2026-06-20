@@ -6,6 +6,7 @@ import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -37,34 +40,42 @@ class VodHubViewModel @Inject constructor(
         continueWatchingRepository.observeItems(limit = 20)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val vodCatalog: StateFlow<List<VodItem>> =
-        repository.vodStreams().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val recommendationSample: StateFlow<List<VodItem>> =
+        repository.vodCatalogRevision()
+            .flatMapLatest {
+                flow { emit(repository.vodSampleForRecommendations(sampleSize = 500)) }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val vodProgress: StateFlow<Map<Long, Long>> =
         repository.vodWatchProgress().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val recommendedForYou: StateFlow<List<VodItem>> =
-        combine(vodCatalog, continueWatchingItems, enrichmentByKey) { catalog, cw, enrichment ->
+        combine(recommendationSample, continueWatchingItems, enrichmentByKey) { catalog, cw, enrichment ->
             tasteGenomeEngine.topPicks(catalog, cw, enrichment, limit = 24)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val trendingNow: StateFlow<List<VodItem>> =
-        combine(vodCatalog, enrichmentByKey) { catalog, enrichment ->
+        combine(recommendationSample, enrichmentByKey) { catalog, enrichment ->
             tasteGenomeEngine.trendingNow(catalog, enrichment, limit = 24)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val somethingDifferent: StateFlow<List<VodItem>> =
-        combine(vodCatalog, continueWatchingItems, enrichmentByKey) { catalog, cw, enrichment ->
+        combine(recommendationSample, continueWatchingItems, enrichmentByKey) { catalog, cw, enrichment ->
             tasteGenomeEngine.somethingDifferent(catalog, cw, enrichment, limit = 20)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val featuredCarousel: StateFlow<List<VodItem>> =
-        combine(recommendedForYou, trendingNow, vodCatalog) { recommended, trending, catalog ->
+        combine(recommendedForYou, trendingNow, repository.vodCatalogRevision()) { recommended, trending, _ ->
             val merged = (recommended.take(5) + trending.take(5))
                 .distinctBy { "${it.playlistId}_${it.streamId}" }
                 .take(5)
-            merged.ifEmpty {
-                catalog.sortedByDescending { it.addedEpochSec ?: 0L }.take(5)
+            merged
+        }.flatMapLatest { merged ->
+            if (merged.isNotEmpty()) {
+                flow { emit(merged) }
+            } else {
+                flow { emit(repository.vodRecent(limit = 5)) }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -82,14 +93,16 @@ class VodHubViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
-        refreshCatalog()
+        viewModelScope.launch {
+            repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+        }
         viewModelScope.launch {
             continueWatchingItems.collect { items ->
                 prefetchEnrichmentForContinueWatching(items)
             }
         }
         viewModelScope.launch {
-            vodCatalog.collect { catalog ->
+            recommendationSample.collect { catalog ->
                 if (catalog.isNotEmpty()) {
                     prefetchEnrichmentForCatalog(catalog.take(40))
                 }
@@ -104,7 +117,12 @@ class VodHubViewModel @Inject constructor(
 
     fun refreshCatalog() {
         viewModelScope.launch {
-            runCatching { repository.refreshVodSeriesCatalog() }
+            runCatching {
+                repository.refreshVodSeriesCatalog(
+                    trigger = VodRefreshTrigger.MANUAL_RETRY,
+                    force = true
+                )
+            }
         }
     }
 

@@ -33,7 +33,10 @@ import com.grid.tv.data.db.dao.ChannelHealthAggregateDao
 import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
 import com.grid.tv.data.db.dao.VodWatchEventDao
 import com.grid.tv.data.db.dao.SeriesFollowDao
+import com.grid.tv.data.db.dao.VodCategoryDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.VodStreamDao
+import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
@@ -190,6 +193,15 @@ object AppProvidesModule {
 
     @Provides
     fun provideVodUserNotificationDao(db: AppDatabase): VodUserNotificationDao = db.vodUserNotificationDao()
+
+    @Provides
+    fun provideVodStreamDao(db: AppDatabase): VodStreamDao = db.vodStreamDao()
+
+    @Provides
+    fun provideVodCategoryDao(db: AppDatabase): VodCategoryDao = db.vodCategoryDao()
+
+    @Provides
+    fun provideSeriesShowDao(db: AppDatabase): SeriesShowDao = db.seriesShowDao()
 }
 
 @Module

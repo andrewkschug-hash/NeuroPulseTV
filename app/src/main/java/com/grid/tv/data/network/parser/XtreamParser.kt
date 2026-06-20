@@ -265,7 +265,7 @@ class XtreamParser {
         }
     }
 
-    fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
+    suspend fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
         val out = ArrayList<VodItem>()
         parseVodBatched(raw, username, password, serverUrl, playlistId) { batch ->
             out.addAll(batch)
@@ -273,14 +273,14 @@ class XtreamParser {
         return out
     }
 
-    fun parseVodBatched(
+    suspend fun parseVodBatched(
         raw: String,
         username: String,
         password: String,
         serverUrl: String,
         playlistId: Long = 0L,
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
-        onBatch: (List<VodItem>) -> Unit
+        onBatch: suspend (List<VodItem>) -> Unit
     ): Int {
         val arr = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS) ?: return 0
         val batch = ArrayList<VodItem>(batchSize)
@@ -330,7 +330,7 @@ class XtreamParser {
         )
     }
 
-    fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
+    suspend fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
         val out = ArrayList<SeriesShow>()
         parseSeriesBatched(raw, playlistId) { batch ->
             out.addAll(batch)
@@ -338,11 +338,11 @@ class XtreamParser {
         return out
     }
 
-    fun parseSeriesBatched(
+    suspend fun parseSeriesBatched(
         raw: String,
         playlistId: Long = 0L,
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
-        onBatch: (List<SeriesShow>) -> Unit
+        onBatch: suspend (List<SeriesShow>) -> Unit
     ): Int {
         val arr = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS) ?: return 0
         val batch = ArrayList<SeriesShow>(batchSize)

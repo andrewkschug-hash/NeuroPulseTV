@@ -61,6 +61,7 @@ class EpgResolverProgressAndProtectionTest {
         coEvery { channelDao.unresolvedBatch(50, 50, any(), any()) } returns emptyList()
         coEvery { programDao.distinctChannelEpgIds() } returns listOf("cnn")
         coEvery { sourceDao.bySource(any()) } returns emptyList()
+        coEvery { sourceDao.all() } returns emptyList()
         coEvery { sourceDao.lastCachedAt(any()) } returns System.currentTimeMillis()
 
         val items = engine.resolveAllUnmatched().toList()

@@ -258,7 +258,12 @@ class SettingsViewModel @Inject constructor(
             }
             if (connected && isXtream) {
                 viewModelScope.launch {
-                    runCatching { repository.refreshVodSeriesCatalog() }
+                    runCatching {
+                        repository.refreshVodSeriesCatalog(
+                            trigger = com.grid.tv.domain.model.VodRefreshTrigger.PLAYLIST_CONNECT,
+                            force = true
+                        )
+                    }
                 }
             }
         }

@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Log
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
+import com.grid.tv.data.db.dao.EpgLearnedMappingDao
 import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.EpgSourceChannelDao
 import com.grid.tv.data.db.dao.FavoriteDao
@@ -29,8 +30,16 @@ import com.grid.tv.data.db.entity.ProfileSettingsEntity
 import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
+import com.grid.tv.data.cache.VodCatalogDiskCache
+import com.grid.tv.data.db.dao.SeriesShowDao
+import com.grid.tv.data.db.dao.VodCategoryDao
+import com.grid.tv.data.db.dao.VodStreamDao
+import com.grid.tv.data.db.mapper.toDomain
+import com.grid.tv.data.db.mapper.toEntity
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.data.network.RemoteTextFetcher
+import com.grid.tv.domain.model.VodBrowseRow
+import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
@@ -100,6 +109,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.URLEncoder
@@ -128,6 +141,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val watchHistoryDao: WatchHistoryDao,
     private val epgSourceChannelDao: EpgSourceChannelDao,
+    private val epgLearnedMappingDao: EpgLearnedMappingDao,
     private val epgResolutionSuggestionDao: EpgResolutionSuggestionDao,
     private val remoteTextFetcher: RemoteTextFetcher,
     private val appHttpClient: AppHttpClient,
@@ -141,7 +155,11 @@ class IptvRepositoryImpl @Inject constructor(
     private val gridBackupManager: GridBackupManager,
     private val favoritesRepository: FavoritesRepository,
     private val guestSessionPreferences: GuestSessionPreferences,
-    private val channelNameNormalizer: ChannelNameNormalizer
+    private val channelNameNormalizer: ChannelNameNormalizer,
+    private val vodStreamDao: VodStreamDao,
+    private val vodCategoryDao: VodCategoryDao,
+    private val seriesShowDao: SeriesShowDao,
+    private val vodCatalogDiskCache: VodCatalogDiskCache
 ) : IptvRepository {
 
     companion object {
@@ -152,6 +170,8 @@ class IptvRepositoryImpl @Inject constructor(
         private const val VOD_FLOW_TAG = "VodCatalogPipeline"
         private const val CHANNEL_INSERT_CHUNK = 400
         const val CHANNEL_PAGE_SIZE = 200
+        /** Serve in-memory/disk cache without network for this long unless [force] refresh. */
+        private const val VOD_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
     }
 
     private val recommendationEngine = RecommendationEngine()
@@ -163,14 +183,33 @@ class IptvRepositoryImpl @Inject constructor(
 
     private var cachedSettings = AppSettings()
     private var activeProfileId = 1L
-    private val vodCacheByPlaylist = MutableStateFlow<Map<Long, List<VodItem>>>(emptyMap())
-    private val vodCategoriesByPlaylist = MutableStateFlow<Map<Long, List<VodCategory>>>(emptyMap())
-    private val seriesCacheByPlaylist = MutableStateFlow<Map<Long, List<SeriesShow>>>(emptyMap())
+    private val _vodCatalogRevision = MutableStateFlow(0L)
     private val vodCatalogLoading = MutableStateFlow(false)
     private val vodCatalogProgress = MutableStateFlow(VodCatalogProgress())
     private val vodCatalogStatus = MutableStateFlow(VodCatalogStatus())
     private val vodRefreshMutex = Mutex()
+    private val vodDiskLoadMutex = Mutex()
+    private val vodRepositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var vodDiskCacheLoaded = false
+    @Volatile
+    private var lastVodRefreshCompletedAtMs = 0L
+    @Volatile
+    private var activeVodRefresh: CompletableDeferred<Unit>? = null
     private val seriesSeasonsCache = linkedMapOf<Pair<Long, Long>, List<SeriesSeason>>()
+
+    init {
+        vodRepositoryScope.launch {
+            ensureVodDiskCacheLoaded()
+            if (!isVodCatalogFresh()) {
+                runCatching {
+                    refreshVodSeriesCatalog(trigger = VodRefreshTrigger.REPOSITORY_INIT, force = false)
+                }
+            } else {
+                publishVodProgressFromDb(trigger = VodRefreshTrigger.REPOSITORY_INIT)
+            }
+        }
+    }
 
     private data class VodPlaylistRefreshResult(
         val rawLength: Int = 0,
@@ -216,6 +255,19 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun clearSeriesSeasonsForPlaylist(playlistId: Long) {
         seriesSeasonsCache.keys.removeAll { it.first == playlistId }
+    }
+
+    private fun bumpVodCatalogRevision() {
+        _vodCatalogRevision.update { it + 1L }
+    }
+
+    private suspend fun clearVodCatalogForPlaylist(playlistId: Long) {
+        vodStreamDao.clearByPlaylist(playlistId)
+        vodCategoryDao.clearByPlaylist(playlistId)
+        seriesShowDao.clearByPlaylist(playlistId)
+        vodCatalogDiskCache.clear(playlistId)
+        clearSeriesSeasonsForPlaylist(playlistId)
+        bumpVodCatalogRevision()
     }
 
     /** Local deduplication when loading provider channel lists — no server-side pipeline. */
@@ -688,7 +740,14 @@ class IptvRepositoryImpl @Inject constructor(
         programDao.distinctChannelEpgIds().forEach { epgId ->
             refs.putIfAbsent(epgId, XmlTvChannelRef(epgId, epgId))
         }
-        return EpgChannelLinkResolver(refs.values.toList()).also { epgLinkResolver = it }
+        val learnedMappings = epgLearnedMappingDao.all().associate { mapping ->
+            mapping.normalizedOriginalName to mapping.epgId
+        }
+        return EpgChannelLinkResolver(
+            xmlTvChannels = refs.values.toList(),
+            learnedMappings = learnedMappings,
+            normalizer = channelNameNormalizer
+        ).also { epgLinkResolver = it }
     }
 
     private fun logEpgMatchDebug(
@@ -1015,10 +1074,9 @@ class IptvRepositoryImpl @Inject constructor(
     private fun scheduleEpgImportWork(startedAt: Long) {
         Log.i(
             EPG_FLOW_TAG,
-            "scheduleEpgImportWork startedAt=$startedAt → EpgRefreshWorker (xmltv.php / playlist EPG URL) " +
-                "+ EpgResolverWorker (external sources; get_short_epg not used for bulk import)"
+            "scheduleEpgImportWork startedAt=$startedAt → EpgRefreshWorker (xmltv.php / playlist EPG URL); " +
+                "resolver runs after EPG import completes"
         )
-        epgScheduler.runResolverForNewChannels(startedAt)
         epgScheduler.runEpgRefreshNow()
     }
 
@@ -1115,10 +1173,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         Log.i(IPTV_REPO_LOG_TAG, "Inserted $inserted live channels into database")
-        clearSeriesSeasonsForPlaylist(playlistId)
-        vodCacheByPlaylist.update { it - playlistId }
-        vodCategoriesByPlaylist.update { it - playlistId }
-        seriesCacheByPlaylist.update { it - playlistId }
+        clearVodCatalogForPlaylist(playlistId)
 
         val existing = playlistDao.getById(playlistId) ?: throw IllegalStateException("Playlist not found")
         return existing.copy(
@@ -1172,9 +1227,11 @@ class IptvRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             playlistDao.delete(playlistId)
             secureCredentialStore.removePlaylistCredentials(playlistId)
-            vodCacheByPlaylist.update { it - playlistId }
-            vodCategoriesByPlaylist.update { it - playlistId }
-            seriesCacheByPlaylist.update { it - playlistId }
+            vodStreamDao.clearByPlaylist(playlistId)
+            vodCategoryDao.clearByPlaylist(playlistId)
+            seriesShowDao.clearByPlaylist(playlistId)
+            vodCatalogDiskCache.clear(playlistId)
+            bumpVodCatalogRevision()
             throw e
         }
         scheduleEpgImportWork(startedAt)
@@ -1317,10 +1374,12 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun deletePlaylist(playlistId: Long) {
         secureCredentialStore.removePlaylistCredentials(playlistId)
         playlistDao.delete(playlistId)
-        vodCacheByPlaylist.update { it - playlistId }
-        vodCategoriesByPlaylist.update { it - playlistId }
-        seriesCacheByPlaylist.update { it - playlistId }
+        vodStreamDao.clearByPlaylist(playlistId)
+        vodCategoryDao.clearByPlaylist(playlistId)
+        seriesShowDao.clearByPlaylist(playlistId)
+        vodCatalogDiskCache.clear(playlistId)
         clearSeriesSeasonsForPlaylist(playlistId)
+        bumpVodCatalogRevision()
     }
 
     override suspend fun refreshEpgNow(): EpgRefreshReport = withContext(Dispatchers.IO) {
@@ -1426,9 +1485,11 @@ class IptvRepositoryImpl @Inject constructor(
                     }
                     epgSourceChannelDao.insertAll(sourceChannels)
                     channelsStored = sourceChannels.size
+                    val resetCount = channelDao.markUnlinkedEpgIdsUnresolved(playlist.id, sourceKey)
                     Log.i(
                         EPG_FLOW_TAG,
-                        "Stored $channelsStored XMLTV channel refs for ${playlist.name} (source=$sourceKey)"
+                        "Stored $channelsStored XMLTV channel refs for ${playlist.name} (source=$sourceKey); " +
+                            "marked $resetCount channels with unlinked tvg-ids for re-resolution"
                     )
                 } else {
                     Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
@@ -1457,6 +1518,7 @@ class IptvRepositoryImpl @Inject constructor(
             attempts += attempt
         }
         rebuildEpgLinkResolver()
+        epgScheduler.runResolverNow()
         val programChannelCount = programDao.distinctChannelEpgIds().size
         Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; $programChannelCount distinct programme channel ids in DB")
         val sampleChannels = mapChannelEntities(
@@ -1533,13 +1595,125 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun refreshVodSeriesCatalog() = withContext(Dispatchers.IO) {
-        vodRefreshMutex.withLock {
+    override suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger) {
+        ensureVodDiskCacheLoaded()
+        refreshVodSeriesCatalog(trigger = trigger, force = false)
+    }
+
+    override suspend fun refreshVodSeriesCatalog(
+        trigger: VodRefreshTrigger,
+        force: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val callAtMs = System.currentTimeMillis()
+        val dbMovies = vodStreamDao.countTotal()
+        val dbSeries = seriesShowDao.countTotal()
+        Log.i(
+            VOD_FLOW_TAG,
+            "refreshVodSeriesCatalog requested trigger=$trigger force=$force at=$callAtMs " +
+                "dbMovies=$dbMovies dbSeries=$dbSeries " +
+                "lastRefreshAgeMs=${if (lastVodRefreshCompletedAtMs > 0L) callAtMs - lastVodRefreshCompletedAtMs else -1L}"
+        )
+
+        ensureVodDiskCacheLoaded()
+
+        activeVodRefresh?.takeIf { it.isActive }?.let { inFlight ->
+            Log.i(VOD_FLOW_TAG, "Coalescing duplicate refresh trigger=$trigger with in-flight request")
+            inFlight.await()
+            return@withContext
+        }
+
+        if (!force && isVodCatalogFresh()) {
+            Log.i(
+                VOD_FLOW_TAG,
+                "Skipping network refresh trigger=$trigger — cache fresh within TTL " +
+                    "(movies=$dbMovies, series=$dbSeries)"
+            )
+            publishVodProgressFromDb(trigger = trigger)
+            return@withContext
+        }
+
+        val completion = CompletableDeferred<Unit>()
+        activeVodRefresh = completion
+        try {
+            vodRefreshMutex.withLock {
+                if (!force && isVodCatalogFresh()) {
+                    Log.i(VOD_FLOW_TAG, "Skipping network refresh inside lock trigger=$trigger — cache became fresh")
+                    publishVodProgressFromDb(trigger = trigger)
+                    return@withLock
+                }
+                executeVodSeriesNetworkRefresh(trigger = trigger, force = force)
+            }
+            completion.complete(Unit)
+        } catch (error: Throwable) {
+            completion.completeExceptionally(error)
+            throw error
+        } finally {
+            if (activeVodRefresh === completion) {
+                activeVodRefresh = null
+            }
+        }
+    }
+
+    private suspend fun ensureVodDiskCacheLoaded() {
+        if (vodDiskCacheLoaded) return
+        vodDiskLoadMutex.withLock {
+            if (vodDiskCacheLoaded) return
+            val dbMovies = vodStreamDao.countTotal()
+            val dbSeries = seriesShowDao.countTotal()
+            vodDiskCacheLoaded = true
+            if (dbMovies > 0 || dbSeries > 0) {
+                if (lastVodRefreshCompletedAtMs <= 0L) {
+                    lastVodRefreshCompletedAtMs = System.currentTimeMillis()
+                }
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "VOD catalog loaded from DB movies=$dbMovies series=$dbSeries"
+                )
+                publishVodProgressFromDb(trigger = VodRefreshTrigger.REPOSITORY_INIT)
+            }
+        }
+    }
+
+    private suspend fun isVodCatalogFresh(): Boolean {
+        if (lastVodRefreshCompletedAtMs <= 0L) return false
+        val ageMs = System.currentTimeMillis() - lastVodRefreshCompletedAtMs
+        if (ageMs >= VOD_CACHE_TTL_MS) return false
+        return vodStreamDao.countTotal() > 0 || seriesShowDao.countTotal() > 0
+    }
+
+    private suspend fun publishVodProgressFromDb(trigger: VodRefreshTrigger) {
+        val moviesCount = vodStreamDao.countTotal()
+        val seriesCount = seriesShowDao.countTotal()
+        val progress = VodCatalogProgress(
+            moviesLoaded = moviesCount,
+            moviesTotal = moviesCount,
+            seriesLoaded = seriesCount,
+            seriesTotal = seriesCount,
+            isLoading = false,
+            moviesPhaseFinished = true,
+            seriesPhaseFinished = true
+        )
+        vodCatalogLoading.value = false
+        vodCatalogProgress.value = progress
+        vodCatalogStatus.value = VodCatalogStatus(
+            progress = progress,
+            moviesParsedCount = moviesCount,
+            seriesParsedCount = seriesCount,
+            hasXtreamPlaylist = true
+        )
+        Log.i(
+            VOD_FLOW_TAG,
+            "Serving DB-backed catalog trigger=$trigger movies=$moviesCount series=$seriesCount " +
+                "cacheAgeMs=${System.currentTimeMillis() - lastVodRefreshCompletedAtMs}"
+        )
+    }
+
+    private suspend fun executeVodSeriesNetworkRefresh(trigger: VodRefreshTrigger, force: Boolean) {
         try {
             loadSettings()
             val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
             if (playlists.isEmpty()) {
-                Log.w(VOD_FLOW_TAG, "No Xtream playlists configured — VOD catalog unavailable")
+                Log.w(VOD_FLOW_TAG, "No Xtream playlists configured — VOD catalog unavailable trigger=$trigger")
                 val progress = VodCatalogProgress(
                     moviesPhaseFinished = true,
                     seriesPhaseFinished = true
@@ -1550,7 +1724,7 @@ class IptvRepositoryImpl @Inject constructor(
                     progress = progress,
                     hasXtreamPlaylist = false
                 )
-                return@withLock
+                return
             }
 
             vodCatalogLoading.value = true
@@ -1595,9 +1769,18 @@ class IptvRepositoryImpl @Inject constructor(
             publishProgress(isLoading = true)
 
             playlists.forEach { playlist ->
-                val result = refreshVodCatalogForPlaylist(playlist)
+                val result = refreshVodCatalogForPlaylist(
+                    playlist = playlist,
+                    trigger = trigger,
+                    onBatchInserted = { parsedSoFar, total ->
+                        moviesLoaded = parsedSoFar
+                        moviesTotal = total
+                        moviesParsedCount = parsedSoFar
+                        publishProgress(isLoading = true)
+                    }
+                )
                 moviesTotal += result.arrayLength
-                moviesLoaded += result.parsedCount
+                moviesLoaded = result.parsedCount
                 moviesRawLength += result.rawLength
                 moviesParsedCount += result.parsedCount
                 result.error?.let { moviesError = it }
@@ -1606,13 +1789,23 @@ class IptvRepositoryImpl @Inject constructor(
             publishProgress(isLoading = true, moviesPhaseFinished = true)
             Log.i(
                 VOD_FLOW_TAG,
-                "Movies phase complete: parsed=$moviesParsedCount rawBytes=$moviesRawLength cache=${vodCacheByPlaylist.value.values.sumOf { it.size }}"
+                "Movies phase complete trigger=$trigger parsed=$moviesParsedCount rawBytes=$moviesRawLength " +
+                    "dbCount=${vodStreamDao.countTotal()}"
             )
 
             playlists.forEach { playlist ->
-                val result = refreshSeriesCatalogForPlaylist(playlist)
+                val result = refreshSeriesCatalogForPlaylist(
+                    playlist = playlist,
+                    trigger = trigger,
+                    onBatchInserted = { parsedSoFar, total ->
+                        seriesLoaded = parsedSoFar
+                        seriesTotal = total
+                        seriesParsedCount = parsedSoFar
+                        publishProgress(isLoading = true, moviesPhaseFinished = true)
+                    }
+                )
                 seriesTotal += result.arrayLength
-                seriesLoaded += result.parsedCount
+                seriesLoaded = result.parsedCount
                 seriesRawLength += result.rawLength
                 seriesParsedCount += result.parsedCount
                 result.error?.let { seriesError = it }
@@ -1623,14 +1816,15 @@ class IptvRepositoryImpl @Inject constructor(
                 moviesPhaseFinished = true,
                 seriesPhaseFinished = true
             )
+            lastVodRefreshCompletedAtMs = System.currentTimeMillis()
+            bumpVodCatalogRevision()
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD pipeline complete: movies=$moviesParsedCount series=$seriesParsedCount " +
-                    "finalMovieCache=${vodCacheByPlaylist.value.values.sumOf { it.size }}"
+                "VOD pipeline complete trigger=$trigger force=$force movies=$moviesParsedCount " +
+                    "series=$seriesParsedCount dbMovies=${vodStreamDao.countTotal()}"
             )
         } finally {
             vodCatalogLoading.value = false
-        }
         }
     }
 
@@ -1681,7 +1875,9 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refreshVodCatalogForPlaylist(
-        playlist: PlaylistEntity
+        playlist: PlaylistEntity,
+        trigger: VodRefreshTrigger,
+        onBatchInserted: (parsedSoFar: Int, arrayLength: Int) -> Unit = { _, _ -> }
     ): VodPlaylistRefreshResult {
         val credentials = resolveVodFetchCredentials(playlist)
         if (credentials == null) {
@@ -1695,14 +1891,18 @@ class IptvRepositoryImpl @Inject constructor(
         }
         val (server, user, pass) = credentials
         val vodUrl = buildXtreamApiUrl(server, user, pass, action = "get_vod_streams")
+        Log.i(
+            VOD_FLOW_TAG,
+            "Starting get_vod_streams playlist=${playlist.id} trigger=$trigger at=${System.currentTimeMillis()}"
+        )
         return runCatching {
             val fetchResult = remoteTextFetcher.fetchDetailed(vodUrl)
             val vodRaw = fetchResult.body
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD fetch playlist=${playlist.id} action=get_vod_streams http=${fetchResult.httpCode} " +
-                    "rawBytes=${fetchResult.rawBytes} decodedChars=${vodRaw.length} " +
-                    "urlHost=${runCatching { URI(server).host }.getOrNull()}"
+                "VOD fetch playlist=${playlist.id} action=get_vod_streams trigger=$trigger " +
+                    "http=${fetchResult.httpCode} rawBytes=${fetchResult.rawBytes} " +
+                    "decodedChars=${vodRaw.length} urlHost=${runCatching { URI(server).host }.getOrNull()}"
             )
             if (vodRaw.length <= 500) {
                 Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(400)}")
@@ -1715,84 +1915,91 @@ class IptvRepositoryImpl @Inject constructor(
 
             val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
             Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
-
-            val parsed = xtreamParser.parseVod(
-                raw = vodRaw,
-                username = user,
-                password = pass,
-                serverUrl = server,
-                playlistId = playlist.id
-            )
-            parsed.take(5).forEachIndexed { index, item ->
-                Log.d(
-                    VOD_FLOW_TAG,
-                    "VOD parsed[$index] playlist=${playlist.id} id=${item.streamId} " +
-                        "title=${item.title.take(48)} category=${item.categoryId}"
-                )
-            }
-
             val diagnosis = xtreamParser.diagnoseVodResponse(vodRaw)
-            when {
-                parsed.isNotEmpty() && arrayLength == 0 && diagnosis != null -> {
-                    Log.w(
-                        VOD_FLOW_TAG,
-                        "VOD response unusable playlist=${playlist.id}: $diagnosis"
-                    )
-                }
-                parsed.isEmpty() && arrayLength == 0 && vodRaw.isBlank() -> {
-                    Log.w(VOD_FLOW_TAG, "VOD empty HTTP body playlist=${playlist.id}")
-                }
-            }
+            val priorCount = vodStreamDao.countByPlaylist(playlist.id)
+            var parsedCount = 0
 
-            if (parsed.isNotEmpty()) {
-                vodCacheByPlaylist.update { current ->
-                    current + (playlist.id to parsed)
+            if (arrayLength > 0) {
+                vodStreamDao.clearByPlaylist(playlist.id)
+                xtreamParser.parseVodBatched(
+                    raw = vodRaw,
+                    username = user,
+                    password = pass,
+                    serverUrl = server,
+                    playlistId = playlist.id,
+                    batchSize = CHANNEL_INSERT_CHUNK
+                ) { batch ->
+                    if (batch.isEmpty()) return@parseVodBatched
+                    if (parsedCount == 0) {
+                        batch.take(5).forEachIndexed { index, item ->
+                            Log.d(
+                                VOD_FLOW_TAG,
+                                "VOD parsed[$index] playlist=${playlist.id} id=${item.streamId} " +
+                                    "title=${item.title.take(48)} category=${item.categoryId}"
+                            )
+                        }
+                    }
+                    vodStreamDao.insertAll(batch.map { it.toEntity() })
+                    parsedCount += batch.size
+                    onBatchInserted(parsedCount, arrayLength)
                 }
-            } else if (arrayLength > 0) {
+                if (parsedCount > 0) {
+                    bumpVodCatalogRevision()
+                }
+            } else if (diagnosis != null) {
                 Log.w(
                     VOD_FLOW_TAG,
-                    "VOD parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
+                    "VOD unusable response playlist=${playlist.id} trigger=$trigger diagnosis=$diagnosis — " +
+                        "keeping prior DB rows ($priorCount items)"
                 )
-            } else if (diagnosis == null && vodRaw.isNotBlank()) {
-                vodCacheByPlaylist.update { current ->
-                    current + (playlist.id to emptyList())
+            } else if (vodRaw.isBlank()) {
+                Log.w(VOD_FLOW_TAG, "VOD empty HTTP body playlist=${playlist.id}")
+                if (priorCount == 0) {
+                    vodStreamDao.clearByPlaylist(playlist.id)
+                    bumpVodCatalogRevision()
                 }
-            } else if (diagnosis == null && vodRaw.isBlank()) {
-                vodCacheByPlaylist.update { current ->
-                    current + (playlist.id to emptyList())
-                }
+            } else if (priorCount == 0) {
+                vodStreamDao.clearByPlaylist(playlist.id)
+                bumpVodCatalogRevision()
             }
 
             runCatching {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "Starting get_vod_categories playlist=${playlist.id} trigger=$trigger " +
+                        "at=${System.currentTimeMillis()}"
+                )
                 val vodCategoriesRaw = remoteTextFetcher.fetch(
                     buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
                 )
                 val categories = xtreamParser.parseVodCategories(vodCategoriesRaw, playlist.id)
                 Log.i(
                     VOD_FLOW_TAG,
-                    "VOD categories playlist=${playlist.id} count=${categories.size}"
+                    "VOD categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
                 )
-                vodCategoriesByPlaylist.update { current ->
-                    current + (playlist.id to categories)
+                if (categories.isNotEmpty()) {
+                    vodCategoryDao.clearByPlaylist(playlist.id)
+                    vodCategoryDao.insertAll(categories.map { it.toEntity() })
+                    bumpVodCatalogRevision()
                 }
             }.onFailure { categoryError ->
                 Log.w(
                     VOD_FLOW_TAG,
-                    "VOD categories fetch failed for playlist ${playlist.id} — movies still available",
+                    "VOD categories fetch failed playlist=${playlist.id} trigger=$trigger — keeping prior categories",
                     categoryError
                 )
             }
 
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
+                "VOD commit playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes,
-                parsedCount = parsed.size,
+                parsedCount = parsedCount,
                 arrayLength = arrayLength,
                 error = when {
-                    parsed.isNotEmpty() -> null
+                    parsedCount > 0 -> null
                     arrayLength > 0 ->
                         "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
                     diagnosis != null -> diagnosis
@@ -1813,7 +2020,9 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refreshSeriesCatalogForPlaylist(
-        playlist: PlaylistEntity
+        playlist: PlaylistEntity,
+        trigger: VodRefreshTrigger,
+        onBatchInserted: (parsedSoFar: Int, arrayLength: Int) -> Unit = { _, _ -> }
     ): VodPlaylistRefreshResult {
         val credentials = resolveVodFetchCredentials(playlist)
         if (credentials == null) {
@@ -1828,12 +2037,16 @@ class IptvRepositoryImpl @Inject constructor(
         val (server, user, pass) = credentials
         return runCatching {
             val seriesUrl = buildXtreamApiUrl(server, user, pass, action = "get_series")
+            Log.i(
+                VOD_FLOW_TAG,
+                "Starting get_series playlist=${playlist.id} trigger=$trigger at=${System.currentTimeMillis()}"
+            )
             val fetchResult = remoteTextFetcher.fetchDetailed(seriesUrl)
             val seriesRaw = fetchResult.body
             Log.i(
                 VOD_FLOW_TAG,
-                "Series fetch playlist=${playlist.id} action=get_series http=${fetchResult.httpCode} " +
-                    "rawBytes=${fetchResult.rawBytes} decodedChars=${seriesRaw.length}"
+                "Series fetch playlist=${playlist.id} action=get_series trigger=$trigger " +
+                    "http=${fetchResult.httpCode} rawBytes=${fetchResult.rawBytes} decodedChars=${seriesRaw.length}"
             )
             if (seriesRaw.length < 500) {
                 Log.d(VOD_FLOW_TAG, "Series raw preview playlist=${playlist.id}: ${seriesRaw.take(300)}")
@@ -1842,43 +2055,60 @@ class IptvRepositoryImpl @Inject constructor(
             val arrayLength = xtreamParser.parseSeriesArrayLength(seriesRaw)
             Log.i(VOD_FLOW_TAG, "Series parse arrayLength=$arrayLength playlist=${playlist.id}")
 
-            val parsed = xtreamParser.parseSeries(
-                raw = seriesRaw,
-                playlistId = playlist.id
-            )
-            parsed.take(5).forEachIndexed { index, show ->
-                Log.d(
-                    VOD_FLOW_TAG,
-                    "Series parsed[$index] playlist=${playlist.id} id=${show.id} " +
-                        "name=${show.name.take(48)} category=${show.categoryId}"
-                )
-            }
+            val priorCount = seriesShowDao.countByPlaylist(playlist.id)
+            var parsedCount = 0
 
-            if (parsed.isEmpty() && arrayLength == 0) {
-                seriesCacheByPlaylist.update { current ->
-                    current + (playlist.id to emptyList())
-                }
-            } else if (parsed.isNotEmpty()) {
-                seriesCacheByPlaylist.update { current ->
-                    current + (playlist.id to parsed)
-                }
+            if (arrayLength > 0) {
+                seriesShowDao.clearByPlaylist(playlist.id)
                 clearSeriesSeasonsForPlaylist(playlist.id)
-            } else if (arrayLength > 0) {
-                Log.w(
-                    VOD_FLOW_TAG,
-                    "Series parse produced 0 items from $arrayLength entries playlist=${playlist.id} — keeping prior cache"
-                )
+                xtreamParser.parseSeriesBatched(
+                    raw = seriesRaw,
+                    playlistId = playlist.id,
+                    batchSize = CHANNEL_INSERT_CHUNK
+                ) { batch ->
+                    if (batch.isEmpty()) return@parseSeriesBatched
+                    if (parsedCount == 0) {
+                        batch.take(5).forEachIndexed { index, show ->
+                            Log.d(
+                                VOD_FLOW_TAG,
+                                "Series parsed[$index] playlist=${playlist.id} id=${show.id} " +
+                                    "name=${show.name.take(48)} category=${show.categoryId}"
+                            )
+                        }
+                    }
+                    seriesShowDao.insertAll(batch.map { it.toEntity() })
+                    parsedCount += batch.size
+                    onBatchInserted(parsedCount, arrayLength)
+                }
+                if (parsedCount > 0) {
+                    bumpVodCatalogRevision()
+                }
+            } else {
+                if (priorCount == 0) {
+                    Log.w(
+                        VOD_FLOW_TAG,
+                        "Series empty response playlist=${playlist.id} trigger=$trigger — no prior DB rows"
+                    )
+                    seriesShowDao.clearByPlaylist(playlist.id)
+                    bumpVodCatalogRevision()
+                } else {
+                    Log.w(
+                        VOD_FLOW_TAG,
+                        "Series empty response playlist=${playlist.id} trigger=$trigger — " +
+                            "preserving $priorCount DB rows"
+                    )
+                }
             }
 
             Log.i(
                 VOD_FLOW_TAG,
-                "Series commit playlist=${playlist.id} finalCount=${parsed.size} arrayLength=$arrayLength"
+                "Series commit playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength"
             )
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes,
-                parsedCount = parsed.size,
+                parsedCount = parsedCount,
                 arrayLength = arrayLength,
-                error = if (arrayLength > 0 && parsed.isEmpty()) {
+                error = if (arrayLength > 0 && parsedCount == 0) {
                     "Parsed 0 of $arrayLength series entries for ${playlist.name}"
                 } else {
                     null
@@ -1901,19 +2131,139 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun vodCatalogStatus(): Flow<VodCatalogStatus> = vodCatalogStatus
 
-    override fun vodStreams(): Flow<List<VodItem>> =
-        vodCacheByPlaylist.map { cache -> cache.values.flatten() }
+    override fun vodCatalogRevision(): Flow<Long> = _vodCatalogRevision
+
+    override fun vodStreamCount(): Flow<Int> = vodStreamDao.observeTotalCount()
+
+    override fun seriesShowCount(): Flow<Int> = seriesShowDao.observeTotalCount()
 
     override fun vodCategories(): Flow<List<VodCategory>> =
-        vodCategoriesByPlaylist.map { cache -> cache.values.flatten() }
+        vodCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
-    override fun seriesShows(): Flow<List<SeriesShow>> =
-        seriesCacheByPlaylist.map { cache -> cache.values.flatten() }
+    override suspend fun vodPage(
+        categoryId: String?,
+        search: String,
+        limit: Int,
+        offset: Int
+    ): List<VodItem> = withContext(Dispatchers.IO) {
+        vodStreamDao.vodPage(categoryId, search.trim(), limit, offset).map { it.toDomain() }
+    }
+
+    override suspend fun vodFilteredCount(categoryId: String?, search: String): Int =
+        withContext(Dispatchers.IO) {
+            vodStreamDao.countFiltered(categoryId, search.trim())
+        }
+
+    override suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem? =
+        withContext(Dispatchers.IO) {
+            vodStreamDao.findByStreamId(playlistId, streamId)?.toDomain()
+        }
+
+    override suspend fun vodRecent(limit: Int): List<VodItem> = withContext(Dispatchers.IO) {
+        vodStreamDao.recent(limit).map { it.toDomain() }
+    }
+
+    override suspend fun vodSampleForRecommendations(sampleSize: Int): List<VodItem> =
+        withContext(Dispatchers.IO) {
+            val total = vodStreamDao.countTotal()
+            if (total <= sampleSize) {
+                return@withContext vodStreamDao.vodPage(null, "", total.coerceAtLeast(0), 0)
+                    .map { it.toDomain() }
+            }
+            val stride = (total / sampleSize).coerceAtLeast(1)
+            buildList {
+                var offset = 0
+                while (size < sampleSize && offset < total) {
+                    addAll(
+                        vodStreamDao.samplePage(limit = 1, offset = offset).map { it.toDomain() }
+                    )
+                    offset += stride
+                }
+            }.take(sampleSize)
+        }
+
+    override suspend fun loadMovieBrowseRows(itemsPerRow: Int, maxRows: Int): List<VodBrowseRow> =
+        withContext(Dispatchers.IO) {
+            val rows = mutableListOf<VodBrowseRow>()
+            vodStreamDao.recent(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
+                rows += VodBrowseRow("recent", "Recently Added", movies = it.map { e -> e.toDomain() })
+            }
+            vodStreamDao.topRated(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
+                rows += VodBrowseRow("top_imdb", "Top IMDB", movies = it.map { e -> e.toDomain() })
+            }
+            vodStreamDao.fourK(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
+                rows += VodBrowseRow("4k", "4K Movies", movies = it.map { e -> e.toDomain() })
+            }
+            vodCategoryDao.all().distinctBy { it.categoryId }
+                .sortedBy { it.name.lowercase() }
+                .forEach { category ->
+                    val items = vodStreamDao.byCategory(category.categoryId, itemsPerRow)
+                    if (items.isNotEmpty()) {
+                        rows += VodBrowseRow(
+                            "cat_${category.categoryId}",
+                            category.name,
+                            movies = items.map { it.toDomain() }
+                        )
+                    }
+                }
+            rows.filter { !it.isEmpty }.distinctBy { it.id }.take(maxRows)
+        }
+
+    override suspend fun seriesPage(
+        category: String,
+        search: String,
+        limit: Int,
+        offset: Int
+    ): List<SeriesShow> = withContext(Dispatchers.IO) {
+        seriesShowDao.seriesPage(category, search.trim(), limit, offset).map { it.toDomain() }
+    }
+
+    override suspend fun seriesFilteredCount(category: String, search: String): Int =
+        withContext(Dispatchers.IO) {
+            seriesShowDao.countFiltered(category, search.trim())
+        }
+
+    override suspend fun findSeriesShow(seriesId: Long): SeriesShow? = withContext(Dispatchers.IO) {
+        seriesShowDao.findBySeriesIdGlobal(seriesId)?.toDomain()
+    }
+
+    override suspend fun loadSeriesBrowseRows(itemsPerRow: Int, maxRows: Int): List<VodBrowseRow> =
+        withContext(Dispatchers.IO) {
+            val rows = mutableListOf<VodBrowseRow>()
+            seriesShowDao.recent(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
+                rows += VodBrowseRow("all", "All Series", series = it.map { e -> e.toDomain() })
+            }
+            seriesShowDao.fourK(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
+                rows += VodBrowseRow("4k", "4K Series", series = it.map { e -> e.toDomain() })
+            }
+            val categoryLabels = seriesShowDao.distinctCategoryIds()
+            categoryLabels.forEach { label ->
+                val items = seriesShowDao.byCategory(label, itemsPerRow)
+                if (items.isNotEmpty()) {
+                    rows += VodBrowseRow("cat_$label", label, series = items.map { it.toDomain() })
+                }
+            }
+            rows.filter { !it.isEmpty }.distinctBy { it.id }.take(maxRows)
+        }
+
+    override suspend fun searchVod(query: String, limit: Int): List<VodItem> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        vodStreamDao.search(query.trim(), limit).map { it.toDomain() }
+    }
+
+    override suspend fun searchSeriesShows(query: String, limit: Int): List<SeriesShow> =
+        withContext(Dispatchers.IO) {
+            if (query.isBlank()) return@withContext emptyList()
+            seriesShowDao.search(query.trim(), limit).map { it.toDomain() }
+        }
+
+    override suspend fun distinctSeriesCategories(): List<String> = withContext(Dispatchers.IO) {
+        seriesShowDao.distinctCategoryIds()
+    }
 
     override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> {
-        val playlistId = seriesCacheByPlaylist.value.entries.firstOrNull { (_, shows) ->
-            shows.any { it.id == seriesId }
-        }?.key ?: return emptyList()
+        val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return emptyList()
+        val playlistId = show.playlistId
         val cacheKey = playlistId to seriesId
         seriesSeasonsCache[cacheKey]?.let { return it }
         val playlist = playlistDao.getById(playlistId) ?: return emptyList()
@@ -2282,10 +2632,12 @@ class IptvRepositoryImpl @Inject constructor(
         seriesRecordingRuleDao.deleteAll()
 
         epgCache.clear()
-        vodCacheByPlaylist.value = emptyMap()
-        vodCategoriesByPlaylist.value = emptyMap()
-        seriesCacheByPlaylist.value = emptyMap()
+        vodStreamDao.clearAll()
+        vodCategoryDao.clearAll()
+        seriesShowDao.clearAll()
+        vodCatalogDiskCache.clearAll()
         seriesSeasonsCache.clear()
+        _vodCatalogRevision.value = 0L
         activeProfileId = 0L
         cachedSettings = AppSettings()
         guestSessionPreferences.clearGuestSession()

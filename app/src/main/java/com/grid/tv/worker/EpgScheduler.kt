@@ -44,6 +44,11 @@ class EpgScheduler @Inject constructor(
         ioScope.launch { runResolverForNewChannelsInternal(createdAfter) }
     }
 
+    /** Run resolver immediately for all unresolved channels (e.g. right after EPG import). */
+    fun runResolverNow() {
+        ioScope.launch { runResolverNowInternal() }
+    }
+
     private fun scheduleAtLaunchInternal() {
         Log.i(TAG, "scheduleAtLaunch: periodic EPG refresh (6h, requires network) + resolver (7d)")
         val request = PeriodicWorkRequestBuilder<EpgRefreshWorker>(6, TimeUnit.HOURS)
@@ -85,6 +90,15 @@ class EpgScheduler @Inject constructor(
             .build()
         workManager.enqueueUniqueWork("epg_resolver_after_import", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         logUniqueWorkState("epg_resolver_after_import")
+    }
+
+    private fun runResolverNowInternal() {
+        Log.i(TAG, "runResolverNow: enqueueing EpgResolverWorker for all unresolved channels")
+        val request = OneTimeWorkRequestBuilder<EpgResolverWorker>()
+            .setInputData(workDataOf(EpgResolverWorker.KEY_CREATED_AFTER to 0L))
+            .build()
+        workManager.enqueueUniqueWork("epg_resolver_after_refresh", ExistingWorkPolicy.REPLACE, request)
+        logUniqueWorkState("epg_resolver_after_refresh")
     }
 
     private fun networkConstraints(): Constraints =

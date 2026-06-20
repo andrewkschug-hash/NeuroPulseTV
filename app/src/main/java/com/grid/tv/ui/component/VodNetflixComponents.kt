@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -48,15 +49,52 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
+import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
 
-private val PosterWidth = 120.dp
-private val PosterHeight = 180.dp
-private val PosterShape = RoundedCornerShape(4.dp)
+private val PosterWidth = 130.dp
+private val PosterHeight = 195.dp
+private val PosterShape = RoundedCornerShape(6.dp)
+private val LandscapeWidth = 300.dp
+private val LandscapeHeight = 168.dp
+
+fun vodBrowseRowDisplayTitle(rowId: String, title: String): String = when (rowId) {
+    "top_imdb" -> "Top IMDB picks"
+    "4k" -> "4K Ultra HD"
+    "recent" -> "Recently Added"
+    else -> title
+}
+
+fun formatContinueWatchingSubtitle(item: ContinueWatchingItem): String {
+    val remaining = formatCwRemaining(item.remainingMs)
+    return when {
+        item.subtitle.isNotBlank() -> "$remaining · ${item.subtitle}"
+        else -> remaining
+    }
+}
+
+private fun formatCwRemaining(remainingMs: Long): String {
+    if (remainingMs <= 0L) return "Resume"
+    val totalMin = (remainingMs + 30_000L) / 60_000L
+    val hours = totalMin / 60
+    val minutes = totalMin % 60
+    return when {
+        hours > 0 -> "${hours}h ${minutes}m remaining"
+        else -> "${minutes}m remaining"
+    }
+}
+
+fun movieMetaSubtitle(movie: VodItem, rating: String?): String {
+    val year = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(movie.title)?.value
+    return listOfNotNull(
+        rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+        year
+    ).joinToString(" · ")
+}
 
 @Composable
 fun NetflixPosterCard(
@@ -184,6 +222,8 @@ fun NetflixPosterCard(
 fun NetflixCategoryRow(
     title: String,
     modifier: Modifier = Modifier,
+    seeAllLabel: String? = null,
+    onSeeAll: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Column(
@@ -191,15 +231,248 @@ fun NetflixCategoryRow(
             .fillMaxWidth()
             .padding(vertical = 10.dp)
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 48.dp, end = 48.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (seeAllLabel != null && onSeeAll != null) {
+                GridFocusSurface(
+                    onClick = onSeeAll,
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent
+                    )
+                ) {
+                    Text(
+                        text = seeAllLabel,
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+        content()
+    }
+}
+
+@Composable
+fun NetflixPosterCardWithMeta(
+    title: String,
+    posterUrl: String?,
+    subtitle: String?,
+    progressFraction: Float?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.width(PosterWidth),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        NetflixPosterCard(
+            title = title,
+            posterUrl = posterUrl,
+            progressFraction = progressFraction,
+            onClick = onClick
+        )
         Text(
             text = title,
             color = VodNetflixColors.TextPrimary,
             fontFamily = DmSansFamily,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 48.dp, end = 48.dp, bottom = 12.dp)
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
-        content()
+        if (!subtitle.isNullOrBlank()) {
+            Text(
+                text = subtitle,
+                color = VodNetflixColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun ContinueWatchingLandscapeCard(
+    item: ContinueWatchingItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused by interactionSource.collectIsFocusedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (focused) 1.05f else 1f,
+        animationSpec = tween(150),
+        label = "cwScale"
+    )
+    val border = if (focused) {
+        ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(2.dp, VodNetflixColors.FocusBorder)
+            )
+        )
+    } else {
+        TvFocusDefaults.noBorder()
+    }
+
+    Column(
+        modifier = modifier.width(LandscapeWidth),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier
+                .width(LandscapeWidth)
+                .height(LandscapeHeight)
+                .scale(scale),
+            interactionSource = interactionSource,
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = VodNetflixColors.CardPlaceholder,
+                focusedContainerColor = VodNetflixColors.CardPlaceholder
+            ),
+            scale = TvFocusDefaults.NoScale,
+            border = border,
+            glow = TvFocusDefaults.noGlow()
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (!item.posterUrl.isNullOrBlank()) {
+                    val context = LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(item.posterUrl)
+                            .size(Size(600, 336))
+                            .crossfade(200)
+                            .build(),
+                        contentDescription = item.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(VodNetflixColors.CardPlaceholder),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = item.title.take(2).uppercase(),
+                            color = VodNetflixColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 22.sp
+                        )
+                    }
+                }
+                item.progressFraction.takeIf { it in 0.01f..0.98f }?.let { fraction ->
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .background(Color.Black.copy(alpha = 0.55f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(fraction)
+                                .height(4.dp)
+                                .background(VodNetflixColors.Accent)
+                        )
+                    }
+                }
+            }
+        }
+        Text(
+            text = item.title,
+            color = VodNetflixColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = formatContinueWatchingSubtitle(item),
+            color = VodNetflixColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+fun VodCategoryFilterRow(
+    chips: List<String>,
+    selectedIndex: Int,
+    focusedIndex: Int,
+    rowFocused: Boolean,
+    onChipSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    firstChipFocusRequester: FocusRequester? = null
+) {
+    if (chips.isEmpty()) return
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 48.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items(chips.size) { index ->
+            val label = chips[index]
+            val selected = index == selectedIndex
+            val focused = rowFocused && index == focusedIndex
+            val chipModifier = if (index == 0 && firstChipFocusRequester != null) {
+                Modifier.focusRequester(firstChipFocusRequester)
+            } else {
+                Modifier
+            }
+            GridFocusSurface(
+                onClick = { onChipSelected(index) },
+                modifier = chipModifier.then(
+                    if (!selected && focused) {
+                        Modifier.border(1.dp, Color.White, RoundedCornerShape(20.dp))
+                    } else {
+                        Modifier
+                    }
+                ),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = when {
+                        selected -> VodNetflixColors.Accent
+                        else -> Color(0xFF2A2A2A)
+                    },
+                    focusedContainerColor = when {
+                        selected -> VodNetflixColors.Accent
+                        else -> Color(0xFF3A3A3A)
+                    }
+                )
+            ) {
+                Text(
+                    text = label,
+                    color = if (selected || focused) Color.White else VodNetflixColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                )
+            }
+        }
     }
 }
 
@@ -208,6 +481,7 @@ fun NetflixMovieRow(
     movies: List<VodItem>,
     progressByStreamId: Map<Long, Long>,
     posterUrlFor: (VodItem) -> String?,
+    metaSubtitleFor: (VodItem) -> String?,
     onPlayMovie: (VodItem) -> Unit,
     modifier: Modifier = Modifier,
     firstItemFocusRequester: FocusRequester? = null
@@ -216,7 +490,7 @@ fun NetflixMovieRow(
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
             val durationMs = parseVodDurationMs(movie.duration)
@@ -231,9 +505,10 @@ fun NetflixMovieRow(
             } else {
                 Modifier
             }
-            NetflixPosterCard(
+            NetflixPosterCardWithMeta(
                 title = movie.title,
                 posterUrl = posterUrlFor(movie),
+                subtitle = metaSubtitleFor(movie),
                 progressFraction = fraction,
                 onClick = { onPlayMovie(movie) },
                 modifier = itemModifier
@@ -276,17 +551,24 @@ fun LazyListScope.netflixMovieBrowseRows(
     rows: List<VodBrowseRow>,
     progressByStreamId: Map<Long, Long>,
     posterUrlFor: (VodItem) -> String?,
+    metaSubtitleFor: (VodItem) -> String?,
     onPlayMovie: (VodItem) -> Unit,
+    onSeeAllRow: ((VodBrowseRow) -> Unit)? = null,
     firstRowFocusRequester: FocusRequester? = null
 ) {
     rows.forEachIndexed { index, row ->
         if (row.movies.isEmpty()) return@forEachIndexed
         item(key = "movie_row_${row.id}") {
-            NetflixCategoryRow(title = row.title) {
+            NetflixCategoryRow(
+                title = vodBrowseRowDisplayTitle(row.id, row.title),
+                seeAllLabel = if (onSeeAllRow != null) "See all →" else null,
+                onSeeAll = onSeeAllRow?.let { { it(row) } }
+            ) {
                 NetflixMovieRow(
                     movies = row.movies,
                     progressByStreamId = progressByStreamId,
                     posterUrlFor = posterUrlFor,
+                    metaSubtitleFor = metaSubtitleFor,
                     onPlayMovie = onPlayMovie,
                     firstItemFocusRequester = if (index == 0) firstRowFocusRequester else null
                 )

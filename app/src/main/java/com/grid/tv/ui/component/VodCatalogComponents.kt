@@ -30,6 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
@@ -495,8 +498,11 @@ fun VodHeroSection(
     carouselIndex: Int,
     onPlay: () -> Unit,
     onMoreInfo: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    playFocusRequester: FocusRequester? = null,
+    moreInfoFocusRequester: FocusRequester? = null
 ) {
+    val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
     val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
     val rating = enrichment?.rating?.takeIf { it > 0.0 }?.let { String.format("%.1f", it) }
@@ -521,7 +527,11 @@ fun VodHeroSection(
     ) {
         if (!backdropUrl.isNullOrBlank()) {
             AsyncImage(
-                model = backdropUrl,
+                model = ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .size(Size(1920, 800))
+                    .crossfade(300)
+                    .build(),
                 contentDescription = displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -556,6 +566,14 @@ fun VodHeroSection(
                 .padding(horizontal = 48.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text(
+                text = "FEATURED",
+                color = VodNetflixColors.Accent,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.2.sp
+            )
             Text(
                 text = displayTitle,
                 color = VodNetflixColors.TextPrimary,
@@ -631,38 +649,54 @@ fun VodHeroSection(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val playModifier = if (playFocusRequester != null) {
+                    Modifier.focusRequester(playFocusRequester)
+                } else {
+                    Modifier
+                }
                 GridFocusSurface(
                     onClick = onPlay,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
+                    modifier = playModifier,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = VodNetflixColors.Accent,
-                        focusedContainerColor = VodNetflixColors.Accent
+                        containerColor = Color.White,
+                        focusedContainerColor = Color.White.copy(alpha = 0.92f)
                     )
                 ) {
                     Text(
-                        text = "▶  Watch",
-                        color = Color.White,
+                        text = "▶  Play",
+                        color = Color.Black,
                         fontFamily = DmSansFamily,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                     )
+                }
+                val moreModifier = if (moreInfoFocusRequester != null) {
+                    Modifier.focusRequester(moreInfoFocusRequester)
+                } else {
+                    Modifier
                 }
                 GridFocusSurface(
                     onClick = onMoreInfo,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
+                    modifier = moreModifier.border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(24.dp)
+                    ),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.2f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.28f)
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.White.copy(alpha = 0.15f)
                     )
                 ) {
                     Text(
-                        text = "More Info",
+                        text = "More info",
                         color = VodNetflixColors.TextPrimary,
                         fontFamily = DmSansFamily,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                     )
                 }
             }

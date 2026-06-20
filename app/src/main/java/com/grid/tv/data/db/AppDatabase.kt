@@ -31,6 +31,9 @@ import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
 import com.grid.tv.data.db.dao.VodWatchEventDao
 import com.grid.tv.data.db.dao.SeriesFollowDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.VodCategoryDao
+import com.grid.tv.data.db.dao.VodStreamDao
+import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
@@ -65,6 +68,9 @@ import com.grid.tv.data.db.entity.ProviderHealthAggregateEntity
 import com.grid.tv.data.db.entity.VodWatchEventEntity
 import com.grid.tv.data.db.entity.SeriesFollowEntity
 import com.grid.tv.data.db.entity.VodCatalogEpisodeEntity
+import com.grid.tv.data.db.entity.VodCategoryEntity
+import com.grid.tv.data.db.entity.VodStreamEntity
+import com.grid.tv.data.db.entity.SeriesShowEntity
 import com.grid.tv.data.db.entity.VodUserNotificationEntity
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
@@ -111,9 +117,12 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         VodWatchEventEntity::class,
         SeriesFollowEntity::class,
         VodCatalogEpisodeEntity::class,
-        VodUserNotificationEntity::class
+        VodUserNotificationEntity::class,
+        VodStreamEntity::class,
+        VodCategoryEntity::class,
+        SeriesShowEntity::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -152,4 +161,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun seriesFollowDao(): SeriesFollowDao
     abstract fun vodCatalogEpisodeDao(): VodCatalogEpisodeDao
     abstract fun vodUserNotificationDao(): VodUserNotificationDao
+    abstract fun vodStreamDao(): VodStreamDao
+    abstract fun vodCategoryDao(): VodCategoryDao
+    abstract fun seriesShowDao(): SeriesShowDao
 }

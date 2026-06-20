@@ -130,7 +130,12 @@ class OnboardingViewModel @Inject constructor(
             _connectState.value = OnboardingConnectState.Success
             _errorMessage.value = null
             viewModelScope.launch {
-                runCatching { repository.refreshVodSeriesCatalog() }
+                runCatching {
+                    repository.refreshVodSeriesCatalog(
+                        trigger = com.grid.tv.domain.model.VodRefreshTrigger.ONBOARDING,
+                        force = true
+                    )
+                }
             }
         } else {
             _connectState.value = OnboardingConnectState.Error

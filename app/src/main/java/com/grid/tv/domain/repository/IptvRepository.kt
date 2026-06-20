@@ -15,7 +15,9 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
 import com.grid.tv.domain.model.UserProfile
+import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
 import kotlinx.coroutines.flow.Flow
@@ -94,12 +96,36 @@ interface IptvRepository {
     fun epgDataRevision(): Flow<Long>
 
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
-    fun vodStreams(): Flow<List<VodItem>>
+    fun vodCatalogRevision(): Flow<Long>
+    fun vodStreamCount(): Flow<Int>
+    fun seriesShowCount(): Flow<Int>
     fun vodCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
     fun vodCatalogLoading(): Flow<Boolean>
     fun vodCatalogProgress(): Flow<com.grid.tv.domain.model.VodCatalogProgress>
     fun vodCatalogStatus(): Flow<com.grid.tv.domain.model.VodCatalogStatus>
-    fun seriesShows(): Flow<List<SeriesShow>>
+    suspend fun vodPage(
+        categoryId: String? = null,
+        search: String = "",
+        limit: Int,
+        offset: Int
+    ): List<VodItem>
+    suspend fun vodFilteredCount(categoryId: String? = null, search: String = ""): Int
+    suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
+    suspend fun vodRecent(limit: Int): List<VodItem>
+    suspend fun vodSampleForRecommendations(sampleSize: Int = 500): List<VodItem>
+    suspend fun loadMovieBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
+    suspend fun seriesPage(
+        category: String = "All",
+        search: String = "",
+        limit: Int,
+        offset: Int
+    ): List<SeriesShow>
+    suspend fun seriesFilteredCount(category: String = "All", search: String = ""): Int
+    suspend fun findSeriesShow(seriesId: Long): SeriesShow?
+    suspend fun loadSeriesBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
+    suspend fun searchVod(query: String, limit: Int = 40): List<VodItem>
+    suspend fun searchSeriesShows(query: String, limit: Int = 40): List<SeriesShow>
+    suspend fun distinctSeriesCategories(): List<String>
     suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
     fun vodWatchProgress(): Flow<Map<Long, Long>>
     suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason>
@@ -129,7 +155,12 @@ interface IptvRepository {
 
     suspend fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File): String
 
-    suspend fun refreshVodSeriesCatalog()
+    suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger)
+
+    suspend fun refreshVodSeriesCatalog(
+        trigger: VodRefreshTrigger = VodRefreshTrigger.UNKNOWN,
+        force: Boolean = false
+    )
 
     suspend fun shouldShowWhatsNew(currentVersion: String): Boolean
     suspend fun markVersionSeen(currentVersion: String)

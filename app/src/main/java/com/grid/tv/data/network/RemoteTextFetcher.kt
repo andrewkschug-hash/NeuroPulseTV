@@ -102,7 +102,22 @@ class RemoteTextFetcher @Inject constructor(
             val code = response.code
             val bytes = response.body?.bytes() ?: byteArrayOf()
             if (!response.isSuccessful) {
-                Log.e(logTag, "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes in body")
+                val bodyPreview = bytes.decodeToString().take(200)
+                when (code) {
+                    429 -> Log.e(
+                        logTag,
+                        "HTTP 429 rate-limited for $url — provider may be throttling repeated VOD requests. " +
+                            "bodyPreview=$bodyPreview"
+                    )
+                    in 500..599 -> Log.e(
+                        logTag,
+                        "HTTP $code server error for $url — ${bytes.size} bytes, bodyPreview=$bodyPreview"
+                    )
+                    else -> Log.e(
+                        logTag,
+                        "HTTP $code (unsuccessful) for $url — ${bytes.size} bytes, bodyPreview=$bodyPreview"
+                    )
+                }
                 throw IllegalStateException("HTTP request failed ($code) for $url")
             }
             val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)

@@ -175,6 +175,18 @@ interface ChannelDao {
     @Query("UPDATE channels SET epgId = :epgId, epgResolutionStatus = :status, epgResolutionConfidence = :confidence, epgResolutionSource = :source, epgLastAttemptAt = :attemptAt WHERE id = :channelId")
     suspend fun applyResolution(channelId: Long, epgId: String?, status: String, confidence: Int, source: String?, attemptAt: Long)
 
+    @Query(
+        """
+        UPDATE channels
+        SET epgResolutionStatus = 'UNRESOLVED', epgResolutionConfidence = 0, epgLastAttemptAt = 0
+        WHERE playlistId = :playlistId
+          AND epgId IS NOT NULL AND TRIM(epgId) != ''
+          AND epgId NOT IN (SELECT epgId FROM epg_source_channels WHERE source = :sourceKey)
+          AND epgResolutionStatus NOT IN ('CONFIRMED', 'MANUAL')
+        """
+    )
+    suspend fun markUnlinkedEpgIdsUnresolved(playlistId: Long, sourceKey: String): Int
+
     @Query("SELECT * FROM channels WHERE epgId = :epgId AND playlistId = :playlistId LIMIT 1")
     suspend fun getByEpgIdAndPlaylist(epgId: String, playlistId: Long): ChannelEntity?
 
