@@ -31,8 +31,10 @@ import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
+import com.grid.tv.ui.component.animateScrollEpgChannelIntoView
 import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.component.toggleCategoryExpansion
+import kotlinx.coroutines.Job
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
@@ -89,6 +91,7 @@ internal class HomeEpgGuideController(
     private val ui: HomeEpgUiState,
 ) {
     private lateinit var deps: HomeEpgGuideDeps
+    private var channelScrollJob: Job? = null
 
     fun bind(deps: HomeEpgGuideDeps) {
         this.deps = deps
@@ -361,9 +364,18 @@ internal class HomeEpgGuideController(
 
     fun focusEpgZone(zone: EpgFocusZone) {
         if (ui.showSearchOverlay) return
-        ui.focusZone = zone
-        if (zone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
-        requestEpgZoneFocus(zone)
+        val resolvedZone = if (zone == EpgFocusZone.GRID_FILTER && ui.selectedTab == EpgNavTab.Favorites) {
+            when {
+                deps.showPreviewSection -> EpgFocusZone.PREVIEW
+                deps.hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+                else -> EpgFocusZone.TOP_BAR
+            }
+        } else {
+            zone
+        }
+        ui.focusZone = resolvedZone
+        if (resolvedZone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
+        requestEpgZoneFocus(resolvedZone)
     }
 
     fun focusSearchTopBar() {
@@ -372,7 +384,15 @@ internal class HomeEpgGuideController(
     }
 
     fun focusGuideFilter() {
-        focusEpgZone(EpgFocusZone.GRID_FILTER)
+        if (ui.selectedTab == EpgNavTab.Favorites) {
+            when {
+                deps.showPreviewSection -> focusPreviewSection()
+                deps.hasContinueWatching -> focusEpgZone(EpgFocusZone.CONTINUE_WATCHING)
+                else -> focusEpgZone(EpgFocusZone.TOP_BAR)
+            }
+        } else {
+            focusEpgZone(EpgFocusZone.GRID_FILTER)
+        }
     }
 
     fun focusGuideChannels(targetIndex: Int = ui.focusChannelIndex) {
@@ -390,15 +410,17 @@ internal class HomeEpgGuideController(
     }
 
     fun moveGuideFocusVertical(from: EpgFocusZone, direction: Int) {
+        val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
         val target = if (direction < 0) {
-            epgZoneAbove(from, deps.showPreviewSection, deps.hasContinueWatching)
+            epgZoneAbove(from, deps.showPreviewSection, deps.hasContinueWatching, showGroupFilter)
         } else {
-            epgZoneBelow(from, deps.showPreviewSection, deps.hasContinueWatching)
+            epgZoneBelow(from, deps.showPreviewSection, deps.hasContinueWatching, showGroupFilter)
         }
         target?.let(::focusEpgZone)
     }
 
     fun openCategoryFilterMenu() {
+        if (ui.selectedTab == EpgNavTab.Favorites) return
         val expanded = expandedCategoriesForSelection(
             deps.guideGroupCategories,
             deps.guideFilter.selectedGroups
@@ -584,8 +606,14 @@ internal class HomeEpgGuideController(
     }
 
     private fun scrollFocusedChannelIntoView(direction: TvLazyFocusScrollDirection) {
-        deps.scope.launch {
-            deps.listState.animateScrollToItemIfNeeded(ui.focusChannelIndex, direction)
+        channelScrollJob?.cancel()
+        channelScrollJob = deps.scope.launch {
+            val rowHeightPx = with(deps.density) { EpgLayout.RowHeight.roundToPx() }
+            deps.listState.animateScrollEpgChannelIntoView(
+                index = ui.focusChannelIndex,
+                direction = direction,
+                rowHeightPx = rowHeightPx
+            )
         }
     }
 

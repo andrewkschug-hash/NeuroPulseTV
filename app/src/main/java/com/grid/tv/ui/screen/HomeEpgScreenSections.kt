@@ -53,6 +53,7 @@ import com.grid.tv.feature.recording.RecordingHealth
 import com.grid.tv.feature.recording.RecordingStatus
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.ui.component.ContinueWatchingRow
+import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgCategoryFilterChip
 import com.grid.tv.ui.component.EpgChannelCell
 import com.grid.tv.ui.component.EpgEmptyState
@@ -150,6 +151,7 @@ internal fun HomeEpgScreenMainColumn(
     hScroll: ScrollState,
     listState: LazyListState,
 ) {
+    val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -211,7 +213,8 @@ internal fun HomeEpgScreenMainColumn(
                     down = when {
                         deps.hasContinueWatching -> deps.continueWatchingFocusRequester
                         deps.showPreviewSection -> deps.previewFocusRequester
-                        else -> deps.gridFilterFocusRequester
+                        showGroupFilter -> deps.gridFilterFocusRequester
+                        else -> deps.gridFocusRequester
                     }
                 }
                 .focusable()
@@ -260,6 +263,8 @@ internal fun HomeEpgScreenMainColumn(
                 continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
                 topNavFocusRequester = deps.topNavFocusRequester,
                 gridFilterFocusRequester = deps.gridFilterFocusRequester,
+                gridFocusRequester = deps.gridFocusRequester,
+                showGroupFilter = showGroupFilter,
                 hasContinueWatching = deps.hasContinueWatching,
                 onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
             )
@@ -279,6 +284,7 @@ internal fun HomeEpgScreenMainColumn(
             windowDurationMs = deps.windowDurationMs,
             guideFilter = deps.guideFilter,
             channelGroups = channelGroups,
+            showGroupFilter = showGroupFilter,
             gridFilterFocused = ui.focusZone == EpgFocusZone.GRID_FILTER && !ui.showCategoryFilterMenu,
             gridFilterFocusRequester = deps.gridFilterFocusRequester,
             previewFocusRequester = deps.previewFocusRequester,
@@ -523,6 +529,8 @@ internal fun HomeEpgContinueWatchingRow(
     topNavFocusRequester: FocusRequester,
     previewFocusRequester: FocusRequester,
     gridFilterFocusRequester: FocusRequester,
+    gridFocusRequester: FocusRequester,
+    showGroupFilter: Boolean,
     showPreviewSection: Boolean,
     onContinueWatchingKey: (KeyEvent) -> Boolean,
     onFocused: () -> Unit
@@ -540,7 +548,11 @@ internal fun HomeEpgContinueWatchingRow(
             .focusRequester(continueWatchingFocusRequester)
             .focusProperties {
                 up = topNavFocusRequester
-                down = if (showPreviewSection) previewFocusRequester else gridFilterFocusRequester
+                down = when {
+                    showPreviewSection -> previewFocusRequester
+                    showGroupFilter -> gridFilterFocusRequester
+                    else -> gridFocusRequester
+                }
             }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
@@ -568,6 +580,8 @@ internal fun HomeEpgPreviewSection(
     continueWatchingFocusRequester: FocusRequester,
     topNavFocusRequester: FocusRequester,
     gridFilterFocusRequester: FocusRequester,
+    gridFocusRequester: FocusRequester,
+    showGroupFilter: Boolean,
     hasContinueWatching: Boolean,
     onFocused: () -> Unit
 ) {
@@ -592,7 +606,10 @@ internal fun HomeEpgPreviewSection(
             .focusRequester(previewFocusRequester)
             .focusProperties {
                 up = if (hasContinueWatching) continueWatchingFocusRequester else topNavFocusRequester
-                down = gridFilterFocusRequester
+                down = when {
+                    showGroupFilter -> gridFilterFocusRequester
+                    else -> gridFocusRequester
+                }
             }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
@@ -620,6 +637,7 @@ internal fun HomeEpgChannelList(
     topNavFocusRequester: FocusRequester,
     showPreviewSection: Boolean,
     hasContinueWatching: Boolean,
+    showGroupFilter: Boolean,
     onOpenCategoryFilter: () -> Unit,
     onGridFilterKey: (KeyEvent) -> Boolean,
     onGridFocused: () -> Unit,
@@ -674,28 +692,30 @@ internal fun HomeEpgChannelList(
                             fontFamily = DmSansFamily,
                             fontSize = 12.sp
                         )
-                        EpgCategoryFilterChip(
-                            label = guideFilter.label,
-                            active = guideFilter.isActive,
-                            focused = gridFilterFocused || filterChipHasFocus,
-                            headerStyle = true,
-                            onClick = onOpenCategoryFilter,
-                            modifier = Modifier
-                                .focusRequester(gridFilterFocusRequester)
-                                .focusProperties {
-                                    up = gridFilterUpTarget
-                                    down = if (!displayChannelsEmpty) {
-                                        gridFocusRequester
-                                    } else {
-                                        FocusRequester.Cancel
+                        if (showGroupFilter) {
+                            EpgCategoryFilterChip(
+                                label = guideFilter.label,
+                                active = guideFilter.isActive,
+                                focused = gridFilterFocused || filterChipHasFocus,
+                                headerStyle = true,
+                                onClick = onOpenCategoryFilter,
+                                modifier = Modifier
+                                    .focusRequester(gridFilterFocusRequester)
+                                    .focusProperties {
+                                        up = gridFilterUpTarget
+                                        down = if (!displayChannelsEmpty) {
+                                            gridFocusRequester
+                                        } else {
+                                            FocusRequester.Cancel
+                                        }
                                     }
-                                }
-                                .onFocusChanged {
-                                    filterChipHasFocus = it.isFocused
-                                    if (it.isFocused) onGridFilterFocused()
-                                }
-                                .onPreviewKeyEvent { filterChipHasFocus && onGridFilterKey(it) }
-                        )
+                                    .onFocusChanged {
+                                        filterChipHasFocus = it.isFocused
+                                        if (it.isFocused) onGridFilterFocused()
+                                    }
+                                    .onPreviewKeyEvent { filterChipHasFocus && onGridFilterKey(it) }
+                            )
+                        }
                     }
                 }
                 Box(
@@ -719,7 +739,7 @@ internal fun HomeEpgChannelList(
                     .focusProperties {
                         canFocus = !displayChannelsEmpty && gridFocused
                         up = if (focusChannelIndex == 0) {
-                            gridFilterFocusRequester
+                            if (showGroupFilter) gridFilterFocusRequester else gridFilterUpTarget
                         } else {
                             FocusRequester.Cancel
                         }
@@ -742,7 +762,13 @@ internal fun HomeEpgChannelList(
                                 val channel = displayChannels[index]
                                 val programs = programsForChannel(channel)
                                 val isActiveRow = gridFocused && index == focusChannelIndex
-                                Row(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = EpgLayout.RowHeight)
+                                        .height(EpgLayout.RowHeight)
+                                        .focusProperties { canFocus = false }
+                                ) {
                                     EpgChannelCell(
                                         channel = channel,
                                         isFocused = isActiveRow && focusOnChannelColumn,

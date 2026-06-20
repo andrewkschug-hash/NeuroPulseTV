@@ -553,9 +553,7 @@ fun VodHeroSection(
         ?.filter { it.isNotBlank() }
         ?.take(3)
         .orEmpty()
-    val overview = enrichment?.overview?.takeIf { it.isNotBlank() }
-        ?: movie.plot?.takeIf { it.isNotBlank() }
-        ?: ""
+    val overview = resolveMovieOverview(movie, enrichment).orEmpty()
 
     Box(
         modifier = modifier

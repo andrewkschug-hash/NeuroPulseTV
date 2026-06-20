@@ -320,7 +320,7 @@ class XtreamParser {
             streamId = id,
             streamUrl = url,
             posterUrl = item.optString("stream_icon").ifBlank { null },
-            plot = item.optString("plot").ifBlank { null },
+            plot = plotOrDescription(item),
             cast = item.optString("cast").ifBlank { null },
             director = item.optString("director").ifBlank { null },
             genre = item.optString("genre").ifBlank { null },
@@ -475,6 +475,20 @@ class XtreamParser {
             "kids" in lower || "children" in lower -> "KIDS"
             else -> "GENERAL"
         }
+    }
+
+    private fun plotOrDescription(item: JSONObject): String? {
+        item.optString("plot").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("description").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+        item.optJSONObject("info")?.let { info ->
+            info.optString("plot").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("description").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return null
     }
 
     private fun optLongId(item: JSONObject, vararg keys: String): Long? {

@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
@@ -194,6 +195,7 @@ fun SettingsScreen(
     var showClearCacheConfirm by remember { mutableStateOf(false) }
     var showHideAdultPinDialog by remember { mutableStateOf(false) }
     var showChangePinDialog by remember { mutableStateOf(false) }
+    var showManageProfilesOverlay by remember { mutableStateOf(false) }
     var changePinStep by remember { mutableStateOf(ChangePinStep.VERIFY_CURRENT) }
     var pendingNewPin by remember { mutableStateOf("") }
     var pendingHideAdultValue by remember { mutableStateOf<Boolean?>(null) }
@@ -416,6 +418,7 @@ fun SettingsScreen(
             showSignOutConfirm -> showSignOutConfirm = false
             showClearCacheConfirm -> showClearCacheConfirm = false
             showGuideGroupPicker -> showGuideGroupPicker = false
+            showManageProfilesOverlay -> showManageProfilesOverlay = false
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
             focusPanel == SettingsFocusPanel.RIGHT -> {
@@ -664,7 +667,10 @@ fun SettingsScreen(
                             profiles = profiles,
                             settings = settings,
                             focus = contentFocus,
-                            onSwitchProfile = onSwitchProfile,
+                            onManageProfiles = {
+                                Log.d("SettingsScreen", "Manage profiles clicked — opening inline editor")
+                                showManageProfilesOverlay = true
+                            },
                             onSelectProfile = { profileViewModel.switchProfile(it) },
                             onToggleHideAdult = {
                                 val next = !settings.hideAdultContent
@@ -939,6 +945,31 @@ fun SettingsScreen(
             )
         }
 
+        if (showManageProfilesOverlay) {
+            ManageProfilesOverlay(
+                profiles = profiles,
+                activeProfileId = activeProfile?.id,
+                onDismiss = { showManageProfilesOverlay = false },
+                onCreateProfile = { name ->
+                    val colorIndex = profiles.size % ProfileAvatarColors.size
+                    val color = ProfileAvatarColors[colorIndex]
+                    val hex = String.format(
+                        "#%02X%02X%02X",
+                        (color.red * 255).toInt(),
+                        (color.green * 255).toInt(),
+                        (color.blue * 255).toInt()
+                    )
+                    profileViewModel.createProfile(name, hex, pin = null, parental = false)
+                },
+                onRenameProfile = { profileId, name ->
+                    profileViewModel.updateProfileName(profileId, name)
+                },
+                onDeleteProfile = { profileId ->
+                    profileViewModel.deleteProfile(profileId)
+                }
+            )
+        }
+
         if (showChangePinDialog) {
             val profile = activeProfile
             if (profile != null) {
@@ -1023,7 +1054,7 @@ private fun ProfileSettingsContent(
     profiles: List<UserProfile>,
     settings: com.grid.tv.domain.model.AppSettings,
     focus: SettingsContentFocus,
-    onSwitchProfile: () -> Unit,
+    onManageProfiles: () -> Unit,
     onSelectProfile: (Long) -> Unit,
     onToggleHideAdult: () -> Unit,
     onToggleParentalPinLock: () -> Unit,
@@ -1068,7 +1099,7 @@ private fun ProfileSettingsContent(
             }
             SettingsFocusButton(
                 text = "Manage profiles",
-                onClick = onSwitchProfile,
+                onClick = onManageProfiles,
                 chainIndex = 0,
                 focus = focus
             )

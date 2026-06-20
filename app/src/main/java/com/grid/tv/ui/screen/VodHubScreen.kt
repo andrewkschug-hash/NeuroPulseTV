@@ -5,6 +5,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +51,7 @@ import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.GridNavTabs
 import com.grid.tv.ui.component.MovieDetailOverlay
 import com.grid.tv.ui.component.NetflixContentWallRow
+import com.grid.tv.ui.component.resolveMovieOverview
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.VodMoviePagedGrid
 import com.grid.tv.ui.component.VodPagedVerticalGrid
@@ -263,10 +265,10 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(focusZone, contentRowIndex) {
-        if (focusZone == VodFocusZone.CONTENT && searchQuery.isBlank()) {
-            val lazyIndex = if (heroMovie != null && searchQuery.isBlank()) contentRowIndex + 1 else contentRowIndex
-            columnListState.animateScrollToItem(lazyIndex.coerceAtLeast(0))
+    LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery) {
+        if (focusZone == VodFocusZone.CONTENT && searchQuery.isBlank() && !showBrowseGrid) {
+            val heroOffset = if (heroMovie != null) 1 else 0
+            columnListState.animateScrollToItem((contentRowIndex + heroOffset).coerceAtLeast(0))
         }
     }
 
@@ -283,8 +285,10 @@ fun VodHubScreen(
         genreFocusIndex = selectedGenreIndex.coerceIn(0, (genreLabels.lastIndex).coerceAtLeast(0))
     }
 
-    LaunchedEffect(focusZone, showSearchOverlay, heroMovie) {
+    LaunchedEffect(focusZone, showSearchOverlay, heroMovie, movieDetailOpen, seriesDetailOpen) {
         when {
+            movieDetailOpen -> movieWatchFocusRequester.requestFocusSafelyAfterLayout()
+            seriesDetailOpen -> Unit
             showSearchOverlay -> {
                 focusZone = VodFocusZone.SEARCH_OVERLAY
                 searchOverlayFocusRequester.requestFocusSafelyAfterLayout()
@@ -391,10 +395,8 @@ fun VodHubScreen(
 
     fun metaFor(movie: VodItem): String? = movieMetaSubtitle(movie, ratingFor(movie))
 
-    fun overviewForMovie(movie: VodItem): String? {
-        val enrichment = hubViewModel.enrichmentFor(movie, enrichmentMap)
-        return enrichment?.overview?.takeIf { it.isNotBlank() } ?: movie.plot?.takeIf { it.isNotBlank() }
-    }
+    fun overviewForMovie(movie: VodItem): String? =
+        resolveMovieOverview(movie, hubViewModel.enrichmentFor(movie, enrichmentMap))
 
     fun overviewForSeries(show: SeriesShow): String? {
         val enrichment = if (show.playlistId > 0L) {
@@ -814,23 +816,6 @@ fun VodHubScreen(
                         .fillMaxWidth()
                         .padding(top = 4.dp)
                 ) {
-                    if (!showBrowseGrid && searchQuery.isBlank() && heroMovie != null) {
-                        heroMovie?.let { hero ->
-                            Box(modifier = Modifier.onPreviewKeyEvent { false }) {
-                                VodHeroSection(
-                                    movie = hero,
-                                    enrichment = heroEnrichment,
-                                    carouselSize = featuredCarousel.size,
-                                    carouselIndex = heroIndex,
-                                    onPlay = { playMovie(hero) },
-                                    onMoreInfo = { openMovieDetail(hero) },
-                                    playFocusRequester = heroPlayFocusRequester,
-                                    moreInfoFocusRequester = heroMoreInfoFocusRequester
-                                )
-                            }
-                        }
-                    }
-
                     when {
                         searchQuery.isNotBlank() -> {
                             if (contentFilter != VodContentFilter.SERIES) {
@@ -898,12 +883,36 @@ fun VodHubScreen(
                             }
                         }
                         else -> {
+                            val showHero = !showBrowseGrid && searchQuery.isBlank() && heroMovie != null
                             LazyColumn(
                                 state = columnListState,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .fillMaxWidth()
+                                    .fillMaxWidth(),
+                                contentPadding = PaddingValues(bottom = 32.dp)
                             ) {
+                                if (showHero) {
+                                    item(key = "vod_hero") {
+                                        heroMovie?.let { hero ->
+                                            Box(
+                                                modifier = Modifier.onPreviewKeyEvent { event ->
+                                                    focusZone == VodFocusZone.HERO && handleHeroKey(event)
+                                                }
+                                            ) {
+                                                VodHeroSection(
+                                                    movie = hero,
+                                                    enrichment = heroEnrichment,
+                                                    carouselSize = featuredCarousel.size,
+                                                    carouselIndex = heroIndex,
+                                                    onPlay = { playMovie(hero) },
+                                                    onMoreInfo = { openMovieDetail(hero) },
+                                                    playFocusRequester = heroPlayFocusRequester,
+                                                    moreInfoFocusRequester = heroMoreInfoFocusRequester
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                                 itemsIndexed(wallRows, key = { _, row -> row.id }) { index, row ->
                                     NetflixContentWallRow(
                                         row = row,
@@ -943,13 +952,23 @@ fun VodHubScreen(
         }
 
         selectedMovie?.let { movie ->
+            val enrichment = hubViewModel.enrichmentFor(movie, enrichmentMap)
+            LaunchedEffect(movie.streamId) {
+                hubViewModel.enrichOnBrowse(movie)
+                hubViewModel.awaitEnrichment(movie)
+                moviesViewModel.resolveMovie(movie.playlistId, movie.streamId)?.let { refreshed ->
+                    if (selectedMovie?.streamId == refreshed.streamId) {
+                        selectedMovie = refreshed
+                    }
+                }
+            }
             MovieDetailOverlay(
-                movie = movie,
-                enrichment = hubViewModel.enrichmentFor(movie, enrichmentMap),
-                overview = overviewForMovie(movie).orEmpty(),
+                movie = selectedMovie ?: movie,
+                enrichment = hubViewModel.enrichmentFor(selectedMovie ?: movie, enrichmentMap),
+                overview = overviewForMovie(selectedMovie ?: movie),
                 runtimeLabel = runtimeLabelForMovie(
-                    movie,
-                    hubViewModel.enrichmentFor(movie, enrichmentMap)
+                    selectedMovie ?: movie,
+                    hubViewModel.enrichmentFor(selectedMovie ?: movie, enrichmentMap)
                 ),
                 onWatchNow = ::watchSelectedMovie,
                 onBack = ::closeMovieDetail,

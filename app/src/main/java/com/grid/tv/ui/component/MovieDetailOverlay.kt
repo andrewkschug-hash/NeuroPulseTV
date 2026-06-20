@@ -1,6 +1,7 @@
 package com.grid.tv.ui.component
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,11 +47,16 @@ import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
 
+fun resolveMovieOverview(movie: VodItem, enrichment: TitleEnrichmentEntity?): String? =
+    enrichment?.overview?.takeIf { it.isNotBlank() }
+        ?: movie.plot?.takeIf { it.isNotBlank() }
+        ?: movie.genre?.takeIf { it.isNotBlank() }
+
 @Composable
 fun MovieDetailOverlay(
     movie: VodItem,
     enrichment: TitleEnrichmentEntity?,
-    overview: String,
+    overview: String?,
     runtimeLabel: String?,
     onWatchNow: () -> Unit,
     onBack: () -> Unit,
@@ -55,11 +67,14 @@ fun MovieDetailOverlay(
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
     val posterUrl = enrichment?.posterUrl ?: movie.posterUrl
     val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
-    val synopsis = overview.takeIf { it.isNotBlank() } ?: "No description available."
+    val synopsis = resolveMovieOverview(movie, enrichment)
+        ?: overview?.takeIf { it.isNotBlank() }
+        ?: "No description available."
+    val modalTrapFocusRequester = remember { FocusRequester() }
 
     BackHandler(onBack = onBack)
 
-    LaunchedEffect(movie.streamId) {
+    LaunchedEffect(movie.streamId, enrichment?.providerKey) {
         watchFocusRequester.requestFocusSafelyAfterLayout()
     }
 
@@ -68,6 +83,18 @@ fun MovieDetailOverlay(
             .fillMaxSize()
             .zIndex(25f)
             .background(VodNetflixColors.Background)
+            .focusRequester(modalTrapFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.Back || event.key == Key.Escape)
+                ) {
+                    onBack()
+                    true
+                } else {
+                    false
+                }
+            }
     ) {
         if (!backdropUrl.isNullOrBlank()) {
             AsyncImage(

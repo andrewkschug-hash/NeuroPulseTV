@@ -165,6 +165,20 @@ class VodHubViewModel @Inject constructor(
         prefetchEnrichmentForItem(item)
     }
 
+    suspend fun awaitEnrichment(item: VodItem): TitleEnrichmentEntity? {
+        if (item.playlistId <= 0L) return null
+        val key = TitleEnrichmentRepository.xtreamVodKey(item.playlistId, item.streamId)
+        enrichmentByKey.value[key]?.let { return it }
+        val entity = titleEnrichmentRepository.enrichOnDemand(
+            providerKey = key,
+            title = item.title,
+            releaseYear = parseYear(item.title),
+            isTv = false
+        ) ?: return null
+        enrichmentByKey.value = enrichmentByKey.value + (key to entity)
+        return entity
+    }
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }

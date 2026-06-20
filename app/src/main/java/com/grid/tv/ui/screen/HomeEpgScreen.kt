@@ -55,9 +55,18 @@ internal enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FIL
 internal fun epgZoneAbove(
     from: EpgFocusZone,
     showPreview: Boolean,
-    hasContinueWatching: Boolean
+    hasContinueWatching: Boolean,
+    showGroupFilter: Boolean = true
 ): EpgFocusZone? = when (from) {
-    EpgFocusZone.GRID -> EpgFocusZone.GRID_FILTER
+    EpgFocusZone.GRID -> if (showGroupFilter) {
+        EpgFocusZone.GRID_FILTER
+    } else {
+        when {
+            showPreview -> EpgFocusZone.PREVIEW
+            hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+            else -> EpgFocusZone.TOP_BAR
+        }
+    }
     EpgFocusZone.GRID_FILTER -> when {
         showPreview -> EpgFocusZone.PREVIEW
         hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
@@ -74,18 +83,21 @@ internal fun epgZoneAbove(
 internal fun epgZoneBelow(
     from: EpgFocusZone,
     showPreview: Boolean,
-    hasContinueWatching: Boolean
+    hasContinueWatching: Boolean,
+    showGroupFilter: Boolean = true
 ): EpgFocusZone? = when (from) {
     EpgFocusZone.TOP_BAR -> when {
         hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
         showPreview -> EpgFocusZone.PREVIEW
-        else -> EpgFocusZone.GRID_FILTER
+        showGroupFilter -> EpgFocusZone.GRID_FILTER
+        else -> EpgFocusZone.GRID
     }
     EpgFocusZone.CONTINUE_WATCHING -> when {
         showPreview -> EpgFocusZone.PREVIEW
-        else -> EpgFocusZone.GRID_FILTER
+        showGroupFilter -> EpgFocusZone.GRID_FILTER
+        else -> EpgFocusZone.GRID
     }
-    EpgFocusZone.PREVIEW -> EpgFocusZone.GRID_FILTER
+    EpgFocusZone.PREVIEW -> if (showGroupFilter) EpgFocusZone.GRID_FILTER else EpgFocusZone.GRID
     EpgFocusZone.GRID_FILTER -> EpgFocusZone.GRID
     EpgFocusZone.GRID -> null
 }
@@ -569,9 +581,21 @@ fun HomeEpgScreen(
     val liveScrollTargetPx = controller.liveScrollTarget()
     val scrolledAwayFromLive = kotlin.math.abs(hScroll.value - liveScrollTargetPx) > 80
 
-    LaunchedEffect(displayChannels.isEmpty()) {
-        if (displayChannels.isEmpty() && ui.focusZone == EpgFocusZone.GRID) {
+    LaunchedEffect(displayChannels.isEmpty(), ui.selectedTab) {
+        if (!displayChannels.isEmpty() || ui.focusZone != EpgFocusZone.GRID) return@LaunchedEffect
+        if (ui.selectedTab == EpgNavTab.Favorites) {
+            controller.focusEpgZone(EpgFocusZone.TOP_BAR)
+        } else {
             controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
+        }
+    }
+
+    LaunchedEffect(ui.selectedTab) {
+        if (ui.selectedTab == EpgNavTab.Favorites) {
+            ui.showCategoryFilterMenu = false
+            if (ui.focusZone == EpgFocusZone.GRID_FILTER) {
+                controller.focusEpgZone(EpgFocusZone.GRID)
+            }
         }
     }
 
