@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.focusable
@@ -520,23 +522,31 @@ private fun SeriesSeasonEpisodeSection(
                 )
             }
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            modifier = Modifier.weight(1f, fill = true),
-            contentPadding = PaddingValues(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        val episodeGridState = rememberLazyGridState()
+        Box(
+            modifier = Modifier
+                .weight(1f, fill = true)
+                .graphicsLayer { clip = false }
         ) {
-            items(episodes, key = { it.id }) { episode ->
-                val episodeIndex = episode.episodeNumber ?: (episodes.indexOf(episode) + 1)
-                val seasonNum = selectedSeasonNumber ?: seasons.firstOrNull()?.number ?: 1
-                VodEpisodeCard(
-                    episodeNumber = episodeIndex,
-                    title = episode.title,
-                    duration = episode.duration,
-                    progressFraction = episodeProgressFraction(episode),
-                    onClick = { onPlayEpisode(episode, seasonNum, episodeIndex) }
-                )
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                state = episodeGridState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 40.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(episodes, key = { it.id }) { episode ->
+                    val episodeIndex = episode.episodeNumber ?: (episodes.indexOf(episode) + 1)
+                    val seasonNum = selectedSeasonNumber ?: seasons.firstOrNull()?.number ?: 1
+                    VodEpisodeCard(
+                        episodeNumber = episodeIndex,
+                        title = episode.title,
+                        duration = episode.duration,
+                        progressFraction = episodeProgressFraction(episode),
+                        onClick = { onPlayEpisode(episode, seasonNum, episodeIndex) }
+                    )
+                }
             }
         }
     }

@@ -26,7 +26,15 @@ import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -430,13 +438,34 @@ fun VodEpisodeCard(
     modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(8.dp)
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (focused) 1.03f else 1f,
+        animationSpec = tween(150),
+        label = "episodeCardScale"
+    )
     GridFocusSurface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(4.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .tvFocusBorder(
+                focused = focused,
+                shape = shape,
+                width = 3.dp,
+                unfocusedWidth = 1.dp,
+                unfocusedColor = EpgColors.BorderSubtle.copy(alpha = 0.45f),
+                focusedColor = EpgColors.FocusBorder
+            ),
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF13131A),
-            focusedContainerColor = Color(0xFF13131A)
+            focusedContainerColor = Color(0xFF1E1E2A)
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {

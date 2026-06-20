@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,6 +52,275 @@ private val PillShape = RoundedCornerShape(24.dp)
 private val SegmentShape = RoundedCornerShape(20.dp)
 private val SectionShape = RoundedCornerShape(12.dp)
 
+enum class VodPlayerFocusZone {
+    TRANSPORT, SEEK, SUBTITLE_PANEL
+}
+
+/**
+ * Bottom HUD for VOD/movie/series playback — transport, progress, and CC entry point.
+ * Subtitle settings open in [VodInlineSubtitlePanel] on the right without leaving the player.
+ */
+@Composable
+fun VodPlayerHudOverlay(
+    title: String,
+    positionMs: Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    focusZone: VodPlayerFocusZone,
+    transportFocusIndex: Int,
+    seekTooltip: String?,
+    subtitlesEnabled: Boolean,
+    showSubtitlePanel: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f))
+                    )
+                )
+                .padding(horizontal = 32.dp, vertical = 24.dp)
+        ) {
+            Text(
+                text = title,
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            val transportLabels = listOf(
+                "◀◀ 10s", "⏮ 30s", if (isPlaying) "⏸" else "▶", "⏭ 30s", "▶▶ 10s", "CC"
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 20.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                transportLabels.forEachIndexed { index, label ->
+                    val isCc = index == transportLabels.lastIndex
+                    val focused = focusZone == VodPlayerFocusZone.TRANSPORT && transportFocusIndex == index
+                    PlayerHudChip(
+                        label = label,
+                        focused = focused,
+                        selected = isCc && subtitlesEnabled,
+                        accent = isCc
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+                if (seekTooltip != null) {
+                    Text(
+                        text = seekTooltip,
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp,
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(bottom = 4.dp)
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = formatPlayerTime(positionMs),
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp,
+                        modifier = Modifier.width(72.dp)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(6.dp)
+                            .then(
+                                if (focusZone == VodPlayerFocusZone.SEEK) {
+                                    Modifier.border(2.dp, EpgColors.Accent, RoundedCornerShape(3.dp))
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(3.dp))
+                    ) {
+                        val progress = if (durationMs > 0) {
+                            (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress)
+                                .height(6.dp)
+                                .background(EpgColors.Accent, RoundedCornerShape(3.dp))
+                        )
+                    }
+                    Text(
+                        text = formatPlayerTime(durationMs),
+                        color = EpgColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp,
+                        modifier = Modifier.width(72.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VodInlineSubtitlePanel(
+    settings: AppSettings,
+    focusRow: Int,
+    focusCol: Int,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(320.dp)
+            .background(
+                Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f), Color(0xE6000000))
+                )
+            )
+            .padding(start = 24.dp, end = 28.dp, top = 48.dp, bottom = 48.dp),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(SectionShape)
+                .background(GlassFill)
+                .border(1.dp, GlassBorder, SectionShape)
+                .padding(horizontal = 18.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(
+                text = "Subtitles",
+                color = Color.White,
+                fontFamily = DmSansFamily,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            VodHudChipRow(
+                label = "Display",
+                options = listOf("Off", "On"),
+                selectedIndex = if (settings.subtitlesEnabled) 1 else 0,
+                focusedIndex = if (focusRow == 0) focusCol else -1,
+                rowFocused = focusRow == 0
+            )
+
+            VodHudChipRow(
+                label = "Text size",
+                options = SubtitleFontSize.entries.map {
+                    it.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                },
+                selectedIndex = SubtitleFontSize.entries.indexOf(settings.subtitleFontSize),
+                focusedIndex = if (focusRow == 1) focusCol else -1,
+                rowFocused = focusRow == 1
+            )
+
+            VodHudChipRow(
+                label = "Position",
+                options = SubtitlePosition.entries.map {
+                    it.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                },
+                selectedIndex = SubtitlePosition.entries.indexOf(settings.subtitlePosition),
+                focusedIndex = if (focusRow == 2) focusCol else -1,
+                rowFocused = focusRow == 2
+            )
+        }
+    }
+}
+
+@Composable
+private fun VodHudChipRow(
+    label: String,
+    options: List<String>,
+    selectedIndex: Int,
+    focusedIndex: Int,
+    rowFocused: Boolean
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = label,
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEachIndexed { index, option ->
+                val focused = rowFocused && focusedIndex == index
+                PlayerHudChip(
+                    label = option,
+                    focused = focused,
+                    selected = index == selectedIndex,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerHudChip(
+    label: String,
+    focused: Boolean,
+    selected: Boolean = false,
+    accent: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = when {
+        focused -> EpgColors.Accent
+        selected && accent -> EpgColors.Accent.copy(alpha = 0.85f)
+        selected -> EpgColors.Accent.copy(alpha = 0.7f)
+        else -> Color.Transparent
+    }
+    val bg = when {
+        selected -> EpgColors.Accent.copy(alpha = 0.22f)
+        focused -> Color.White.copy(alpha = 0.14f)
+        else -> Color.White.copy(alpha = 0.08f)
+    }
+    Text(
+        text = label,
+        color = when {
+            focused || selected -> Color.White
+            else -> EpgColors.TextSecondary
+        },
+        fontFamily = DmSansFamily,
+        fontSize = if (label == "CC") 12.sp else 13.sp,
+        fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
+        textAlign = TextAlign.Center,
+        modifier = modifier
+            .background(bg, RoundedCornerShape(8.dp))
+            .border(
+                width = if (focused || selected) 2.dp else 1.dp,
+                color = if (borderColor == Color.Transparent) Color.White.copy(alpha = 0.15f) else borderColor,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    )
+}
+
+@Deprecated("Use VodPlayerHudOverlay with VodInlineSubtitlePanel instead")
 @Composable
 fun VodPlayerSettingsOverlay(
     title: String,

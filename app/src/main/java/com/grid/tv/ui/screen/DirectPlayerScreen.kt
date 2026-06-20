@@ -34,7 +34,9 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.grid.tv.ui.component.CatchupPlayerControlsOverlay
-import com.grid.tv.ui.component.VodPlayerSettingsOverlay
+import com.grid.tv.ui.component.VodInlineSubtitlePanel
+import com.grid.tv.ui.component.VodPlayerFocusZone
+import com.grid.tv.ui.component.VodPlayerHudOverlay
 import com.grid.tv.ui.component.RecordedPlayerControlsOverlay
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.RecordedPlayerFocusZone
@@ -42,6 +44,8 @@ import com.grid.tv.ui.component.RecordingDeleteDialog
 import com.grid.tv.ui.component.formatPlayerTime
 import com.grid.tv.ui.component.formatRecordedPlayerOverlayDate
 import com.grid.tv.domain.model.CatchupPlaybackContext
+import com.grid.tv.domain.model.SubtitleFontSize
+import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
@@ -171,8 +175,7 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(isRecordedPlayback, isCatchupPlayback) {
-        if (!isRecordedPlayback && !isCatchupPlayback) return@LaunchedEffect
+    LaunchedEffect(url) {
         while (true) {
             delay(500)
             positionMs = player.currentPosition
@@ -208,11 +211,15 @@ fun DirectPlayerScreen(
         }
     }
 
-    var showOverlay by remember { mutableStateOf(true) }
+    var showOverlay by remember { mutableStateOf(false) }
+    var showSubtitlePanel by remember { mutableStateOf(false) }
     var overlayToken by remember { mutableIntStateOf(0) }
     var focusZone by remember { mutableStateOf(RecordedPlayerFocusZone.TRANSPORT) }
+    var vodFocusZone by remember { mutableStateOf(VodPlayerFocusZone.TRANSPORT) }
     var transportFocusIndex by remember { mutableIntStateOf(2) }
     var bottomFocusIndex by remember { mutableIntStateOf(1) }
+    var subtitleFocusRow by remember { mutableIntStateOf(0) }
+    var subtitleFocusCol by remember { mutableIntStateOf(0) }
     var seekRepeatCount by remember { mutableIntStateOf(0) }
     var seekTooltip by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -224,8 +231,8 @@ fun DirectPlayerScreen(
         overlayToken++
     }
 
-    LaunchedEffect(showOverlay, overlayToken, isRecordedPlayback, isCatchupPlayback) {
-        if (showOverlay && (isRecordedPlayback || isCatchupPlayback)) {
+    LaunchedEffect(showOverlay, overlayToken, showSubtitlePanel) {
+        if (showOverlay && !showSubtitlePanel) {
             delay(4_000)
             showOverlay = false
             seekTooltip = null
@@ -250,7 +257,154 @@ fun DirectPlayerScreen(
             showDeleteDialog = false
             return true
         }
+        if (showSubtitlePanel) {
+            showSubtitlePanel = false
+            vodFocusZone = VodPlayerFocusZone.TRANSPORT
+            transportFocusIndex = 5
+            return true
+        }
+        if (showOverlay && !isRecordedPlayback && !isCatchupPlayback) {
+            showOverlay = false
+            return true
+        }
         return false
+    }
+
+    fun openSubtitlePanel() {
+        showSubtitlePanel = true
+        showOverlay = true
+        overlayToken++
+        vodFocusZone = VodPlayerFocusZone.SUBTITLE_PANEL
+        subtitleFocusRow = 0
+        subtitleFocusCol = if (subtitleSettings.subtitlesEnabled) 1 else 0
+    }
+
+    fun subtitleRowColumnCount(row: Int): Int = when (row) {
+        0 -> 2
+        else -> 3
+    }
+
+    fun applySubtitlePanelSelection() {
+        when (subtitleFocusRow) {
+            0 -> {
+                val wantEnabled = subtitleFocusCol == 1
+                if (wantEnabled != subtitleSettings.subtitlesEnabled) {
+                    viewModel.updateSubtitleSettings(
+                        enabled = wantEnabled,
+                        player = player,
+                        playerView = playerViewRef[0],
+                        url = url,
+                        title = title
+                    )
+                }
+            }
+            1 -> viewModel.updateSubtitleSettings(
+                fontSize = SubtitleFontSize.entries[subtitleFocusCol],
+                playerView = playerViewRef[0]
+            )
+            2 -> viewModel.updateSubtitleSettings(
+                position = SubtitlePosition.entries[subtitleFocusCol],
+                playerView = playerViewRef[0]
+            )
+        }
+    }
+
+    fun handleVodPlaybackKey(key: Key): Boolean {
+        when (key) {
+            Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                revealOverlay()
+                when (vodFocusZone) {
+                    VodPlayerFocusZone.TRANSPORT -> when (transportFocusIndex) {
+                        0 -> seekBy(-10_000)
+                        1 -> seekBy(-30_000)
+                        2 -> {
+                            player.playWhenReady = !player.isPlaying
+                            isPlaying = player.isPlaying
+                        }
+                        3 -> seekBy(30_000)
+                        4 -> seekBy(10_000)
+                        5 -> openSubtitlePanel()
+                    }
+                    VodPlayerFocusZone.SEEK -> seekBy(-30_000)
+                    VodPlayerFocusZone.SUBTITLE_PANEL -> applySubtitlePanelSelection()
+                }
+                return true
+            }
+            Key.DirectionUp -> {
+                revealOverlay()
+                seekRepeatCount = 0
+                when (vodFocusZone) {
+                    VodPlayerFocusZone.SUBTITLE_PANEL -> {
+                        subtitleFocusRow = (subtitleFocusRow - 1).coerceAtLeast(0)
+                        subtitleFocusCol = subtitleFocusCol.coerceAtMost(subtitleRowColumnCount(subtitleFocusRow) - 1)
+                        applySubtitlePanelSelection()
+                    }
+                    VodPlayerFocusZone.TRANSPORT -> vodFocusZone = VodPlayerFocusZone.SEEK
+                    VodPlayerFocusZone.SEEK -> Unit
+                }
+                return true
+            }
+            Key.DirectionDown -> {
+                revealOverlay()
+                when (vodFocusZone) {
+                    VodPlayerFocusZone.SUBTITLE_PANEL -> {
+                        subtitleFocusRow = (subtitleFocusRow + 1).coerceAtMost(2)
+                        subtitleFocusCol = subtitleFocusCol.coerceAtMost(subtitleRowColumnCount(subtitleFocusRow) - 1)
+                        applySubtitlePanelSelection()
+                    }
+                    VodPlayerFocusZone.SEEK -> vodFocusZone = VodPlayerFocusZone.TRANSPORT
+                    VodPlayerFocusZone.TRANSPORT -> Unit
+                }
+                return true
+            }
+            Key.DirectionLeft -> {
+                revealOverlay()
+                when (vodFocusZone) {
+                    VodPlayerFocusZone.TRANSPORT -> {
+                        transportFocusIndex = (transportFocusIndex - 1).coerceAtLeast(0)
+                    }
+                    VodPlayerFocusZone.SEEK -> {
+                        seekRepeatCount++
+                        seekBy(-seekDeltaForScrub())
+                    }
+                    VodPlayerFocusZone.SUBTITLE_PANEL -> {
+                        if (subtitleFocusRow == 0 && subtitleFocusCol == 0) {
+                            showSubtitlePanel = false
+                            vodFocusZone = VodPlayerFocusZone.TRANSPORT
+                            transportFocusIndex = 5
+                        } else {
+                            subtitleFocusCol = (subtitleFocusCol - 1).coerceAtLeast(0)
+                            applySubtitlePanelSelection()
+                        }
+                    }
+                }
+                return true
+            }
+            Key.DirectionRight -> {
+                revealOverlay()
+                when (vodFocusZone) {
+                    VodPlayerFocusZone.TRANSPORT -> {
+                        if (transportFocusIndex >= 5) {
+                            openSubtitlePanel()
+                        } else {
+                            transportFocusIndex = (transportFocusIndex + 1).coerceAtMost(5)
+                        }
+                    }
+                    VodPlayerFocusZone.SEEK -> {
+                        seekRepeatCount++
+                        seekBy(seekDeltaForScrub())
+                    }
+                    VodPlayerFocusZone.SUBTITLE_PANEL -> {
+                        subtitleFocusCol = (subtitleFocusCol + 1)
+                            .coerceAtMost(subtitleRowColumnCount(subtitleFocusRow) - 1)
+                        applySubtitlePanelSelection()
+                    }
+                }
+                return true
+            }
+            else -> return false
+        }
     }
 
     ScreenBackHandler(
@@ -366,14 +520,14 @@ fun DirectPlayerScreen(
             .focusable()
             .onPreviewKeyEvent {
                 if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (isRecordedPlayback || isCatchupPlayback) handlePlaybackKey(it.key)
-                else when (it.key) {
-                    Key.Back, Key.Escape -> consumeDirectPlayerLocalBack()
-                    Key.Enter, Key.DirectionCenter -> {
-                        showOverlay = !showOverlay
-                        true
+                when {
+                    isRecordedPlayback || isCatchupPlayback -> handlePlaybackKey(it.key)
+                    else -> {
+                        if (it.key !in setOf(Key.Back, Key.Escape)) {
+                            revealOverlay()
+                        }
+                        handleVodPlaybackKey(it.key)
                     }
-                    else -> false
                 }
             }
     ) {
@@ -437,59 +591,35 @@ fun DirectPlayerScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-        } else if (showOverlay) {
+        } else {
             AnimatedVisibility(
                 visible = showOverlay,
                 enter = fadeIn(tween(150)),
                 exit = fadeOut(tween(150)),
                 modifier = Modifier.fillMaxSize()
             ) {
-                VodPlayerSettingsOverlay(
-                    title = title,
-                    settings = subtitleSettings,
-                    activeSubtitle = activeSubtitle,
-                    onToggle = {
-                        viewModel.updateSubtitleSettings(
-                            enabled = !subtitleSettings.subtitlesEnabled,
-                            player = player,
-                            playerView = playerViewRef[0],
-                            url = url,
-                            title = title
+                Box(modifier = Modifier.fillMaxSize()) {
+                    VodPlayerHudOverlay(
+                        title = title,
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        isPlaying = isPlaying,
+                        focusZone = vodFocusZone,
+                        transportFocusIndex = transportFocusIndex,
+                        seekTooltip = seekTooltip,
+                        subtitlesEnabled = subtitleSettings.subtitlesEnabled,
+                        showSubtitlePanel = showSubtitlePanel,
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    )
+                    if (showSubtitlePanel) {
+                        VodInlineSubtitlePanel(
+                            settings = subtitleSettings,
+                            focusRow = subtitleFocusRow,
+                            focusCol = subtitleFocusCol,
+                            modifier = Modifier.align(Alignment.CenterEnd)
                         )
-                    },
-                    onLanguage = { lang ->
-                        viewModel.updateSubtitleSettings(
-                            language = lang,
-                            player = player,
-                            playerView = playerViewRef[0],
-                            url = url,
-                            title = title
-                        )
-                    },
-                    onFontSize = { size ->
-                        viewModel.updateSubtitleSettings(
-                            fontSize = size,
-                            playerView = playerViewRef[0]
-                        )
-                    },
-                    onPosition = { position ->
-                        viewModel.updateSubtitleSettings(
-                            position = position,
-                            playerView = playerViewRef[0]
-                        )
-                    },
-                    onDelayAdjust = { delay ->
-                        viewModel.updateSubtitleSettings(
-                            delayMs = delay.coerceIn(-5_000L, 5_000L),
-                            player = player,
-                            playerView = playerViewRef[0],
-                            url = url,
-                            title = title
-                        )
-                    },
-                    onBack = ::leaveScreen,
-                    onDone = { showOverlay = false }
-                )
+                    }
+                }
             }
         }
 
