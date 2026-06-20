@@ -38,6 +38,7 @@ import com.grid.tv.data.db.AppDatabase
 import com.grid.tv.data.db.mapper.toDomain
 import com.grid.tv.data.db.mapper.toEntity
 import com.grid.tv.data.network.AppHttpClient
+import com.grid.tv.data.network.EpgXmlTvFetchOutcome
 import com.grid.tv.data.network.RemoteTextFetcher
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodRefreshTrigger
@@ -202,7 +203,7 @@ class IptvRepositoryImpl @Inject constructor(
         private const val VIEWPORT_EPG_LOOKAHEAD_MS = 4L * 60L * 60L * 1000L
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
         private const val VIEWPORT_EPG_SHORT_LIMIT = 16
-        private const val VIEWPORT_EPG_MAX_CONCURRENT_REQUESTS = 4
+        private const val VIEWPORT_EPG_MAX_CONCURRENT_REQUESTS = 2
         /** Only purge programmes that ended more than a week ago — never today's grid cache. */
         private const val EPG_PURGE_GRACE_MS = 7L * 24L * 60L * 60L * 1000L
     }
@@ -757,7 +758,7 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }.flowOn(Dispatchers.IO)
 
-    override suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int = withContext(Dispatchers.IO) {
+    override suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int = withContext(epgDispatchers.io) {
         if (channelIds.isEmpty()) return@withContext 0
         val ids = channelIds.mapNotNull { it.toLongOrNull() }.distinct()
         if (ids.isEmpty()) return@withContext 0
@@ -1707,74 +1708,85 @@ class IptvRepositoryImpl @Inject constructor(
                 url = resolvedEpgUrl
             )
             try {
-                val fetchResult = remoteTextFetcher.fetchEpgXmlTv(
+                when (val fetchOutcome = remoteTextFetcher.fetchEpgXmlTv(
                     rawUrl = resolvedEpgUrl,
                     parser = xmlTvParser,
                     playlistId = playlist.id,
                     playlistName = playlist.name
-                )
-                Log.i(
-                    EPG_FLOW_TAG,
-                    "EPG disk-backed fetch for ${playlist.name}: http=${fetchResult.httpCode}, " +
-                        "cachedBytes=${fetchResult.rawBytes}, channels=${fetchResult.parsed.channelsById.size}, " +
-                        "programmes=${fetchResult.parsed.programs.size}"
-                )
-                attempt = attempt.copy(
-                    httpCode = fetchResult.httpCode,
-                    bytesReceived = fetchResult.rawBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                )
-                val parsed = fetchResult.parsed
-                attempt = attempt.copy(
-                    channelsParsed = parsed.channelsById.size,
-                    programmesParsed = parsed.programs.size
-                )
-                EpgFlowLogger.dbWriteStarted(playlist.id, playlist.name)
-                val sourceKey = "xmltv:${playlist.id}"
-                var channelsStored = 0
-                val sourceChannels = if (parsed.channelsById.isNotEmpty()) {
-                    parsed.channelsById.map { (epgId, displayName) ->
-                        EpgSourceChannelEntity(
-                            epgId = epgId,
-                            displayName = displayName,
-                            normalizedName = channelNameNormalizer.normalize(displayName),
-                            source = sourceKey,
-                            logoUrl = null,
-                            cachedAt = now
+                )) {
+                    is EpgXmlTvFetchOutcome.HttpError -> {
+                        attempt = attempt.copy(
+                            httpCode = fetchOutcome.httpCode,
+                            error = "HTTP ${fetchOutcome.httpCode}"
                         )
                     }
-                } else {
-                    emptyList()
-                }
-                if (parsed.channelsById.isEmpty()) {
-                    Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
-                }
-                var programmesStored = 0
-                if (sourceChannels.isNotEmpty() || parsed.programs.isNotEmpty()) {
-                    database.importEpgForPlaylist(
-                        playlistId = playlist.id,
-                        sourceKey = sourceKey,
-                        sourceChannels = sourceChannels,
-                        programs = parsed.programs,
-                        playlist = playlist,
-                        refreshedAt = now
-                    )
-                    channelsStored = sourceChannels.size
-                    programmesStored = parsed.programs.size
-                    logImportedProgrammeWindowSample(parsed.programs, now)
-                    if (channelsStored > 0) {
-                        EpgFlowLogger.channelsImported(playlist.id, playlist.name, channelsStored, sourceKey)
+                    is EpgXmlTvFetchOutcome.Success -> {
+                        val fetchResult = fetchOutcome.result
+                        Log.i(
+                            EPG_FLOW_TAG,
+                            "EPG disk-backed fetch for ${playlist.name}: http=${fetchResult.httpCode}, " +
+                                "cachedBytes=${fetchResult.rawBytes}, " +
+                                "channels=${fetchResult.parsed.channelsById.size}, " +
+                                "programmes=${fetchResult.parsed.programs.size}"
+                        )
+                        attempt = attempt.copy(
+                            httpCode = fetchResult.httpCode,
+                            bytesReceived = fetchResult.rawBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                        )
+                        val parsed = fetchResult.parsed
+                        attempt = attempt.copy(
+                            channelsParsed = parsed.channelsById.size,
+                            programmesParsed = parsed.programs.size
+                        )
+                        EpgFlowLogger.dbWriteStarted(playlist.id, playlist.name)
+                        val sourceKey = "xmltv:${playlist.id}"
+                        var channelsStored = 0
+                        val sourceChannels = if (parsed.channelsById.isNotEmpty()) {
+                            parsed.channelsById.map { (epgId, displayName) ->
+                                EpgSourceChannelEntity(
+                                    epgId = epgId,
+                                    displayName = displayName,
+                                    normalizedName = channelNameNormalizer.normalize(displayName),
+                                    source = sourceKey,
+                                    logoUrl = null,
+                                    cachedAt = now
+                                )
+                            }
+                        } else {
+                            emptyList()
+                        }
+                        if (parsed.channelsById.isEmpty()) {
+                            Log.w(EPG_FLOW_TAG, "No XMLTV <channel> entries parsed for ${playlist.name}")
+                        }
+                        var programmesStored = 0
+                        if (sourceChannels.isNotEmpty() || parsed.programs.isNotEmpty()) {
+                            database.importEpgForPlaylist(
+                                playlistId = playlist.id,
+                                sourceKey = sourceKey,
+                                sourceChannels = sourceChannels,
+                                programs = parsed.programs,
+                                playlist = playlist,
+                                refreshedAt = now
+                            )
+                            channelsStored = sourceChannels.size
+                            programmesStored = parsed.programs.size
+                            logImportedProgrammeWindowSample(parsed.programs, now)
+                            if (channelsStored > 0) {
+                                EpgFlowLogger.channelsImported(playlist.id, playlist.name, channelsStored, sourceKey)
+                            }
+                            if (programmesStored > 0) {
+                                EpgFlowLogger.programsImported(playlist.id, playlist.name, programmesStored)
+                            }
+                        } else {
+                            Log.w(EPG_FLOW_TAG, "No programmes parsed from $resolvedEpgUrl for ${playlist.name}")
+                        }
+                        EpgFlowLogger.dbWriteCompleted(playlist.id, playlist.name)
+                        attempt = attempt.copy(
+                            channelsStored = channelsStored,
+                            programmesStored = programmesStored
+                        )
                     }
-                    if (programmesStored > 0) {
-                        EpgFlowLogger.programsImported(playlist.id, playlist.name, programmesStored)
-                    }
-                } else {
-                    Log.w(EPG_FLOW_TAG, "No programmes parsed from $resolvedEpgUrl for ${playlist.name}")
                 }
-                EpgFlowLogger.dbWriteCompleted(playlist.id, playlist.name)
-                attempt = attempt.copy(
-                    channelsStored = channelsStored,
-                    programmesStored = programmesStored
-                )
             } catch (error: Exception) {
                 EpgFlowLogger.importFailed(playlist.id, playlist.name, resolvedEpgUrl, error)
                 attempt = attempt.copy(error = error.message ?: error.javaClass.simpleName)
@@ -2681,12 +2693,12 @@ class IptvRepositoryImpl @Inject constructor(
         mapChannelEntity(entity)
     }
 
-    override suspend fun loadSettings(): AppSettings {
+    override suspend fun loadSettings(): AppSettings = withContext(Dispatchers.IO) {
         ensureDefaultProfile()
-        val db = profileSettingsDao.get(activeProfileId) ?: return cachedSettings.also {
+        val db = profileSettingsDao.get(activeProfileId) ?: return@withContext cachedSettings.also {
             appHttpClient.applySettings(cachedSettings)
         }
-        return AppSettings(
+        return@withContext AppSettings(
             streamRetries = db.streamRetries,
             preferredAudioLanguage = db.preferredAudioLanguage,
             epgRowHeight = enumValueOrDefault(db.epgRowHeight, EpgRowHeight.NORMAL),
@@ -2740,7 +2752,7 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun saveSettings(settings: AppSettings) {
+    override suspend fun saveSettings(settings: AppSettings) = withContext(Dispatchers.IO) {
         ensureDefaultProfile()
         cachedSettings = settings
         appHttpClient.applySettings(settings)
@@ -2804,7 +2816,7 @@ class IptvRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun saveGuideChannelFilter(groups: Set<String>, configured: Boolean) {
+    override suspend fun saveGuideChannelFilter(groups: Set<String>, configured: Boolean) = withContext(Dispatchers.IO) {
         ensureDefaultProfile()
         val existing = profileSettingsDao.get(activeProfileId) ?: ProfileSettingsEntity(profileId = activeProfileId)
         val encoded = GuideChannelFilter.encode(groups)

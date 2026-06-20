@@ -324,12 +324,12 @@ class HomeEpgViewModel @Inject constructor(
     val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _hasConnection.value = repository.hasActiveConnection()
             _activeProfile.value = repository.activeProfile()
             _isInitializing.value = false
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             bootstrapGuideFromSettings()
         }
         viewModelScope.launch(Dispatchers.IO) {

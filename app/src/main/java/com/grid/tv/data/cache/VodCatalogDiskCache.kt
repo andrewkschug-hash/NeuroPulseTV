@@ -5,10 +5,12 @@ import android.util.Log
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.data.io.DiskIoSerialExecutor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,7 +20,8 @@ import org.json.JSONObject
  */
 @Singleton
 class VodCatalogDiskCache @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext context: Context,
+    private val diskIoSerialExecutor: DiskIoSerialExecutor
 ) {
     companion object {
         private const val TAG = "VodCatalogPipeline"
@@ -36,7 +39,11 @@ class VodCatalogDiskCache @Inject constructor(
         val series: List<SeriesShow>
     )
 
-    fun load(playlistId: Long): PlaylistSnapshot? {
+    suspend fun load(playlistId: Long): PlaylistSnapshot? = withContext(diskIoSerialExecutor.dispatcher) {
+        loadInternal(playlistId)
+    }
+
+    private fun loadInternal(playlistId: Long): PlaylistSnapshot? {
         val moviesFile = fileFor(playlistId, "movies")
         val categoriesFile = fileFor(playlistId, "categories")
         val seriesFile = fileFor(playlistId, "series")
@@ -63,31 +70,40 @@ class VodCatalogDiskCache @Inject constructor(
         }.getOrNull()
     }
 
-    fun saveMovies(playlistId: Long, movies: List<VodItem>, savedAtMs: Long = System.currentTimeMillis()) {
-        if (movies.isEmpty()) return
-        writePayload(fileFor(playlistId, "movies"), savedAtMs, movies.map(::vodItemToJson))
-        Log.i(TAG, "VOD disk cache saved movies playlist=$playlistId count=${movies.size} savedAt=$savedAtMs")
-    }
+    suspend fun saveMovies(playlistId: Long, movies: List<VodItem>, savedAtMs: Long = System.currentTimeMillis()) =
+        withContext(diskIoSerialExecutor.dispatcher) {
+            if (movies.isEmpty()) return@withContext
+            writePayload(fileFor(playlistId, "movies"), savedAtMs, movies.map(::vodItemToJson))
+            Log.i(TAG, "VOD disk cache saved movies playlist=$playlistId count=${movies.size} savedAt=$savedAtMs")
+        }
 
-    fun saveCategories(playlistId: Long, categories: List<VodCategory>, savedAtMs: Long = System.currentTimeMillis()) {
-        if (categories.isEmpty()) return
+    suspend fun saveCategories(
+        playlistId: Long,
+        categories: List<VodCategory>,
+        savedAtMs: Long = System.currentTimeMillis()
+    ) = withContext(diskIoSerialExecutor.dispatcher) {
+        if (categories.isEmpty()) return@withContext
         writePayload(fileFor(playlistId, "categories"), savedAtMs, categories.map(::categoryToJson))
         Log.i(TAG, "VOD disk cache saved categories playlist=$playlistId count=${categories.size}")
     }
 
-    fun saveSeries(playlistId: Long, series: List<SeriesShow>, savedAtMs: Long = System.currentTimeMillis()) {
-        if (series.isEmpty()) return
+    suspend fun saveSeries(
+        playlistId: Long,
+        series: List<SeriesShow>,
+        savedAtMs: Long = System.currentTimeMillis()
+    ) = withContext(diskIoSerialExecutor.dispatcher) {
+        if (series.isEmpty()) return@withContext
         writePayload(fileFor(playlistId, "series"), savedAtMs, series.map(::seriesToJson))
         Log.i(TAG, "VOD disk cache saved series playlist=$playlistId count=${series.size}")
     }
 
-    fun clear(playlistId: Long) {
+    suspend fun clear(playlistId: Long) = withContext(diskIoSerialExecutor.dispatcher) {
         listOf("movies", "categories", "series").forEach { kind ->
             fileFor(playlistId, kind).delete()
         }
     }
 
-    fun clearAll() {
+    suspend fun clearAll() = withContext(diskIoSerialExecutor.dispatcher) {
         cacheDir.listFiles()?.forEach { it.delete() }
     }
 

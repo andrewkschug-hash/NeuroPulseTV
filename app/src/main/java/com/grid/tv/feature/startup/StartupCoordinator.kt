@@ -4,8 +4,6 @@ import android.util.Log
 import com.grid.tv.domain.repository.IptvRepository
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 
 /**
  * Loads UI-critical local data (VOD catalog from DB, channel list cache) before background maintenance work.
@@ -14,14 +12,12 @@ import kotlinx.coroutines.runBlocking
 class StartupCoordinator @Inject constructor(
     private val repository: IptvRepository
 ) {
-    fun warmCriticalLocalData() {
-        runBlocking(Dispatchers.IO) {
-            runCatching {
-                repository.warmLocalUiCache()
-                Log.i(TAG, "Local VOD cache and channel lists warmed")
-            }.onFailure {
-                Log.w(TAG, "warmCriticalLocalData failed: ${it.message}", it)
-            }
+    suspend fun warmCriticalLocalData() {
+        runCatching {
+            repository.warmLocalUiCache()
+            Log.i(TAG, "Local VOD cache and channel lists warmed")
+        }.onFailure {
+            Log.w(TAG, "warmCriticalLocalData failed: ${it.message}", it)
         }
     }
 

@@ -29,6 +29,6 @@ class EpgCoroutineDispatchers @Inject constructor() {
     val io: CoroutineDispatcher = executor.asCoroutineDispatcher()
 
     companion object {
-        const val POOL_SIZE = 2
+        const val POOL_SIZE = 1
     }
 }

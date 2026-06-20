@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.grid.tv.data.network.parser.ParsedXmlTv
 import com.grid.tv.data.network.parser.XmlTvParser
+import com.grid.tv.data.io.DiskIoSerialExecutor
 import com.grid.tv.feature.epg.EpgCoroutineDispatchers
 import com.grid.tv.feature.epg.EpgFlowLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -39,7 +40,8 @@ data class EpgParsedFetchResult(
 class RemoteTextFetcher @Inject constructor(
     @ApplicationContext private val context: Context,
     private val appHttpClient: AppHttpClient,
-    private val epgDispatchers: EpgCoroutineDispatchers
+    private val epgDispatchers: EpgCoroutineDispatchers,
+    private val diskIoSerialExecutor: DiskIoSerialExecutor
 ) {
     suspend fun fetch(rawUrl: String): String = fetchDetailed(rawUrl).body
 
@@ -78,21 +80,36 @@ class RemoteTextFetcher @Inject constructor(
         parser: XmlTvParser,
         playlistId: Long,
         playlistName: String
-    ): EpgParsedFetchResult =
+    ): EpgXmlTvFetchOutcome =
         withContext(epgDispatchers.io) {
             val url = normalizeRemoteUrl(rawUrl)
             EpgFlowLogger.downloadStarted(playlistId, playlistName, url)
             var lastEof: EOFException? = null
             repeat(MAX_FETCH_ATTEMPTS) { attempt ->
                 try {
-                    val result = executeEpgFetch(url, parser, playlistId, playlistName)
-                    EpgFlowLogger.downloadCompleted(
-                        playlistId,
-                        playlistName,
-                        result.httpCode,
-                        result.rawBytes
-                    )
-                    return@withContext result
+                    when (val outcome = executeEpgFetch(url, parser, playlistId, playlistName)) {
+                        is InternalEpgFetch.Ok -> {
+                            EpgFlowLogger.downloadCompleted(
+                                playlistId,
+                                playlistName,
+                                outcome.result.httpCode,
+                                outcome.result.rawBytes
+                            )
+                            return@withContext EpgXmlTvFetchOutcome.Success(outcome.result)
+                        }
+                        is InternalEpgFetch.Http -> {
+                            Log.w(
+                                EPG_FLOW_TAG,
+                                "EPG HTTP ${outcome.httpCode} for $url — skipping import " +
+                                    "(bodyPreview=${outcome.bodyPreview?.take(120)})"
+                            )
+                            return@withContext EpgXmlTvFetchOutcome.HttpError(
+                                httpCode = outcome.httpCode,
+                                url = url,
+                                bodyPreview = outcome.bodyPreview
+                            )
+                        }
+                    }
                 } catch (e: EOFException) {
                     lastEof = e
                     Log.w(
@@ -148,12 +165,17 @@ class RemoteTextFetcher @Inject constructor(
         }
     }
 
-    private fun executeEpgFetch(
+    private sealed interface InternalEpgFetch {
+        data class Ok(val result: EpgParsedFetchResult) : InternalEpgFetch
+        data class Http(val httpCode: Int, val bodyPreview: String?) : InternalEpgFetch
+    }
+
+    private suspend fun executeEpgFetch(
         url: String,
         parser: XmlTvParser,
         playlistId: Long,
         playlistName: String
-    ): EpgParsedFetchResult {
+    ): InternalEpgFetch = withContext(diskIoSerialExecutor.dispatcher) {
         val cacheFile = createEpgCacheFile(playlistId)
         var contentEncoding: String? = null
         var httpCode = 0
@@ -169,19 +191,24 @@ class RemoteTextFetcher @Inject constructor(
 
             appHttpClient.epgClient().newCall(request).execute().use { response ->
                 httpCode = response.code
-                Log.i(
-                    EPG_FLOW_TAG,
-                    "HTTP $httpCode for $url — response headers received, spooling body to " +
-                        "${cacheFile.name} (Accept-Encoding: $ACCEPT_ENCODING_GZIP)…"
-                )
                 if (!response.isSuccessful) {
                     val errorBytes = response.body?.bytes() ?: byteArrayOf()
-                    Log.e(EPG_FLOW_TAG, "HTTP $httpCode (unsuccessful) for $url — ${errorBytes.size} bytes in body")
-                    throw IllegalStateException("HTTP request failed ($httpCode) for $url")
+                    val bodyPreview = errorBytes.decodeToString().take(200)
+                    Log.e(
+                        EPG_FLOW_TAG,
+                        "HTTP $httpCode (unsuccessful) for $url — ${errorBytes.size} bytes, " +
+                            "bodyPreview=$bodyPreview"
+                    )
+                    return@withContext InternalEpgFetch.Http(httpCode, bodyPreview)
                 }
                 val body = response.body
                     ?: throw IllegalStateException("Empty HTTP body for $url")
                 contentEncoding = response.header("Content-Encoding")
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "HTTP $httpCode for $url — spooling body to ${cacheFile.name} " +
+                        "(Accept-Encoding: $ACCEPT_ENCODING_GZIP)…"
+                )
                 val spooled = downloadBodyToCacheFile(body, url, cacheFile, contentEncoding)
                 rawBytes = spooled.networkBytesRead
                 Log.i(
@@ -215,10 +242,12 @@ class RemoteTextFetcher @Inject constructor(
                 parsed.channelsById.size,
                 parsed.programs.size
             )
-            return EpgParsedFetchResult(
-                httpCode = httpCode,
-                rawBytes = rawBytes,
-                parsed = parsed
+            InternalEpgFetch.Ok(
+                EpgParsedFetchResult(
+                    httpCode = httpCode,
+                    rawBytes = rawBytes,
+                    parsed = parsed
+                )
             )
         } catch (e: IOException) {
             Log.e(

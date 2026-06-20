@@ -30,7 +30,9 @@ import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -45,14 +47,23 @@ class MainActivity : ComponentActivity() {
 
     private val pickM3u = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@registerForActivityResult
-        when (pickerMode) {
-            PickerMode.M3U -> settingsViewModel.addPlaylistFromLocal(
-                name = "Local Playlist",
-                content = readText(uri),
-                epg = null,
-                refreshHours = 24
-            )
-            PickerMode.TIVIMATE -> settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
+        lifecycleScope.launch(Dispatchers.IO) {
+            when (pickerMode) {
+                PickerMode.M3U -> {
+                    val content = readText(uri)
+                    withContext(Dispatchers.Main) {
+                        settingsViewModel.addPlaylistFromLocal(
+                            name = "Local Playlist",
+                            content = content,
+                            epg = null,
+                            refreshHours = 24
+                        )
+                    }
+                }
+                PickerMode.TIVIMATE -> withContext(Dispatchers.Main) {
+                    settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
+                }
+            }
         }
     }
 
@@ -65,7 +76,7 @@ class MainActivity : ComponentActivity() {
         }
         setTitle(getString(R.string.app_name))
 
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             themeManager.loadFromSettings()
         }
 

@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.grid.tv.util.CONNECTION_FAILED_ERROR
 import com.grid.tv.util.CONNECTION_TIMEOUT_ERROR
@@ -280,7 +281,9 @@ class SettingsViewModel @Inject constructor(
         _isConnecting.value = true
         _m3uProgress.value = progressLabel
         return try {
-            withTimeout(connectionTimeoutMs(_settings.value.connectionTimeoutSeconds)) { block() }
+            withContext(Dispatchers.IO) {
+                withTimeout(connectionTimeoutMs(_settings.value.connectionTimeoutSeconds)) { block() }
+            }
             _connectionDialog.value = ConnectionDialogState.Success
             true
         } catch (_: TimeoutCancellationException) {
@@ -315,9 +318,9 @@ class SettingsViewModel @Inject constructor(
 
     private fun persistScannerSettings(updated: com.grid.tv.domain.model.AppSettings) {
         _settings.value = updated
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.saveSettings(updated)
-            syncScannerSettings()
+            withContext(Dispatchers.Main) { syncScannerSettings() }
         }
     }
 
@@ -379,7 +382,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun persistSettings(updated: AppSettings) {
         _settings.value = updated
-        viewModelScope.launch { repository.saveSettings(updated) }
+        viewModelScope.launch(Dispatchers.IO) { repository.saveSettings(updated) }
     }
 
     fun updateParentalPinLock(enabled: Boolean) {
@@ -511,7 +514,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _importSummary.value = repository.importTiviMate(contentResolver, uri, cacheDir)
         }
     }
