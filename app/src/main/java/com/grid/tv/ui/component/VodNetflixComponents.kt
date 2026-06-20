@@ -1,5 +1,6 @@
 package com.grid.tv.ui.component
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -44,6 +47,11 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -685,6 +693,81 @@ fun LazyListScope.netflixSeriesBrowseRows(
 }
 
 @Composable
+fun VodGenreSidePanel(
+    genres: List<String>,
+    selectedIndex: Int,
+    focusedIndex: Int,
+    panelFocused: Boolean,
+    onGenreSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    if (genres.isEmpty()) return
+    Column(
+        modifier = modifier
+            .width(168.dp)
+            .fillMaxHeight()
+            .background(Color(0xFF101010))
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Genres",
+            color = VodNetflixColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(genres.size) { index ->
+                val label = genres[index]
+                val selected = index == selectedIndex
+                val focused = panelFocused && index == focusedIndex
+                val chipModifier = if (index == 0 && focusRequester != null) {
+                    Modifier.focusRequester(focusRequester)
+                } else {
+                    Modifier
+                }
+                GridFocusSurface(
+                    onClick = { onGenreSelected(index) },
+                    modifier = chipModifier
+                        .fillMaxWidth()
+                        .then(
+                            if (focused) {
+                                Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = when {
+                            selected -> Color(0xFF2A2A2A)
+                            else -> Color(0xFF161616)
+                        },
+                        focusedContainerColor = Color(0xFF333333)
+                    )
+                ) {
+                    Text(
+                        text = label,
+                        color = if (selected || focused) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun VodContentFilterPanel(
     selectedFilter: VodContentFilter,
     focusedFilter: VodContentFilter,
@@ -949,14 +1032,40 @@ fun VodSearchOverlay(
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
+    val modalTrapFocusRequester = remember { FocusRequester() }
+
+    BackHandler(onBack = onDismiss)
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocusSafelyAfterLayout()
+    }
+    LaunchedEffect(query) {
+        focusRequester.requestFocusSafelyAfterLayout()
+    }
+
+    fun handleBack(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.Back, Key.Escape -> {
+                onDismiss()
+                true
+            }
+            else -> false
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
+            .zIndex(22f)
             .background(Color.Black.copy(alpha = 0.92f))
+            .focusRequester(modalTrapFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent(::handleBack)
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxSize()
                 .padding(horizontal = 48.dp, vertical = 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -978,6 +1087,7 @@ fun VodSearchOverlay(
                     .fillMaxWidth()
                     .focusRequester(focusRequester)
                     .focusable()
+                    .onPreviewKeyEvent(::handleBack)
             )
             Text(
                 text = "Press Back to close",

@@ -14,6 +14,8 @@ import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.ui.component.EpisodeWatchStatus
+import com.grid.tv.ui.component.episodeWatchStatus
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
@@ -31,6 +33,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+data class SelectedEpisodeDetail(
+    val episode: SeriesEpisode,
+    val seasonNumber: Int,
+    val episodeNumber: Int
+)
 
 @HiltViewModel
 class SeriesViewModel @Inject constructor(
@@ -108,6 +116,12 @@ class SeriesViewModel @Inject constructor(
     private val _selectedShowOverview = MutableStateFlow<String?>(null)
     val selectedShowOverview: StateFlow<String?> = _selectedShowOverview.asStateFlow()
 
+    private val _focusedEpisodeNumber = MutableStateFlow<Int?>(null)
+    val focusedEpisodeNumber: StateFlow<Int?> = _focusedEpisodeNumber.asStateFlow()
+
+    private val _selectedEpisodeDetail = MutableStateFlow<SelectedEpisodeDetail?>(null)
+    val selectedEpisodeDetail: StateFlow<SelectedEpisodeDetail?> = _selectedEpisodeDetail.asStateFlow()
+
     private val _seasons = MutableStateFlow<List<SeriesSeason>>(emptyList())
     val seasons: StateFlow<List<SeriesSeason>> = _seasons.asStateFlow()
 
@@ -178,6 +192,8 @@ class SeriesViewModel @Inject constructor(
         _selectedShowId.value = showId
         _selectedShow.value = preview
         _selectedShowOverview.value = null
+        _selectedEpisodeDetail.value = null
+        _focusedEpisodeNumber.value = null
         _seasons.value = emptyList()
         _selectedSeasonNumber.value = null
         viewModelScope.launch {
@@ -199,9 +215,21 @@ class SeriesViewModel @Inject constructor(
                     _selectedShow.value = resolvedShow
                 }
                 _seasons.value = detail.seasons.sortedBy { it.number }
-                _selectedSeasonNumber.value = preferredSeason?.takeIf { season ->
+                val profileId = profileDao.activeProfile()?.profileId
+                val latestWatch = if (profileId != null) {
+                    continueWatchingRepository.latestForSeries(profileId, showId)
+                } else {
+                    null
+                }
+                val resumeSeason = preferredSeason?.takeIf { season ->
+                    detail.seasons.any { it.number == season }
+                } ?: latestWatch?.seasonNumber?.takeIf { season ->
                     detail.seasons.any { it.number == season }
                 } ?: detail.seasons.firstOrNull()?.number
+                _selectedSeasonNumber.value = resumeSeason
+                val seasonEpisodes = detail.seasons.firstOrNull { it.number == resumeSeason }?.episodes.orEmpty()
+                val resumeEpisode = resolveResumeEpisodeNumber(seasonEpisodes, latestWatch)
+                _focusedEpisodeNumber.value = resumeEpisode
                 val displayShow = resolvedShow ?: show
                 if (displayShow != null && displayShow.playlistId > 0L) {
                     val enrichment = titleEnrichmentRepository.enrichOnDemand(
@@ -230,6 +258,8 @@ class SeriesViewModel @Inject constructor(
         _selectedShowId.value = null
         _selectedShow.value = null
         _selectedShowOverview.value = null
+        _selectedEpisodeDetail.value = null
+        _focusedEpisodeNumber.value = null
         _seasons.value = emptyList()
         _selectedSeasonNumber.value = null
         _seasonsLoading.value = false
@@ -237,6 +267,49 @@ class SeriesViewModel @Inject constructor(
 
     fun selectSeason(seasonNumber: Int) {
         _selectedSeasonNumber.value = seasonNumber
+        _focusedEpisodeNumber.value = null
+    }
+
+    fun openEpisodeDetail(episode: SeriesEpisode, seasonNumber: Int, episodeNumber: Int) {
+        _focusedEpisodeNumber.value = episodeNumber
+        _selectedEpisodeDetail.value = SelectedEpisodeDetail(
+            episode = episode,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber
+        )
+    }
+
+    fun closeEpisodeDetail() {
+        _selectedEpisodeDetail.value = null
+    }
+
+    suspend fun loadEpisodeWatchStatus(
+        seriesId: Long,
+        seasonNumber: Int,
+        episodeNumber: Int,
+        episode: SeriesEpisode
+    ): EpisodeWatchStatus = withContext(Dispatchers.IO) {
+        val profileId = profileDao.activeProfile()?.profileId
+        val progressMs = episodeProgressMs.value[episode.id]
+            ?: profileId?.let {
+                continueWatchingRepository.resumePositionForSeriesEpisode(
+                    profileId = it,
+                    seriesId = seriesId,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber
+                )
+            }
+            ?: profileId?.let { continueWatchingRepository.resumePositionForStream(it, episode.id) }
+        val durationMs = parseVodDurationMs(episode.duration)
+            ?: episodeDurationMs.value[episode.id]
+            ?: profileId?.let {
+                continueWatchingRepository.latestForSeries(it, seriesId)
+                    ?.takeIf { row ->
+                        row.seasonNumber == seasonNumber && row.episodeNumber == episodeNumber
+                    }
+                    ?.durationMs
+            }
+        episodeWatchStatus(progressMs, durationMs)
     }
 
     fun clearMessage() {
@@ -284,5 +357,21 @@ class SeriesViewModel @Inject constructor(
     private fun parseYear(value: String): Int? {
         val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
         return match.value.toIntOrNull()
+    }
+
+    private fun resolveResumeEpisodeNumber(
+        episodes: List<SeriesEpisode>,
+        latestWatch: com.grid.tv.domain.model.ContinueWatchingItem?
+    ): Int? {
+        if (episodes.isEmpty() || latestWatch == null) return null
+        val byStream = latestWatch.streamId?.let { streamId ->
+            episodes.firstOrNull { it.id == streamId }
+        }
+        val target = byStream ?: latestWatch.episodeNumber?.let { episodeNum ->
+            episodes.firstOrNull { episode ->
+                (episode.episodeNumber ?: episodes.indexOf(episode) + 1) == episodeNum
+            }
+        } ?: return null
+        return target.episodeNumber ?: (episodes.indexOf(target) + 1).takeIf { it > 0 }
     }
 }

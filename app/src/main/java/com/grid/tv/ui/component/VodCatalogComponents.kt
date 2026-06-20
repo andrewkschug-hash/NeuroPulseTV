@@ -435,7 +435,8 @@ fun VodEpisodeCard(
     duration: String?,
     progressFraction: Float?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
 ) {
     val shape = RoundedCornerShape(8.dp)
     var focused by remember { mutableStateOf(false) }
@@ -449,6 +450,13 @@ fun VodEpisodeCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(4.dp)
+            .then(
+                if (focusRequester != null) {
+                    Modifier.focusRequester(focusRequester)
+                } else {
+                    Modifier
+                }
+            )
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

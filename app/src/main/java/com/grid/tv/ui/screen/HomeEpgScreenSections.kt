@@ -153,7 +153,15 @@ internal fun HomeEpgScreenMainColumn(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .then(
+                if (ui.showSearchOverlay) {
+                    Modifier.focusProperties { canFocus = false }
+                } else {
+                    Modifier
+                }
+            )
             .onPreviewKeyEvent {
+                if (ui.showSearchOverlay) return@onPreviewKeyEvent false
                 if (ui.focusZone == EpgFocusZone.PREVIEW) {
                     controller.handlePreviewKey(it)
                 } else {
@@ -471,6 +479,11 @@ internal fun HomeEpgScreenOverlays(
         }
 
         if (ui.showSearchOverlay) {
+            BackHandler {
+                ui.showSearchOverlay = false
+                searchViewModel.clearQuery()
+                ui.focusZone = EpgFocusZone.GRID
+            }
             SearchOverlay(
                 query = searchQuery,
                 unifiedResults = unifiedSearchResults,

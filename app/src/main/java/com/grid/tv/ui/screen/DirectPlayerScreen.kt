@@ -47,6 +47,7 @@ import com.grid.tv.domain.model.CatchupPlaybackContext
 import com.grid.tv.domain.model.SubtitleFontSize
 import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.VodPlaybackContext
+import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.devicePlaybackCapabilities
 import com.grid.tv.player.isCodecCapabilityError
@@ -83,9 +84,15 @@ fun DirectPlayerScreen(
     val catchupSession = remember { CatchupPlaybackContext.consume() }
     val isCatchupPlayback = catchupSession != null && recordingId <= 0L
     val isRecordedPlayback = recordingId > 0L
-    val streamId = remember(url) {
-        if (isRecordedPlayback) null
-        else Regex("""/(\d+)\.\w+$""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
+    val pendingVodMeta = remember(url, isRecordedPlayback, isCatchupPlayback) {
+        if (isRecordedPlayback || isCatchupPlayback) {
+            VodPlaybackMeta()
+        } else {
+            VodPlaybackContext.consume()
+        }
+    }
+    val streamId = pendingVodMeta.streamId ?: remember(url) {
+        Regex("""/(\d+)\.\w+$""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
     }
 
     LaunchedEffect(recordingId) {
@@ -141,9 +148,9 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(url) {
+    LaunchedEffect(pendingVodMeta, isRecordedPlayback, isCatchupPlayback) {
         if (!isRecordedPlayback && !isCatchupPlayback) {
-            viewModel.setVodMetadata(VodPlaybackContext.consume())
+            viewModel.setVodMetadata(pendingVodMeta)
         }
     }
 

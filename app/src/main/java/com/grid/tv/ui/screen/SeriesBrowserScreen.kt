@@ -54,9 +54,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.zIndex
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
@@ -83,7 +81,11 @@ import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import com.grid.tv.ui.component.EpisodeDetailOverlay
+import com.grid.tv.ui.component.EpisodeWatchStatus
 import com.grid.tv.ui.component.VodEpisodeCard
+import com.grid.tv.ui.viewmodel.SelectedEpisodeDetail
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
@@ -131,6 +133,8 @@ fun SeriesBrowserScreen(
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
+    val focusedEpisodeNumber by viewModel.focusedEpisodeNumber.collectAsStateWithLifecycle()
+    val selectedEpisodeDetail by viewModel.selectedEpisodeDetail.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
     val playlists by settingsViewModel.playlists.collectAsStateWithLifecycle()
@@ -138,6 +142,7 @@ fun SeriesBrowserScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val episodeWatchFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(hubSearchQuery, embedded) {
         if (embedded) viewModel.setSearchQuery(hubSearchQuery)
@@ -185,8 +190,8 @@ fun SeriesBrowserScreen(
 
     val detailOpen = selectedShowId != null
     val backFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(detailOpen, seasonsLoading) {
-        if (detailOpen && !seasonsLoading) {
+    LaunchedEffect(detailOpen, seasonsLoading, focusedEpisodeNumber) {
+        if (detailOpen && !seasonsLoading && focusedEpisodeNumber == null) {
             backFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
@@ -286,58 +291,63 @@ fun SeriesBrowserScreen(
                 name = "Loading…",
                 coverUrl = null
             )
-            BackHandler { viewModel.clearShowSelection() }
-            SeriesDetailHeader(
-                showName = show.name,
-                coverUrl = show.coverUrl,
-                description = resolveSeriesSynopsis(show, selectedShowOverview),
-                onBackToShows = { viewModel.clearShowSelection() },
-                onRecordSeries = { viewModel.recordSeries(show) },
-                showRecord = !isM3uOnly,
-                backFocusRequester = backFocusRequester,
-                useDarkTheme = false,
-                modifier = focusUpModifier(onMoveFocusUp)
-            )
-            if (seasonsLoading) {
-                SeriesDetailLoadingPanel(useDarkTheme = false)
-            } else if (seasons.isEmpty()) {
-                Text(
-                    text = "No seasons available from your provider.",
-                    color = EpgColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-            } else {
-                SeriesSeasonEpisodeSection(
-                    seasons = seasons,
-                    episodes = selectedSeasonEpisodes,
-                    selectedSeasonNumber = selectedSeasonNumber,
-                    onSeasonSelected = viewModel::selectSeason,
+            BackHandler {
+                if (selectedEpisodeDetail != null) {
+                    viewModel.closeEpisodeDetail()
+                } else {
+                    viewModel.clearShowSelection()
+                }
+            }
+            Box(modifier = Modifier.weight(1f).fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    SeriesDetailHeader(
+                        showName = show.name,
+                        coverUrl = show.coverUrl,
+                        description = resolveSeriesSynopsis(show, selectedShowOverview),
+                        onBackToShows = { viewModel.clearShowSelection() },
+                        onRecordSeries = { viewModel.recordSeries(show) },
+                        showRecord = !isM3uOnly,
+                        backFocusRequester = backFocusRequester,
+                        useDarkTheme = false,
+                        modifier = focusUpModifier(onMoveFocusUp)
+                    )
+                    if (seasonsLoading) {
+                        SeriesDetailLoadingPanel(useDarkTheme = false)
+                    } else if (seasons.isEmpty()) {
+                        Text(
+                            text = "No seasons available from your provider.",
+                            color = EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                    } else {
+                        SeriesSeasonEpisodeSection(
+                            seasons = seasons,
+                            episodes = selectedSeasonEpisodes,
+                            selectedSeasonNumber = selectedSeasonNumber,
+                            focusedEpisodeNumber = focusedEpisodeNumber,
+                            episodeDetailOpen = selectedEpisodeDetail != null,
+                            onSeasonSelected = viewModel::selectSeason,
+                            show = show,
+                            onEpisodeClick = viewModel::openEpisodeDetail,
+                            episodeProgressFraction = { episode ->
+                                viewModel.episodeProgressFraction(episode.id, episode.duration)
+                            },
+                            useDarkTheme = false,
+                            firstSeasonFocusRequester = null,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+                SeriesEpisodeDetailLayer(
                     show = show,
-                    onPlayEpisode = { episode, seasonNum, episodeIndex ->
-                        scope.launch {
-                            val resume = viewModel.shouldResumeEpisode(
-                                seriesId = show.id,
-                                seasonNumber = seasonNum,
-                                episodeNumber = episodeIndex,
-                                streamId = episode.id
-                            )
-                            VodPlaybackHelper.stageSeriesEpisode(
-                                show = show,
-                                seasonNumber = seasonNum,
-                                episodeNumber = episodeIndex,
-                                streamId = episode.id
-                            )
-                            onPlayUrl(episode.title, episode.streamUrl, resume)
-                        }
-                    },
-                    episodeProgressFraction = { episode ->
-                        viewModel.episodeProgressFraction(episode.id, episode.duration)
-                    },
+                    selectedEpisodeDetail = selectedEpisodeDetail,
                     useDarkTheme = false,
-                    firstSeasonFocusRequester = null,
-                    modifier = Modifier.weight(1f)
+                    viewModel = viewModel,
+                    scope = scope,
+                    onPlayUrl = onPlayUrl,
+                    watchFocusRequester = episodeWatchFocusRequester
                 )
             }
         } else if (seriesPagingItems.itemCount == 0 && catalogProgress.seriesPhaseFinished && !seriesLoading) {
@@ -529,9 +539,11 @@ private fun SeriesSeasonEpisodeSection(
     seasons: List<SeriesSeason>,
     episodes: List<SeriesEpisode>,
     selectedSeasonNumber: Int?,
+    focusedEpisodeNumber: Int?,
+    episodeDetailOpen: Boolean,
     onSeasonSelected: (Int) -> Unit,
     show: SeriesShow,
-    onPlayEpisode: (SeriesEpisode, Int, Int) -> Unit,
+    onEpisodeClick: (SeriesEpisode, Int, Int) -> Unit,
     episodeProgressFraction: (SeriesEpisode) -> Float?,
     useDarkTheme: Boolean,
     firstSeasonFocusRequester: FocusRequester?,
@@ -566,6 +578,19 @@ private fun SeriesSeasonEpisodeSection(
             }
         }
         val episodeGridState = rememberLazyGridState()
+        val episodeFocusRequesters = remember(selectedSeasonNumber, episodes.size) {
+            List(episodes.size) { FocusRequester() }
+        }
+        LaunchedEffect(focusedEpisodeNumber, episodes, selectedSeasonNumber, episodeDetailOpen) {
+            if (episodeDetailOpen) return@LaunchedEffect
+            val targetNumber = focusedEpisodeNumber ?: return@LaunchedEffect
+            val index = episodes.indexOfFirst { episode ->
+                (episode.episodeNumber ?: episodes.indexOf(episode) + 1) == targetNumber
+            }
+            if (index < 0) return@LaunchedEffect
+            episodeGridState.scrollToItem(index)
+            episodeFocusRequesters.getOrNull(index)?.requestFocusSafelyAfterLayout()
+        }
         Box(
             modifier = Modifier
                 .weight(1f, fill = true)
@@ -579,15 +604,16 @@ private fun SeriesSeasonEpisodeSection(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(episodes, key = { it.id }) { episode ->
-                    val episodeIndex = episode.episodeNumber ?: (episodes.indexOf(episode) + 1)
+                itemsIndexed(episodes, key = { _, episode -> episode.id }) { itemIndex, episode ->
+                    val episodeIndex = episode.episodeNumber ?: (itemIndex + 1)
                     val seasonNum = selectedSeasonNumber ?: seasons.firstOrNull()?.number ?: 1
                     VodEpisodeCard(
                         episodeNumber = episodeIndex,
                         title = episode.title,
                         duration = episode.duration,
                         progressFraction = episodeProgressFraction(episode),
-                        onClick = { onPlayEpisode(episode, seasonNum, episodeIndex) }
+                        focusRequester = episodeFocusRequesters.getOrNull(itemIndex),
+                        onClick = { onEpisodeClick(episode, seasonNum, episodeIndex) }
                     )
                 }
             }
@@ -610,6 +636,58 @@ private fun focusUpModifier(onMoveFocusUp: (() -> Unit)?): Modifier =
     }
 
 @Composable
+private fun SeriesEpisodeDetailLayer(
+    show: SeriesShow,
+    selectedEpisodeDetail: SelectedEpisodeDetail?,
+    useDarkTheme: Boolean,
+    viewModel: SeriesViewModel,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onPlayUrl: (String, String, Boolean) -> Unit,
+    watchFocusRequester: FocusRequester
+) {
+    val detail = selectedEpisodeDetail ?: return
+    var watchStatus by remember(detail.episode.id) {
+        mutableStateOf(EpisodeWatchStatus(0L, 0L, null, "Loading progress…"))
+    }
+    LaunchedEffect(detail.episode.id, detail.seasonNumber, detail.episodeNumber) {
+        watchStatus = viewModel.loadEpisodeWatchStatus(
+            seriesId = show.id,
+            seasonNumber = detail.seasonNumber,
+            episodeNumber = detail.episodeNumber,
+            episode = detail.episode
+        )
+    }
+    EpisodeDetailOverlay(
+        seasonNumber = detail.seasonNumber,
+        episodeNumber = detail.episodeNumber,
+        episode = detail.episode,
+        watchStatus = watchStatus,
+        onWatchNow = {
+            scope.launch {
+                val resume = viewModel.shouldResumeEpisode(
+                    seriesId = show.id,
+                    seasonNumber = detail.seasonNumber,
+                    episodeNumber = detail.episodeNumber,
+                    streamId = detail.episode.id
+                )
+                VodPlaybackHelper.stageSeriesEpisode(
+                    show = show,
+                    seasonNumber = detail.seasonNumber,
+                    episodeNumber = detail.episodeNumber,
+                    streamId = detail.episode.id
+                )
+                viewModel.closeEpisodeDetail()
+                onPlayUrl(detail.episode.title, detail.episode.streamUrl, resume)
+            }
+        },
+        onBack = { viewModel.closeEpisodeDetail() },
+        watchFocusRequester = watchFocusRequester,
+        useDarkTheme = useDarkTheme,
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+@Composable
 private fun SeriesDetailOverlay(
     initialSeriesId: Long?,
     onPlayUrl: (String, String, Boolean) -> Unit,
@@ -625,6 +703,8 @@ private fun SeriesDetailOverlay(
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
+    val focusedEpisodeNumber by viewModel.focusedEpisodeNumber.collectAsStateWithLifecycle()
+    val selectedEpisodeDetail by viewModel.selectedEpisodeDetail.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
     val playlists by settingsViewModel.playlists.collectAsStateWithLifecycle()
@@ -632,6 +712,7 @@ private fun SeriesDetailOverlay(
     val scope = rememberCoroutineScope()
     val overlayFocusRequester = remember { FocusRequester() }
     val backFocusRequester = remember { FocusRequester() }
+    val episodeWatchFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(hubSearchQuery) {
         viewModel.setSearchQuery(hubSearchQuery)
@@ -660,10 +741,18 @@ private fun SeriesDetailOverlay(
 
     if (selectedShowId == null) return
 
-    BackHandler { viewModel.clearShowSelection() }
+    BackHandler {
+        if (selectedEpisodeDetail != null) {
+            viewModel.closeEpisodeDetail()
+        } else {
+            viewModel.clearShowSelection()
+        }
+    }
 
-    LaunchedEffect(selectedShowId, seasonsLoading) {
-        backFocusRequester.requestFocusSafelyAfterLayout()
+    LaunchedEffect(selectedShowId, seasonsLoading, focusedEpisodeNumber, selectedEpisodeDetail) {
+        if (selectedEpisodeDetail == null && !seasonsLoading && focusedEpisodeNumber == null) {
+            backFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     val resolvedShow = selectedShow ?: SeriesShow(
@@ -683,7 +772,11 @@ private fun SeriesDetailOverlay(
                 if (event.type == KeyEventType.KeyDown &&
                     (event.key == Key.Back || event.key == Key.Escape)
                 ) {
-                    viewModel.clearShowSelection()
+                    if (selectedEpisodeDetail != null) {
+                        viewModel.closeEpisodeDetail()
+                    } else {
+                        viewModel.clearShowSelection()
+                    }
                     true
                 } else {
                     false
@@ -691,60 +784,57 @@ private fun SeriesDetailOverlay(
             }
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            SeriesDetailHeader(
-                showName = resolvedShow.name,
-                coverUrl = resolvedShow.coverUrl,
-                description = resolveSeriesSynopsis(resolvedShow, selectedShowOverview),
-                onBackToShows = { viewModel.clearShowSelection() },
-                onRecordSeries = { viewModel.recordSeries(resolvedShow) },
-                showRecord = !isM3uOnly,
-                backFocusRequester = backFocusRequester,
-                useDarkTheme = true
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                SeriesDetailHeader(
+                    showName = resolvedShow.name,
+                    coverUrl = resolvedShow.coverUrl,
+                    description = resolveSeriesSynopsis(resolvedShow, selectedShowOverview),
+                    onBackToShows = { viewModel.clearShowSelection() },
+                    onRecordSeries = { viewModel.recordSeries(resolvedShow) },
+                    showRecord = !isM3uOnly,
+                    backFocusRequester = backFocusRequester,
+                    useDarkTheme = true
+                )
 
-            if (seasonsLoading) {
-                SeriesDetailLoadingPanel(useDarkTheme = true)
-            } else if (seasons.isEmpty()) {
-                Text(
-                    text = "No seasons available from your provider.",
-                    color = VodNetflixColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 16.dp)
-                )
-            } else {
-                SeriesSeasonEpisodeSection(
-                    seasons = seasons,
-                    episodes = selectedSeasonEpisodes,
-                    selectedSeasonNumber = selectedSeasonNumber,
-                    onSeasonSelected = viewModel::selectSeason,
-                    show = resolvedShow,
-                    onPlayEpisode = { episode, seasonNum, episodeIndex ->
-                        scope.launch {
-                            val resume = viewModel.shouldResumeEpisode(
-                                seriesId = resolvedShow.id,
-                                seasonNumber = seasonNum,
-                                episodeNumber = episodeIndex,
-                                streamId = episode.id
-                            )
-                            VodPlaybackHelper.stageSeriesEpisode(
-                                show = resolvedShow,
-                                seasonNumber = seasonNum,
-                                episodeNumber = episodeIndex,
-                                streamId = episode.id
-                            )
-                            onPlayUrl(episode.title, episode.streamUrl, resume)
-                        }
-                    },
-                    episodeProgressFraction = { episode ->
-                        viewModel.episodeProgressFraction(episode.id, episode.duration)
-                    },
-                    useDarkTheme = true,
-                    firstSeasonFocusRequester = null,
-                    modifier = Modifier.weight(1f)
-                )
+                if (seasonsLoading) {
+                    SeriesDetailLoadingPanel(useDarkTheme = true)
+                } else if (seasons.isEmpty()) {
+                    Text(
+                        text = "No seasons available from your provider.",
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                } else {
+                    SeriesSeasonEpisodeSection(
+                        seasons = seasons,
+                        episodes = selectedSeasonEpisodes,
+                        selectedSeasonNumber = selectedSeasonNumber,
+                        focusedEpisodeNumber = focusedEpisodeNumber,
+                        episodeDetailOpen = selectedEpisodeDetail != null,
+                        onSeasonSelected = viewModel::selectSeason,
+                        show = resolvedShow,
+                        onEpisodeClick = viewModel::openEpisodeDetail,
+                        episodeProgressFraction = { episode ->
+                            viewModel.episodeProgressFraction(episode.id, episode.duration)
+                        },
+                        useDarkTheme = true,
+                        firstSeasonFocusRequester = null,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
+            SeriesEpisodeDetailLayer(
+                show = resolvedShow,
+                selectedEpisodeDetail = selectedEpisodeDetail,
+                useDarkTheme = true,
+                viewModel = viewModel,
+                scope = scope,
+                onPlayUrl = onPlayUrl,
+                watchFocusRequester = episodeWatchFocusRequester
+            )
         }
     }
 }

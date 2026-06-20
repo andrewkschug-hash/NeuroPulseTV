@@ -30,6 +30,8 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import com.grid.tv.ui.component.TvLazyFocusScrollDirection
+import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.component.toggleCategoryExpansion
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
@@ -167,7 +169,9 @@ internal class HomeEpgGuideController(
     fun openChannelFromTouch(channelIndex: Int, channel: Channel) {
         ui.focusChannelIndex = channelIndex
         ui.focusOnChannelColumn = true
-        deps.scope.launch { deps.listState.animateScrollToItem(channelIndex) }
+        deps.scope.launch {
+            deps.listState.animateScrollToItemIfNeeded(channelIndex)
+        }
         openPreviewForChannel(channel)
     }
 
@@ -337,6 +341,7 @@ internal class HomeEpgGuideController(
     }
 
     fun requestEpgZoneFocus(zone: EpgFocusZone) {
+        if (ui.showSearchOverlay) return
         deps.scope.launch {
             when (zone) {
                 EpgFocusZone.TOP_BAR -> deps.topNavFocusRequester.requestFocusSafelyAfterLayout()
@@ -355,6 +360,7 @@ internal class HomeEpgGuideController(
     }
 
     fun focusEpgZone(zone: EpgFocusZone) {
+        if (ui.showSearchOverlay) return
         ui.focusZone = zone
         if (zone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
         requestEpgZoneFocus(zone)
@@ -431,6 +437,7 @@ internal class HomeEpgGuideController(
 
     fun handleGridFilterKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu) return false
         return when {
@@ -460,6 +467,7 @@ internal class HomeEpgGuideController(
 
     fun handleTopBarKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu) return false
         if (ui.profileMenuOpen) {
@@ -504,6 +512,7 @@ internal class HomeEpgGuideController(
 
     fun handleContinueWatchingKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (deps.continueWatchingItems.isEmpty()) return false
         return when (event.key) {
@@ -542,6 +551,7 @@ internal class HomeEpgGuideController(
 
     fun handlePreviewKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
@@ -573,8 +583,15 @@ internal class HomeEpgGuideController(
         }
     }
 
+    private fun scrollFocusedChannelIntoView(direction: TvLazyFocusScrollDirection) {
+        deps.scope.launch {
+            deps.listState.animateScrollToItemIfNeeded(ui.focusChannelIndex, direction)
+        }
+    }
+
     fun handleGridKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
         if (deps.displayChannels.isEmpty()) {
@@ -594,7 +611,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.DOWN)
                 }
                 true
             }
@@ -604,7 +621,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
                     moveGuideFocusVertical(EpgFocusZone.GRID, direction = -1)
@@ -657,7 +674,7 @@ internal class HomeEpgGuideController(
                 if (!ui.focusOnChannelColumn) {
                     ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                 }
-                deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.DOWN)
                 true
             }
             Key.PageUp -> {
@@ -665,7 +682,7 @@ internal class HomeEpgGuideController(
                 if (!ui.focusOnChannelColumn) {
                     ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                 }
-                deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -690,7 +707,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(0, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(0) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
                     focusGuideFilter()

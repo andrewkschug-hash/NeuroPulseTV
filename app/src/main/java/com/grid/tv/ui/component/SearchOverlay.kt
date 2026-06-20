@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -79,9 +80,9 @@ fun SearchOverlay(
     onSuggestionSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val modalTrapFocusRequester = remember { FocusRequester() }
     val fieldFocusRequester = remember { FocusRequester() }
     val micFocusRequester = remember { FocusRequester() }
-    val resultsFocusRequester = remember { FocusRequester() }
     var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
     var focusedIndex by remember { mutableIntStateOf(0) }
     var recentChipIndex by remember { mutableIntStateOf(0) }
@@ -108,15 +109,25 @@ fun SearchOverlay(
         SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
     }
 
+    BackHandler(onBack = onDismiss)
+
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
+    LaunchedEffect(searchBarState, unifiedResults, flatResults) {
+        when (focusZone) {
+            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
+                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
     LaunchedEffect(selectableRows) { focusedIndex = if (selectableRows.isNotEmpty()) 0 else -1 }
     LaunchedEffect(recentSearches) { recentChipIndex = 0 }
     LaunchedEffect(focusZone) {
         when (focusZone) {
             SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
             SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RECENT -> resultsFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
+                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 
@@ -201,7 +212,7 @@ fun SearchOverlay(
             .fillMaxSize()
             .zIndex(20f)
             .background(Color.Black.copy(alpha = 0.75f))
-            .focusRequester(resultsFocusRequester)
+            .focusRequester(modalTrapFocusRequester)
             .focusable()
             .onPreviewKeyEvent { handleKey(it) }
     ) {
