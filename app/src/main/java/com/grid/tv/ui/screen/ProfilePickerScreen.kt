@@ -86,6 +86,8 @@ private val AvatarBorderRest = Color(0xFF3B3B50)
 private val CardShape = RoundedCornerShape(14.dp)
 private val CardWidth = 148.dp
 private val CardHeight = 200.dp
+/** Matches profile card column; wide enough for "Continue as guest" without spanning the screen. */
+private val GuestButtonWidth = 180.dp
 
 val ProfileAvatarColors = listOf(
     Color(0xFF1C3A6B),
@@ -286,7 +288,8 @@ fun ProfilePickerScreen(
 
             GridOutlinedButton(
                 text = "Continue as guest",
-                onClick = { continueAsGuest() }
+                onClick = { continueAsGuest() },
+                modifier = Modifier.width(GuestButtonWidth)
             )
         }
 
