@@ -93,11 +93,6 @@ import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
 import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
 import com.grid.tv.feature.epg.EpgCoroutineDispatchers
@@ -202,8 +197,9 @@ class IptvRepositoryImpl @Inject constructor(
         private const val VIEWPORT_EPG_LOOKBACK_MS = 30L * 60L * 1000L
         private const val VIEWPORT_EPG_LOOKAHEAD_MS = 4L * 60L * 60L * 1000L
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
+        private const val VIEWPORT_EPG_ERROR_COOLDOWN_MS = 5L * 60L * 1000L
         private const val VIEWPORT_EPG_SHORT_LIMIT = 16
-        private const val VIEWPORT_EPG_MAX_CONCURRENT_REQUESTS = 2
+        private const val VIEWPORT_EPG_MAX_CHANNELS_PER_BATCH = 8
         /** Room SQLite bind-arg limit for IN (...) clauses — chunk larger page lookups. */
         private const val ROOM_IN_CHUNK = 500
         /** Only purge programmes that ended more than a week ago — never today's grid cache. */
@@ -214,6 +210,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val healthEngine = StreamHealthEngine()
     private val epgCache = EpgBlockCache(maxBlocks = 6)
     private val viewportEpgLastFetch = mutableMapOf<Long, Long>()
+    private val viewportEpgFailureUntil = mutableMapOf<Long, Long>()
     private val _epgDataRevision = MutableStateFlow(0L)
     @Volatile
     private var epgLinkResolver: EpgChannelLinkResolver? = null
@@ -762,6 +759,10 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int = withContext(epgDispatchers.io) {
         if (channelIds.isEmpty()) return@withContext 0
+        if (epgDownloadTracker.isInProgress()) {
+            Log.d(EPG_FLOW_TAG, "Viewport EPG skipped — bulk EPG import in progress")
+            return@withContext 0
+        }
         val ids = channelIds.mapNotNull { it.toLongOrNull() }.distinct()
         if (ids.isEmpty()) return@withContext 0
 
@@ -775,6 +776,8 @@ class IptvRepositoryImpl @Inject constructor(
         val playlistsById = playlistDao.all().associateBy { it.id }
         val channels = entities.map { channelFromEntity(it, playlistNames[it.playlistId]) }
         val eligible = channels.filter { channel ->
+            val failureUntil = viewportEpgFailureUntil[channel.id] ?: 0L
+            if (failureUntil > now) return@filter false
             val lastFetch = viewportEpgLastFetch[channel.id] ?: 0L
             now - lastFetch >= VIEWPORT_EPG_COOLDOWN_MS
         }
@@ -783,40 +786,62 @@ class IptvRepositoryImpl @Inject constructor(
             return@withContext 0
         }
 
+        val batch = eligible.take(VIEWPORT_EPG_MAX_CHANNELS_PER_BATCH)
         Log.i(
             EPG_FLOW_TAG,
-            "Viewport EPG fast-track for ${eligible.size}/${ids.size} channel(s), " +
+            "Viewport EPG fast-track for ${batch.size}/${eligible.size} eligible channel(s), " +
                 "window [$windowStart, $windowEnd]"
         )
 
-        val semaphore = Semaphore(VIEWPORT_EPG_MAX_CONCURRENT_REQUESTS)
-        val fetched = coroutineScope {
-            eligible.map { channel ->
-                async {
-                    semaphore.withPermit {
-                        fetchViewportEpgForChannel(
-                            channel = channel,
-                            playlist = playlistsById[channel.playlistId],
-                            windowStart = windowStart,
-                            windowEnd = windowEnd
-                        )
-                    }
+        val fetched = mutableListOf<com.grid.tv.data.db.entity.ProgramEntity>()
+        var httpFailures = 0
+        for (channel in batch) {
+            if (epgDownloadTracker.isInProgress()) break
+            when (val result = fetchViewportEpgForChannel(
+                channel = channel,
+                playlist = playlistsById[channel.playlistId],
+                windowStart = windowStart,
+                windowEnd = windowEnd
+            )) {
+                is ViewportEpgFetchResult.Programs -> {
+                    viewportEpgFailureUntil.remove(channel.id)
+                    viewportEpgLastFetch[channel.id] = now
+                    fetched += result.items
                 }
-            }.awaitAll().flatten()
+                ViewportEpgFetchResult.HttpUnavailable -> {
+                    httpFailures++
+                    viewportEpgFailureUntil[channel.id] = now + VIEWPORT_EPG_ERROR_COOLDOWN_MS
+                    viewportEpgLastFetch[channel.id] = now
+                }
+                ViewportEpgFetchResult.Skipped -> Unit
+            }
+        }
+
+        if (httpFailures > 0) {
+            Log.w(
+                EPG_FLOW_TAG,
+                "Viewport EPG: $httpFailures channel(s) returned HTTP errors — backing off for " +
+                    "${VIEWPORT_EPG_ERROR_COOLDOWN_MS / 60_000L} min"
+            )
         }
 
         if (fetched.isEmpty()) return@withContext 0
 
         programDao.insertAll(fetched)
         epgCache.clear()
-        eligible.forEach { channel -> viewportEpgLastFetch[channel.id] = now }
         _epgDataRevision.update { it + 1 }
 
         Log.i(
             EPG_FLOW_TAG,
-            "Viewport EPG upserted ${fetched.size} programme(s) for ${eligible.size} channel(s)"
+            "Viewport EPG upserted ${fetched.size} programme(s) for ${batch.size} channel(s)"
         )
         fetched.size
+    }
+
+    private sealed interface ViewportEpgFetchResult {
+        data class Programs(val items: List<com.grid.tv.data.db.entity.ProgramEntity>) : ViewportEpgFetchResult
+        data object HttpUnavailable : ViewportEpgFetchResult
+        data object Skipped : ViewportEpgFetchResult
     }
 
     private suspend fun fetchViewportEpgForChannel(
@@ -824,12 +849,12 @@ class IptvRepositoryImpl @Inject constructor(
         playlist: PlaylistEntity?,
         windowStart: Long,
         windowEnd: Long
-    ): List<com.grid.tv.data.db.entity.ProgramEntity> {
-        if (playlist == null || playlist.type != PlaylistType.XTREAM.name) return emptyList()
-        val streamId = resolveXtreamStreamId(channel) ?: return emptyList()
-        val server = playlist.xtreamServerUrl ?: return emptyList()
-        val user = playlist.xtreamUsername ?: return emptyList()
-        val pass = resolveXtreamPassword(playlist) ?: return emptyList()
+    ): ViewportEpgFetchResult {
+        if (playlist == null || playlist.type != PlaylistType.XTREAM.name) return ViewportEpgFetchResult.Skipped
+        val streamId = resolveXtreamStreamId(channel) ?: return ViewportEpgFetchResult.Skipped
+        val server = playlist.xtreamServerUrl ?: return ViewportEpgFetchResult.Skipped
+        val user = playlist.xtreamUsername ?: return ViewportEpgFetchResult.Skipped
+        val pass = resolveXtreamPassword(playlist) ?: return ViewportEpgFetchResult.Skipped
         val channelEpgId = channel.epgId?.trim()?.takeIf { it.isNotEmpty() } ?: streamId
         val url = buildXtreamApiUrl(
             serverUrl = server,
@@ -838,20 +863,22 @@ class IptvRepositoryImpl @Inject constructor(
             action = "get_short_epg",
             extra = "stream_id=$streamId&limit=$VIEWPORT_EPG_SHORT_LIMIT"
         )
+        val raw = remoteTextFetcher.tryFetchShortEpg(url)
+            ?: return ViewportEpgFetchResult.HttpUnavailable
         return runCatching {
-            val raw = remoteTextFetcher.fetch(url)
-            xtreamParser.parseShortEpg(
+            val programs = xtreamParser.parseShortEpg(
                 raw = raw,
                 channelEpgId = channelEpgId,
                 windowStart = windowStart,
                 windowEnd = windowEnd
             )
+            ViewportEpgFetchResult.Programs(programs)
         }.onFailure { error ->
             Log.w(
                 EPG_FLOW_TAG,
-                "Viewport EPG failed for channel=${channel.name} streamId=$streamId: ${error.message}"
+                "Viewport EPG parse failed for channel=${channel.name} streamId=$streamId: ${error.message}"
             )
-        }.getOrDefault(emptyList())
+        }.getOrDefault(ViewportEpgFetchResult.Skipped)
     }
 
     private fun resolveXtreamStreamId(channel: Channel): String? {

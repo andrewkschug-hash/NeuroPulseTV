@@ -25,6 +25,10 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var vodClient: OkHttpClient = buildVodClient(AppSettings())
 
+    /** Tight timeouts for Xtream get_short_epg viewport hydration — must not block the guide. */
+    @Volatile
+    private var shortEpgClient: OkHttpClient = buildShortEpgClient(AppSettings())
+
     /** Bounded-concurrency client for IPTV channel HEAD/range probes. */
     @Volatile
     private var probeClient: OkHttpClient = buildProbeClient(AppSettings())
@@ -38,11 +42,15 @@ class AppHttpClient @Inject constructor() {
     /** Large Xtream VOD/series catalog JSON can be tens of MB — use extended timeouts. */
     fun vodClient(): OkHttpClient = vodClient
 
+    /** Viewport get_short_epg — fail fast so Cloudflare 522s do not stall the guide. */
+    fun shortEpgClient(): OkHttpClient = shortEpgClient
+
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
         probeClient = buildProbeClient(settings)
         epgClient = buildEpgClient(settings)
         vodClient = buildVodClient(settings)
+        shortEpgClient = buildShortEpgClient(settings)
     }
 
     private fun buildProbeClient(settings: AppSettings): OkHttpClient {
@@ -84,6 +92,14 @@ class AppHttpClient @Inject constructor() {
             .callTimeout(VOD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
             .build()
 
+    private fun buildShortEpgClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings, connectTimeoutSeconds = 5)
+            .readTimeout(SHORT_EPG_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(SHORT_EPG_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(SHORT_EPG_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+
     private fun baseBuilder(
         settings: AppSettings,
         connectTimeoutSeconds: Int = settings.connectionTimeoutSeconds
@@ -111,6 +127,9 @@ class AppHttpClient @Inject constructor() {
         const val EPG_WRITE_TIMEOUT_SECONDS = 60L
         const val VOD_CALL_TIMEOUT_MINUTES = 10L
         const val VOD_READ_TIMEOUT_MINUTES = 10L
+        const val SHORT_EPG_CALL_TIMEOUT_SECONDS = 10L
+        const val SHORT_EPG_READ_TIMEOUT_SECONDS = 8L
+        const val SHORT_EPG_WRITE_TIMEOUT_SECONDS = 8L
         const val PROBE_MAX_REQUESTS = 8
         const val PROBE_MAX_REQUESTS_PER_HOST = 4
     }

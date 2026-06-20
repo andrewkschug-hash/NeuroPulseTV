@@ -45,6 +45,21 @@ class RemoteTextFetcher @Inject constructor(
 ) {
     suspend fun fetch(rawUrl: String): String = fetchDetailed(rawUrl).body
 
+    /**
+     * Viewport get_short_epg fetch — returns null on HTTP/network failure without throwing.
+     * Uses a short-timeout client so provider 522s cannot block the guide for 20+ seconds.
+     */
+    suspend fun tryFetchShortEpg(rawUrl: String): String? = withContext(Dispatchers.IO) {
+        val url = normalizeRemoteUrl(rawUrl)
+        when (val outcome = executeFetchOutcome(url, appHttpClient.shortEpgClient(), EPG_FLOW_TAG)) {
+            is SimpleFetchOutcome.Ok -> outcome.body
+            is SimpleFetchOutcome.Http -> {
+                logHttpError(EPG_FLOW_TAG, outcome.httpCode, url, outcome.bodyPreview)
+                null
+            }
+        }
+    }
+
     suspend fun fetchDetailed(rawUrl: String): RemoteFetchResult = withContext(Dispatchers.IO) {
         val url = normalizeRemoteUrl(rawUrl)
         val logTag = if (isVodCatalogUrl(url)) VOD_FLOW_TAG else EPG_FLOW_TAG
@@ -63,6 +78,10 @@ class RemoteTextFetcher @Inject constructor(
                 lastEof = e
                 Log.w(EPG_FLOW_TAG, "HTTP EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url", e)
                 if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
+            } catch (e: IllegalStateException) {
+                if (e.message?.startsWith("HTTP request failed") == true) throw e
+                Log.e(logTag, "HTTP fetch failed for $url: ${e.message}", e)
+                throw e
             } catch (e: Exception) {
                 Log.e(logTag, "HTTP fetch failed for $url: ${e.message}", e)
                 throw e
@@ -132,23 +151,44 @@ class RemoteTextFetcher @Inject constructor(
             throw failure
         }
 
+    private sealed interface SimpleFetchOutcome {
+        data class Ok(val body: String, val httpCode: Int, val rawBytes: Int) : SimpleFetchOutcome
+        data class Http(val httpCode: Int, val bodyPreview: String?) : SimpleFetchOutcome
+    }
+
     private fun executeFetch(url: String, logTag: String = EPG_FLOW_TAG): RemoteFetchResult {
+        when (val outcome = executeFetchOutcome(url, selectClient(url), logTag)) {
+            is SimpleFetchOutcome.Ok -> return RemoteFetchResult(
+                httpCode = outcome.httpCode,
+                rawBytes = outcome.rawBytes,
+                body = outcome.body
+            )
+            is SimpleFetchOutcome.Http -> {
+                logHttpError(logTag, outcome.httpCode, url, outcome.bodyPreview)
+                throw IllegalStateException("HTTP request failed (${outcome.httpCode}) for $url")
+            }
+        }
+    }
+
+    private fun executeFetchOutcome(
+        url: String,
+        httpClient: okhttp3.OkHttpClient,
+        logTag: String = EPG_FLOW_TAG
+    ): SimpleFetchOutcome {
         val requestBuilder = Request.Builder().url(url).get()
         if (isXtreamApiUrl(url)) {
             requestBuilder.header("Accept-Encoding", "identity")
         }
         val request = requestBuilder.build()
-        return selectClient(url).newCall(request).execute().use { response ->
+        return httpClient.newCall(request).execute().use { response ->
             val code = response.code
             if (!response.isSuccessful) {
-                val contentEncoding = response.header("Content-Encoding")
-                val preview = readAndCloseErrorBody(response.body, contentEncoding)
-                logHttpError(logTag, code, url, preview)
-                throw IllegalStateException("HTTP request failed ($code) for $url")
+                val preview = readAndCloseErrorBody(response.body, response.header("Content-Encoding"))
+                return@use SimpleFetchOutcome.Http(code, preview)
             }
             val bytes = response.body?.bytes() ?: byteArrayOf()
             val body = decodeResponseBody(bytes, response.header("Content-Encoding"), url)
-            RemoteFetchResult(httpCode = code, rawBytes = bytes.size, body = body)
+            SimpleFetchOutcome.Ok(body = body, httpCode = code, rawBytes = bytes.size)
         }
     }
 
@@ -351,12 +391,14 @@ class RemoteTextFetcher @Inject constructor(
         contentEncoding?.contains("gzip", ignoreCase = true) == true ||
             (bytes.size >= 2 && bytes[0] == GZIP_MAGIC_0 && bytes[1] == GZIP_MAGIC_1)
 
-    private fun logHttpError(logTag: String, code: Int, url: String, preview: String) {
+    private fun logHttpError(logTag: String, code: Int, url: String, preview: String?) {
+        val detail = preview ?: "(no body)"
         when (code) {
-            404 -> Log.w(logTag, "HTTP 404 Not Found for $url — endpoint unavailable ($preview)")
-            429 -> Log.e(logTag, "HTTP 429 rate-limited for $url — $preview")
-            in 500..599 -> Log.e(logTag, "HTTP $code server error for $url — $preview")
-            else -> Log.w(logTag, "HTTP $code for $url — $preview")
+            404 -> Log.w(logTag, "HTTP 404 Not Found for $url — endpoint unavailable ($detail)")
+            429 -> Log.e(logTag, "HTTP 429 rate-limited for $url — $detail")
+            522 -> Log.w(logTag, "HTTP 522 origin unreachable for $url — provider/CDN down ($detail)")
+            in 500..599 -> Log.w(logTag, "HTTP $code server error for $url — $detail")
+            else -> Log.w(logTag, "HTTP $code for $url — $detail")
         }
     }
 

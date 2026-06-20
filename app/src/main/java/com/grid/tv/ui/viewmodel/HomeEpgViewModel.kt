@@ -82,6 +82,8 @@ class HomeEpgViewModel @Inject constructor(
         /** Visible guide rows to hydrate from cache before loading the rest of the page. */
         private const val PRIORITY_EPG_CHANNEL_COUNT = 50
         private const val VIEWPORT_EPG_DEBOUNCE_MS = 300L
+        /** Cap viewport provider fetches so scrolling the guide cannot fan out dozens of HTTP calls. */
+        private const val VIEWPORT_EPG_MAX_CHANNEL_IDS = 10
         private const val TAG = "EpgFlow"
     }
 
@@ -628,7 +630,7 @@ class HomeEpgViewModel @Inject constructor(
         viewportEpgJob?.cancel()
         viewportEpgJob = viewModelScope.launch(Dispatchers.IO) {
             delay(VIEWPORT_EPG_DEBOUNCE_MS)
-            val visible = visibleChannelIds.distinct()
+            val visible = (visibleChannelIds + focusNeighborIds).distinct().take(VIEWPORT_EPG_MAX_CHANNEL_IDS)
             startViewportProgramObservation(visible)
             repository.fetchCurrentEpgForChannels(visible.map { it.toString() })
         }
