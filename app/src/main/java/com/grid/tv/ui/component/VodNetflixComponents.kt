@@ -190,28 +190,18 @@ fun NetflixPosterCard(
         TvFocusDefaults.noBorder()
     }
 
+    val hasFocusPopup = focused && (
+        !focusOverview.isNullOrBlank() || !focusRating.isNullOrBlank() || !focusMeta.isNullOrBlank()
+        )
     Box(
         modifier = modifier
             .width(PosterWidth)
-            .height(PosterHeight + if (focused && !focusOverview.isNullOrBlank()) 72.dp else 0.dp)
+            .height(PosterHeight + if (hasFocusPopup) 84.dp else 0.dp)
     ) {
-        if (focused && (!focusOverview.isNullOrBlank() || !focusRating.isNullOrBlank())) {
-            VodFocusInfoPopup(
-                title = title,
-                rating = focusRating,
-                meta = focusMeta,
-                overview = focusOverview,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .offset(y = (-76).dp)
-                    .zIndex(2f)
-            )
-        }
-
         Surface(
             onClick = onClick,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(Alignment.TopCenter)
                 .width(PosterWidth)
                 .height(PosterHeight)
                 .scale(scale)
@@ -297,6 +287,19 @@ fun NetflixPosterCard(
             }
         }
         }
+
+        if (hasFocusPopup) {
+            VodFocusInfoPopup(
+                title = title,
+                rating = focusRating,
+                meta = focusMeta,
+                overview = focusOverview,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = PosterHeight + 6.dp)
+                    .zIndex(2f)
+            )
+        }
     }
 }
 
@@ -311,12 +314,12 @@ fun NetflixCategoryRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp)
+            .padding(top = 6.dp, bottom = 12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 12.dp),
+                .padding(start = 48.dp, end = 48.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -325,7 +328,10 @@ fun NetflixCategoryRow(
                 color = VodNetflixColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
             )
             if (seeAllLabel != null && onSeeAll != null) {
                 GridFocusSurface(
@@ -786,7 +792,7 @@ fun NetflixContentWallRow(
         LazyRow(
             state = listState,
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 56.dp),
+            contentPadding = PaddingValues(start = 56.dp, end = 56.dp, bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(row.items.size, key = { row.items[it].key }) { index ->

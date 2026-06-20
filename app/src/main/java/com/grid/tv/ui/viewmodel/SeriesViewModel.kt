@@ -10,6 +10,7 @@ import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.VodCatalogStatus
+import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.repository.IptvRepository
@@ -98,11 +99,26 @@ class SeriesViewModel @Inject constructor(
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()
 
+    private val _selectedShow = MutableStateFlow<SeriesShow?>(null)
+    val selectedShow: StateFlow<SeriesShow?> = _selectedShow.asStateFlow()
+
     private val _seasons = MutableStateFlow<List<SeriesSeason>>(emptyList())
     val seasons: StateFlow<List<SeriesSeason>> = _seasons.asStateFlow()
 
+    private val _seasonsLoading = MutableStateFlow(false)
+    val seasonsLoading: StateFlow<Boolean> = _seasonsLoading.asStateFlow()
+
     private val _selectedSeasonNumber = MutableStateFlow<Int?>(null)
     val selectedSeasonNumber: StateFlow<Int?> = _selectedSeasonNumber.asStateFlow()
+
+    val selectedSeasonEpisodes: StateFlow<List<SeriesEpisode>> = combine(
+        _seasons,
+        _selectedSeasonNumber
+    ) { seasons, seasonNumber ->
+        seasons.firstOrNull { it.number == seasonNumber }?.episodes
+            ?: seasons.firstOrNull()?.episodes
+            ?: emptyList()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -129,8 +145,9 @@ class SeriesViewModel @Inject constructor(
         }
     }
 
-    suspend fun resolveShow(showId: Long): SeriesShow? =
+    suspend fun resolveShow(showId: Long): SeriesShow? = withContext(Dispatchers.IO) {
         repository.findSeriesShow(showId)
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -151,25 +168,41 @@ class SeriesViewModel @Inject constructor(
         }
     }
 
-    fun selectShow(showId: Long, preferredSeason: Int? = null) {
+    fun selectShow(showId: Long, preferredSeason: Int? = null, preview: SeriesShow? = null) {
         _selectedShowId.value = showId
+        _selectedShow.value = preview
+        _seasons.value = emptyList()
+        _selectedSeasonNumber.value = null
         viewModelScope.launch {
-            val loaded = runCatching { repository.seriesSeasons(showId) }
-                .onFailure { error ->
-                    _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
+            _seasonsLoading.value = true
+            try {
+                val show = preview ?: withContext(Dispatchers.IO) { repository.findSeriesShow(showId) }
+                if (show != null) {
+                    _selectedShow.value = show
                 }
-                .getOrDefault(emptyList())
-            _seasons.value = loaded.sortedBy { it.number }
-            _selectedSeasonNumber.value = preferredSeason?.takeIf { season ->
-                loaded.any { it.number == season }
-            } ?: loaded.firstOrNull()?.number
+                val loaded = withContext(Dispatchers.IO) {
+                    runCatching { repository.seriesSeasons(showId) }
+                        .onFailure { error ->
+                            _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
+                        }
+                        .getOrDefault(emptyList())
+                }
+                _seasons.value = loaded.sortedBy { it.number }
+                _selectedSeasonNumber.value = preferredSeason?.takeIf { season ->
+                    loaded.any { it.number == season }
+                } ?: loaded.firstOrNull()?.number
+            } finally {
+                _seasonsLoading.value = false
+            }
         }
     }
 
     fun clearShowSelection() {
         _selectedShowId.value = null
+        _selectedShow.value = null
         _seasons.value = emptyList()
         _selectedSeasonNumber.value = null
+        _seasonsLoading.value = false
     }
 
     fun selectSeason(seasonNumber: Int) {

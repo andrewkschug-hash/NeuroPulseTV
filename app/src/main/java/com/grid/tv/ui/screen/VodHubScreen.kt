@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -35,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.compose.ui.unit.dp
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
@@ -141,6 +143,7 @@ fun VodHubScreen(
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
     val selectedShowId by seriesViewModel.selectedShowId.collectAsStateWithLifecycle()
+    val seriesDetailOpen = selectedShowId != null
     val scope = rememberCoroutineScope()
     val columnListState = rememberLazyListState()
 
@@ -317,7 +320,7 @@ fun VodHubScreen(
         when (item) {
             is VodWallItem.ContinueItem -> resumeItem(item.item)
             is VodWallItem.MovieItem -> playMovie(item.movie)
-            is VodWallItem.SeriesItem -> seriesViewModel.selectShow(item.show.id, null)
+            is VodWallItem.SeriesItem -> seriesViewModel.selectShow(item.show.id, null, preview = item.show)
         }
     }
 
@@ -509,6 +512,10 @@ fun VodHubScreen(
     }
 
     fun consumeVodLocalBack(): Boolean = when {
+        seriesDetailOpen -> {
+            seriesViewModel.clearShowSelection()
+            true
+        }
         showSearchOverlay -> {
             closeSearchOverlay()
             true
@@ -536,8 +543,14 @@ fun VodHubScreen(
             .fillMaxSize()
             .background(VodNetflixColors.Background)
             .focusRequester(rootFocusRequester)
-            .focusable()
+            .focusable(enabled = !seriesDetailOpen)
+            .focusProperties {
+                if (seriesDetailOpen) {
+                    canFocus = false
+                }
+            }
             .onPreviewKeyEvent { event ->
+                if (seriesDetailOpen) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 when (event.key) {
@@ -552,7 +565,17 @@ fun VodHubScreen(
                 }
             }
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (seriesDetailOpen) {
+                        Modifier.focusProperties { canFocus = false }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
             EpgTopBar(
                 now = now,
                 selectedTab = EpgNavTab.Vod,
@@ -616,6 +639,7 @@ fun VodHubScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .padding(top = 4.dp)
                 ) {
                     if (searchQuery.isBlank() && heroMovie != null) {
                         item(key = "hero") {
