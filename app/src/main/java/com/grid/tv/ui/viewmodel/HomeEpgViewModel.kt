@@ -633,6 +633,10 @@ class HomeEpgViewModel @Inject constructor(
             val visible = (visibleChannelIds + focusNeighborIds).distinct().take(VIEWPORT_EPG_MAX_CHANNEL_IDS)
             startViewportProgramObservation(visible)
             repository.fetchCurrentEpgForChannels(visible.map { it.toString() })
+            val visibleChannels = _channels.value.filter { it.id in visible.toSet() }
+            if (visibleChannels.isNotEmpty()) {
+                appendProgramsForChannels(visibleChannels)
+            }
         }
     }
 
@@ -681,10 +685,11 @@ class HomeEpgViewModel @Inject constructor(
     private suspend fun refreshCurrentWindowPrograms() {
         val channels = _channels.value
         if (channels.isEmpty()) return
+        val visible = channels.take(PRIORITY_EPG_CHANNEL_COUNT)
         val start = _windowStart.value
         val end = start + _windowDurationMs.value
         val existing = _epgPrograms.value
-        val programs = repository.programsWindowForChannels(channels, start, end)
+        val programs = repository.programsWindowForChannels(visible, start, end)
         val merged = mergePrograms(existing, programs)
         val replayUrls = computeReplayUrls(merged, channels)
         withContext(Dispatchers.Main.immediate) {
@@ -918,10 +923,12 @@ class HomeEpgViewModel @Inject constructor(
         if (generation != epgLoadGeneration) return null
         var merged = mergePrograms(snapshot.existingPrograms, priorityPrograms)
 
+        // Defer programme load for channels beyond the first screen — avoids 200× resolver work at open.
         if (remainingChannels.isNotEmpty()) {
-            val restPrograms = repository.programsWindowForChannels(remainingChannels, start, end)
-            if (generation != epgLoadGeneration) return null
-            merged = mergePrograms(merged, restPrograms)
+            Log.d(
+                TAG,
+                "loadWindow: deferring programme fetch for ${remainingChannels.size} off-screen channel(s)"
+            )
         }
 
         return LoadWindowOutcome(

@@ -33,9 +33,18 @@ class EpgChannelLinkResolver(
     private val byNormalizedId: Map<String, XmlTvChannelRef>
     private val byNormalizedName: Map<String, XmlTvChannelRef>
     private val learnedEpgIdByNormalizedName: Map<String, String>
+    /** Built once — never allocate per [resolve] call. */
+    private val fuzzyCandidateDisplayNames: List<String>?
+    private val fuzzyMatchingEnabled: Boolean
 
     init {
         channels = xmlTvChannels.distinctBy { it.id }
+        fuzzyMatchingEnabled = channels.size <= FUZZY_MATCH_MAX_CHANNELS
+        fuzzyCandidateDisplayNames = if (fuzzyMatchingEnabled) {
+            channels.map { it.displayName }
+        } else {
+            null
+        }
         byExactIdLower = channels.associateBy { it.id.lowercase() }
         byNormalizedId = buildMap {
             channels.forEach { channel ->
@@ -79,14 +88,21 @@ class EpgChannelLinkResolver(
                 return EpgLinkResult(it.id, EpgLinkMatchReason.NORMALIZED_NAME)
             }
 
-            val displayNames = channels.map { it.displayName }
-            val fuzzyHit = normalizer.bestFuzzyMatch(tvgName.orEmpty(), displayNames, minConfidence = 55)
-            if (fuzzyHit != null) {
-                val matched = channels[fuzzyHit.first]
-                return EpgLinkResult(matched.id, EpgLinkMatchReason.FUZZY_NAME)
+            val displayNames = fuzzyCandidateDisplayNames
+            if (displayNames != null) {
+                val fuzzyHit = normalizer.bestFuzzyMatch(tvgName.orEmpty(), displayNames, minConfidence = 55)
+                if (fuzzyHit != null) {
+                    val matched = channels[fuzzyHit.first]
+                    return EpgLinkResult(matched.id, EpgLinkMatchReason.FUZZY_NAME)
+                }
             }
         }
 
         return EpgLinkResult(null, EpgLinkMatchReason.NO_MATCH)
+    }
+
+    companion object {
+        /** Fuzzy Levenshtein over larger catalogs stalls the guide and triggers GC thrashing. */
+        const val FUZZY_MATCH_MAX_CHANNELS = 2_500
     }
 }

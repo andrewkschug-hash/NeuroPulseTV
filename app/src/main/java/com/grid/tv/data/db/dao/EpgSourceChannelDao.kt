@@ -20,6 +20,9 @@ interface EpgSourceChannelDao {
     @Query("DELETE FROM epg_source_channels")
     suspend fun deleteAll()
 
+    @Query("SELECT COUNT(*) FROM epg_source_channels")
+    suspend fun count(): Int
+
     @Query("SELECT * FROM epg_source_channels")
     suspend fun all(): List<EpgSourceChannelEntity>
 

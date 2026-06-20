@@ -202,6 +202,8 @@ class IptvRepositoryImpl @Inject constructor(
         private const val VIEWPORT_EPG_MAX_CHANNELS_PER_BATCH = 8
         /** Room SQLite bind-arg limit for IN (...) clauses — chunk larger page lookups. */
         private const val ROOM_IN_CHUNK = 500
+        /** Cap in-memory EPG source channel catalog — larger tables use programme ids only. */
+        private const val MAX_RESOLVER_SOURCE_CHANNELS = 5_000
         /** Only purge programmes that ended more than a week ago — never today's grid cache. */
         private const val EPG_PURGE_GRACE_MS = 7L * 24L * 60L * 60L * 1000L
     }
@@ -730,8 +732,10 @@ class IptvRepositoryImpl @Inject constructor(
 
             val remapped = remapProgramsToPlaylistKeys(rawPrograms, xmlTvToPlaylist)
 
-            val programmesByPlaylistEpgId = remapped.groupBy { it.channelEpgId }
-            logEpgMatchDebug(channels, resolver, programmesByPlaylistEpgId, start)
+            if (Log.isLoggable(EPG_MATCH_DEBUG_TAG, Log.DEBUG)) {
+                val programmesByPlaylistEpgId = remapped.groupBy { it.channelEpgId }
+                logEpgMatchDebug(channels, resolver, programmesByPlaylistEpgId, start)
+            }
             remapped
         }
 
@@ -1001,8 +1005,17 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun rebuildEpgLinkResolver(): EpgChannelLinkResolver {
         val refs = linkedMapOf<String, XmlTvChannelRef>()
-        epgSourceChannelDao.all().forEach { source ->
-            refs[source.epgId] = XmlTvChannelRef(source.epgId, source.displayName)
+        val sourceCount = epgSourceChannelDao.count()
+        if (sourceCount <= MAX_RESOLVER_SOURCE_CHANNELS) {
+            epgSourceChannelDao.all().forEach { source ->
+                refs[source.epgId] = XmlTvChannelRef(source.epgId, source.displayName)
+            }
+        } else {
+            Log.i(
+                EPG_FLOW_TAG,
+                "Link resolver: skipping $sourceCount EPG source rows in memory " +
+                    "(cap=$MAX_RESOLVER_SOURCE_CHANNELS); using programme channel ids only"
+            )
         }
         programDao.distinctChannelEpgIds().forEach { epgId ->
             refs.putIfAbsent(epgId, XmlTvChannelRef(epgId, epgId))
@@ -1667,7 +1680,6 @@ class IptvRepositoryImpl @Inject constructor(
         try {
         Log.i(EPG_FLOW_TAG, "refreshEpgNow started on ${Thread.currentThread().name}")
         epgCache.clear()
-        epgLinkResolver = null
         val now = System.currentTimeMillis()
         val threshold = now - EPG_PURGE_GRACE_MS
         programDao.purgeOlderThan(threshold)
@@ -1822,34 +1834,39 @@ class IptvRepositoryImpl @Inject constructor(
             }
             attempts += attempt
         }
-        rebuildEpgLinkResolver()
-        epgJobCoordinator.scheduleResolverAfterImport(createdAfter = 0L)
-        val programChannelCount = programDao.distinctChannelEpgIds().size
-        Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; $programChannelCount distinct programme channel ids in DB")
-        val sampleChannels = mapChannelEntities(
-            channelDao.channelsPage(
-                groupName = null,
-                search = "",
-                onlyFavorites = false,
-                profileId = activeProfileId,
-                favoriteGroupId = -1L,
-                limit = 10,
-                offset = 0
+        if (reportWillImportData(attempts)) {
+            epgLinkResolver = null
+            rebuildEpgLinkResolver()
+            epgJobCoordinator.scheduleResolverAfterImport(createdAfter = 0L)
+            val programChannelCount = programDao.distinctChannelEpgIds().size
+            Log.i(EPG_FLOW_TAG, "EPG link resolver rebuilt; $programChannelCount distinct programme channel ids in DB")
+            val sampleChannels = mapChannelEntities(
+                channelDao.channelsPage(
+                    groupName = null,
+                    search = "",
+                    onlyFavorites = false,
+                    profileId = activeProfileId,
+                    favoriteGroupId = -1L,
+                    limit = 10,
+                    offset = 0
+                )
             )
-        )
-        if (sampleChannels.isNotEmpty()) {
-            val nowMs = System.currentTimeMillis()
-            val samplePrograms = programsWindowForChannels(
-                channels = sampleChannels,
-                start = nowMs - 90 * 60 * 1000,
-                end = nowMs + 4 * 60 * 60 * 1000
-            )
-            val matched = samplePrograms.map { it.channelEpgId }.distinct().size
-            Log.i(
-                EPG_FLOW_TAG,
-                "Post-refresh sample: ${sampleChannels.size} channels → $matched with programmes " +
-                    "(${samplePrograms.size} programme rows)"
-            )
+            if (sampleChannels.isNotEmpty()) {
+                val nowMs = System.currentTimeMillis()
+                val samplePrograms = programsWindowForChannels(
+                    channels = sampleChannels,
+                    start = nowMs - 90 * 60 * 1000,
+                    end = nowMs + 4 * 60 * 60 * 1000
+                )
+                val matched = samplePrograms.map { it.channelEpgId }.distinct().size
+                Log.i(
+                    EPG_FLOW_TAG,
+                    "Post-refresh sample: ${sampleChannels.size} channels → $matched with programmes " +
+                        "(${samplePrograms.size} programme rows)"
+                )
+            }
+        } else {
+            Log.i(EPG_FLOW_TAG, "EPG refresh imported no data — skipping link resolver rebuild")
         }
         _epgDataRevision.update { it + 1 }
         EpgFlowLogger.revisionBumped(_epgDataRevision.value)
@@ -1867,6 +1884,9 @@ class IptvRepositoryImpl @Inject constructor(
         }
         }
     }
+
+    private fun reportWillImportData(attempts: List<EpgFetchAttempt>): Boolean =
+        attempts.any { it.programmesStored > 0 || it.channelsStored > 0 }
 
     override suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>> = withContext(Dispatchers.IO) {
         val merged = mutableListOf<Pair<Long, Long>>()
