@@ -121,6 +121,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CompletableDeferred
@@ -754,7 +755,7 @@ class IptvRepositoryImpl @Inject constructor(
             val programs = rows.map(::programFromEntity)
             emit(remapProgramsToPlaylistKeys(programs, xmlTvToPlaylist))
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int = withContext(Dispatchers.IO) {
         if (channelIds.isEmpty()) return@withContext 0
