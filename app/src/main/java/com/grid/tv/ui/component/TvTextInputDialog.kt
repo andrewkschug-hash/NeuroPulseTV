@@ -101,19 +101,23 @@ fun TvTextInputDialog(
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
     }
 
-    fun hideKeyboardAndClearFieldFocus() {
+    fun hideKeyboard() {
         keyboard?.hide()
         TvRemoteKeyboard.dismissKeyboard(view)
+    }
+
+    fun hideKeyboardAndClearFieldFocus() {
+        hideKeyboard()
         focusManager.clearFocus(force = true)
     }
 
     fun confirm() {
-        hideKeyboardAndClearFieldFocus()
+        hideKeyboard()
         onConfirm(draft)
     }
 
     fun handleImeAction() {
-        hideKeyboardAndClearFieldFocus()
+        hideKeyboard()
         when {
             imeAction == ImeAction.Next -> {
                 onConfirm(draft)
@@ -131,7 +135,7 @@ fun TvTextInputDialog(
     }
 
     fun dismiss() {
-        hideKeyboardAndClearFieldFocus()
+        hideKeyboard()
         onDismiss()
     }
 

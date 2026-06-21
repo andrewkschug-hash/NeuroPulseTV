@@ -305,8 +305,10 @@ fun VodHubScreen(
         seriesDetailOpen,
         showBrowseGrid,
         hasBrowseResults,
-        searchQuery
+        searchQuery,
+        imeTypingActive
     ) {
+        if (imeTypingActive) return@LaunchedEffect
         when {
             movieDetailOpen -> movieWatchFocusRequester.requestFocusSafelyAfterLayout()
             seriesDetailOpen -> Unit
@@ -760,6 +762,7 @@ fun VodHubScreen(
             .focusable(
                 enabled = !seriesDetailOpen &&
                     !movieDetailOpen &&
+                    !imeTypingActive &&
                     !(focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults)
             )
             .focusProperties {
@@ -785,6 +788,7 @@ fun VodHubScreen(
                     }
                 }
                 if (handled) return@onPreviewKeyEvent true
+                if (imeTypingActive) return@onPreviewKeyEvent false
                 if (focusZone in vodManualFocusZones && isVodTraversalKey(event)) {
                     return@onPreviewKeyEvent true
                 }
