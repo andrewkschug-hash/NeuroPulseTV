@@ -22,7 +22,7 @@ import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
-import com.grid.tv.feature.vod.matchesVodLanguageFilter
+import com.grid.tv.feature.vod.matchesLanguageFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import androidx.paging.filter
@@ -67,20 +67,31 @@ class SeriesViewModel @Inject constructor(
     val preferredLanguages: StateFlow<Set<String>> = languagePreferenceStore.preferredLanguages
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val pagedSeries = combine(
         repository.vodCatalogRevision(),
         _searchQuery,
         _selectedCategoryId,
-        languagePreferenceStore.preferredLanguages
-    ) { _, query, categoryId, languages ->
-        Triple(query, categoryId ?: "All", languages)
-    }.flatMapLatest { (query, category, languages) ->
-        repository.seriesShowsPaging(category = category, search = query)
+        languagePreferenceStore.preferredLanguages,
+        categories
+    ) { _, query, categoryId, languages, categoryList ->
+        SeriesLanguageFilterParams(
+            query = query,
+            category = categoryId ?: "All",
+            languages = languages,
+            categoryNames = categoryList.associate { it.id to it.name }
+        )
+    }.flatMapLatest { params ->
+        repository.seriesShowsPaging(category = params.category, search = params.query)
             .map { pagingData ->
-                if (languages.isEmpty()) {
+                if (params.languages.isEmpty()) {
                     pagingData
                 } else {
-                    pagingData.filter { matchesVodLanguageFilter(it.name, languages) }
+                    pagingData.filter {
+                        it.matchesLanguageFilter(params.languages, params.categoryNames)
+                    }
                 }
             }
     }.cachedIn(viewModelScope)
@@ -107,18 +118,18 @@ class SeriesViewModel @Inject constructor(
     val catalogTotalCount: StateFlow<Int> = repository.seriesShowCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         repository.vodCatalogRevision(),
         repository.seriesShowCount(),
-        languagePreferenceStore.preferredLanguages
-    ) { _, _, languages -> languages }
-        .flatMapLatest { languages ->
+        languagePreferenceStore.preferredLanguages,
+        categories
+    ) { _, _, languages, categoryList ->
+        languages to categoryList.associate { it.id to it.name }
+    }
+        .flatMapLatest { (languages, categoryNames) ->
             flow {
                 val rows = repository.loadSeriesBrowseRows()
-                emit(filterBrowseRows(rows, languages))
+                emit(filterBrowseRows(rows, languages, seriesCategoryNames = categoryNames))
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -395,3 +406,10 @@ class SeriesViewModel @Inject constructor(
         return target.episodeNumber ?: (episodes.indexOf(target) + 1).takeIf { it > 0 }
     }
 }
+
+private data class SeriesLanguageFilterParams(
+    val query: String,
+    val category: String,
+    val languages: Set<String>,
+    val categoryNames: Map<String, String>
+)

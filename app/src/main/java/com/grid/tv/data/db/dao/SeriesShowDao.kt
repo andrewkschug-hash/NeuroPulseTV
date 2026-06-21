@@ -76,6 +76,15 @@ interface SeriesShowDao {
 
     @Query(
         """
+        SELECT name FROM series_shows
+        ORDER BY rowId
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun nameBatch(limit: Int, offset: Int): List<String>
+
+    @Query(
+        """
         SELECT * FROM series_shows
         WHERE UPPER(name) LIKE '%4K%' OR UPPER(name) LIKE '%UHD%' OR UPPER(name) LIKE '%2160P%'
         ORDER BY name COLLATE NOCASE
@@ -122,6 +131,16 @@ interface SeriesShowDao {
         """
     )
     suspend fun distinctCategoryPairs(): List<SeriesCategoryPairRow>
+
+    @Query(
+        """
+        SELECT playlistId, categoryId, MIN(genre) AS genre FROM series_shows
+        WHERE categoryId IS NOT NULL AND TRIM(categoryId) != ''
+          AND genre IS NOT NULL AND TRIM(genre) != ''
+        GROUP BY playlistId, categoryId
+        """
+    )
+    suspend fun distinctCategoryGenreHints(): List<SeriesCategoryGenreHintRow>
 
     @Query(
         """

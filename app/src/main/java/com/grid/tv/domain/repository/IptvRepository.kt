@@ -123,6 +123,7 @@ interface IptvRepository {
     suspend fun vodRecent(limit: Int): List<VodItem>
     suspend fun vodSampleForRecommendations(sampleSize: Int = 500): List<VodItem>
     suspend fun seriesRecentSample(limit: Int = 500): List<SeriesShow>
+    suspend fun discoverVodContentLanguages(maxTitlesPerSource: Int = 8000): List<String>
     suspend fun loadMovieBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
     suspend fun seriesPage(
         category: String = "All",

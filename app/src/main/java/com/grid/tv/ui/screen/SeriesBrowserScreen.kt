@@ -6,7 +6,6 @@ import com.grid.tv.ui.component.cleanVodDisplayTitle
 import com.grid.tv.ui.component.parseVodLanguageBadge
 import com.grid.tv.ui.component.parseVodReleaseYear
 import com.grid.tv.ui.component.parseVodResolutionBadge
-import com.grid.tv.ui.component.tvFocusBorder
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -391,7 +390,6 @@ private enum class SeriesDetailFocusZone {
 }
 
 private enum class SeriesHeaderFocusTarget {
-    DESCRIPTION,
     BACK,
     RECORD
 }
@@ -478,12 +476,8 @@ private fun SeriesDetailPane(
         return when (event.key) {
             Key.DirectionLeft -> when (focusZone) {
                 SeriesDetailFocusZone.HEADER -> {
-                    when (headerTarget) {
-                        SeriesHeaderFocusTarget.BACK -> {
-                            if (showRecord) headerTarget = SeriesHeaderFocusTarget.RECORD
-                        }
-                        SeriesHeaderFocusTarget.RECORD -> Unit
-                        SeriesHeaderFocusTarget.DESCRIPTION -> Unit
+                    if (headerTarget == SeriesHeaderFocusTarget.RECORD) {
+                        headerTarget = SeriesHeaderFocusTarget.BACK
                     }
                     true
                 }
@@ -503,12 +497,8 @@ private fun SeriesDetailPane(
             }
             Key.DirectionRight -> when (focusZone) {
                 SeriesDetailFocusZone.HEADER -> {
-                    when (headerTarget) {
-                        SeriesHeaderFocusTarget.BACK -> {
-                            if (showRecord) headerTarget = SeriesHeaderFocusTarget.RECORD
-                        }
-                        SeriesHeaderFocusTarget.RECORD -> Unit
-                        SeriesHeaderFocusTarget.DESCRIPTION -> Unit
+                    if (headerTarget == SeriesHeaderFocusTarget.BACK && showRecord) {
+                        headerTarget = SeriesHeaderFocusTarget.RECORD
                     }
                     true
                 }
@@ -526,11 +516,7 @@ private fun SeriesDetailPane(
             }
             Key.DirectionUp -> when (focusZone) {
                 SeriesDetailFocusZone.HEADER -> {
-                    if (headerTarget != SeriesHeaderFocusTarget.DESCRIPTION) {
-                        headerTarget = SeriesHeaderFocusTarget.DESCRIPTION
-                    } else {
-                        onMoveFocusUp?.invoke()
-                    }
+                    onMoveFocusUp?.invoke()
                     true
                 }
                 SeriesDetailFocusZone.SEASONS -> {
@@ -583,7 +569,6 @@ private fun SeriesDetailPane(
                     when (headerTarget) {
                         SeriesHeaderFocusTarget.BACK -> onBackToShows()
                         SeriesHeaderFocusTarget.RECORD -> onRecordSeries()
-                        SeriesHeaderFocusTarget.DESCRIPTION -> Unit
                     }
                     true
                 }
@@ -669,7 +654,6 @@ private fun SeriesDetailHeader(
     val languageCode = remember(rawShowName) { parseVodLanguageBadge(rawShowName) }
     val resolutionBadge = remember(rawShowName) { parseVodResolutionBadge(rawShowName) }
     val titleColor = if (useDarkTheme) VodNetflixColors.TextPrimary else EpgColors.TextPrimary
-    val descriptionFocused = headerFocused && headerTarget == SeriesHeaderFocusTarget.DESCRIPTION
     val backFocused = headerFocused && headerTarget == SeriesHeaderFocusTarget.BACK
     val recordFocused = headerFocused && headerTarget == SeriesHeaderFocusTarget.RECORD
     Row(
@@ -732,7 +716,12 @@ private fun SeriesDetailHeader(
                     modifier = Modifier.focusProperties { canFocus = false },
                     contentDescription = "All Shows"
                 ) {
-                    Text("← All Shows", fontFamily = DmSansFamily, fontSize = 15.sp)
+                    Text(
+                        text = "← All Shows",
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 15.sp
+                    )
                 }
                 if (showRecord) {
                     GlassFocusButton(
@@ -742,14 +731,18 @@ private fun SeriesDetailHeader(
                         modifier = Modifier.focusProperties { canFocus = false },
                         contentDescription = "Record Series"
                     ) {
-                        Text("Record Series", fontFamily = DmSansFamily, fontSize = 15.sp)
+                        Text(
+                            text = "Record Series",
+                            color = Color.White,
+                            fontFamily = DmSansFamily,
+                            fontSize = 15.sp
+                        )
                     }
                 }
             }
             SeriesDetailSynopsis(
                 text = description,
                 useDarkTheme = useDarkTheme,
-                focused = descriptionFocused,
                 modifier = Modifier.padding(top = 10.dp)
             )
         }
@@ -794,7 +787,6 @@ private fun SeriesDetailMetadataPill(
 private fun SeriesDetailSynopsis(
     text: String,
     useDarkTheme: Boolean,
-    focused: Boolean,
     modifier: Modifier = Modifier
 ) {
     val synopsisColor = if (useDarkTheme) {
@@ -803,7 +795,6 @@ private fun SeriesDetailSynopsis(
         EpgColors.TextSecondary
     }
     val scrollState = rememberScrollState()
-    val shape = RoundedCornerShape(8.dp)
     Text(
         text = text,
         color = synopsisColor,
@@ -813,15 +804,9 @@ private fun SeriesDetailSynopsis(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(max = 110.dp)
+            .focusable(false)
+            .focusProperties { canFocus = false }
             .verticalScroll(scrollState)
-            .tvFocusBorder(
-                focused = focused,
-                shape = shape,
-                width = 2.dp,
-                unfocusedWidth = 1.dp,
-                unfocusedColor = Color.Transparent,
-                focusedColor = if (useDarkTheme) VodNetflixColors.Accent else EpgColors.FocusBorder
-            )
             .padding(4.dp)
     )
 }

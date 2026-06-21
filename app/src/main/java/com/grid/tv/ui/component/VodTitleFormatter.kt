@@ -1,5 +1,7 @@
 package com.grid.tv.ui.component
 
+import com.grid.tv.feature.vod.parseVodContentLanguageCode
+
 private val VOD_TITLE_PREFIX_PATTERN = Regex("""^([A-Z0-9]{2,3})\s*-\s*""", RegexOption.IGNORE_CASE)
 private val VOD_YEAR_PATTERN = Regex("""\b(19\d{2}|20\d{2})\b""")
 private val VOD_TRAILING_LANGUAGE_PATTERN = Regex("""\s*\(([A-Z]{2,3})\)\s*$""")
@@ -38,21 +40,7 @@ fun cleanVodDisplayTitle(raw: String): String =
         .replace(Regex("""\s+"""), " ")
         .trim()
 
-private fun isVodLanguageCode(code: String): Boolean =
-    code.uppercase() !in setOf("4K", "HD", "UHD", "NF")
-
-fun parseVodLanguageBadge(raw: String): String? {
-    val trimmed = raw.trim()
-    VOD_TITLE_PREFIX_PATTERN.find(trimmed)?.let { match ->
-        val code = match.groupValues[1].uppercase()
-        if (isVodLanguageCode(code)) return code.take(2)
-    }
-    VOD_TRAILING_LANGUAGE_PATTERN.find(trimmed)?.let { match ->
-        val code = match.groupValues[1].uppercase()
-        if (isVodLanguageCode(code)) return code.take(2)
-    }
-    return null
-}
+fun parseVodLanguageBadge(raw: String): String? = parseVodContentLanguageCode(raw)
 
 fun parseVodResolutionBadge(raw: String): String? {
     val trimmed = raw.trim()

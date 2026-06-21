@@ -123,6 +123,15 @@ interface VodStreamDao {
 
     @Query(
         """
+        SELECT title FROM vod_streams
+        ORDER BY rowId
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun titleBatch(limit: Int, offset: Int): List<String>
+
+    @Query(
+        """
         SELECT * FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
           AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')

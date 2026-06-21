@@ -11,9 +11,7 @@ import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
-import com.grid.tv.feature.vod.discoverLanguagesFromTitles
 import com.grid.tv.feature.vod.matchesLanguageFilter
-import com.grid.tv.feature.vod.matchesVodLanguageFilter
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.feature.recommendation.FeaturedContentRanker
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
@@ -77,26 +75,29 @@ class VodHubViewModel @Inject constructor(
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val vodCategories = repository.vodCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val vodProgress: StateFlow<Map<Long, Long>> =
         repository.vodWatchProgress().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val recommendedForYou: StateFlow<List<VodItem>> =
-        combine(recommendationSample, continueWatchingItems, enrichmentByKey, preferredVodLanguages) { catalog, cw, enrichment, languages ->
-            tasteGenomeEngine.topPicks(filterMoviesByLanguage(catalog, languages), cw, enrichment, limit = 24)
+        combine(recommendationSample, continueWatchingItems, enrichmentByKey, preferredVodLanguages, vodCategories) { catalog, cw, enrichment, languages, categories ->
+            val categoryNames = categories.associate { it.id to it.name }
+            tasteGenomeEngine.topPicks(filterMoviesByLanguage(catalog, languages, categoryNames), cw, enrichment, limit = 24)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val trendingNow: StateFlow<List<VodItem>> =
-        combine(recommendationSample, enrichmentByKey, preferredVodLanguages) { catalog, enrichment, languages ->
-            tasteGenomeEngine.trendingNow(filterMoviesByLanguage(catalog, languages), enrichment, limit = 24)
+        combine(recommendationSample, enrichmentByKey, preferredVodLanguages, vodCategories) { catalog, enrichment, languages, categories ->
+            val categoryNames = categories.associate { it.id to it.name }
+            tasteGenomeEngine.trendingNow(filterMoviesByLanguage(catalog, languages, categoryNames), enrichment, limit = 24)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val somethingDifferent: StateFlow<List<VodItem>> =
-        combine(recommendationSample, continueWatchingItems, enrichmentByKey, preferredVodLanguages) { catalog, cw, enrichment, languages ->
-            tasteGenomeEngine.somethingDifferent(filterMoviesByLanguage(catalog, languages), cw, enrichment, limit = 20)
+        combine(recommendationSample, continueWatchingItems, enrichmentByKey, preferredVodLanguages, vodCategories) { catalog, cw, enrichment, languages, categories ->
+            val categoryNames = categories.associate { it.id to it.name }
+            tasteGenomeEngine.somethingDifferent(filterMoviesByLanguage(catalog, languages, categoryNames), cw, enrichment, limit = 20)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private val vodCategories = repository.vodCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _featuredCarousel = MutableStateFlow<List<VodItem>>(emptyList())
     val featuredCarousel: StateFlow<List<VodItem>> = _featuredCarousel.asStateFlow()
@@ -177,8 +178,9 @@ class VodHubViewModel @Inject constructor(
                 },
                 preferredVodLanguages
             ) { inputs, languages ->
+                val categoryNames = inputs.categories.associate { it.id to it.name }
                 FeaturedSelectionInputs(
-                    catalog = filterMoviesByLanguage(inputs.catalog, languages),
+                    catalog = filterMoviesByLanguage(inputs.catalog, languages, categoryNames),
                     enrichment = inputs.enrichment,
                     categories = inputs.categories,
                     catalogRevision = inputs.catalogRevision,
@@ -257,13 +259,9 @@ class VodHubViewModel @Inject constructor(
 
     fun refreshAvailableVodLanguages() {
         viewModelScope.launch {
-            val titles = withContext(Dispatchers.IO) {
-                buildList {
-                    repository.vodSampleForRecommendations(sampleSize = 600).forEach { add(it.title) }
-                    repository.seriesRecentSample(limit = 600).forEach { add(it.name) }
-                }
+            _availableVodLanguages.value = withContext(Dispatchers.IO) {
+                repository.discoverVodContentLanguages()
             }
-            _availableVodLanguages.value = discoverLanguagesFromTitles(titles.asSequence())
         }
     }
 
@@ -301,8 +299,9 @@ class VodHubViewModel @Inject constructor(
         )
 
         val carousel = selection.carousel.ifEmpty {
+            val categoryNames = inputs.categories.associate { it.id to it.name }
             repository.vodRecent(limit = 5).filter { item ->
-                matchesVodLanguageFilter(item.title, inputs.languages) &&
+                item.matchesLanguageFilter(inputs.languages, categoryNames) &&
                     featuredContentRanker.isEligibleForFeatured(
                         item = item,
                         enrichment = enrichmentFor(item, inputs.enrichment)
@@ -381,8 +380,16 @@ class VodHubViewModel @Inject constructor(
         return match.value.toIntOrNull()
     }
 
-    private fun filterMoviesByLanguage(catalog: List<VodItem>, languages: Set<String>): List<VodItem> =
-        if (languages.isEmpty()) catalog else catalog.filter { matchesVodLanguageFilter(it.title, languages) }
+    private fun filterMoviesByLanguage(
+        catalog: List<VodItem>,
+        languages: Set<String>,
+        categoryNames: Map<String, String> = emptyMap()
+    ): List<VodItem> =
+        if (languages.isEmpty()) {
+            catalog
+        } else {
+            catalog.filter { it.matchesLanguageFilter(languages, categoryNames) }
+        }
 
     private data class FeaturedCatalogInputs(
         val catalog: List<VodItem>,
