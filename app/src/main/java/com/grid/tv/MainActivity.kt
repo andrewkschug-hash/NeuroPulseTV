@@ -149,7 +149,7 @@ class MainActivity : ComponentActivity() {
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {
-                return super.dispatchKeyEvent(event)
+                return dispatchKeyEventSafely(event)
             }
             if (VoiceSearchKeys.isMicKey(event.keyCode)) {
                 micSearchTrigger.trigger()
@@ -161,7 +161,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        if (TvTextInputSession.shouldSuppressPostImeFocusSearch()) {
+            return true
+        }
+        return dispatchKeyEventSafely(event)
+    }
+
+    private fun dispatchKeyEventSafely(event: KeyEvent): Boolean {
+        return try {
+            super.dispatchKeyEvent(event)
+        } catch (error: IllegalStateException) {
+            if (error.message?.contains("ActiveParent must have a focusedChild") == true) {
+                TvTextInputSession.beginClosingGracePeriod()
+                true
+            } else {
+                throw error
+            }
+        }
     }
 
     private fun readText(uri: Uri): String {

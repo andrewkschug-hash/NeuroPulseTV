@@ -42,7 +42,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -80,14 +79,14 @@ fun TvTextInputDialog(
     confirmLabel: String = "Confirm",
     imeAction: ImeAction = ImeAction.Done,
     submitOnImeAction: Boolean = false,
-    onImeSubmitted: (() -> Unit)? = null
+    onImeSubmitted: (() -> Unit)? = null,
+    restoreFocusRequester: FocusRequester? = null
 ) {
     var draft by remember(value) { mutableStateOf(value) }
     var focusZone by remember { mutableStateOf(TvInputDialogFocus.Field) }
     val fieldFocusRequester = remember { FocusRequester() }
     val confirmFocusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val fieldInteraction = remember { MutableInteractionSource() }
@@ -106,45 +105,61 @@ fun TvTextInputDialog(
         TvRemoteKeyboard.dismissKeyboard(view)
     }
 
-    fun hideKeyboardAndClearFieldFocus() {
+    fun scheduleRestoreFocus() {
+        restoreFocusRequester?.let { requester ->
+            scope.launch {
+                requester.requestFocusSafelyAfterLayout(delayMs = 80)
+            }
+        }
+    }
+
+    /** Begin IME teardown: block Compose focus search, hide keyboard, seed focus on caller. */
+    fun prepareToCloseDialog() {
+        TvTextInputSession.beginClosingGracePeriod()
         hideKeyboard()
-        focusManager.clearFocus(force = true)
+        restoreFocusRequester?.requestFocusSafely()
+        scheduleRestoreFocus()
     }
 
     fun confirm() {
-        hideKeyboard()
+        prepareToCloseDialog()
         onConfirm(draft)
     }
 
     fun handleImeAction() {
-        hideKeyboard()
         when {
             imeAction == ImeAction.Next -> {
+                prepareToCloseDialog()
                 onConfirm(draft)
                 onImeSubmitted?.invoke()
             }
             submitOnImeAction -> {
+                prepareToCloseDialog()
                 onConfirm(draft)
                 onImeSubmitted?.invoke()
             }
             else -> {
                 focusZone = TvInputDialogFocus.Confirm
+                hideKeyboard()
                 scope.launch { confirmFocusRequester.requestFocusSafelyAfterLayout() }
             }
         }
     }
 
     fun dismiss() {
-        hideKeyboard()
+        prepareToCloseDialog()
         onDismiss()
     }
 
     DisposableEffect(Unit) {
         TvTextInputSession.begin()
         onDispose {
-            TvTextInputSession.end()
+            TvTextInputSession.beginClosingGracePeriod()
             keyboard?.hide()
             TvRemoteKeyboard.dismissKeyboard(view)
+            restoreFocusRequester?.requestFocusSafely()
+            scheduleRestoreFocus()
+            TvTextInputSession.end()
         }
     }
 
@@ -161,7 +176,7 @@ fun TvTextInputDialog(
                 openKeyboard()
             }
             TvInputDialogFocus.Confirm -> {
-                hideKeyboardAndClearFieldFocus()
+                hideKeyboard()
                 confirmFocusRequester.requestFocusSafelyAfterLayout()
             }
         }

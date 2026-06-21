@@ -78,6 +78,7 @@ fun ManageProfilesOverlay(
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<UserProfile?>(null) }
+    var renameRestoreFocusRequester by remember { mutableStateOf<FocusRequester?>(null) }
     var deleteTarget by remember { mutableStateOf<UserProfile?>(null) }
     var newProfileName by remember { mutableStateOf("") }
     var renameValue by remember { mutableStateOf("") }
@@ -102,7 +103,10 @@ fun ManageProfilesOverlay(
     BackHandler {
         when {
             showAddDialog -> showAddDialog = false
-            renameTarget != null -> renameTarget = null
+            renameTarget != null -> {
+                renameTarget = null
+                renameRestoreFocusRequester = null
+            }
             deleteTarget != null -> deleteTarget = null
             else -> onDismiss()
         }
@@ -172,6 +176,7 @@ fun ManageProfilesOverlay(
                         onRename = {
                             renameValue = profile.name
                             renameTarget = profile
+                            renameRestoreFocusRequester = focus.rename
                         },
                         onDelete = { deleteTarget = profile }
                     )
@@ -233,6 +238,7 @@ fun ManageProfilesOverlay(
             value = newProfileName,
             placeholder = "Enter a name",
             confirmLabel = "Create",
+            restoreFocusRequester = addProfileFocusRequester,
             onConfirm = { entered ->
                 val name = entered.ifBlank { "Profile ${profiles.size + 1}" }
                 onCreateProfile(name)
@@ -252,12 +258,17 @@ fun ManageProfilesOverlay(
             value = renameValue,
             placeholder = profile.name,
             confirmLabel = "Save",
+            restoreFocusRequester = renameRestoreFocusRequester,
             onConfirm = { entered ->
                 val name = entered.trim().ifBlank { profile.name }
                 onRenameProfile(profile.id, name)
                 renameTarget = null
+                renameRestoreFocusRequester = null
             },
-            onDismiss = { renameTarget = null }
+            onDismiss = {
+                renameTarget = null
+                renameRestoreFocusRequester = null
+            }
         )
     }
 

@@ -222,6 +222,7 @@ fun TvDialogTextField(
             isPassword = isPassword,
             confirmLabel = confirmLabel,
             imeAction = imeAction,
+            restoreFocusRequester = effectiveFocusRequester,
             onConfirm = { confirmed ->
                 onValueChange(confirmed)
                 val advanceNext = imeAction == ImeAction.Next &&
@@ -257,7 +258,6 @@ fun TvDialogSearchBar(
     var showDialog by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
-    val scope = rememberCoroutineScope()
     val shape = RoundedCornerShape(8.dp)
     val borderColor = if (isFocused || showDialog) borderColorFocused else borderColorUnfocused
     val backgroundColor = if (isFocused || showDialog) backgroundColorFocused else backgroundColorUnfocused
@@ -270,10 +270,6 @@ fun TvDialogSearchBar(
     fun closeDialog() {
         showDialog = false
         onEditingChanged(false)
-        scope.launch {
-            delay(50)
-            focusRequester.requestFocusSafely()
-        }
     }
 
     Box(
@@ -320,6 +316,7 @@ fun TvDialogSearchBar(
             confirmLabel = confirmLabel,
             imeAction = ImeAction.Search,
             submitOnImeAction = true,
+            restoreFocusRequester = focusRequester,
             onImeSubmitted = onImeSubmitted,
             onConfirm = { confirmed ->
                 onValueChange(confirmed)
