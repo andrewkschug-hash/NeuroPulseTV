@@ -63,6 +63,7 @@ import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodContentFilterTabBar
+import com.grid.tv.ui.component.VodLanguagePreferenceDialog
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodHeroSection
@@ -88,6 +89,8 @@ private enum class VodFocusZone {
     HERO,
     CONTENT
 }
+
+private const val LanguageFilterFocusIndex = 3
 
 private val vodManualFocusZones = setOf(
     VodFocusZone.TOP_BAR,
@@ -132,6 +135,7 @@ fun VodHubScreen(
     var browseGridColumnCount by remember { mutableIntStateOf(4) }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     val recordingViewModel: RecordingViewModel = hiltViewModel()
     val homeViewModel: HomeEpgViewModel = hiltViewModel()
@@ -148,6 +152,9 @@ fun VodHubScreen(
     val vodProgress by hubViewModel.vodProgress.collectAsStateWithLifecycle()
     val searchQuery by hubViewModel.searchQuery.collectAsStateWithLifecycle()
     val contentFilter by hubViewModel.contentFilter.collectAsStateWithLifecycle()
+    val preferredVodLanguages by hubViewModel.preferredVodLanguages.collectAsStateWithLifecycle()
+    val availableVodLanguages by hubViewModel.availableVodLanguages.collectAsStateWithLifecycle()
+    val languageFilterActive = preferredVodLanguages.isNotEmpty()
     val movieBrowseRows by moviesViewModel.browseRows.collectAsStateWithLifecycle()
     val seriesBrowseRows by seriesViewModel.browseRows.collectAsStateWithLifecycle()
     val movieCategories by moviesViewModel.categories.collectAsStateWithLifecycle()
@@ -477,7 +484,20 @@ fun VodHubScreen(
         }
     }
 
+    fun openLanguagePreferenceDialog() {
+        hubViewModel.refreshAvailableVodLanguages()
+        showLanguageDialog = true
+    }
+
+    fun applyPreferredLanguages(languages: Set<String>) {
+        hubViewModel.setPreferredVodLanguages(languages)
+    }
+
     fun applyContentFilter(index: Int) {
+        if (index == LanguageFilterFocusIndex) {
+            openLanguagePreferenceDialog()
+            return
+        }
         val filter = VodContentFilter.entries.getOrNull(index) ?: VodContentFilter.ALL
         filterFocusIndex = index
         hubViewModel.setContentFilter(filter)
@@ -623,7 +643,7 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionRight -> {
-                if (filterFocusIndex < VodContentFilter.entries.lastIndex) {
+                if (filterFocusIndex < LanguageFilterFocusIndex) {
                     filterFocusIndex += 1
                 } else {
                     when {
@@ -1036,10 +1056,12 @@ fun VodHubScreen(
             if (searchQuery.isBlank() && !vodSearchFocused) {
                 VodContentFilterTabBar(
                     selectedFilter = contentFilter,
-                    focusedFilter = VodContentFilter.entries[filterFocusIndex.coerceIn(
-                        VodContentFilter.entries.indices
-                    )],
+                    focusedFilter = VodContentFilter.entries.getOrNull(filterFocusIndex) ?: contentFilter,
                     barFocused = focusZone == VodFocusZone.FILTER_PANEL,
+                    languageFilterActive = languageFilterActive,
+                    languageFilterFocused = focusZone == VodFocusZone.FILTER_PANEL &&
+                        filterFocusIndex == LanguageFilterFocusIndex,
+                    onLanguageFilterClick = ::openLanguagePreferenceDialog,
                     onFilterSelected = { filter ->
                         applyContentFilter(VodContentFilter.entries.indexOf(filter).coerceAtLeast(0))
                     }
@@ -1257,6 +1279,15 @@ fun VodHubScreen(
                 overlayDetail = true,
                 viewModel = seriesViewModel,
                 hubViewModel = hubViewModel
+            )
+        }
+
+        if (showLanguageDialog) {
+            VodLanguagePreferenceDialog(
+                availableLanguages = availableVodLanguages,
+                selectedLanguages = preferredVodLanguages,
+                onApply = ::applyPreferredLanguages,
+                onDismiss = { showLanguageDialog = false }
             )
         }
     }

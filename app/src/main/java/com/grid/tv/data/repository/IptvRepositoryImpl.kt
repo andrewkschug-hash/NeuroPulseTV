@@ -2135,7 +2135,9 @@ class IptvRepositoryImpl @Inject constructor(
                     categoryId = row.categoryId,
                     name = VodCategoryNameResolver.resolveDisplayName(
                         categoryId = row.categoryId,
-                        storedName = row.categoryId,
+                        storedName = lookup[row.categoryId]
+                            ?: lookup["${row.playlistId}_${row.categoryId}"]
+                            ?: row.categoryId,
                         playlistId = row.playlistId,
                         lookupById = lookup
                     )
@@ -2785,6 +2787,11 @@ class IptvRepositoryImpl @Inject constructor(
             }.take(target)
         }
 
+    override suspend fun seriesRecentSample(limit: Int): List<SeriesShow> =
+        withContext(Dispatchers.IO) {
+            seriesShowDao.recent(limit.coerceAtLeast(1)).map { it.toDomain() }
+        }
+
     override suspend fun loadMovieBrowseRows(itemsPerRow: Int, maxRows: Int): List<VodBrowseRow> =
         withContext(Dispatchers.IO) {
             val rows = mutableListOf<VodBrowseRow>()
@@ -2837,6 +2844,7 @@ class IptvRepositoryImpl @Inject constructor(
             seriesShowDao.fourK(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
                 rows += VodBrowseRow("4k", "4K Series", series = it.map { e -> e.toDomain() })
             }
+            val lookup = buildCategoryNameLookup()
             val storedCategories = seriesCategoryDao.all()
             if (storedCategories.isNotEmpty()) {
                 storedCategories.forEach { category ->
@@ -2850,10 +2858,17 @@ class IptvRepositoryImpl @Inject constructor(
                     }
                 }
             } else {
-                seriesShowDao.distinctCategoryIds().forEach { categoryId ->
-                    val items = seriesShowDao.byCategory(categoryId, itemsPerRow)
+                seriesShowDao.distinctCategoryPairs().forEach { pair ->
+                    val items = seriesShowDao.byCategory(pair.categoryId, itemsPerRow)
                     if (items.isNotEmpty()) {
-                        rows += VodBrowseRow("cat_$categoryId", categoryId, series = items.map { it.toDomain() })
+                        val displayName = lookup[pair.categoryId]
+                            ?: lookup["${pair.playlistId}_${pair.categoryId}"]
+                            ?: pair.categoryId
+                        rows += VodBrowseRow(
+                            id = "cat_${pair.categoryId}",
+                            title = displayName,
+                            series = items.map { it.toDomain() }
+                        )
                     }
                 }
             }

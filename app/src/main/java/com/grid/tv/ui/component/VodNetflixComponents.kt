@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -827,6 +828,9 @@ fun VodContentFilterTabBar(
     focusedFilter: VodContentFilter,
     barFocused: Boolean,
     onFilterSelected: (VodContentFilter) -> Unit,
+    languageFilterActive: Boolean = false,
+    languageFilterFocused: Boolean = false,
+    onLanguageFilterClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val filters = VodContentFilter.entries
@@ -841,7 +845,7 @@ fun VodContentFilterTabBar(
     ) {
         filters.forEach { filter ->
             val selected = filter == selectedFilter
-            val focused = barFocused && filter == focusedFilter
+            val focused = barFocused && filter == focusedFilter && !languageFilterFocused
             val label = when (filter) {
                 VodContentFilter.ALL -> "All"
                 VodContentFilter.MOVIES -> "Movies"
@@ -876,6 +880,42 @@ fun VodContentFilterTabBar(
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
                 )
             }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        val languageShape = RoundedCornerShape(999.dp)
+        val languageFocused = barFocused && languageFilterFocused
+        val languageBackground = when {
+            languageFilterActive -> Color(0xFF2A2A2A)
+            languageFocused -> Color(0xFF333333)
+            else -> Color.Transparent
+        }
+        val languageBorder = when {
+            languageFocused -> VodNetflixColors.Accent
+            languageFilterActive -> VodNetflixColors.Accent.copy(alpha = 0.65f)
+            else -> Color.White.copy(alpha = 0.18f)
+        }
+        Box(
+            modifier = Modifier
+                .clip(languageShape)
+                .background(languageBackground, languageShape)
+                .border(if (languageFocused) 2.dp else 1.dp, languageBorder, languageShape)
+                .clickable(onClick = onLanguageFilterClick)
+                .focusProperties { canFocus = false }
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = if (languageFilterActive) "Languages ●" else "Languages",
+                color = if (languageFilterActive || languageFocused) {
+                    VodNetflixColors.TextPrimary
+                } else {
+                    VodNetflixColors.TextSecondary
+                },
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (languageFilterActive) FontWeight.SemiBold else FontWeight.Medium
+            )
         }
     }
 }

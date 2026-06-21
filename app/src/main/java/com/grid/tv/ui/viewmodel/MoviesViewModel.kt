@@ -10,11 +10,15 @@ import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.vod.VodLanguagePreferenceStore
+import com.grid.tv.feature.vod.filterBrowseRows
+import com.grid.tv.feature.vod.matchesVodLanguageFilter
 import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.parseVodDurationMs
 import com.grid.tv.ui.component.toGridCardModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import androidx.paging.filter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,13 +27,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class MoviesViewModel @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val languagePreferenceStore: VodLanguagePreferenceStore
 ) : ViewModel() {
 
     private companion object {
@@ -45,14 +51,25 @@ class MoviesViewModel @Inject constructor(
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
+    val preferredLanguages: StateFlow<Set<String>> = languagePreferenceStore.preferredLanguages
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
     val pagedMovies = combine(
         repository.vodCatalogRevision(),
         _searchQuery,
-        _selectedCategoryId
-    ) { _, query, categoryId ->
-        query to categoryId
-    }.flatMapLatest { (query, categoryId) ->
+        _selectedCategoryId,
+        languagePreferenceStore.preferredLanguages
+    ) { _, query, categoryId, languages ->
+        Triple(query, categoryId, languages)
+    }.flatMapLatest { (query, categoryId, languages) ->
         repository.vodMoviesPaging(categoryId = categoryId, search = query)
+            .map { pagingData ->
+                if (languages.isEmpty()) {
+                    pagingData
+                } else {
+                    pagingData.filter { matchesVodLanguageFilter(it.title, languages) }
+                }
+            }
     }.cachedIn(viewModelScope)
 
     init {
@@ -70,10 +87,14 @@ class MoviesViewModel @Inject constructor(
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         repository.vodCatalogRevision(),
-        repository.vodStreamCount()
-    ) { _, _ -> Unit }
-        .flatMapLatest {
-            flow { emit(repository.loadMovieBrowseRows()) }
+        repository.vodStreamCount(),
+        languagePreferenceStore.preferredLanguages
+    ) { _, _, languages -> languages }
+        .flatMapLatest { languages ->
+            flow {
+                val rows = repository.loadMovieBrowseRows()
+                emit(filterBrowseRows(rows, languages))
+            }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -107,6 +128,10 @@ class MoviesViewModel @Inject constructor(
 
     fun setCategory(categoryId: String?) {
         _selectedCategoryId.value = categoryId
+    }
+
+    fun setPreferredLanguages(languages: Set<String>) {
+        languagePreferenceStore.setPreferredLanguages(languages)
     }
 
     fun refreshCatalog() {

@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import com.grid.tv.ui.component.GlassFocusButton
 import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.component.cleanVodDisplayTitle
 import com.grid.tv.ui.component.parseVodLanguageBadge
@@ -534,7 +535,7 @@ private fun SeriesDetailPane(
                 }
                 SeriesDetailFocusZone.SEASONS -> {
                     focusZone = SeriesDetailFocusZone.HEADER
-                    headerTarget = SeriesHeaderFocusTarget.DESCRIPTION
+                    headerTarget = SeriesHeaderFocusTarget.BACK
                     true
                 }
                 SeriesDetailFocusZone.EPISODES -> {
@@ -545,7 +546,8 @@ private fun SeriesDetailPane(
                             episodeCol = episodeCol.coerceAtMost(maxCol)
                         }
                     } else {
-                        focusZone = SeriesDetailFocusZone.SEASONS
+                        focusZone = SeriesDetailFocusZone.HEADER
+                        headerTarget = SeriesHeaderFocusTarget.BACK
                     }
                     true
                 }
@@ -721,23 +723,26 @@ private fun SeriesDetailHeader(
                 }
             }
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
-                GlowFocusButton(
+                GlassFocusButton(
                     onClick = onBackToShows,
                     externallyFocused = backFocused,
-                    modifier = Modifier.focusProperties { canFocus = false }
+                    modifier = Modifier.focusProperties { canFocus = false },
+                    contentDescription = "All Shows"
                 ) {
-                    Text("← All Shows", fontFamily = DmSansFamily)
+                    Text("← All Shows", fontFamily = DmSansFamily, fontSize = 15.sp)
                 }
                 if (showRecord) {
-                    GlowFocusButton(
+                    GlassFocusButton(
                         onClick = onRecordSeries,
+                        primary = true,
                         externallyFocused = recordFocused,
-                        modifier = Modifier.focusProperties { canFocus = false }
+                        modifier = Modifier.focusProperties { canFocus = false },
+                        contentDescription = "Record Series"
                     ) {
-                        Text("Record Series", fontFamily = DmSansFamily)
+                        Text("Record Series", fontFamily = DmSansFamily, fontSize = 15.sp)
                     }
                 }
             }

@@ -39,20 +39,22 @@ fun GlassFocusButton(
     enabled: Boolean = true,
     primary: Boolean = false,
     contentDescription: String? = null,
+    externallyFocused: Boolean = false,
     content: @Composable () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val showFocused = focused || externallyFocused
     val accent = VodNetflixColors.Accent
     val glassBase = if (primary) Color(0xFF1A2438) else Color(0xFF121820)
     val backgroundBrush = when {
         !enabled -> Brush.linearGradient(listOf(Color(0x66101820), Color(0x44081018)))
-        focused && primary -> Brush.linearGradient(
+        showFocused && primary -> Brush.linearGradient(
             listOf(
                 accent.copy(alpha = 0.38f),
                 glassBase.copy(alpha = 0.72f)
             )
         )
-        focused -> Brush.linearGradient(
+        showFocused -> Brush.linearGradient(
             listOf(
                 Color.White.copy(alpha = 0.18f),
                 glassBase.copy(alpha = 0.62f)
@@ -73,11 +75,11 @@ fun GlassFocusButton(
     }
     val borderColor = when {
         !enabled -> Color.White.copy(alpha = 0.10f)
-        focused -> accent.copy(alpha = if (primary) 0.95f else 0.75f)
+        showFocused -> accent.copy(alpha = if (primary) 0.95f else 0.75f)
         else -> Color.White.copy(alpha = if (primary) 0.28f else 0.20f)
     }
-    val borderWidth = if (focused) 2.dp else 1.dp
-    val glowModifier = if (focused) {
+    val borderWidth = if (showFocused) 2.dp else 1.dp
+    val glowModifier = if (showFocused) {
         Modifier.border(1.dp, accent.copy(alpha = 0.35f), GlassShape)
     } else {
         Modifier
@@ -113,7 +115,7 @@ fun GlassFocusButton(
         ) {
             val labelColor = when {
                 !enabled -> EpgColors.TextDimmed
-                focused -> Color.White
+                showFocused -> Color.White
                 else -> Color(0xFFE8ECF2)
             }
             CompositionLocalProvider(LocalContentColor provides labelColor) {
