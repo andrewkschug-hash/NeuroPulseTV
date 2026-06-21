@@ -91,7 +91,7 @@ class SeriesViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         repository.vodCatalogRevision(),

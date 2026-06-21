@@ -66,7 +66,7 @@ class MoviesViewModel @Inject constructor(
     }
 
     val categories: StateFlow<List<VodCategory>> = repository.vodCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         repository.vodCatalogRevision(),

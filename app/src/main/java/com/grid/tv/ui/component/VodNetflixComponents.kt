@@ -780,7 +780,7 @@ fun VodGenreSidePanel(
         ) {
             items(
                 count = genres.size,
-                key = { index -> genres[index] }
+                key = { index -> index }
             ) { index ->
                 val label = genres[index]
                 val selected = index == selectedIndex

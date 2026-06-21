@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.domain.model.VodBrowseRow
+import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodPlaybackHelper
@@ -173,10 +175,22 @@ fun VodHubScreen(
     val showBrowseGrid = searchQuery.isNotBlank() ||
         contentFilter == VodContentFilter.MOVIES ||
         contentFilter == VodContentFilter.SERIES
-    val genreLabels = remember(contentFilter, movieCategories, seriesCategories) {
+    val sidebarMovieCategories = remember(movieCategories, movieBrowseRows) {
+        categoriesForSidebar(
+            primary = movieCategories,
+            browseRows = movieBrowseRows
+        )
+    }
+    val sidebarSeriesCategories = remember(seriesCategories, seriesBrowseRows) {
+        categoriesForSidebar(
+            primary = seriesCategories,
+            browseRows = seriesBrowseRows
+        )
+    }
+    val genreLabels = remember(contentFilter, sidebarMovieCategories, sidebarSeriesCategories) {
         when (contentFilter) {
-            VodContentFilter.MOVIES -> listOf("All") + movieCategories.map { it.name }
-            VodContentFilter.SERIES -> listOf("All") + seriesCategories.map { it.name }
+            VodContentFilter.MOVIES -> listOf("All") + sidebarMovieCategories.map { it.name }
+            VodContentFilter.SERIES -> listOf("All") + sidebarSeriesCategories.map { it.name }
             else -> emptyList()
         }
     }
@@ -185,7 +199,7 @@ fun VodHubScreen(
             if (selectedMovieCategoryId == null) {
                 0
             } else {
-                movieCategories.indexOfFirst { it.id == selectedMovieCategoryId }
+                sidebarMovieCategories.indexOfFirst { it.id == selectedMovieCategoryId }
                     .takeIf { it >= 0 }?.plus(1) ?: 0
             }
         }
@@ -193,7 +207,7 @@ fun VodHubScreen(
             if (selectedSeriesCategoryId == null) {
                 0
             } else {
-                seriesCategories.indexOfFirst { it.id == selectedSeriesCategoryId }
+                sidebarSeriesCategories.indexOfFirst { it.id == selectedSeriesCategoryId }
                     .takeIf { it >= 0 }?.plus(1) ?: 0
             }
         }
@@ -486,11 +500,11 @@ fun VodHubScreen(
         genreFocusIndex = index.coerceIn(0, genreLabels.lastIndex.coerceAtLeast(0))
         when (contentFilter) {
             VodContentFilter.MOVIES -> {
-                val categoryId = if (index == 0) null else movieCategories.getOrNull(index - 1)?.id
+                val categoryId = if (index == 0) null else sidebarMovieCategories.getOrNull(index - 1)?.id
                 moviesViewModel.setCategory(categoryId)
             }
             VodContentFilter.SERIES -> {
-                val categoryId = if (index == 0) null else seriesCategories.getOrNull(index - 1)?.id
+                val categoryId = if (index == 0) null else sidebarSeriesCategories.getOrNull(index - 1)?.id
                 seriesViewModel.setCategory(categoryId)
             }
             else -> Unit
@@ -1246,4 +1260,24 @@ fun VodHubScreen(
             )
         }
     }
+}
+
+private fun categoriesForSidebar(
+    primary: List<VodCategory>,
+    browseRows: List<VodBrowseRow>
+): List<VodCategory> {
+    if (primary.isNotEmpty()) {
+        return primary.distinctBy { it.id }.sortedBy { it.name.lowercase() }
+    }
+    return browseRows.mapNotNull { row ->
+        val id = when {
+            row.id.startsWith("cat_") -> row.id.removePrefix("cat_")
+            row.id.startsWith("genre_") -> row.id.removePrefix("genre_")
+            else -> return@mapNotNull null
+        }
+        if (id.isBlank() || row.title.isBlank()) return@mapNotNull null
+        VodCategory(id = id, name = row.title, playlistId = 0L)
+    }
+        .distinctBy { it.id }
+        .sortedBy { it.name.lowercase() }
 }
