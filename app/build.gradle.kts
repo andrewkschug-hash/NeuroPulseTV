@@ -69,12 +69,11 @@ android {
     }
 
     signingConfigs {
-        // CRITICAL: Back up keystore + passwords securely. Losing them blocks updates for existing installs.
         create("release") {
-            storeFile = file("keystore/release.jks")
-            storePassword = "TODO_STORE_PASSWORD"
-            keyAlias = "TODO_KEY_ALIAS"
-            keyPassword = "TODO_KEY_PASSWORD"
+            storeFile = file(readLocalProp("KEYSTORE_PATH"))
+            storePassword = readLocalProp("KEYSTORE_PASSWORD")
+            keyAlias = readLocalProp("KEY_ALIAS")
+            keyPassword = readLocalProp("KEY_PASSWORD")
         }
     }
 
