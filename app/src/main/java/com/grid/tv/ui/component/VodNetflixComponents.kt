@@ -697,6 +697,7 @@ fun LazyListScope.netflixSeriesBrowseRows(
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun VodGenreSidePanel(
     genres: List<String>,
@@ -704,15 +705,19 @@ fun VodGenreSidePanel(
     focusedIndex: Int,
     panelFocused: Boolean,
     onGenreSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentGridFocusRequester: FocusRequester? = null,
+    onFocusedIndexChange: ((Int) -> Unit)? = null
 ) {
     if (genres.isEmpty()) return
     val listState = rememberLazyListState()
+    val rowFocusRequesters = remember(genres.size) { List(genres.size) { FocusRequester() } }
 
     LaunchedEffect(focusedIndex, panelFocused, genres.size) {
         if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
         val targetIndex = focusedIndex.coerceIn(0, genres.lastIndex)
         listState.animateScrollToItem(targetIndex)
+        rowFocusRequesters.getOrNull(targetIndex)?.requestFocusSafelyAfterLayout()
     }
 
     Column(
@@ -720,8 +725,7 @@ fun VodGenreSidePanel(
             .width(168.dp)
             .fillMaxHeight()
             .background(Color(0xFF101010))
-            .padding(vertical = 12.dp, horizontal = 8.dp)
-            .focusProperties { canFocus = false },
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
@@ -740,7 +744,6 @@ fun VodGenreSidePanel(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .focusProperties { canFocus = false }
         ) {
             items(
                 count = genres.size,
@@ -760,7 +763,18 @@ fun VodGenreSidePanel(
                         .clip(RoundedCornerShape(8.dp))
                         .background(containerColor)
                         .clickable { onGenreSelected(index) }
-                        .focusProperties { canFocus = false }
+                        .focusRequester(rowFocusRequesters[index])
+                        .focusable(enabled = panelFocused)
+                        .focusProperties {
+                            if (contentGridFocusRequester != null) {
+                                right = contentGridFocusRequester
+                            }
+                        }
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                onFocusedIndexChange?.invoke(index)
+                            }
+                        }
                         .then(
                             if (focused) {
                                 Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))

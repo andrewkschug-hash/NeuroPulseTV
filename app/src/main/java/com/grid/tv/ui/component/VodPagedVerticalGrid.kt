@@ -21,6 +21,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.component.toGridCardModel
@@ -60,10 +61,9 @@ fun VodPagedVerticalGrid(
     modifier = modifier
   ) {
     items(
-      count = items.size,
-      key = { index -> items[index].key }
-    ) { index ->
-      val card = items[index]
+      items = items,
+      key = { card -> card.key }
+    ) { card ->
       VodPosterCard(
         title = card.title,
         posterUrl = card.posterUrl,
@@ -85,27 +85,34 @@ fun VodPagedVerticalGrid(
     gridState: LazyGridState = rememberLazyGridState(),
     minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
     firstItemFocusRequester: FocusRequester? = null,
+    contentGridFocusRequester: FocusRequester? = null,
     onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
+    val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
+
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
         state = gridState,
         contentPadding = PaddingValues(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier
+        modifier = modifier.then(
+            if (gridFocusRequester != null) {
+                Modifier.focusRequester(gridFocusRequester)
+            } else {
+                Modifier
+            }
+        )
     ) {
         items(
             count = pagingItems.itemCount,
-            key = { index ->
-                pagingItems[index]?.let { "${it.playlistId}_${it.id}" } ?: "placeholder_$index"
-            }
+            key = pagingItems.itemKey { show -> "${show.playlistId}_${show.id}" }
         ) { index ->
             val show = pagingItems[index] ?: return@items
             val card = show.toGridCardModel()
-            val itemModifier = if (index == 0 && firstItemFocusRequester != null) {
+            val itemModifier = if (index == 0 && gridFocusRequester != null) {
                 Modifier
-                    .focusRequester(firstItemFocusRequester)
+                    .focusRequester(gridFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (index == 0 &&
                             onNavigateUpFromFirstRow != null &&
@@ -143,27 +150,34 @@ fun VodMoviePagedGrid(
     gridState: LazyGridState = rememberLazyGridState(),
     minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
     firstItemFocusRequester: FocusRequester? = null,
+    contentGridFocusRequester: FocusRequester? = null,
     onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
+    val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
+
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
         state = gridState,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier
+        modifier = modifier.then(
+            if (gridFocusRequester != null) {
+                Modifier.focusRequester(gridFocusRequester)
+            } else {
+                Modifier
+            }
+        )
     ) {
         items(
             count = pagingItems.itemCount,
-            key = { index ->
-                pagingItems[index]?.let { "${it.playlistId}_${it.streamId}" } ?: "movie_$index"
-            }
+            key = pagingItems.itemKey { movie -> "${movie.playlistId}_${movie.streamId}" }
         ) { index ->
             val movie = pagingItems[index] ?: return@items
             val card = movie.toGridCardModel()
-            val itemModifier = if (index == 0 && firstItemFocusRequester != null) {
+            val itemModifier = if (index == 0 && gridFocusRequester != null) {
                 Modifier
-                    .focusRequester(firstItemFocusRequester)
+                    .focusRequester(gridFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (index == 0 &&
                             onNavigateUpFromFirstRow != null &&

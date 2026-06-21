@@ -317,14 +317,14 @@ fun VodHubScreen(
             focusZone == VodFocusZone.CONTENT &&
                 showBrowseGrid &&
                 hasBrowseResults &&
-                (showInlineSearch && !vodSearchFocused || searchQuery.isNotBlank()) ->
+                !vodSearchFocused ->
                 browseGridFocusRequester.requestFocusSafelyAfterLayout()
             focusZone == VodFocusZone.HERO &&
                 heroMovie != null &&
                 searchQuery.isBlank() &&
                 !showInlineSearch ->
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.FILTER_PANEL || focusZone == VodFocusZone.GENRE_PANEL ->
+            focusZone == VodFocusZone.FILTER_PANEL ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
             // TOP_BAR: root retains focus for manual D-pad routing via onPreviewKeyEvent.
         }
@@ -360,10 +360,20 @@ fun VodHubScreen(
         playMovie(movie)
     }
 
+    fun focusBrowseGridFromSidebar() {
+        focusZone = VodFocusZone.CONTENT
+        scope.launch {
+            browseGridFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
     fun focusBrowseResultsFromTopBar() {
         focusZone = VodFocusZone.CONTENT
         contentRowIndex = 0
         contentColIndex = 0
+        scope.launch {
+            browseGridFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun focusInlineSearchField() {
@@ -375,6 +385,9 @@ fun VodHubScreen(
         if (!hasBrowseResults) return
         vodSearchFocused = false
         focusZone = VodFocusZone.CONTENT
+        scope.launch {
+            browseGridFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun activateInlineSearch() {
@@ -500,10 +513,10 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionRight -> {
-                if (showGenrePanel) {
-                    focusZone = VodFocusZone.GENRE_PANEL
-                } else {
-                    focusZone = VodFocusZone.CONTENT
+                when {
+                    showGenrePanel -> focusZone = VodFocusZone.GENRE_PANEL
+                    showBrowseGrid && hasBrowseResults -> focusBrowseGridFromSidebar()
+                    else -> focusZone = VodFocusZone.CONTENT
                 }
                 true
             }
@@ -533,7 +546,11 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionRight -> {
-                focusZone = VodFocusZone.CONTENT
+                if (hasBrowseResults) {
+                    focusBrowseGridFromSidebar()
+                } else {
+                    focusZone = VodFocusZone.CONTENT
+                }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -879,6 +896,8 @@ fun VodHubScreen(
                         selectedIndex = selectedGenreIndex,
                         focusedIndex = genreFocusIndex,
                         panelFocused = focusZone == VodFocusZone.GENRE_PANEL,
+                        contentGridFocusRequester = browseGridFocusRequester,
+                        onFocusedIndexChange = { genreFocusIndex = it },
                         onGenreSelected = ::applyGenre,
                         modifier = Modifier.fillMaxHeight()
                     )
@@ -929,6 +948,7 @@ fun VodHubScreen(
                                 progressFraction = movieProgressFraction,
                                 onItemClick = ::openMovieDetail,
                                 firstItemFocusRequester = browseGridFocusRequester,
+                                contentGridFocusRequester = browseGridFocusRequester,
                                 onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
@@ -944,6 +964,7 @@ fun VodHubScreen(
                                     seriesViewModel.selectShow(card.showId, null)
                                 },
                                 firstItemFocusRequester = browseGridFocusRequester,
+                                contentGridFocusRequester = browseGridFocusRequester,
                                 onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
