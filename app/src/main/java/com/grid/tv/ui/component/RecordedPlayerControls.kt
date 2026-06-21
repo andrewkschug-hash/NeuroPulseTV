@@ -15,6 +15,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +43,7 @@ fun RecordedPlayerControlsOverlay(
     transportFocusIndex: Int,
     bottomFocusIndex: Int,
     seekTooltip: String?,
+    playPauseFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -84,7 +88,18 @@ fun RecordedPlayerControlsOverlay(
         ) {
             transportLabels.forEachIndexed { index, label ->
                 val focused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                PlayerControlChip(label = label, focused = focused)
+                val chipModifier = if (index == 2 && playPauseFocusRequester != null) {
+                    Modifier
+                        .focusRequester(playPauseFocusRequester)
+                        .focusable()
+                } else {
+                    Modifier
+                }
+                PlayerControlChip(
+                    label = label,
+                    focused = focused,
+                    modifier = chipModifier
+                )
             }
         }
 
@@ -183,7 +198,8 @@ private fun PlayerControlChip(
     label: String,
     focused: Boolean,
     selected: Boolean = false,
-    destructive: Boolean = false
+    destructive: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val borderColor = when {
         focused && destructive -> Color(0xFFE53935)
@@ -206,7 +222,7 @@ private fun PlayerControlChip(
         fontFamily = DmSansFamily,
         fontSize = 13.sp,
         fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
-        modifier = Modifier
+        modifier = modifier
             .background(bg, RoundedCornerShape(8.dp))
             .border(
                 width = if (focused || selected) 2.dp else 1.dp,

@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.tv.foundation.PivotOffsets
+import androidx.tv.foundation.lazy.list.TvLazyColumn
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -35,7 +38,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.style.TextAlign
 import kotlinx.coroutines.launch
@@ -703,16 +705,24 @@ fun VodGenreSidePanel(
     focusedIndex: Int,
     panelFocused: Boolean,
     onGenreSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    modifier: Modifier = Modifier
 ) {
     if (genres.isEmpty()) return
+    val listState = rememberTvLazyListState()
+
+    LaunchedEffect(focusedIndex, panelFocused, genres.size) {
+        if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
+        val targetIndex = focusedIndex.coerceIn(0, genres.lastIndex)
+        listState.animateScrollToItem(targetIndex)
+    }
+
     Column(
         modifier = modifier
             .width(168.dp)
             .fillMaxHeight()
             .background(Color(0xFF101010))
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 12.dp, horizontal = 8.dp)
+            .focusProperties { canFocus = false },
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
@@ -723,30 +733,35 @@ fun VodGenreSidePanel(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
-        LazyColumn(
+        TvLazyColumn(
+            state = listState,
+            pivotOffsets = PivotOffsets(parentFraction = 0.3f, childFraction = 0f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .focusProperties { canFocus = false }
         ) {
-            items(genres.size) { index ->
+            items(
+                count = genres.size,
+                key = { index -> genres[index] }
+            ) { index ->
                 val label = genres[index]
                 val selected = index == selectedIndex
                 val focused = panelFocused && index == focusedIndex
-                val chipModifier = if (index == 0 && focusRequester != null) {
-                    Modifier.focusRequester(focusRequester)
-                } else {
-                    Modifier
-                }
+                val chipModifier = Modifier
+                    .fillMaxWidth()
+                    .focusProperties { canFocus = false }
+                    .then(
+                        if (focused) {
+                            Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
+                        } else {
+                            Modifier
+                        }
+                    )
                 GridFocusSurface(
                     onClick = { onGenreSelected(index) },
-                    modifier = chipModifier
-                        .fillMaxWidth()
-                        .then(
-                            if (focused) {
-                                Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
-                            } else {
-                                Modifier
-                            }
-                        ),
+                    modifier = chipModifier,
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = when {
@@ -777,8 +792,7 @@ fun VodContentFilterPanel(
     focusedFilter: VodContentFilter,
     panelFocused: Boolean,
     onFilterSelected: (VodContentFilter) -> Unit,
-    modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    modifier: Modifier = Modifier
 ) {
     val filters = VodContentFilter.entries
     Column(
@@ -801,25 +815,21 @@ fun VodContentFilterPanel(
                 VodContentFilter.MOVIES -> "Movies"
                 VodContentFilter.SERIES -> "Series"
             }
-            val chipModifier = if (filter == filters.first() && focusRequester != null) {
-                Modifier.focusRequester(focusRequester)
-            } else {
-                Modifier
-            }
+            val chipModifier = Modifier
+                .size(44.dp)
+                .focusProperties { canFocus = false }
+                .then(
+                    if (focused) {
+                        Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
+                    } else if (selected) {
+                        Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                    } else {
+                        Modifier
+                    }
+                )
             GridFocusSurface(
                 onClick = { onFilterSelected(filter) },
-                modifier = chipModifier
-                    .size(44.dp)
-                    .focusProperties { canFocus = false }
-                    .then(
-                        if (focused) {
-                            Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
-                        } else if (selected) {
-                            Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                        } else {
-                            Modifier
-                        }
-                    ),
+                modifier = chipModifier,
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = if (selected) Color(0xFF2A2A2A) else Color(0xFF141414),

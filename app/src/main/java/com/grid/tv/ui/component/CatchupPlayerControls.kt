@@ -1,6 +1,8 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +33,7 @@ fun CatchupPlayerControlsOverlay(
     transportFocusIndex: Int,
     jumpToLiveFocused: Boolean,
     seekTooltip: String?,
+    playPauseFocusRequester: FocusRequester? = null,
     onJumpToLive: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -82,12 +87,21 @@ fun CatchupPlayerControlsOverlay(
             verticalAlignment = Alignment.CenterVertically
         ) {
             transportLabels.forEachIndexed { index, label ->
-                EpgActionButton(
-                    label = label,
-                    isFocused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index,
-                    onClick = {},
-                    compact = true
-                )
+                val chipModifier = if (index == 2 && playPauseFocusRequester != null) {
+                    Modifier
+                        .focusRequester(playPauseFocusRequester)
+                        .focusable()
+                } else {
+                    Modifier
+                }
+                Box(modifier = chipModifier) {
+                    EpgActionButton(
+                        label = label,
+                        isFocused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index,
+                        onClick = {},
+                        compact = true
+                    )
+                }
             }
         }
 

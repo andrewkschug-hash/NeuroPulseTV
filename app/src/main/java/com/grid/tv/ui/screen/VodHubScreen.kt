@@ -266,8 +266,6 @@ fun VodHubScreen(
     }
 
     val rootFocusRequester = remember { FocusRequester() }
-    val filterPanelFocusRequester = remember { FocusRequester() }
-    val genrePanelFocusRequester = remember { FocusRequester() }
     val heroPlayFocusRequester = remember { FocusRequester() }
     val heroMoreInfoFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
@@ -305,12 +303,9 @@ fun VodHubScreen(
                 searchQuery.isBlank() &&
                 !showInlineSearch ->
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.FILTER_PANEL ->
-                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.GENRE_PANEL ->
-                genrePanelFocusRequester.requestFocusSafelyAfterLayout()
-            // TOP_BAR and idle transitions: avoid forcing root focus — it crashes when
-            // the previous focused child was just unmounted (ActiveParent with no child).
+            focusZone == VodFocusZone.FILTER_PANEL || focusZone == VodFocusZone.GENRE_PANEL ->
+                rootFocusRequester.requestFocusSafelyAfterLayout()
+            // TOP_BAR: root retains focus for manual D-pad routing via onPreviewKeyEvent.
         }
     }
 
@@ -719,7 +714,8 @@ fun VodHubScreen(
             profileMenuOpen = false
             true
         }
-        focusZone == VodFocusZone.CONTENT || focusZone == VodFocusZone.HERO || focusZone == VodFocusZone.FILTER_PANEL -> {
+        focusZone == VodFocusZone.CONTENT || focusZone == VodFocusZone.HERO ||
+            focusZone == VodFocusZone.FILTER_PANEL || focusZone == VodFocusZone.GENRE_PANEL -> {
             focusZone = VodFocusZone.TOP_BAR
             topBarFocusIndex = if (showInlineSearch) {
                 GridNavTabs.indexOf(EpgNavTab.Search).coerceAtLeast(0)
@@ -833,7 +829,6 @@ fun VodHubScreen(
                         onFilterSelected = { filter ->
                             applyContentFilter(VodContentFilter.entries.indexOf(filter).coerceAtLeast(0))
                         },
-                        focusRequester = filterPanelFocusRequester,
                         modifier = Modifier.fillMaxHeight()
                     )
                 }
@@ -845,7 +840,6 @@ fun VodHubScreen(
                         focusedIndex = genreFocusIndex,
                         panelFocused = focusZone == VodFocusZone.GENRE_PANEL,
                         onGenreSelected = ::applyGenre,
-                        focusRequester = genrePanelFocusRequester,
                         modifier = Modifier.fillMaxHeight()
                     )
                 }

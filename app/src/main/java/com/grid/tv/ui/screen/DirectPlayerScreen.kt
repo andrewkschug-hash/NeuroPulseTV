@@ -20,6 +20,8 @@ import androidx.compose.runtime.SideEffect
 import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -54,6 +56,7 @@ import com.grid.tv.player.isCodecCapabilityError
 import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
 import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import androidx.compose.foundation.background
@@ -329,6 +332,7 @@ fun DirectPlayerScreen(
     var seekRepeatCount by remember { mutableIntStateOf(0) }
     var seekTooltip by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val playPauseFocusRequester = remember { FocusRequester() }
 
     fun seekDeltaForScrub(): Long = if (seekRepeatCount > 3) 300_000L else 30_000L
 
@@ -337,8 +341,24 @@ fun DirectPlayerScreen(
         overlayToken++
     }
 
+    fun restoreTransportFocus() {
+        if (isRecordedPlayback || isCatchupPlayback) {
+            focusZone = RecordedPlayerFocusZone.TRANSPORT
+        } else {
+            vodFocusZone = VodPlayerFocusZone.TRANSPORT
+        }
+        transportFocusIndex = 2
+    }
+
+    fun revealOverlayOnly() {
+        revealOverlay()
+        restoreTransportFocus()
+    }
+
     LaunchedEffect(showOverlay, overlayToken, showSubtitlePanel) {
         if (showOverlay && !showSubtitlePanel) {
+            restoreTransportFocus()
+            playPauseFocusRequester.requestFocusSafelyAfterLayout()
             delay(4_000)
             showOverlay = false
             seekTooltip = null
@@ -419,6 +439,7 @@ fun DirectPlayerScreen(
         when (key) {
             Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (vodFocusZone) {
                     VodPlayerFocusZone.TRANSPORT -> when (transportFocusIndex) {
@@ -438,6 +459,7 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionUp -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 seekRepeatCount = 0
                 when (vodFocusZone) {
@@ -524,6 +546,7 @@ fun DirectPlayerScreen(
         when (key) {
             Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
             Key.Enter, Key.DirectionCenter -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (focusZone) {
                     RecordedPlayerFocusZone.TRANSPORT -> when (transportFocusIndex) {
@@ -564,6 +587,7 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionUp -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 seekRepeatCount = 0
                 jumpToLiveFocused = false
@@ -624,16 +648,22 @@ fun DirectPlayerScreen(
         modifier = Modifier
             .fillMaxSize()
             .focusable()
-            .onPreviewKeyEvent {
-                if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            .onPreviewKeyEvent { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+
+                val isEnter = keyEvent.key == Key.DirectionCenter ||
+                    keyEvent.key == Key.Enter ||
+                    keyEvent.key == Key.NumPadEnter
+                val isUp = keyEvent.key == Key.DirectionUp
+
+                if (!showOverlay && (isEnter || isUp)) {
+                    revealOverlayOnly()
+                    return@onPreviewKeyEvent true
+                }
+
                 when {
-                    isRecordedPlayback || isCatchupPlayback -> handlePlaybackKey(it.key)
-                    else -> {
-                        if (it.key !in setOf(Key.Back, Key.Escape)) {
-                            revealOverlay()
-                        }
-                        handleVodPlaybackKey(it.key)
-                    }
+                    isRecordedPlayback || isCatchupPlayback -> handlePlaybackKey(keyEvent.key)
+                    else -> handleVodPlaybackKey(keyEvent.key)
                 }
             }
     ) {
@@ -670,6 +700,7 @@ fun DirectPlayerScreen(
                     transportFocusIndex = transportFocusIndex,
                     bottomFocusIndex = bottomFocusIndex,
                     seekTooltip = seekTooltip,
+                    playPauseFocusRequester = playPauseFocusRequester,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -690,6 +721,7 @@ fun DirectPlayerScreen(
                     transportFocusIndex = transportFocusIndex,
                     jumpToLiveFocused = jumpToLiveFocused && focusZone == RecordedPlayerFocusZone.BOTTOM,
                     seekTooltip = seekTooltip,
+                    playPauseFocusRequester = playPauseFocusRequester,
                     onJumpToLive = {
                         playerViewRef[0]?.player = null
                         onJumpToLive(catchupSession.channelId)
@@ -715,6 +747,7 @@ fun DirectPlayerScreen(
                         seekTooltip = seekTooltip,
                         subtitlesEnabled = subtitleSettings.subtitlesEnabled,
                         showSubtitlePanel = showSubtitlePanel,
+                        playPauseFocusRequester = playPauseFocusRequester,
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                     if (showSubtitlePanel) {
