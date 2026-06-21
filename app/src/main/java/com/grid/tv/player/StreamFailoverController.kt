@@ -183,6 +183,8 @@ class StreamFailoverController @Inject constructor(
             return
         }
         if (bufferingSinceMs == 0L) bufferingSinceMs = System.currentTimeMillis()
+        // Mid-stream rebuffer: keep the last rendered frame; do not tear down playback.
+        if (exo.currentPosition > MID_STREAM_BUFFER_GRACE_POSITION_MS) return
         if (System.currentTimeMillis() - bufferingSinceMs >= EXCESSIVE_BUFFER_MS) {
             requestRecovery(FailoverTrigger.EXCESSIVE_BUFFERING)
         }
@@ -231,10 +233,7 @@ class StreamFailoverController @Inject constructor(
         recoveryJob = scope.launch {
             wasRecovering = true
             channel?.id?.let { analytics.recordFailover(it) }
-            _uiState.value = StreamFailoverUiState(
-                isRecovering = true,
-                message = RECOVERING_MESSAGE
-            )
+            _uiState.value = StreamFailoverUiState(isRecovering = true)
 
             val steps = buildRecoverySteps()
             for (step in steps) {
@@ -254,11 +253,7 @@ class StreamFailoverController @Inject constructor(
                 }
                 delay(STEP_GAP_MS)
             }
-            // Stay in recovering state without surfacing technical errors.
-            _uiState.value = StreamFailoverUiState(
-                isRecovering = true,
-                message = RECOVERING_MESSAGE
-            )
+            _uiState.value = StreamFailoverUiState(isRecovering = true)
         }
     }
 
@@ -293,14 +288,7 @@ class StreamFailoverController @Inject constructor(
 
     private fun showRestoredBanner() {
         restoredHideJob?.cancel()
-        _uiState.value = StreamFailoverUiState(
-            showRestored = true,
-            message = RESTORED_MESSAGE
-        )
-        restoredHideJob = scope.launch {
-            delay(RESTORED_VISIBLE_MS)
-            _uiState.value = StreamFailoverUiState()
-        }
+        _uiState.value = StreamFailoverUiState()
     }
 
     private fun clearRestoredBanner() {
@@ -335,9 +323,9 @@ class StreamFailoverController @Inject constructor(
 
         private const val TUNE_TIMEOUT_MS = 22_000L
         private const val EXCESSIVE_BUFFER_MS = 18_000L
+        private const val MID_STREAM_BUFFER_GRACE_POSITION_MS = 5_000L
         private const val UNHEALTHY_GRACE_MS = 4_000L
         private const val STEP_TIMEOUT_MS = 8_000L
         private const val STEP_GAP_MS = 1_200L
-        private const val RESTORED_VISIBLE_MS = 2_500L
     }
 }

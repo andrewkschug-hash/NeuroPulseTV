@@ -1,6 +1,8 @@
 package com.grid.tv.player
 
 import android.content.Context
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
@@ -93,11 +95,20 @@ class PlayerFactory @Inject constructor() {
 
         val mediaSourceFactory = IptvMediaSourceFactory(dataSourceFactory, hlsMediaSourceFactory)
 
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         return ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
+            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
             .build()
+            .also { exo ->
+                exo.addListener(PlayerAudioRecoveryListener(exo))
+            }
     }
 
     /**

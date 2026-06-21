@@ -807,4 +807,38 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_27_28 = object : Migration(27, 28) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS profile_genre_affinity (
+                    profileId INTEGER NOT NULL,
+                    genre TEXT NOT NULL,
+                    score INTEGER NOT NULL DEFAULT 0,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(profileId, genre)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_profile_genre_affinity_profileId ON profile_genre_affinity(profileId)"
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS featured_banner_stats (
+                    profileId INTEGER NOT NULL,
+                    contentKey TEXT NOT NULL,
+                    impressionCount INTEGER NOT NULL DEFAULT 0,
+                    clickCount INTEGER NOT NULL DEFAULT 0,
+                    lastShownAt INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(profileId, contentKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_featured_banner_stats_profileId ON featured_banner_stats(profileId)"
+            )
+        }
+    }
 }

@@ -19,10 +19,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,8 +93,13 @@ fun SplitViewScreen(
     val playbackContext = remember {
         MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
     }
-    val players = remember(playbackContext) {
-        List(SplitViewViewModel.MAX_PANES) { viewModel.createPanePlayer(playbackContext) }
+    val channelPlayers = remember { mutableStateMapOf<Long, ExoPlayer>() }
+
+    fun releaseChannelPlayer(channelId: Long) {
+        channelPlayers.remove(channelId)?.let { player ->
+            player.clearVideoSurface()
+            player.release()
+        }
     }
 
     var showControls by remember { mutableStateOf(true) }
@@ -100,7 +108,13 @@ fun SplitViewScreen(
     val rootFocusRequester = remember { FocusRequester() }
 
     DisposableEffect(Unit) {
-        onDispose { players.forEach { it.release() } }
+        onDispose {
+            channelPlayers.values.forEach { player ->
+                player.clearVideoSurface()
+                player.release()
+            }
+            channelPlayers.clear()
+        }
     }
 
     LaunchedEffect(primaryChannelId) {
@@ -111,24 +125,37 @@ fun SplitViewScreen(
         if (loadFailed) onBack()
     }
 
-    LaunchedEffect(paneChannels.map { it?.id to it?.streamUrl }) {
-        paneChannels.forEachIndexed { index, channel ->
-            val player = players[index]
-            val url = channel?.streamUrl
-            if (!url.isNullOrBlank()) {
-                player.setMediaItem(MediaItem.fromUri(url))
-                player.prepare()
-                player.playWhenReady = true
+    LaunchedEffect(paneChannels.mapNotNull { it?.id }) {
+        val activeIds = paneChannels.mapNotNull { it?.id }.toSet()
+        activeIds.forEach { channelId ->
+            if (channelId !in channelPlayers) {
+                channelPlayers[channelId] = viewModel.createPanePlayer(playbackContext)
             }
         }
-        for (index in paneChannels.size until SplitViewViewModel.MAX_PANES) {
-            players[index].stop()
-            players[index].clearMediaItems()
+        (channelPlayers.keys - activeIds).forEach(::releaseChannelPlayer)
+    }
+
+    LaunchedEffect(paneChannels.map { it?.id to it?.streamUrl }) {
+        paneChannels.forEach { channel ->
+            val ch = channel ?: return@forEach
+            val player = channelPlayers[ch.id] ?: return@forEach
+            val url = ch.streamUrl
+            if (url.isBlank()) return@forEach
+            val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (currentUri == url) return@forEach
+            player.clearVideoSurface()
+            player.stop()
+            player.clearMediaItems()
+            delay(75)
+            player.setMediaItem(MediaItem.fromUri(url))
+            player.prepare()
+            player.playWhenReady = true
         }
     }
 
-    LaunchedEffect(audioPaneIndex, paneChannels.size) {
-        players.forEachIndexed { index, player ->
+    LaunchedEffect(audioPaneIndex, paneChannels.mapNotNull { it?.id }) {
+        paneChannels.forEachIndexed { index, channel ->
+            val player = channel?.id?.let { channelPlayers[it] } ?: return@forEachIndexed
             player.volume = if (index == audioPaneIndex) 1f else 0f
         }
     }
@@ -271,7 +298,7 @@ fun SplitViewScreen(
     ) {
         SplitPaneGrid(
             paneChannels = paneChannels,
-            players = players,
+            channelPlayers = channelPlayers,
             paneIndex = paneIndex,
             audioPaneIndex = audioPaneIndex
         )
@@ -415,7 +442,7 @@ private fun SplitPaneActionMenu(
 @Composable
 private fun SplitPaneGrid(
     paneChannels: List<Channel?>,
-    players: List<ExoPlayer>,
+    channelPlayers: SnapshotStateMap<Long, ExoPlayer>,
     paneIndex: Int,
     audioPaneIndex: Int
 ) {
@@ -431,9 +458,10 @@ private fun SplitPaneGrid(
                 fontSize = 16.sp
             )
         }
-        1 -> SplitPane(
-            label = paneChannels[0]?.name ?: "Channel",
-            player = players[0],
+        1 -> SplitPaneSlot(
+            paneIndex = 0,
+            channel = paneChannels[0],
+            channelPlayers = channelPlayers,
             focused = paneIndex == 0,
             activeAudio = audioPaneIndex == 0,
             modifier = Modifier.fillMaxSize()
@@ -443,9 +471,10 @@ private fun SplitPaneGrid(
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             paneChannels.forEachIndexed { index, channel ->
-                SplitPane(
-                    label = channel?.name ?: "Stream ${index + 1}",
-                    player = players[index],
+                SplitPaneSlot(
+                    paneIndex = index,
+                    channel = channel,
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == index,
                     activeAudio = audioPaneIndex == index,
                     modifier = Modifier.weight(1f)
@@ -462,24 +491,27 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                SplitPane(
-                    label = paneChannels[0]?.name ?: "Stream 1",
-                    player = players[0],
+                SplitPaneSlot(
+                    paneIndex = 0,
+                    channel = paneChannels[0],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 0,
                     activeAudio = audioPaneIndex == 0,
                     modifier = Modifier.weight(1f)
                 )
-                SplitPane(
-                    label = paneChannels[1]?.name ?: "Stream 2",
-                    player = players[1],
+                SplitPaneSlot(
+                    paneIndex = 1,
+                    channel = paneChannels[1],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 1,
                     activeAudio = audioPaneIndex == 1,
                     modifier = Modifier.weight(1f)
                 )
             }
-            SplitPane(
-                label = paneChannels[2]?.name ?: "Stream 3",
-                player = players[2],
+            SplitPaneSlot(
+                paneIndex = 2,
+                channel = paneChannels[2],
+                channelPlayers = channelPlayers,
                 focused = paneIndex == 2,
                 activeAudio = audioPaneIndex == 2,
                 modifier = Modifier
@@ -497,16 +529,18 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                SplitPane(
-                    label = paneChannels[0]?.name ?: "Stream 1",
-                    player = players[0],
+                SplitPaneSlot(
+                    paneIndex = 0,
+                    channel = paneChannels[0],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 0,
                     activeAudio = audioPaneIndex == 0,
                     modifier = Modifier.weight(1f)
                 )
-                SplitPane(
-                    label = paneChannels[1]?.name ?: "Stream 2",
-                    player = players[1],
+                SplitPaneSlot(
+                    paneIndex = 1,
+                    channel = paneChannels[1],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 1,
                     activeAudio = audioPaneIndex == 1,
                     modifier = Modifier.weight(1f)
@@ -518,22 +552,47 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                SplitPane(
-                    label = paneChannels[2]?.name ?: "Stream 3",
-                    player = players[2],
+                SplitPaneSlot(
+                    paneIndex = 2,
+                    channel = paneChannels[2],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 2,
                     activeAudio = audioPaneIndex == 2,
                     modifier = Modifier.weight(1f)
                 )
-                SplitPane(
-                    label = paneChannels[3]?.name ?: "Stream 4",
-                    player = players[3],
+                SplitPaneSlot(
+                    paneIndex = 3,
+                    channel = paneChannels[3],
+                    channelPlayers = channelPlayers,
                     focused = paneIndex == 3,
                     activeAudio = audioPaneIndex == 3,
                     modifier = Modifier.weight(1f)
                 )
             }
         }
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun SplitPaneSlot(
+    paneIndex: Int,
+    channel: Channel?,
+    channelPlayers: SnapshotStateMap<Long, ExoPlayer>,
+    focused: Boolean,
+    activeAudio: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val ch = channel ?: return
+    val player = channelPlayers[ch.id] ?: return
+    key(ch.id, paneIndex) {
+        SplitPane(
+            label = ch.name,
+            player = player,
+            focused = focused,
+            activeAudio = activeAudio,
+            modifier = modifier
+        )
     }
 }
 
@@ -570,11 +629,18 @@ private fun SplitPane(
                 PlayerView(ctx).apply {
                     useController = false
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    this.player = player
+                    setKeepContentOnPlayerReset(true)
                 }
             },
             update = { view ->
-                if (view.player !== player) view.player = player
+                if (view.player !== player) {
+                    view.player = null
+                    view.player = player
+                }
+            },
+            onRelease = { view ->
+                view.player = null
+                player.clearVideoSurface()
             }
         )
         Column(

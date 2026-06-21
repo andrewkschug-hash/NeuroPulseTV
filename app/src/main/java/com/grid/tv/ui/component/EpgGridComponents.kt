@@ -207,8 +207,6 @@ fun EpgTopBar(
     recordingIndicatorFocused: Boolean = false,
     onRecordingIndicatorClick: () -> Unit = {},
     miniPlayer: @Composable () -> Unit,
-    vodSearchFocused: Boolean = false,
-    onVodSearchClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val clockNow = rememberEpgNowMillis(EpgNowTicker.CLOCK_INTERVAL_MS)
@@ -234,12 +232,6 @@ fun EpgTopBar(
                 onProfileClick = onProfileClick,
                 modifier = Modifier.fillMaxWidth(),
                 trailing = {
-                    if (onVodSearchClick != null) {
-                        VodTopBarSearchIcon(
-                            focused = vodSearchFocused,
-                            onClick = onVodSearchClick
-                        )
-                    }
                     if (isRecording) {
                         RecordingIndicatorChip(
                             title = activeRecordingTitle,

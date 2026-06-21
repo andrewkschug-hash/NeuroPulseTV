@@ -13,7 +13,9 @@ import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.domain.model.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -91,13 +93,10 @@ class LivePlayerManager @Inject constructor(
         override fun reconnectSameStream() {
             val exo = player ?: return
             val url = currentStreamUrl ?: return
-            playbackMonitor.onTuneStarted(url)
-            exo.stop()
-            exo.clearMediaItems()
-            if (url.isNotBlank()) {
-                exo.setMediaItem(buildLiveMediaItem(url))
-                exo.prepare()
-            }
+            if (url.isBlank()) return
+            val resumeMs = exo.currentPosition.coerceAtLeast(0L)
+            exo.setMediaItem(buildLiveMediaItem(url), resumeMs)
+            exo.prepare()
             exo.playWhenReady = mode != Mode.IDLE
             applyVolume()
         }
@@ -116,6 +115,7 @@ class LivePlayerManager @Inject constructor(
 
     private var fullscreenSessions: Int = 0
     private var volumeFadeMultiplier: Float = 1f
+    private var streamTransitionJob: Job? = null
 
     init {
         playbackMonitor.status.onEach { status ->
@@ -231,6 +231,41 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot: Channel? = null
     ) {
         lastContext = context.applicationContext
+
+        if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
+            val exo = player ?: getOrCreatePlayer(context)
+            channelSnapshot?.let { currentChannel = it }
+            if (exo.playbackState == Player.STATE_READY) {
+                exo.playWhenReady = true
+                applyVolume()
+                refreshTimeshiftWindow(exo)
+                playbackMonitor.onStreamContinued(exo)
+                return
+            }
+        }
+
+        streamTransitionJob?.cancel()
+        streamTransitionJob = monitorScope.launch {
+            executeTuneChannel(
+                context = context,
+                channelId = channelId,
+                streamUrl = streamUrl,
+                catchupDays = catchupDays,
+                channelSnapshot = channelSnapshot
+            )
+        }
+    }
+
+    private suspend fun executeTuneChannel(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int,
+        channelSnapshot: Channel?
+    ) {
+        flushPlayerPipeline()
+        delay(AUDIO_PIPELINE_FLUSH_DELAY_MS)
+
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
         streamFailover.attach(exo, failoverActions)
@@ -248,18 +283,6 @@ class LivePlayerManager @Inject constructor(
                 isFavorite = false
             )
         streamFailover.configure(failoverChannel, streamUrl)
-
-        if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
-            channelSnapshot?.let { currentChannel = it }
-            val state = exo.playbackState
-            if (state == Player.STATE_READY) {
-                exo.playWhenReady = true
-                applyVolume()
-                refreshTimeshiftWindow(exo)
-                playbackMonitor.onStreamContinued(exo)
-                return
-            }
-        }
 
         playbackMonitor.onTuneStarted(streamUrl)
         this.catchupDays = catchupDays
@@ -290,8 +313,6 @@ class LivePlayerManager @Inject constructor(
         _activeChannelId.value = channelId
         pendingJumpToLive = true
         Log.i(TAG, "tuneChannel id=$channelId url=$streamUrl")
-        exo.stop()
-        exo.clearMediaItems()
         exo.setMediaItem(buildLiveMediaItem(streamUrl))
         exo.prepare()
         exo.playWhenReady = true
@@ -307,25 +328,43 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot: Channel? = null
     ) {
         lastContext = context.applicationContext
-        val exo = getOrCreatePlayer(context)
-        playbackMonitor.attach(exo)
-        streamFailover.attach(exo, failoverActions)
+        streamTransitionJob?.cancel()
+        streamTransitionJob = monitorScope.launch {
+            flushPlayerPipeline()
+            delay(AUDIO_PIPELINE_FLUSH_DELAY_MS)
 
-        playbackMonitor.onTuneStarted(streamUrl)
-        this.catchupDays = catchupDays
-        currentChannelId = channelId
-        setActiveStreamUrl(streamUrl)
-        channelSnapshot?.let { currentChannel = it }
-        _activeChannelId.value = channelId
-        pendingJumpToLive = true
-        Log.i(TAG, "switchToStreamUrl id=$channelId url=$streamUrl")
+            val exo = getOrCreatePlayer(context)
+            playbackMonitor.attach(exo)
+            streamFailover.attach(exo, failoverActions)
+
+            playbackMonitor.onTuneStarted(streamUrl)
+            this@LivePlayerManager.catchupDays = catchupDays
+            currentChannelId = channelId
+            setActiveStreamUrl(streamUrl)
+            channelSnapshot?.let { currentChannel = it }
+            _activeChannelId.value = channelId
+            pendingJumpToLive = true
+            Log.i(TAG, "switchToStreamUrl id=$channelId url=$streamUrl")
+            exo.setMediaItem(buildLiveMediaItem(streamUrl))
+            exo.prepare()
+            exo.playWhenReady = mode != Mode.IDLE
+            applyVolume()
+            streamFailover.onStreamSwitched(streamUrl)
+        }
+    }
+
+    private fun flushPlayerPipeline() {
+        val exo = player ?: return
+        playbackMonitor.detach()
+        streamFailover.detach()
+        exo.removeListener(timeshiftListener)
+        exo.playWhenReady = false
         exo.stop()
+        exo.clearVideoSurface()
         exo.clearMediaItems()
-        exo.setMediaItem(buildLiveMediaItem(streamUrl))
-        exo.prepare()
-        exo.playWhenReady = mode != Mode.IDLE
-        applyVolume()
-        streamFailover.onStreamSwitched(streamUrl)
+        exo.release()
+        player = null
+        markPlayerReplaced()
     }
 
     private fun buildLiveMediaItem(streamUrl: String): MediaItem =
@@ -333,6 +372,7 @@ class LivePlayerManager @Inject constructor(
 
     companion object {
         private const val TAG = "LivePlayerManager"
+        private const val AUDIO_PIPELINE_FLUSH_DELAY_MS = 75L
     }
 
     fun lastChannel(): Channel? = _lastChannel.value
@@ -555,9 +595,14 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun release(context: Context? = null) {
+        streamTransitionJob?.cancel()
         playbackMonitor.detach()
         streamFailover.detach()
         player?.removeListener(timeshiftListener)
+        player?.playWhenReady = false
+        player?.stop()
+        player?.clearVideoSurface()
+        player?.clearMediaItems()
         player?.release()
         player = null
         currentChannelId = null

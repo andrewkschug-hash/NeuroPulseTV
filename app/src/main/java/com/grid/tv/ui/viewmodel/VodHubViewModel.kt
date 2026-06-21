@@ -4,16 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.repository.ContinueWatchingRepository
-import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
-import com.grid.tv.domain.model.buildVodWallRows
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
+import com.grid.tv.feature.recommendation.FeaturedContentRanker
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
+import com.grid.tv.feature.vod.curation.FeaturedCurationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,8 +21,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,9 +33,11 @@ class VodHubViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
-    private val playlistImportCoordinator: PlaylistImportCoordinator
+    private val playlistImportCoordinator: PlaylistImportCoordinator,
+    private val featuredCurationRepository: FeaturedCurationRepository
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
+    private val featuredContentRanker = FeaturedContentRanker()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -70,22 +74,17 @@ class VodHubViewModel @Inject constructor(
             tasteGenomeEngine.somethingDifferent(catalog, cw, enrichment, limit = 20)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val featuredCarousel: StateFlow<List<VodItem>> =
-        combine(recommendedForYou, trendingNow, repository.vodCatalogRevision()) { recommended, trending, _ ->
-            val merged = (recommended.take(5) + trending.take(5))
-                .distinctBy { "${it.playlistId}_${it.streamId}" }
-                .take(5)
-            merged
-        }.flatMapLatest { merged ->
-            if (merged.isNotEmpty()) {
-                flow { emit(merged) }
-            } else {
-                flow { emit(repository.vodRecent(limit = 5)) }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val vodCategories = repository.vodCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _featuredCarousel = MutableStateFlow<List<VodItem>>(emptyList())
+    val featuredCarousel: StateFlow<List<VodItem>> = _featuredCarousel.asStateFlow()
 
     private val _heroIndex = MutableStateFlow(0)
     val heroIndex: StateFlow<Int> = _heroIndex.asStateFlow()
+
+    private var featuredSessionKey: Pair<Long, Long>? = null
+    private var lastRecordedImpressionKey: String? = null
 
     private val _contentFilter = MutableStateFlow(VodContentFilter.ALL)
     val contentFilter: StateFlow<VodContentFilter> = _contentFilter.asStateFlow()
@@ -138,6 +137,36 @@ class VodHubViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            combine(
+                recommendationSample,
+                enrichmentByKey,
+                vodCategories,
+                repository.vodCatalogRevision(),
+                featuredCurationRepository.observeActiveProfileId()
+            ) { catalog, enrichment, categories, catalogRevision, profileId ->
+                FeaturedSelectionInputs(
+                    catalog = catalog,
+                    enrichment = enrichment,
+                    categories = categories,
+                    catalogRevision = catalogRevision,
+                    profileId = profileId ?: 0L
+                )
+            }
+                .distinctUntilChanged { old, new ->
+                    old.profileId == new.profileId &&
+                        old.catalogRevision == new.catalogRevision &&
+                        old.catalog.size == new.catalog.size
+                }
+                .collect { inputs ->
+                    refreshFeaturedSelection(inputs, force = false)
+                }
+        }
+        viewModelScope.launch {
+            combine(heroMovie, heroIndex) { hero, _ -> hero }.collect { hero ->
+                hero?.let { recordHeroImpression(it) }
+            }
+        }
     }
 
     fun refreshCatalog() {
@@ -163,6 +192,11 @@ class VodHubViewModel @Inject constructor(
 
     fun enrichOnBrowse(item: VodItem) {
         prefetchEnrichmentForItem(item)
+        recordVodSelection(item)
+    }
+
+    fun onHeroInteraction(item: VodItem) {
+        recordHeroClick(item)
     }
 
     suspend fun awaitEnrichment(item: VodItem): TitleEnrichmentEntity? {
@@ -191,6 +225,73 @@ class VodHubViewModel @Inject constructor(
     fun displayRating(item: VodItem, enrichment: TitleEnrichmentEntity?): String? {
         enrichment?.rating?.takeIf { it > 0.0 }?.let { return String.format("%.1f", it) }
         return item.rating?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun refreshFeaturedSelection(inputs: FeaturedSelectionInputs, force: Boolean) {
+        if (inputs.catalog.isEmpty()) {
+            _featuredCarousel.value = emptyList()
+            _heroIndex.value = 0
+            featuredSessionKey = null
+            return
+        }
+
+        val profileId = inputs.profileId
+        val sessionKey = profileId to inputs.catalogRevision
+        if (!force && featuredSessionKey == sessionKey && _featuredCarousel.value.isNotEmpty()) {
+            return
+        }
+
+        val selection = featuredContentRanker.selectFeaturedContent(
+            catalog = inputs.catalog,
+            categories = inputs.categories,
+            enrichmentByProviderKey = inputs.enrichment,
+            genreAffinities = featuredCurationRepository.genreAffinities(profileId),
+            bannerStats = featuredCurationRepository.bannerStats(profileId),
+            sessionSeed = sessionKey.hashCode().toLong()
+        )
+
+        val carousel = selection.carousel.ifEmpty {
+            repository.vodRecent(limit = 5).filter { item ->
+                featuredContentRanker.isEligibleForFeatured(
+                    item = item,
+                    enrichment = enrichmentFor(item, inputs.enrichment)
+                )
+            }
+        }
+
+        featuredSessionKey = sessionKey
+        _featuredCarousel.value = carousel
+        _heroIndex.value = selection.heroIndex.coerceIn(0, (carousel.size - 1).coerceAtLeast(0))
+        lastRecordedImpressionKey = null
+    }
+
+    private fun recordVodSelection(item: VodItem) {
+        viewModelScope.launch {
+            val profileId = featuredCurationRepository.activeProfileId() ?: return@launch
+            val enrichment = enrichmentFor(item)
+            val genres = buildList {
+                enrichment?.genres?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }?.let(::addAll)
+                item.genre?.split(',')?.map { it.trim() }?.filter { it.isNotBlank() }?.let(::addAll)
+            }
+            featuredCurationRepository.recordGenreSelection(profileId, genres)
+        }
+    }
+
+    private fun recordHeroImpression(item: VodItem) {
+        val key = featuredCurationRepository.contentKey(item)
+        if (lastRecordedImpressionKey == key) return
+        lastRecordedImpressionKey = key
+        viewModelScope.launch {
+            val profileId = featuredCurationRepository.activeProfileId() ?: return@launch
+            featuredCurationRepository.recordBannerImpression(profileId, item)
+        }
+    }
+
+    private fun recordHeroClick(item: VodItem) {
+        viewModelScope.launch {
+            val profileId = featuredCurationRepository.activeProfileId() ?: return@launch
+            featuredCurationRepository.recordBannerClick(profileId, item)
+        }
     }
 
     private fun prefetchEnrichmentForItem(item: VodItem) {
@@ -228,4 +329,12 @@ class VodHubViewModel @Inject constructor(
         val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
         return match.value.toIntOrNull()
     }
+
+    private data class FeaturedSelectionInputs(
+        val catalog: List<VodItem>,
+        val enrichment: Map<String, TitleEnrichmentEntity>,
+        val categories: List<com.grid.tv.domain.model.VodCategory>,
+        val catalogRevision: Long,
+        val profileId: Long
+    )
 }

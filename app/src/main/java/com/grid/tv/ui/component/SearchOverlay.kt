@@ -135,6 +135,17 @@ fun SearchOverlay(
         selectableRows.getOrNull(index)?.item?.let(onResultSelected)
     }
 
+    fun moveFocusToSearchResults() {
+        focusZone = when {
+            selectableRows.isNotEmpty() -> SearchFocusZone.RESULTS
+            showRecentChips -> SearchFocusZone.RECENT
+            else -> SearchFocusZone.MIC
+        }
+        if (focusZone == SearchFocusZone.RESULTS && focusedIndex < 0) {
+            focusedIndex = 0
+        }
+    }
+
     fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
@@ -237,6 +248,7 @@ fun SearchOverlay(
                 onClear = onClear,
                 onMicClick = onMicClick,
                 onSelectAt = ::selectAt,
+                onImeSubmitted = ::moveFocusToSearchResults,
                 handleKey = ::handleKey
             )
 
@@ -369,6 +381,7 @@ private fun SearchInputRow(
     onClear: () -> Unit,
     onMicClick: () -> Unit,
     onSelectAt: (Int) -> Unit,
+    onImeSubmitted: () -> Unit,
     handleKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean
 ) {
     val leadingIcon = when (searchBarState) {
@@ -415,7 +428,8 @@ private fun SearchInputRow(
                 .height(52.dp),
             borderColorFocused = fieldBorderColor,
             borderColorUnfocused = fieldBorderColor.copy(alpha = 0.6f),
-            onPreviewKeyEvent = handleKey
+            onPreviewKeyEvent = handleKey,
+            onImeSubmitted = onImeSubmitted
         )
         MicButton(
             listening = searchBarState == SearchBarState.LISTENING,

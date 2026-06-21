@@ -81,7 +81,7 @@ import com.grid.tv.ui.component.buildPlayerSideMenuFocusOrder
 import com.grid.tv.ui.component.playerSideMenuFocusSection
 import com.grid.tv.ui.component.playerSideMenuFocusState
 import com.grid.tv.ui.component.RecordingPrecheckDialog
-import com.grid.tv.ui.component.StreamFailoverBanner
+import com.grid.tv.ui.component.StreamBufferingIndicator
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.playerPlaybackStatus
@@ -687,6 +687,7 @@ fun PlayerScreen(
                 PlayerView(ctx).apply {
                     useController = false
                     setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    setKeepContentOnPlayerReset(true)
                     controllerHideOnTouch = true
                     isFocusable = true
                     this.player = player
@@ -708,9 +709,12 @@ fun PlayerScreen(
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
         }
 
-        StreamFailoverBanner(
-            state = failoverUiState,
-            modifier = Modifier.align(Alignment.Center)
+        val showBufferingSpinner = isBuffering || failoverUiState.isRecovering
+        StreamBufferingIndicator(
+            visible = showBufferingSpinner,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 16.dp, end = 16.dp)
         )
 
         if (showSeekThumb && seekThumb != null) {
@@ -729,7 +733,6 @@ fun PlayerScreen(
             }
         }
 
-        val showBuffering = isBuffering || playbackStatus == StreamPlaybackStatus.LOADING
         val clockText = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
 
@@ -863,27 +866,6 @@ fun PlayerScreen(
                                     )
                                 }
                                 else -> Unit
-                            }
-                            if (showBuffering) {
-                                Text(
-                                    text = "Buffer",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontFamily = DmSansFamily,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier
-                                        .background(
-                                            Color.White.copy(alpha = 0.12f),
-                                            RoundedCornerShape(10.dp)
-                                        )
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                )
-                                Text(
-                                    text = "Loading…",
-                                    color = EpgColors.TextSecondary,
-                                    fontFamily = DmSansFamily,
-                                    fontSize = 11.sp
-                                )
                             }
                             if (isRecordingThisChannel) {
                                 Text(

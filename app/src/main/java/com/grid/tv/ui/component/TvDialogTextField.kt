@@ -21,11 +21,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -216,7 +218,10 @@ fun TvDialogSearchBar(
     backgroundColorFocused: Color = EpgColors.Accent.copy(alpha = 0.14f),
     backgroundColorUnfocused: Color = Color(0xFF13131A),
     onPreviewKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
-    onEditingChanged: (Boolean) -> Unit = {}
+    onEditingChanged: (Boolean) -> Unit = {},
+    onImeSubmitted: (() -> Unit)? = null,
+    downFocusRequester: FocusRequester? = null,
+    onFocusChanged: (Boolean) -> Unit = {}
 ) {
     var showDialog by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -243,6 +248,12 @@ fun TvDialogSearchBar(
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .focusRequester(focusRequester)
             .focusable(interactionSource = interactionSource)
+            .focusProperties {
+                downFocusRequester?.let { down = it }
+            }
+            .onFocusChanged { state ->
+                onFocusChanged(state.isFocused)
+            }
             .onPreviewKeyEvent { event ->
                 when {
                     isTextFieldActivateKey(event) -> {
@@ -271,6 +282,9 @@ fun TvDialogSearchBar(
             value = value,
             placeholder = placeholder,
             confirmLabel = confirmLabel,
+            imeAction = ImeAction.Search,
+            submitOnImeAction = true,
+            onImeSubmitted = onImeSubmitted,
             onConfirm = { confirmed ->
                 onValueChange(confirmed)
                 closeDialog()

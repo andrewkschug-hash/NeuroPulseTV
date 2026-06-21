@@ -32,6 +32,7 @@ import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
 import com.grid.tv.data.db.dao.VodWatchEventDao
 import com.grid.tv.data.db.dao.SeriesFollowDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.FeaturedCurationDao
 import com.grid.tv.data.db.dao.VodCategoryDao
 import com.grid.tv.data.db.dao.VodStreamDao
 import com.grid.tv.data.db.dao.SeriesShowDao
@@ -47,6 +48,8 @@ import com.grid.tv.data.db.entity.ChannelEntity
 import com.grid.tv.data.db.entity.ChannelScanEntity
 import com.grid.tv.data.db.entity.FavoriteEntity
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
+import com.grid.tv.data.db.entity.FeaturedBannerStatsEntity
+import com.grid.tv.data.db.entity.ProfileGenreAffinityEntity
 import com.grid.tv.data.db.entity.PlaylistEntity
 import com.grid.tv.data.db.entity.ProfileFavoriteEntity
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
@@ -121,9 +124,11 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         VodUserNotificationEntity::class,
         VodStreamEntity::class,
         VodCategoryEntity::class,
-        SeriesShowEntity::class
+        SeriesShowEntity::class,
+        ProfileGenreAffinityEntity::class,
+        FeaturedBannerStatsEntity::class
     ],
-    version = 27,
+    version = 28,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -165,6 +170,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun vodStreamDao(): VodStreamDao
     abstract fun vodCategoryDao(): VodCategoryDao
     abstract fun seriesShowDao(): SeriesShowDao
+    abstract fun featuredCurationDao(): FeaturedCurationDao
 
     /** Single transaction for VOD playlist refresh — avoids per-batch WAL fsync churn. */
     @Transaction

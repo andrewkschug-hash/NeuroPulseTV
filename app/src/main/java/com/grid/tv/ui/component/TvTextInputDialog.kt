@@ -1,5 +1,6 @@
 package com.grid.tv.ui.component
 
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -41,6 +42,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -75,13 +77,17 @@ fun TvTextInputDialog(
     placeholder: String = "",
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
-    confirmLabel: String = "Confirm"
+    confirmLabel: String = "Confirm",
+    imeAction: ImeAction = ImeAction.Done,
+    submitOnImeAction: Boolean = false,
+    onImeSubmitted: (() -> Unit)? = null
 ) {
     var draft by remember(value) { mutableStateOf(value) }
     var focusZone by remember { mutableStateOf(TvInputDialogFocus.Field) }
     val fieldFocusRequester = remember { FocusRequester() }
     val confirmFocusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val fieldInteraction = remember { MutableInteractionSource() }
@@ -95,15 +101,30 @@ fun TvTextInputDialog(
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
     }
 
-    fun confirm() {
+    fun hideKeyboardAndClearFieldFocus() {
         keyboard?.hide()
         TvRemoteKeyboard.dismissKeyboard(view)
+        focusManager.clearFocus(force = true)
+    }
+
+    fun confirm() {
+        hideKeyboardAndClearFieldFocus()
         onConfirm(draft)
     }
 
+    fun handleImeAction() {
+        hideKeyboardAndClearFieldFocus()
+        if (submitOnImeAction) {
+            onConfirm(draft)
+            onImeSubmitted?.invoke()
+        } else {
+            focusZone = TvInputDialogFocus.Confirm
+            scope.launch { confirmFocusRequester.requestFocusSafelyAfterLayout() }
+        }
+    }
+
     fun dismiss() {
-        keyboard?.hide()
-        TvRemoteKeyboard.dismissKeyboard(view)
+        hideKeyboardAndClearFieldFocus()
         onDismiss()
     }
 
@@ -129,8 +150,7 @@ fun TvTextInputDialog(
                 openKeyboard()
             }
             TvInputDialogFocus.Confirm -> {
-                keyboard?.hide()
-                TvRemoteKeyboard.dismissKeyboard(view)
+                hideKeyboardAndClearFieldFocus()
                 confirmFocusRequester.requestFocusSafelyAfterLayout()
             }
         }
@@ -233,9 +253,13 @@ fun TvTextInputDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = keyboardType,
-                        imeAction = ImeAction.None
+                        imeAction = imeAction
                     ),
-                    keyboardActions = KeyboardActions.Default,
+                    keyboardActions = KeyboardActions(
+                        onSearch = { handleImeAction() },
+                        onDone = { handleImeAction() },
+                        onGo = { handleImeAction() }
+                    ),
                     visualTransformation = if (isPassword) {
                         PasswordVisualTransformation()
                     } else {
@@ -263,7 +287,15 @@ fun TvTextInputDialog(
                                     dismiss()
                                     true
                                 }
-                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter,
+                                Key.Enter, Key.NumPadEnter -> {
+                                    if ((event.nativeKeyEvent.flags and AndroidKeyEvent.FLAG_SOFT_KEYBOARD) != 0) {
+                                        handleImeAction()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionCenter,
                                 Key.DirectionUp, Key.DirectionDown,
                                 Key.DirectionLeft, Key.DirectionRight -> false
                                 else -> false

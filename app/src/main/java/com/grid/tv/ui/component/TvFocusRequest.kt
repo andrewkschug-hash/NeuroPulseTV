@@ -3,9 +3,11 @@ package com.grid.tv.ui.component
 import android.util.Log
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.focus.FocusRequester
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
-private const val FOCUS_LOG_TAG = "Focus"
+private const val FOCUS_LOG_TAG = "TvFocus"
 
 /**
  * Requests focus without crashing when the target composable is not yet attached
@@ -16,14 +18,21 @@ fun FocusRequester.requestFocusSafely() {
         requestFocus()
     } catch (e: IllegalStateException) {
         Log.w(FOCUS_LOG_TAG, "requestFocus ignored: ${e.message}")
+    } catch (e: IllegalArgumentException) {
+        Log.w(
+            FOCUS_LOG_TAG,
+            "Intercepted focus request on an orphaned or unmounted node tree layout."
+        )
     }
 }
 
 /** Waits one frame for layout/canFocus, then [requestFocusSafely]. */
 suspend fun FocusRequester.requestFocusSafelyAfterLayout(delayMs: Long = 0L) {
     withFrameMillis { }
+    if (!currentCoroutineContext().isActive) return
     if (delayMs > 0L) {
         delay(delayMs)
+        if (!currentCoroutineContext().isActive) return
     }
     requestFocusSafely()
 }
