@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -125,6 +126,8 @@ fun VodHubScreen(
     var vodSearchFocused by remember { mutableStateOf(false) }
     var selectedMovie by remember { mutableStateOf<VodItem?>(null) }
     var genreFocusIndex by remember { mutableIntStateOf(0) }
+    var browseGridFocusIndex by rememberSaveable { mutableIntStateOf(0) }
+    var browseGridColumnCount by remember { mutableIntStateOf(4) }
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
 
@@ -198,6 +201,7 @@ fun VodHubScreen(
     }
     val scope = rememberCoroutineScope()
     val columnListState = rememberLazyListState()
+    val browseGridState = rememberLazyGridState()
 
     LaunchedEffect(initialTab) {
         hubViewModel.setContentFilter(
@@ -301,6 +305,17 @@ fun VodHubScreen(
         genreFocusIndex = selectedGenreIndex.coerceIn(0, (genreLabels.lastIndex).coerceAtLeast(0))
     }
 
+    fun browseGridItemCount(): Int = when (contentFilter) {
+        VodContentFilter.MOVIES -> moviePagingItems.itemCount
+        VodContentFilter.SERIES -> seriesPagingItems.itemCount
+        VodContentFilter.ALL -> 0
+    }
+
+    LaunchedEffect(browseGridItemCount(), contentFilter) {
+        val lastIndex = (browseGridItemCount() - 1).coerceAtLeast(0)
+        browseGridFocusIndex = browseGridFocusIndex.coerceIn(0, lastIndex)
+    }
+
     fun tabBarVisible(): Boolean = searchQuery.isBlank() && !vodSearchFocused
 
     LaunchedEffect(
@@ -322,7 +337,7 @@ fun VodHubScreen(
             showInlineSearch && vodSearchFocused ->
                 inlineSearchFocusRequester.requestFocusSafelyAfterLayout()
             focusZone == VodFocusZone.CONTENT &&
-                showBrowseGrid &&
+                showInlineSearch &&
                 hasBrowseResults &&
                 !vodSearchFocused ->
                 browseGridFocusRequester.requestFocusSafelyAfterLayout()
@@ -333,7 +348,7 @@ fun VodHubScreen(
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
             focusZone == VodFocusZone.FILTER_PANEL ||
                 focusZone == VodFocusZone.GENRE_PANEL ||
-                (focusZone == VodFocusZone.CONTENT && !showBrowseGrid) ||
+                focusZone == VodFocusZone.CONTENT ||
                 focusZone == VodFocusZone.TOP_BAR ||
                 focusZone == VodFocusZone.HERO ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
@@ -377,11 +392,16 @@ fun VodHubScreen(
         }
     }
 
+    fun focusFilterPanelFromGenre() {
+        focusZone = VodFocusZone.FILTER_PANEL
+        filterFocusIndex = VodContentFilter.entries.indexOf(contentFilter).coerceAtLeast(0)
+    }
+
     fun focusBrowseGridFromSidebar() {
+        val count = browseGridItemCount()
+        if (count <= 0) return
         focusZone = VodFocusZone.CONTENT
-        scope.launch {
-            browseGridFocusRequester.requestFocusSafelyAfterLayout()
-        }
+        browseGridFocusIndex = 0
     }
 
     fun focusBrowseResultsFromTopBar() {
@@ -450,6 +470,7 @@ fun VodHubScreen(
         moviesViewModel.setCategory(null)
         seriesViewModel.setCategory(null)
         genreFocusIndex = 0
+        browseGridFocusIndex = 0
         contentRowIndex = 0
         contentColIndex = 0
         focusZone = if (filter == VodContentFilter.ALL) VodFocusZone.CONTENT else VodFocusZone.GENRE_PANEL
@@ -475,6 +496,68 @@ fun VodHubScreen(
             else -> Unit
         }
         focusZone = VodFocusZone.CONTENT
+        browseGridFocusIndex = 0
+    }
+
+    fun handleBrowseGridKey(event: KeyEvent): Boolean {
+        val itemCount = browseGridItemCount()
+        if (itemCount <= 0) return false
+        val columns = browseGridColumnCount.coerceAtLeast(1)
+        val lastIndex = itemCount - 1
+        return when (event.key) {
+            Key.DirectionLeft -> {
+                if (browseGridFocusIndex % columns == 0) {
+                    focusZone = if (showGenrePanel) {
+                        VodFocusZone.GENRE_PANEL
+                    } else {
+                        VodFocusZone.FILTER_PANEL
+                    }
+                    if (!showGenrePanel) {
+                        filterFocusIndex = VodContentFilter.entries.indexOf(contentFilter).coerceAtLeast(0)
+                    }
+                } else {
+                    browseGridFocusIndex -= 1
+                }
+                true
+            }
+            Key.DirectionRight -> {
+                val column = browseGridFocusIndex % columns
+                if (column < columns - 1 && browseGridFocusIndex < lastIndex) {
+                    browseGridFocusIndex += 1
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (browseGridFocusIndex >= columns) {
+                    browseGridFocusIndex -= columns
+                } else if (tabBarVisible()) {
+                    focusFilterPanelFromGenre()
+                } else {
+                    focusZone = VodFocusZone.TOP_BAR
+                }
+                true
+            }
+            Key.DirectionDown -> {
+                val next = browseGridFocusIndex + columns
+                if (next <= lastIndex) {
+                    browseGridFocusIndex = next
+                }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                when (contentFilter) {
+                    VodContentFilter.MOVIES ->
+                        moviePagingItems[browseGridFocusIndex]?.let(::openMovieDetail)
+                    VodContentFilter.SERIES ->
+                        seriesPagingItems[browseGridFocusIndex]?.let { show ->
+                            seriesViewModel.selectShow(show.id, null)
+                        }
+                    else -> Unit
+                }
+                true
+            }
+            else -> false
+        }
     }
 
     fun ratingFor(movie: VodItem): String? =
@@ -572,7 +655,11 @@ fun VodHubScreen(
         if (genreLabels.isEmpty()) return false
         return when (event.key) {
             Key.DirectionUp -> {
-                if (genreFocusIndex > 0) genreFocusIndex -= 1
+                if (genreFocusIndex > 0) {
+                    genreFocusIndex -= 1
+                } else {
+                    focusFilterPanelFromGenre()
+                }
                 true
             }
             Key.DirectionDown -> {
@@ -635,6 +722,9 @@ fun VodHubScreen(
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (showBrowseGrid) {
+            if (!showInlineSearch) {
+                return handleBrowseGridKey(event)
+            }
             return when (event.key) {
                 Key.DirectionLeft -> {
                     focusZone = when {
@@ -842,8 +932,7 @@ fun VodHubScreen(
             .focusable(
                 enabled = !seriesDetailOpen &&
                     !movieDetailOpen &&
-                    !imeTypingActive &&
-                    !(focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults)
+                    !imeTypingActive
             )
             .focusProperties {
                 if (seriesDetailOpen || movieDetailOpen) {
@@ -1012,8 +1101,10 @@ fun VodHubScreen(
                                 progressByStreamId = vodProgress,
                                 progressFraction = movieProgressFraction,
                                 onItemClick = ::openMovieDetail,
-                                firstItemFocusRequester = browseGridFocusRequester,
-                                contentGridFocusRequester = browseGridFocusRequester,
+                                gridState = browseGridState,
+                                gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
+                                focusedItemIndex = browseGridFocusIndex,
+                                onColumnCountChanged = { browseGridColumnCount = it },
                                 onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
@@ -1028,8 +1119,10 @@ fun VodHubScreen(
                                 onItemClick = { card ->
                                     seriesViewModel.selectShow(card.showId, null)
                                 },
-                                firstItemFocusRequester = browseGridFocusRequester,
-                                contentGridFocusRequester = browseGridFocusRequester,
+                                gridState = browseGridState,
+                                gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
+                                focusedItemIndex = browseGridFocusIndex,
+                                onColumnCountChanged = { browseGridColumnCount = it },
                                 onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)

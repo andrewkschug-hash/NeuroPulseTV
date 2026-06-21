@@ -87,7 +87,8 @@ fun VodPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     ratingBadge: String? = null,
-    posterHeight: androidx.compose.ui.unit.Dp = 168.dp
+    posterHeight: androidx.compose.ui.unit.Dp = 168.dp,
+    externallyFocused: Boolean = false
 ) {
     val displayTitle = remember(title) { cleanVodDisplayTitle(title) }
     val languageBadge = remember(title) { parseVodLanguageBadge(title) }
@@ -96,7 +97,15 @@ fun VodPosterCard(
     }
     GridFocusSurface(
         onClick = onClick,
-        modifier = modifier.width(112.dp),
+        modifier = modifier
+            .width(112.dp)
+            .then(
+                if (externallyFocused) {
+                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
+                } else {
+                    Modifier
+                }
+            ),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF13131A),

@@ -10,8 +10,10 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -27,6 +29,13 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.ui.viewmodel.VodCatalogPager
 import kotlinx.coroutines.flow.distinctUntilChanged
+
+private fun LazyGridState.visibleColumnCount(fallback: Int = 4): Int {
+    val info = layoutInfo
+    if (info.visibleItemsInfo.isEmpty()) return fallback
+    val firstRow = info.visibleItemsInfo.first().row
+    return info.visibleItemsInfo.count { it.row == firstRow }.coerceAtLeast(1)
+}
 
 @Composable
 fun VodPagedVerticalGrid(
@@ -75,6 +84,7 @@ fun VodPagedVerticalGrid(
   }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun VodPagedVerticalGrid(
     pagingItems: LazyPagingItems<SeriesShow>,
@@ -86,9 +96,27 @@ fun VodPagedVerticalGrid(
     minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
     firstItemFocusRequester: FocusRequester? = null,
     contentGridFocusRequester: FocusRequester? = null,
+    gridFocused: Boolean = false,
+    focusedItemIndex: Int = -1,
+    onColumnCountChanged: ((Int) -> Unit)? = null,
     onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
     val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
+    val useNativeFocus = gridFocusRequester != null && !gridFocused
+
+    LaunchedEffect(gridFocused, focusedItemIndex, pagingItems.itemCount) {
+        if (gridFocused && focusedItemIndex >= 0 && pagingItems.itemCount > 0) {
+            gridState.animateScrollToItem(
+                focusedItemIndex.coerceIn(0, pagingItems.itemCount - 1)
+            )
+        }
+    }
+
+    LaunchedEffect(gridState, pagingItems.itemCount) {
+        snapshotFlow { gridState.visibleColumnCount() }
+            .distinctUntilChanged()
+            .collect { columns -> onColumnCountChanged?.invoke(columns) }
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -104,8 +132,9 @@ fun VodPagedVerticalGrid(
         ) { index ->
             val show = pagingItems[index] ?: return@items
             val card = show.toGridCardModel()
-            val itemModifier = if (index == 0 && gridFocusRequester != null) {
-                Modifier
+            val externallyFocused = gridFocused && index == focusedItemIndex
+            val itemModifier = when {
+                useNativeFocus && index == 0 && gridFocusRequester != null -> Modifier
                     .focusRequester(gridFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (index == 0 &&
@@ -119,8 +148,8 @@ fun VodPagedVerticalGrid(
                             false
                         }
                     }
-            } else {
-                Modifier
+                gridFocused -> Modifier.focusProperties { canFocus = false }
+                else -> Modifier
             }
             VodPosterCard(
                 title = card.title,
@@ -128,12 +157,14 @@ fun VodPagedVerticalGrid(
                 progressFraction = progressFraction(card, progressByStreamId),
                 showHdBadge = card.showHdBadge,
                 onClick = { onItemClick(card) },
+                externallyFocused = externallyFocused,
                 modifier = itemModifier
             )
         }
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun VodMoviePagedGrid(
     pagingItems: LazyPagingItems<VodItem>,
@@ -145,9 +176,27 @@ fun VodMoviePagedGrid(
     minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
     firstItemFocusRequester: FocusRequester? = null,
     contentGridFocusRequester: FocusRequester? = null,
+    gridFocused: Boolean = false,
+    focusedItemIndex: Int = -1,
+    onColumnCountChanged: ((Int) -> Unit)? = null,
     onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
     val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
+    val useNativeFocus = gridFocusRequester != null && !gridFocused
+
+    LaunchedEffect(gridFocused, focusedItemIndex, pagingItems.itemCount) {
+        if (gridFocused && focusedItemIndex >= 0 && pagingItems.itemCount > 0) {
+            gridState.animateScrollToItem(
+                focusedItemIndex.coerceIn(0, pagingItems.itemCount - 1)
+            )
+        }
+    }
+
+    LaunchedEffect(gridState, pagingItems.itemCount) {
+        snapshotFlow { gridState.visibleColumnCount() }
+            .distinctUntilChanged()
+            .collect { columns -> onColumnCountChanged?.invoke(columns) }
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -163,8 +212,9 @@ fun VodMoviePagedGrid(
         ) { index ->
             val movie = pagingItems[index] ?: return@items
             val card = movie.toGridCardModel()
-            val itemModifier = if (index == 0 && gridFocusRequester != null) {
-                Modifier
+            val externallyFocused = gridFocused && index == focusedItemIndex
+            val itemModifier = when {
+                useNativeFocus && index == 0 && gridFocusRequester != null -> Modifier
                     .focusRequester(gridFocusRequester)
                     .onPreviewKeyEvent { event ->
                         if (index == 0 &&
@@ -178,8 +228,8 @@ fun VodMoviePagedGrid(
                             false
                         }
                     }
-            } else {
-                Modifier
+                gridFocused -> Modifier.focusProperties { canFocus = false }
+                else -> Modifier
             }
             VodPosterCard(
                 title = card.title,
@@ -187,6 +237,7 @@ fun VodMoviePagedGrid(
                 progressFraction = progressFraction(card, progressByStreamId),
                 showHdBadge = card.showHdBadge,
                 onClick = { onItemClick(movie) },
+                externallyFocused = externallyFocused,
                 modifier = itemModifier
             )
         }
