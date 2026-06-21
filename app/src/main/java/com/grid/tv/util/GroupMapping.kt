@@ -4,9 +4,31 @@ package com.grid.tv.util
  * Maps raw M3U / Xtream group-tag strings to broader parent categories for the
  * channel-group sidebar. Does not affect stored group names or channel filtering.
  */
+const val PARENT_GROUP_ADULT = "Adult (18+)"
+
+private val ADULT_GROUP_KEYWORDS = listOf(
+    "xxx",
+    "adult",
+    "porn",
+    "for adult",
+    "18+",
+    "pink",
+    "mature",
+    "erotic",
+    "adults only"
+)
+
+fun isAdultChannelGroup(rawGroup: String): Boolean {
+    val lower = rawGroup.trim().lowercase()
+    if (lower.isEmpty()) return false
+    return ADULT_GROUP_KEYWORDS.any { keyword -> lower.contains(keyword) }
+}
+
 fun resolveParentGroup(rawGroup: String): String {
     val normalized = rawGroup.trim().replace("|", "").trim()
     if (normalized.isEmpty()) return PARENT_GROUP_OTHER
+    if (isAdultChannelGroup(normalized)) return PARENT_GROUP_ADULT
+
     val upper = normalized.uppercase()
 
     regionParentFor(upper)?.let { return it }
@@ -38,7 +60,8 @@ val PARENT_GROUP_DISPLAY_ORDER: List<String> = listOf(
     "24/7 Channels",
     "4K Channels",
     "Kids",
-    PARENT_GROUP_OTHER
+    PARENT_GROUP_OTHER,
+    PARENT_GROUP_ADULT
 )
 
 private const val PARENT_GROUP_OTHER = "Other"
