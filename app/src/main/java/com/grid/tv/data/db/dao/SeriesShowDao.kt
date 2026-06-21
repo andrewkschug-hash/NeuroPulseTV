@@ -144,6 +144,29 @@ interface SeriesShowDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM series_shows
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        """
+    )
+    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, search: String): Int
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        ORDER BY name COLLATE NOCASE
+        """
+    )
+    fun seriesPagingSourceByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): PagingSource<Int, SeriesShowEntity>
+
+    @Query(
+        """
         SELECT * FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
           AND (:search = '' OR name LIKE '%' || :search || '%')

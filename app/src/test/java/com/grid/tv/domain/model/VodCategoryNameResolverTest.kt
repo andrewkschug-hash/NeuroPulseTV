@@ -51,4 +51,21 @@ class VodCategoryNameResolverTest {
         assertEquals("NETFLIX ASIA", normalized[0].name)
         assertEquals("1012", normalized[1].name)
     }
+
+    @Test
+    fun prepareSeriesCategoriesForSidebar_deduplicatesByDisplayName() {
+        val categories = listOf(
+            VodCategory(id = "1006", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+            VodCategory(id = "1040", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+            VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
+        )
+        val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(categories)
+        assertEquals(2, sidebar.displayCategories.size)
+        assertEquals("1006", sidebar.displayCategories[0].id)
+        assertEquals(
+            setOf("1006", "1040"),
+            sidebar.filterIdsByRepresentativeId["1006"]
+        )
+        assertEquals(setOf("2001"), sidebar.filterIdsByRepresentativeId["2001"])
+    }
 }

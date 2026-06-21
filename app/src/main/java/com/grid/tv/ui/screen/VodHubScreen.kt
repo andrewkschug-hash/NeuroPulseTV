@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCategory
+import com.grid.tv.domain.model.VodCategoryNameResolver
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodPlaybackHelper
@@ -188,12 +190,15 @@ fun VodHubScreen(
             browseRows = movieBrowseRows
         )
     }
-    val sidebarSeriesCategories = remember(seriesCategories, seriesBrowseRows) {
-        categoriesForSidebar(
+    val sidebarSeriesCategoriesBundle = remember(seriesCategories, seriesBrowseRows) {
+        seriesCategoriesForSidebar(
             primary = seriesCategories,
             browseRows = seriesBrowseRows
         )
     }
+    val sidebarSeriesCategories = sidebarSeriesCategoriesBundle.displayCategories
+    val seriesCategoryFilterIdsByRepresentativeId =
+        sidebarSeriesCategoriesBundle.filterIdsByRepresentativeId
     val genreLabels = remember(contentFilter, sidebarMovieCategories, sidebarSeriesCategories) {
         when (contentFilter) {
             VodContentFilter.MOVIES -> listOf("All") + sidebarMovieCategories.map { it.name }
@@ -524,8 +529,19 @@ fun VodHubScreen(
                 moviesViewModel.setCategory(categoryId)
             }
             VodContentFilter.SERIES -> {
-                val categoryId = if (index == 0) null else sidebarSeriesCategories.getOrNull(index - 1)?.id
-                seriesViewModel.setCategory(categoryId)
+                if (index == 0) {
+                    Log.d("VodSeriesGenre", "applyGenre index=0 categoryId=null filterIds=null (All)")
+                    seriesViewModel.setCategory(null)
+                } else {
+                    val category = sidebarSeriesCategories.getOrNull(index - 1)
+                    val filterIds = category?.id?.let { seriesCategoryFilterIdsByRepresentativeId[it] }
+                    Log.d(
+                        "VodSeriesGenre",
+                        "applyGenre index=$index representativeId=${category?.id} " +
+                            "filterIds=$filterIds name=${category?.name}"
+                    )
+                    seriesViewModel.setCategory(category?.id, filterIds)
+                }
             }
             else -> Unit
         }
@@ -1291,6 +1307,26 @@ fun VodHubScreen(
             )
         }
     }
+}
+
+private fun seriesCategoriesForSidebar(
+    primary: List<VodCategory>,
+    browseRows: List<VodBrowseRow>
+): VodCategoryNameResolver.SeriesSidebarCategories {
+    val raw = if (primary.isNotEmpty()) {
+        primary.distinctBy { it.id }
+    } else {
+        browseRows.mapNotNull { row ->
+            val id = when {
+                row.id.startsWith("cat_") -> row.id.removePrefix("cat_")
+                row.id.startsWith("genre_") -> row.id.removePrefix("genre_")
+                else -> return@mapNotNull null
+            }
+            if (id.isBlank() || row.title.isBlank()) return@mapNotNull null
+            VodCategory(id = id, name = row.title, playlistId = 0L)
+        }.distinctBy { it.id }
+    }
+    return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw)
 }
 
 private fun categoriesForSidebar(

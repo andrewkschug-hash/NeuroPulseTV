@@ -3,6 +3,7 @@ package com.grid.tv.feature.vod
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VodContentLanguageTest {
@@ -44,5 +45,27 @@ class VodContentLanguageTest {
             "FR",
             vodContentLanguageCode("Inception", categoryName = "FR | Action")
         )
+    }
+
+    @Test
+    fun matchesVodLanguageFilter_includesUntaggedContentWhenFilterActive() {
+        val englishOnly = setOf("EN")
+        assertTrue(matchesVodLanguageFilter("EN - Inception", englishOnly))
+        assertTrue(matchesVodLanguageFilter("Plain Title With No Tag", englishOnly))
+        assertTrue(matchesVodLanguageFilter("Untitled Movie", englishOnly, categoryName = "Action"))
+        assertTrue(
+            matchesVodLanguageFilter(
+                "Inception",
+                englishOnly,
+                categoryName = "Latest Movies"
+            )
+        )
+    }
+
+    @Test
+    fun matchesVodLanguageFilter_excludesMismatchedTaggedContent() {
+        val englishOnly = setOf("EN")
+        assertTrue(!matchesVodLanguageFilter("FR - Amélie", englishOnly))
+        assertTrue(!matchesVodLanguageFilter("Plain Title", englishOnly, categoryName = "FR | Drama"))
     }
 }

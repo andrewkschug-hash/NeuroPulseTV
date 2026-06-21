@@ -61,6 +61,8 @@ class SeriesViewModel @Inject constructor(
     private val _selectedCategoryId = MutableStateFlow<String?>(null)
     val selectedCategoryId: StateFlow<String?> = _selectedCategoryId.asStateFlow()
 
+    private val _selectedCategoryFilterIds = MutableStateFlow<Set<String>?>(null)
+
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
@@ -73,18 +75,18 @@ class SeriesViewModel @Inject constructor(
     val pagedSeries = combine(
         repository.vodCatalogRevision(),
         _searchQuery,
-        _selectedCategoryId,
+        _selectedCategoryFilterIds,
         languagePreferenceStore.preferredLanguages,
         categories
-    ) { _, query, categoryId, languages, categoryList ->
+    ) { _, query, categoryFilterIds, languages, categoryList ->
         SeriesLanguageFilterParams(
             query = query,
-            category = categoryId ?: "All",
+            categoryFilterIds = categoryFilterIds,
             languages = languages,
             categoryNames = categoryList.associate { it.id to it.name }
         )
     }.flatMapLatest { params ->
-        repository.seriesShowsPaging(category = params.category, search = params.query)
+        repository.seriesShowsPaging(categoryIds = params.categoryFilterIds, search = params.query)
             .map { pagingData ->
                 if (params.languages.isEmpty()) {
                     pagingData
@@ -98,10 +100,10 @@ class SeriesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(_searchQuery, _selectedCategoryId) { query, categoryId ->
-                query to (categoryId ?: "All")
-            }.collect { (query, category) ->
-                refreshFilteredCount(query, category)
+            combine(_searchQuery, _selectedCategoryFilterIds) { query, categoryFilterIds ->
+                query to categoryFilterIds
+            }.collect { (query, categoryFilterIds) ->
+                refreshFilteredCount(query, categoryFilterIds)
             }
         }
     }
@@ -186,9 +188,9 @@ class SeriesViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private suspend fun refreshFilteredCount(query: String, category: String) {
+    private suspend fun refreshFilteredCount(query: String, categoryFilterIds: Set<String>?) {
         withContext(Dispatchers.IO) {
-            _filteredTotalCount.value = repository.seriesFilteredCount(category, query)
+            _filteredTotalCount.value = repository.seriesFilteredCount(categoryFilterIds, query)
         }
     }
 
@@ -200,8 +202,13 @@ class SeriesViewModel @Inject constructor(
         _searchQuery.value = query
     }
 
-    fun setCategory(categoryId: String?) {
+    fun setCategory(categoryId: String?, filterIds: Set<String>? = null) {
         _selectedCategoryId.value = categoryId
+        _selectedCategoryFilterIds.value = when {
+            categoryId == null -> null
+            !filterIds.isNullOrEmpty() -> filterIds
+            else -> setOf(categoryId)
+        }
     }
 
     fun setPreferredLanguages(languages: Set<String>) {
@@ -409,7 +416,7 @@ class SeriesViewModel @Inject constructor(
 
 private data class SeriesLanguageFilterParams(
     val query: String,
-    val category: String,
+    val categoryFilterIds: Set<String>?,
     val languages: Set<String>,
     val categoryNames: Map<String, String>
 )

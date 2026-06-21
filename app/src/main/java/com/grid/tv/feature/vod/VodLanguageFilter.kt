@@ -14,7 +14,7 @@ fun matchesVodLanguageFilter(
     categoryName: String? = null
 ): Boolean {
     if (preferredLanguages.isEmpty()) return true
-    val code = vodContentLanguageCode(title, categoryName) ?: return false
+    val code = vodContentLanguageCode(title, categoryName) ?: return true
     return code.uppercase() in preferredLanguages.map { it.uppercase() }.toSet()
 }
 

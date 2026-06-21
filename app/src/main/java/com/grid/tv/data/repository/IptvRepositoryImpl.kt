@@ -2161,6 +2161,7 @@ class IptvRepositoryImpl @Inject constructor(
                     "lookupComposite=${lookup["${row.playlistId}_${row.categoryId}"]}"
             )
         }
+        seriesCategoryDao.clearByPlaylist(playlistId)
         seriesCategoryDao.insertAll(
             pairs.map { row ->
                 SeriesCategoryEntity(
@@ -2836,16 +2837,19 @@ class IptvRepositoryImpl @Inject constructor(
         ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
     }
 
-    override fun seriesShowsPaging(category: String, search: String): Flow<PagingData<SeriesShow>> {
+    override fun seriesShowsPaging(categoryIds: Set<String>?, search: String): Flow<PagingData<SeriesShow>> {
         val trimmedSearch = search.trim()
-        val normalizedCategory = category.ifBlank { "All" }
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
         return Pager(
             config = PagingConfig(
                 pageSize = VOD_PAGING_PAGE_SIZE,
                 prefetchDistance = VOD_PAGING_PREFETCH,
                 enablePlaceholders = false
             ),
-            pagingSourceFactory = { seriesShowDao.seriesPagingSource(normalizedCategory, trimmedSearch) }
+            pagingSourceFactory = {
+                seriesShowDao.seriesPagingSourceByIds(matchAll, ids, trimmedSearch)
+            }
         ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
     }
 
@@ -2944,9 +2948,11 @@ class IptvRepositoryImpl @Inject constructor(
         seriesShowDao.seriesPage(category, search.trim(), limit, offset).map { it.toDomain() }
     }
 
-    override suspend fun seriesFilteredCount(category: String, search: String): Int =
+    override suspend fun seriesFilteredCount(categoryIds: Set<String>?, search: String): Int =
         withContext(Dispatchers.IO) {
-            seriesShowDao.countFiltered(category, search.trim())
+            val matchAll = categoryIds.isNullOrEmpty()
+            val ids = categoryIds?.toList()?.sorted() ?: listOf("")
+            seriesShowDao.countFilteredByIds(matchAll, ids, search.trim())
         }
 
     override suspend fun findSeriesShow(seriesId: Long): SeriesShow? = withContext(Dispatchers.IO) {

@@ -1,10 +1,7 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -27,16 +25,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.feature.vod.displayLanguageName
 import com.grid.tv.ui.theme.DmSansFamily
+import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
 
 private val DialogBg = Color(0xFF1A1A2E)
 private val DialogBody = Color(0xFFB0B0C0)
+private val RowShape = RoundedCornerShape(10.dp)
 
 @Composable
 fun VodLanguagePreferenceDialog(
@@ -46,12 +48,24 @@ fun VodLanguagePreferenceDialog(
     onDismiss: () -> Unit
 ) {
     var draft by remember(selectedLanguages) { mutableStateOf(selectedLanguages) }
-    var focusIndex by remember { mutableIntStateOf(0) }
-    val optionCount = availableLanguages.size + 2
+    val rowCount = availableLanguages.size + 1
+    var focusedRowIndex by remember { mutableIntStateOf(0) }
+    val rowFocusRequesters = remember(rowCount) { List(rowCount) { FocusRequester() } }
+    val cancelFocusRequester = remember { FocusRequester() }
     val doneFocusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
-        focusIndex = 0
+        if (rowCount > 0) {
+            rowFocusRequesters[0].requestFocusSafelyAfterLayout()
+        }
+    }
+
+    LaunchedEffect(focusedRowIndex, rowCount) {
+        if (rowCount > 0) {
+            val index = focusedRowIndex.coerceIn(0, rowCount - 1)
+            listState.scrollToItem(index)
+        }
     }
 
     AlertDialog(
@@ -70,12 +84,13 @@ fun VodLanguagePreferenceDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "Show movies and series matching your selected languages. Choose All Languages to disable filtering.",
+                    text = "Show movies and series matching your selected languages. Untagged titles are always shown.",
                     color = DialogBody,
                     fontFamily = DmSansFamily,
                     fontSize = 13.sp
                 )
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 320.dp),
@@ -86,11 +101,12 @@ fun VodLanguagePreferenceDialog(
                             label = "All Languages",
                             subtitle = "Show everything in your catalog",
                             selected = draft.isEmpty(),
-                            focused = focusIndex == 0,
-                            onClick = {
-                                draft = emptySet()
-                                focusIndex = 0
-                            }
+                            onClick = { draft = emptySet() },
+                            modifier = Modifier
+                                .focusRequester(rowFocusRequesters[0])
+                                .onFocusChanged {
+                                    if (it.isFocused) focusedRowIndex = 0
+                                }
                         )
                     }
                     if (availableLanguages.isEmpty()) {
@@ -111,15 +127,18 @@ fun VodLanguagePreferenceDialog(
                                 label = displayLanguageName(code),
                                 subtitle = code.uppercase(),
                                 selected = selected,
-                                focused = focusIndex == rowIndex,
                                 onClick = {
-                                    focusIndex = rowIndex
                                     draft = if (selected) {
                                         draft.filterNot { it.equals(code, ignoreCase = true) }.toSet()
                                     } else {
                                         draft + code.uppercase()
                                     }
-                                }
+                                },
+                                modifier = Modifier
+                                    .focusRequester(rowFocusRequesters[rowIndex])
+                                    .onFocusChanged {
+                                        if (it.isFocused) focusedRowIndex = rowIndex
+                                    }
                             )
                         }
                     }
@@ -143,7 +162,10 @@ fun VodLanguagePreferenceDialog(
             }
         },
         dismissButton = {
-            GlowFocusButton(onClick = onDismiss) {
+            GlowFocusButton(
+                onClick = onDismiss,
+                modifier = Modifier.focusRequester(cancelFocusRequester)
+            ) {
                 Text(
                     text = "Cancel",
                     color = Color.White,
@@ -153,10 +175,6 @@ fun VodLanguagePreferenceDialog(
             }
         }
     )
-
-    LaunchedEffect(Unit) {
-        doneFocusRequester.requestFocusSafelyAfterLayout()
-    }
 }
 
 @Composable
@@ -164,56 +182,68 @@ private fun LanguageOptionRow(
     label: String,
     subtitle: String,
     selected: Boolean,
-    focused: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(10.dp)
-    val borderColor = when {
-        focused -> VodNetflixColors.Accent
-        selected -> Color.White.copy(alpha = 0.35f)
-        else -> Color.White.copy(alpha = 0.14f)
-    }
+    var rowFocused by remember { mutableStateOf(false) }
     val backgroundColor = when {
+        rowFocused -> EpgColors.ChannelRowFocusBg
         selected -> Color(0xFF2A2A2A)
-        focused -> Color(0xFF333333)
         else -> Color(0xFF141414)
     }
-    Row(
-        modifier = Modifier
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(backgroundColor, shape)
-            .border(if (focused) 2.dp else 1.dp, borderColor, shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .clip(RowShape)
+            .onFocusChanged { rowFocused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = backgroundColor,
+            focusedContainerColor = backgroundColor,
+            pressedContainerColor = backgroundColor.copy(alpha = 0.85f)
+        )
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = label,
-                color = VodNetflixColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-            )
-            if (subtitle.isNotBlank() && !subtitle.equals(label, ignoreCase = true)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (rowFocused) {
+                        Modifier.border(2.dp, EpgColors.FocusBorder, RowShape)
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = subtitle,
-                    color = VodNetflixColors.TextSecondary,
+                    text = label,
+                    color = if (rowFocused) EpgColors.TextPrimary else VodNetflixColors.TextPrimary,
                     fontFamily = DmSansFamily,
-                    fontSize = 12.sp
+                    fontSize = 14.sp,
+                    fontWeight = if (rowFocused || selected) FontWeight.SemiBold else FontWeight.Medium
+                )
+                if (subtitle.isNotBlank() && !subtitle.equals(label, ignoreCase = true)) {
+                    Text(
+                        text = subtitle,
+                        color = if (rowFocused) EpgColors.TextSecondary else VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            if (selected) {
+                Text(
+                    text = "✓",
+                    color = if (rowFocused) EpgColors.Accent else VodNetflixColors.Accent,
+                    fontFamily = DmSansFamily,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
-        }
-        if (selected) {
-            Text(
-                text = "✓",
-                color = VodNetflixColors.Accent,
-                fontFamily = DmSansFamily,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
         }
     }
 }

@@ -85,4 +85,34 @@ object VodCategoryNameResolver {
             lookupById = lookupById
         )
     )
+
+    /**
+     * Collapses series sidebar categories that share the same resolved display name
+     * (e.g. multiple numeric ids mapping to "Action & Adventure / …").
+     * [displayCategories] keeps one representative row per name; filtering must use
+     * [filterIdsByRepresentativeId] so all underlying ids are matched.
+     */
+    data class SeriesSidebarCategories(
+        val displayCategories: List<VodCategory>,
+        val filterIdsByRepresentativeId: Map<String, Set<String>>
+    )
+
+    fun prepareSeriesCategoriesForSidebar(categories: List<VodCategory>): SeriesSidebarCategories {
+        if (categories.isEmpty()) {
+            return SeriesSidebarCategories(emptyList(), emptyMap())
+        }
+        val grouped = categories
+            .filter { it.name.isNotBlank() }
+            .groupBy { it.name.lowercase().trim() }
+        val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
+        val displayCategories = grouped.values
+            .map { group ->
+                val sorted = group.sortedWith(compareBy({ it.playlistId }, { it.id }))
+                val representative = sorted.first()
+                filterIdsByRepresentativeId[representative.id] = group.map { it.id }.toSet()
+                representative.copy(name = representative.name.trim())
+            }
+            .sortedBy { it.name.lowercase() }
+        return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
+    }
 }
