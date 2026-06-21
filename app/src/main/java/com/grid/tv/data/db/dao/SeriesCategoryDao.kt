@@ -23,4 +23,7 @@ interface SeriesCategoryDao {
 
     @Query("SELECT * FROM series_categories ORDER BY name COLLATE NOCASE")
     suspend fun all(): List<SeriesCategoryEntity>
+
+    @Query("SELECT COUNT(*) FROM series_categories")
+    suspend fun countTotal(): Int
 }

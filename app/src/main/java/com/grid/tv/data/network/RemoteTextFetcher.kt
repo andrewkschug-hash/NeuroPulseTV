@@ -11,11 +11,14 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.EOFException
 import java.io.File
 import java.io.IOException
+import java.net.SocketException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okio.GzipSource
 import okio.buffer
@@ -88,7 +91,7 @@ class RemoteTextFetcher @Inject constructor(
         val url = normalizeRemoteUrl(rawUrl)
         val logTag = if (isVodCatalogUrl(url)) VOD_FLOW_TAG else EPG_FLOW_TAG
         Log.i(logTag, "HTTP GET $url")
-        var lastEof: EOFException? = null
+        var lastRetryable: Exception? = null
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             try {
                 val result = executeFetch(url, logTag)
@@ -98,20 +101,23 @@ class RemoteTextFetcher @Inject constructor(
                         "${result.body.length} decoded chars"
                 )
                 return@withContext result
-            } catch (e: EOFException) {
-                lastEof = e
-                Log.w(EPG_FLOW_TAG, "HTTP EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url", e)
-                if (attempt == MAX_FETCH_ATTEMPTS - 1) throw e
-            } catch (e: IllegalStateException) {
-                if (e.message?.startsWith("HTTP request failed") == true) throw e
-                Log.e(logTag, "HTTP fetch failed for $url: ${e.message}", e)
-                throw e
             } catch (e: Exception) {
+                if (isRetryableNetworkError(e) && attempt < MAX_FETCH_ATTEMPTS - 1) {
+                    lastRetryable = e
+                    Log.w(
+                        logTag,
+                        "HTTP transient error on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url: ${e.message}",
+                        e
+                    )
+                    delay(retryBackoffMs(attempt))
+                    return@repeat
+                }
+                if (e is IllegalStateException && e.message?.startsWith("HTTP request failed") == true) throw e
                 Log.e(logTag, "HTTP fetch failed for $url: ${e.message}", e)
                 throw e
             }
         }
-        throw lastEof ?: IllegalStateException("Fetch failed for $url")
+        throw lastRetryable ?: IllegalStateException("Fetch failed for $url")
     }
 
     /**
@@ -127,7 +133,7 @@ class RemoteTextFetcher @Inject constructor(
         withContext(epgDispatchers.io) {
             val url = normalizeRemoteUrl(rawUrl)
             EpgFlowLogger.downloadStarted(playlistId, playlistName, url)
-            var lastEof: EOFException? = null
+            var lastRetryable: Exception? = null
             repeat(MAX_FETCH_ATTEMPTS) { attempt ->
                 try {
                     when (val outcome = executeEpgFetch(url, parser, playlistId, playlistName)) {
@@ -153,24 +159,24 @@ class RemoteTextFetcher @Inject constructor(
                             )
                         }
                     }
-                } catch (e: EOFException) {
-                    lastEof = e
-                    Log.w(
-                        EPG_FLOW_TAG,
-                        "EPG download EOF on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS for $url",
-                        e
-                    )
-                    if (attempt == MAX_FETCH_ATTEMPTS - 1) {
-                        EpgFlowLogger.importFailed(playlistId, playlistName, url, e)
-                        throw e
-                    }
                 } catch (e: Exception) {
+                    if (isRetryableNetworkError(e) && attempt < MAX_FETCH_ATTEMPTS - 1) {
+                        lastRetryable = e
+                        Log.w(
+                            EPG_FLOW_TAG,
+                            "EPG download transient error on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS " +
+                                "for $url: ${e.message}",
+                            e
+                        )
+                        delay(retryBackoffMs(attempt))
+                        return@repeat
+                    }
                     Log.e(EPG_FLOW_TAG, "EPG disk-backed fetch failed for $url: ${e.message}", e)
                     EpgFlowLogger.importFailed(playlistId, playlistName, url, e)
                     throw e
                 }
             }
-            val failure = lastEof ?: IllegalStateException("EPG fetch failed for $url")
+            val failure = lastRetryable ?: IllegalStateException("EPG fetch failed for $url")
             EpgFlowLogger.importFailed(playlistId, playlistName, url, failure)
             throw failure
         }
@@ -455,6 +461,9 @@ class RemoteTextFetcher @Inject constructor(
         else -> appHttpClient.client()
     }
 
+    private fun retryBackoffMs(attempt: Int): Long =
+        (INITIAL_RETRY_BACKOFF_MS shl attempt.coerceAtMost(3)).coerceAtMost(MAX_RETRY_BACKOFF_MS)
+
     fun normalizeRemoteUrl(raw: String): String {
         val trimmed = raw.trim()
             .replace("\u200B", "")
@@ -508,10 +517,12 @@ class RemoteTextFetcher @Inject constructor(
         }
     }
 
-    private companion object {
+    companion object {
         const val EPG_FLOW_TAG = "EpgFlow"
         const val VOD_FLOW_TAG = "VodCatalogPipeline"
         const val MAX_FETCH_ATTEMPTS = 3
+        const val INITIAL_RETRY_BACKOFF_MS = 1_500L
+        const val MAX_RETRY_BACKOFF_MS = 8_000L
         const val GZIP_MAGIC_0: Byte = 0x1f
         const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
         const val BYTES_PER_LOG_MB = 10L * 1024L * 1024L
@@ -519,5 +530,43 @@ class RemoteTextFetcher @Inject constructor(
         const val MIN_CACHE_HEADROOM_BYTES = 128L * BYTES_PER_MB
         const val SPOOL_BUFFER_SIZE = 131_072
         const val ACCEPT_ENCODING_GZIP = "gzip"
+
+        fun isRetryableErrorMessage(message: String?): Boolean {
+            if (message.isNullOrBlank()) return false
+            return isRetryableNetworkError(IOException(message))
+        }
+
+        /**
+         * True for mid-stream disconnects and other errors where a fresh HTTP GET may succeed.
+         * Non-retryable: HTTP errors, cache exhaustion, parse failures, empty bodies.
+         */
+        fun isRetryableNetworkError(error: Throwable): Boolean {
+            if (error.message?.contains("Insufficient cache space", ignoreCase = true) == true) {
+                return false
+            }
+            var current: Throwable? = error
+            while (current != null) {
+                when (current) {
+                    is EOFException,
+                    is SocketTimeoutException,
+                    is SocketException -> return true
+                    is IOException -> {
+                        val msg = current.message?.lowercase().orEmpty()
+                        if (msg.contains("connection abort") ||
+                            msg.contains("connection reset") ||
+                            msg.contains("unexpected end of stream") ||
+                            msg.contains("broken pipe") ||
+                            msg.contains("failed to connect") ||
+                            msg.contains("connection timed out") ||
+                            msg.contains("software caused connection abort")
+                        ) {
+                            return true
+                        }
+                    }
+                }
+                current = current.cause
+            }
+            return false
+        }
     }
 }

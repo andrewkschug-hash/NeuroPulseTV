@@ -5,7 +5,9 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.grid.tv.data.network.RemoteTextFetcher
 import com.grid.tv.domain.model.EpgFetchAttempt
+import com.grid.tv.domain.model.EpgRefreshReport
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.EpgJobCoordinator
@@ -53,6 +55,14 @@ class EpgRefreshWorker @AssistedInject constructor(
                     "programmesStored=${report.totalProgrammesStored}, " +
                     "failures=${report.failures.size}"
             )
+            if (shouldRetryForTransientFailures(report) && runAttemptCount < MAX_WORKER_ATTEMPTS - 1) {
+                Log.w(
+                    TAG,
+                    "EpgRefreshWorker scheduling WorkManager retry — transient network failures " +
+                        "source=$source attempt=${runAttemptCount + 1}/$MAX_WORKER_ATTEMPTS"
+                )
+                return Result.retry()
+            }
             Log.i(TAG, "Applying series recording rules after EPG refresh source=$source")
             seriesRuleScheduler.applyRulesAfterEpgRefresh()
             Log.i(TAG, "EpgRefreshWorker finished OK source=$source")
@@ -69,6 +79,13 @@ class EpgRefreshWorker @AssistedInject constructor(
                 epgJobCoordinator.onImportEpgWorkerFinished()
             }
         }
+    }
+
+    private fun shouldRetryForTransientFailures(report: EpgRefreshReport): Boolean {
+        if (report.totalProgrammesStored > 0 || report.totalChannelsStored > 0) return false
+        val failedFetches = report.attempts.filter { it.error != null && it.skippedReason == null }
+        if (failedFetches.isEmpty()) return false
+        return failedFetches.all { RemoteTextFetcher.isRetryableErrorMessage(it.error) }
     }
 
     private fun logRefreshReport(attempts: List<EpgFetchAttempt>) {
@@ -102,6 +119,7 @@ class EpgRefreshWorker @AssistedInject constructor(
 
     companion object {
         private const val TAG = "EpgFlow"
+        private const val MAX_WORKER_ATTEMPTS = 3
         const val KEY_SOURCE = "epg_source"
     }
 }

@@ -233,9 +233,9 @@ class XtreamParser {
         val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
-            val id = item.optString("category_id")
+            val id = optCategoryId(item) ?: continue
             val name = item.optString("category_name").ifBlank { "Movies" }
-            if (id.isNotBlank()) out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
+            out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
         return out
     }

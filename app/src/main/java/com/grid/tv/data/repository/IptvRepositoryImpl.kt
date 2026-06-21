@@ -38,6 +38,7 @@ import com.grid.tv.data.db.dao.VodStreamDao
 import com.grid.tv.data.db.AppDatabase
 import com.grid.tv.data.db.mapper.toDomain
 import com.grid.tv.data.db.mapper.toEntity
+import com.grid.tv.data.db.entity.SeriesCategoryEntity
 import com.grid.tv.data.db.mapper.toSeriesCategoryEntity
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.data.network.EpgXmlTvFetchOutcome
@@ -118,6 +119,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -1934,6 +1936,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger) {
         warmLocalUiCache()
+        refreshSeriesCategoriesIfMissing(trigger)
         refreshVodSeriesCatalog(trigger = trigger, force = false)
     }
 
@@ -2009,6 +2012,7 @@ class IptvRepositoryImpl @Inject constructor(
         }
 
         if (!force && isVodCatalogFresh()) {
+            refreshSeriesCategoriesIfMissing(trigger)
             Log.i(
                 VOD_FLOW_TAG,
                 "Skipping network refresh trigger=$trigger — cache fresh within TTL " +
@@ -2065,6 +2069,81 @@ class IptvRepositoryImpl @Inject constructor(
         if (ageMs >= VOD_CACHE_TTL_MS) return false
         return vodStreamDao.countTotal() > 0 || seriesShowDao.countTotal() > 0
     }
+
+    private suspend fun needsSeriesCategoriesRefresh(): Boolean =
+        seriesShowDao.countTotal() > 0 && seriesCategoryDao.countTotal() == 0
+
+    private suspend fun refreshSeriesCategoriesIfMissing(trigger: VodRefreshTrigger) {
+        if (!needsSeriesCategoriesRefresh()) return
+        loadSettings()
+        playlistDao.all()
+            .filter { it.type == PlaylistType.XTREAM.name }
+            .forEach { playlist ->
+                refreshSeriesCategoriesForPlaylist(playlist, trigger)
+            }
+    }
+
+    private suspend fun refreshSeriesCategoriesForPlaylist(
+        playlist: PlaylistEntity,
+        trigger: VodRefreshTrigger
+    ) {
+        val credentials = resolveVodFetchCredentials(playlist) ?: return
+        val (server, user, pass) = credentials
+        runCatching {
+            Log.i(
+                VOD_FLOW_TAG,
+                "Starting get_series_categories playlist=${playlist.id} trigger=$trigger " +
+                    "at=${System.currentTimeMillis()}"
+            )
+            val seriesCategoriesRaw = remoteTextFetcher.fetch(
+                buildXtreamApiUrl(server, user, pass, action = "get_series_categories")
+            )
+            val categories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, playlist.id)
+            Log.i(
+                VOD_FLOW_TAG,
+                "Series categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
+            )
+            if (categories.isNotEmpty()) {
+                seriesCategoryDao.clearByPlaylist(playlist.id)
+                seriesCategoryDao.insertAll(categories.map { it.toSeriesCategoryEntity() })
+                bumpVodCatalogRevision()
+            } else {
+                backfillSeriesCategoriesFromShows(playlist.id)
+            }
+        }.onFailure { categoryError ->
+            Log.w(
+                VOD_FLOW_TAG,
+                "Series categories fetch failed playlist=${playlist.id} trigger=$trigger — " +
+                    "falling back to show category ids",
+                categoryError
+            )
+            backfillSeriesCategoriesFromShows(playlist.id)
+        }
+    }
+
+    private suspend fun backfillSeriesCategoriesFromShows(playlistId: Long) {
+        val pairs = seriesShowDao.distinctCategoryPairs().filter { it.playlistId == playlistId }
+        if (pairs.isEmpty()) return
+        seriesCategoryDao.insertAll(
+            pairs.map { row ->
+                SeriesCategoryEntity(
+                    playlistId = row.playlistId,
+                    categoryId = row.categoryId,
+                    name = row.categoryId
+                )
+            }
+        )
+        bumpVodCatalogRevision()
+        Log.i(
+            VOD_FLOW_TAG,
+            "Backfilled ${pairs.size} series categories from show rows for playlist=$playlistId"
+        )
+    }
+
+    private suspend fun buildFallbackSeriesCategories(): List<VodCategory> =
+        seriesShowDao.distinctCategoryPairs().map { row ->
+            VodCategory(id = row.categoryId, name = row.categoryId, playlistId = row.playlistId)
+        }
 
     private suspend fun publishVodProgressFromDb(trigger: VodRefreshTrigger) {
         publishVodCatalogCounts(
@@ -2502,32 +2581,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "Series commit playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength"
             )
 
-            runCatching {
-                Log.i(
-                    VOD_FLOW_TAG,
-                    "Starting get_series_categories playlist=${playlist.id} trigger=$trigger " +
-                        "at=${System.currentTimeMillis()}"
-                )
-                val seriesCategoriesRaw = remoteTextFetcher.fetch(
-                    buildXtreamApiUrl(server, user, pass, action = "get_series_categories")
-                )
-                val categories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, playlist.id)
-                Log.i(
-                    VOD_FLOW_TAG,
-                    "Series categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
-                )
-                if (categories.isNotEmpty()) {
-                    seriesCategoryDao.clearByPlaylist(playlist.id)
-                    seriesCategoryDao.insertAll(categories.map { it.toSeriesCategoryEntity() })
-                    bumpVodCatalogRevision()
-                }
-            }.onFailure { categoryError ->
-                Log.w(
-                    VOD_FLOW_TAG,
-                    "Series categories fetch failed playlist=${playlist.id} trigger=$trigger — keeping prior categories",
-                    categoryError
-                )
-            }
+            refreshSeriesCategoriesForPlaylist(playlist, trigger)
 
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes,
@@ -2566,7 +2620,23 @@ class IptvRepositoryImpl @Inject constructor(
         vodCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
     override fun seriesCategories(): Flow<List<VodCategory>> =
-        seriesCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+        combine(
+            seriesCategoryDao.observeAll(),
+            _vodCatalogRevision,
+            seriesShowDao.observeTotalCount()
+        ) { stored, _, _ -> stored }
+            .flatMapLatest { stored ->
+                flow {
+                    emit(
+                        if (stored.isNotEmpty()) {
+                            stored.map { it.toDomain() }
+                        } else {
+                            buildFallbackSeriesCategories()
+                        }
+                    )
+                }
+            }
+            .flowOn(Dispatchers.IO)
 
     override suspend fun vodPage(
         categoryId: String?,
@@ -2724,7 +2794,7 @@ class IptvRepositoryImpl @Inject constructor(
         if (stored.isNotEmpty()) {
             return@withContext stored.map { it.name }
         }
-        seriesShowDao.distinctCategoryIds()
+        buildFallbackSeriesCategories().map { it.name }
     }
 
     override suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason> =

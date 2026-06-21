@@ -860,4 +860,17 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_29_30 = object : Migration(29, 30) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO series_categories (playlistId, categoryId, name)
+                SELECT DISTINCT playlistId, categoryId, categoryId
+                FROM series_shows
+                WHERE categoryId IS NOT NULL AND TRIM(categoryId) != ''
+                """.trimIndent()
+            )
+        }
+    }
 }

@@ -116,6 +116,15 @@ interface SeriesShowDao {
 
     @Query(
         """
+        SELECT DISTINCT playlistId, categoryId FROM series_shows
+        WHERE categoryId IS NOT NULL AND TRIM(categoryId) != ''
+        ORDER BY categoryId COLLATE NOCASE
+        """
+    )
+    suspend fun distinctCategoryPairs(): List<SeriesCategoryPairRow>
+
+    @Query(
+        """
         SELECT * FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
           AND (:search = '' OR name LIKE '%' || :search || '%')
