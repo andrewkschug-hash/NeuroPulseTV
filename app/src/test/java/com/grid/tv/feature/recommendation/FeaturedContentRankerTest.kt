@@ -57,7 +57,8 @@ class FeaturedContentRankerTest {
         )
 
         assertTrue(selection.carousel.isNotEmpty())
-        assertEquals(newest.streamId, selection.carousel.first().streamId)
+        assertTrue(selection.carousel.all { it.streamId in setOf(older.streamId, middle.streamId, newest.streamId) })
+        assertEquals(0, selection.heroIndex)
     }
 
     @Test

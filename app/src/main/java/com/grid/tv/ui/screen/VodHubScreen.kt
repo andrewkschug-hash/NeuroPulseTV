@@ -279,17 +279,38 @@ fun VodHubScreen(
         genreFocusIndex = selectedGenreIndex.coerceIn(0, (genreLabels.lastIndex).coerceAtLeast(0))
     }
 
-    LaunchedEffect(focusZone, showInlineSearch, vodSearchFocused, heroMovie, movieDetailOpen, seriesDetailOpen) {
+    LaunchedEffect(
+        focusZone,
+        showInlineSearch,
+        vodSearchFocused,
+        heroMovie,
+        movieDetailOpen,
+        seriesDetailOpen,
+        showBrowseGrid,
+        hasBrowseResults,
+        searchQuery
+    ) {
         when {
             movieDetailOpen -> movieWatchFocusRequester.requestFocusSafelyAfterLayout()
             seriesDetailOpen -> Unit
             showInlineSearch && vodSearchFocused ->
                 inlineSearchFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults ->
+            focusZone == VodFocusZone.CONTENT &&
+                showBrowseGrid &&
+                hasBrowseResults &&
+                (showInlineSearch && !vodSearchFocused || searchQuery.isNotBlank()) ->
                 browseGridFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.HERO && heroMovie != null ->
+            focusZone == VodFocusZone.HERO &&
+                heroMovie != null &&
+                searchQuery.isBlank() &&
+                !showInlineSearch ->
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
-            else -> rootFocusRequester.requestFocusSafelyAfterLayout()
+            focusZone == VodFocusZone.FILTER_PANEL ->
+                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+            focusZone == VodFocusZone.GENRE_PANEL ->
+                genrePanelFocusRequester.requestFocusSafelyAfterLayout()
+            // TOP_BAR and idle transitions: avoid forcing root focus — it crashes when
+            // the previous focused child was just unmounted (ActiveParent with no child).
         }
     }
 
@@ -332,20 +353,18 @@ fun VodHubScreen(
     fun focusInlineSearchField() {
         vodSearchFocused = true
         focusZone = VodFocusZone.CONTENT
-        scope.launch { inlineSearchFocusRequester.requestFocusSafelyAfterLayout() }
     }
 
     fun focusSearchResults() {
         if (!hasBrowseResults) return
+        vodSearchFocused = false
         focusZone = VodFocusZone.CONTENT
-        scope.launch { browseGridFocusRequester.requestFocusSafelyAfterLayout() }
     }
 
     fun activateInlineSearch() {
         vodSearchFocused = true
         topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Search).coerceAtLeast(0)
         focusZone = VodFocusZone.CONTENT
-        scope.launch { inlineSearchFocusRequester.requestFocusSafelyAfterLayout() }
     }
 
     fun clearInlineSearch() {
