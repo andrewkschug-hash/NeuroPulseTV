@@ -20,8 +20,6 @@ import androidx.compose.runtime.SideEffect
 import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -56,7 +54,10 @@ import com.grid.tv.player.isCodecCapabilityError
 import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
 import com.grid.tv.ui.component.GlowFocusButton
-import com.grid.tv.ui.component.requestFocusSafely
+import com.grid.tv.ui.component.PlaybackVideoFit
+import com.grid.tv.ui.component.toPlaybackVideoFit
+import com.grid.tv.ui.component.toResizeMode
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import androidx.compose.foundation.background
@@ -332,7 +333,13 @@ fun DirectPlayerScreen(
     var seekRepeatCount by remember { mutableIntStateOf(0) }
     var seekTooltip by remember { mutableStateOf<String?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    val playPauseFocusRequester = remember { FocusRequester() }
+    var playbackVideoFit by remember(subtitleSettings.aspectRatio) {
+        mutableStateOf(subtitleSettings.aspectRatio.toPlaybackVideoFit())
+    }
+
+    LaunchedEffect(subtitleSettings.aspectRatio) {
+        playbackVideoFit = subtitleSettings.aspectRatio.toPlaybackVideoFit()
+    }
 
     fun seekDeltaForScrub(): Long = if (seekRepeatCount > 3) 300_000L else 30_000L
 
@@ -358,8 +365,6 @@ fun DirectPlayerScreen(
     LaunchedEffect(showOverlay, showSubtitlePanel) {
         if (showOverlay && !showSubtitlePanel) {
             restoreTransportFocus()
-            delay(50)
-            playPauseFocusRequester.requestFocusSafely()
         }
     }
 
@@ -413,6 +418,7 @@ fun DirectPlayerScreen(
 
     fun subtitleRowColumnCount(row: Int): Int = when (row) {
         0 -> 2
+        3 -> PlaybackVideoFit.entries.size
         else -> 3
     }
 
@@ -438,12 +444,31 @@ fun DirectPlayerScreen(
                 position = SubtitlePosition.entries[subtitleFocusCol],
                 playerView = playerViewRef[0]
             )
+            3 -> playbackVideoFit = PlaybackVideoFit.entries[subtitleFocusCol]
         }
     }
 
+    fun revealOverlayFromHiddenKey(): Boolean {
+        if (showOverlay) return false
+        revealOverlayOnly()
+        return true
+    }
+
     fun handleVodPlaybackKey(key: Key): Boolean {
+        if (key == Key.Back || key == Key.Escape) return consumeDirectPlayerLocalBack()
+
+        val isRevealKey = key == Key.DirectionCenter ||
+            key == Key.Enter ||
+            key == Key.NumPadEnter ||
+            key == Key.DirectionUp ||
+            key == Key.DirectionDown ||
+            key == Key.DirectionLeft ||
+            key == Key.DirectionRight
+        if (!showOverlay && isRevealKey) {
+            return revealOverlayFromHiddenKey()
+        }
+
         when (key) {
-            Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 if (!showOverlay) return false
                 revealOverlay()
@@ -459,7 +484,7 @@ fun DirectPlayerScreen(
                         4 -> seekBy(10_000)
                         5 -> openSubtitlePanel()
                     }
-                    VodPlayerFocusZone.SEEK -> seekBy(-30_000)
+                    VodPlayerFocusZone.SEEK -> Unit
                     VodPlayerFocusZone.SUBTITLE_PANEL -> applySubtitlePanelSelection()
                 }
                 return true
@@ -480,10 +505,11 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionDown -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (vodFocusZone) {
                     VodPlayerFocusZone.SUBTITLE_PANEL -> {
-                        subtitleFocusRow = (subtitleFocusRow + 1).coerceAtMost(2)
+                        subtitleFocusRow = (subtitleFocusRow + 1).coerceAtMost(3)
                         subtitleFocusCol = subtitleFocusCol.coerceAtMost(subtitleRowColumnCount(subtitleFocusRow) - 1)
                         applySubtitlePanelSelection()
                     }
@@ -493,9 +519,12 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionLeft -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (vodFocusZone) {
-                    VodPlayerFocusZone.TRANSPORT -> return false
+                    VodPlayerFocusZone.TRANSPORT -> {
+                        transportFocusIndex = (transportFocusIndex - 1).coerceAtLeast(0)
+                    }
                     VodPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(-seekDeltaForScrub())
@@ -514,9 +543,13 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionRight -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (vodFocusZone) {
-                    VodPlayerFocusZone.TRANSPORT -> return false
+                    VodPlayerFocusZone.TRANSPORT -> {
+                        transportFocusIndex = (transportFocusIndex + 1)
+                            .coerceAtMost(5)
+                    }
                     VodPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(seekDeltaForScrub())
@@ -541,9 +574,21 @@ fun DirectPlayerScreen(
     var jumpToLiveFocused by remember { mutableStateOf(false) }
 
     fun handlePlaybackKey(key: Key): Boolean {
+        if (key == Key.Back || key == Key.Escape) return consumeDirectPlayerLocalBack()
+
+        val isRevealKey = key == Key.DirectionCenter ||
+            key == Key.Enter ||
+            key == Key.NumPadEnter ||
+            key == Key.DirectionUp ||
+            key == Key.DirectionDown ||
+            key == Key.DirectionLeft ||
+            key == Key.DirectionRight
+        if (!showOverlay && isRevealKey) {
+            return revealOverlayFromHiddenKey()
+        }
+
         when (key) {
-            Key.Back, Key.Escape -> return consumeDirectPlayerLocalBack()
-            Key.Enter, Key.DirectionCenter -> {
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 if (!showOverlay) return false
                 revealOverlay()
                 when (focusZone) {
@@ -557,7 +602,7 @@ fun DirectPlayerScreen(
                         3 -> seekBy(30_000)
                         4 -> seekBy(10_000)
                     }
-                    RecordedPlayerFocusZone.SEEK -> seekBy(-30_000)
+                    RecordedPlayerFocusZone.SEEK -> Unit
                     RecordedPlayerFocusZone.BOTTOM -> {
                         if (isCatchupPlayback && catchupSession != null) {
                             playerViewRef[0]?.player = null
@@ -597,6 +642,7 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionDown -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 jumpToLiveFocused = isCatchupPlayback
                 focusZone = when (focusZone) {
@@ -607,9 +653,12 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionLeft -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (focusZone) {
-                    RecordedPlayerFocusZone.TRANSPORT -> return false
+                    RecordedPlayerFocusZone.TRANSPORT -> {
+                        transportFocusIndex = (transportFocusIndex - 1).coerceAtLeast(0)
+                    }
                     RecordedPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(-seekDeltaForScrub())
@@ -621,9 +670,12 @@ fun DirectPlayerScreen(
                 return true
             }
             Key.DirectionRight -> {
+                if (!showOverlay) return false
                 revealOverlay()
                 when (focusZone) {
-                    RecordedPlayerFocusZone.TRANSPORT -> return false
+                    RecordedPlayerFocusZone.TRANSPORT -> {
+                        transportFocusIndex = (transportFocusIndex + 1).coerceAtMost(4)
+                    }
                     RecordedPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(seekDeltaForScrub())
@@ -644,17 +696,6 @@ fun DirectPlayerScreen(
             .focusable()
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-
-                val isEnter = keyEvent.key == Key.DirectionCenter ||
-                    keyEvent.key == Key.Enter ||
-                    keyEvent.key == Key.NumPadEnter
-                val isUp = keyEvent.key == Key.DirectionUp
-
-                if (!showOverlay && (isEnter || isUp)) {
-                    revealOverlayOnly()
-                    return@onPreviewKeyEvent true
-                }
-
                 when {
                     isRecordedPlayback || isCatchupPlayback -> handlePlaybackKey(keyEvent.key)
                     else -> handleVodPlaybackKey(keyEvent.key)
@@ -667,8 +708,16 @@ fun DirectPlayerScreen(
                 PlayerView(ctx).apply {
                     this.player = player
                     useController = false
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    setKeepContentOnPlayerReset(true)
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    setBackgroundColor(android.graphics.Color.BLACK)
                     playerViewRef[0] = this
                 }
+            },
+            update = { view ->
+                view.resizeMode = playbackVideoFit.toResizeMode()
+                if (view.player != player) view.player = player
             },
             onRelease = { view ->
                 view.player = null
@@ -694,8 +743,6 @@ fun DirectPlayerScreen(
                     transportFocusIndex = transportFocusIndex,
                     bottomFocusIndex = bottomFocusIndex,
                     seekTooltip = seekTooltip,
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    onTransportFocusIndexChanged = { transportFocusIndex = it },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -716,8 +763,6 @@ fun DirectPlayerScreen(
                     transportFocusIndex = transportFocusIndex,
                     jumpToLiveFocused = jumpToLiveFocused && focusZone == RecordedPlayerFocusZone.BOTTOM,
                     seekTooltip = seekTooltip,
-                    playPauseFocusRequester = playPauseFocusRequester,
-                    onTransportFocusIndexChanged = { transportFocusIndex = it },
                     onJumpToLive = {
                         playerViewRef[0]?.player = null
                         onJumpToLive(catchupSession.channelId)
@@ -743,8 +788,6 @@ fun DirectPlayerScreen(
                         seekTooltip = seekTooltip,
                         subtitlesEnabled = subtitleSettings.subtitlesEnabled,
                         showSubtitlePanel = showSubtitlePanel,
-                        playPauseFocusRequester = playPauseFocusRequester,
-                        onTransportFocusIndexChanged = { transportFocusIndex = it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                     if (showSubtitlePanel) {
@@ -752,6 +795,7 @@ fun DirectPlayerScreen(
                             settings = subtitleSettings,
                             focusRow = subtitleFocusRow,
                             focusCol = subtitleFocusCol,
+                            videoFit = playbackVideoFit,
                             modifier = Modifier.align(Alignment.CenterEnd)
                         )
                     }

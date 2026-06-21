@@ -3,7 +3,6 @@ package com.grid.tv.ui.component
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,9 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -35,8 +31,6 @@ fun CatchupPlayerControlsOverlay(
     transportFocusIndex: Int,
     jumpToLiveFocused: Boolean,
     seekTooltip: String?,
-    playPauseFocusRequester: FocusRequester? = null,
-    onTransportFocusIndexChanged: (Int) -> Unit = {},
     onJumpToLive: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -85,34 +79,17 @@ fun CatchupPlayerControlsOverlay(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp)
-                .focusGroup(),
+                .padding(top = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
             transportLabels.forEachIndexed { index, label ->
-                val chipModifier = Modifier
-                    .focusable()
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            onTransportFocusIndexChanged(index)
-                        }
-                    }
-                    .then(
-                        if (index == 2 && playPauseFocusRequester != null) {
-                            Modifier.focusRequester(playPauseFocusRequester)
-                        } else {
-                            Modifier
-                        }
-                    )
-                Box(modifier = chipModifier) {
-                    EpgActionButton(
-                        label = label,
-                        isFocused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index,
-                        onClick = {},
-                        compact = true
-                    )
-                }
+                EpgActionButton(
+                    label = label,
+                    isFocused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index,
+                    onClick = {},
+                    compact = true
+                )
             }
         }
 

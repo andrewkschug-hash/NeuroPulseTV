@@ -140,5 +140,8 @@ class SplitViewViewModel @Inject constructor(
 
     @UnstableApi
     fun createPanePlayer(context: Context): ExoPlayer =
-        playerFactory.create(context.applicationContext)
+        playerFactory.create(
+            context = context.applicationContext,
+            handleAudioFocus = false
+        )
 }

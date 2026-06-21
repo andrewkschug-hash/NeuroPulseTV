@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
@@ -75,10 +76,10 @@ fun VodPlayerHudOverlay(
     seekTooltip: String?,
     subtitlesEnabled: Boolean,
     showSubtitlePanel: Boolean,
-    playPauseFocusRequester: FocusRequester? = null,
-    onTransportFocusIndexChanged: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val displayTitle = remember(title) { formatVodPlayerOverlayTitle(title) }
+    val streamBadge = remember(title) { parseVodStreamTagBadge(title) }
     Box(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier
@@ -90,17 +91,27 @@ fun VodPlayerHudOverlay(
                     )
                 )
                 .padding(horizontal = 32.dp, vertical = 24.dp)
+                .focusProperties { canFocus = false }
         ) {
-            Text(
-                text = title,
-                color = Color.White,
-                fontFamily = DmSansFamily,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = displayTitle,
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                streamBadge?.let { badge ->
+                    PlayerHudBadge(text = badge)
+                }
+            }
 
             val transportLabels = listOf(
                 "◀◀ 10s", "⏮ 30s", if (isPlaying) "⏸" else "▶", "⏭ 30s", "▶▶ 10s", "CC"
@@ -108,34 +119,19 @@ fun VodPlayerHudOverlay(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 20.dp)
-                    .focusGroup(),
+                    .padding(top = 20.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 transportLabels.forEachIndexed { index, label ->
                     val isCc = index == transportLabels.lastIndex
                     val focused = focusZone == VodPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                    val chipModifier = Modifier
-                        .focusable()
-                        .onFocusChanged { state ->
-                            if (state.isFocused) {
-                                onTransportFocusIndexChanged(index)
-                            }
-                        }
-                        .then(
-                            if (index == 2 && playPauseFocusRequester != null) {
-                                Modifier.focusRequester(playPauseFocusRequester)
-                            } else {
-                                Modifier
-                            }
-                        )
                     PlayerHudChip(
                         label = label,
                         focused = focused,
                         selected = isCc && subtitlesEnabled,
                         accent = isCc,
-                        modifier = chipModifier
+                        modifier = Modifier.focusProperties { canFocus = false }
                     )
                 }
             }
@@ -203,10 +199,27 @@ fun VodPlayerHudOverlay(
 }
 
 @Composable
+private fun PlayerHudBadge(text: String) {
+    val shape = RoundedCornerShape(999.dp)
+    Text(
+        text = text,
+        color = Color.White,
+        fontFamily = DmSansFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .background(Color.White.copy(alpha = 0.12f), shape)
+            .border(1.dp, Color.White.copy(alpha = 0.25f), shape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
 fun VodInlineSubtitlePanel(
     settings: AppSettings,
     focusRow: Int,
     focusCol: Int,
+    videoFit: PlaybackVideoFit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -264,6 +277,14 @@ fun VodInlineSubtitlePanel(
                 selectedIndex = SubtitlePosition.entries.indexOf(settings.subtitlePosition),
                 focusedIndex = if (focusRow == 2) focusCol else -1,
                 rowFocused = focusRow == 2
+            )
+
+            VodHudChipRow(
+                label = "Video size",
+                options = PlaybackVideoFit.entries.map { it.label },
+                selectedIndex = PlaybackVideoFit.entries.indexOf(videoFit).coerceAtLeast(0),
+                focusedIndex = if (focusRow == 3) focusCol else -1,
+                rowFocused = focusRow == 3
             )
         }
     }

@@ -37,9 +37,11 @@ fun GlowFocusButton(
     enabled: Boolean = true,
     containerColor: Color = DefaultContainerColor,
     contentDescription: String? = null,
+    externallyFocused: Boolean = false,
     content: @Composable () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
+    val showFocused = focused || externallyFocused
     val resolvedContainer = when {
         !enabled -> DisabledContainerColor
         else -> containerColor
@@ -57,7 +59,7 @@ fun GlowFocusButton(
                 }
             )
             .tvFocusBorder(
-                focused = focused,
+                focused = showFocused,
                 shape = ButtonShape,
                 unfocusedColor = Color.Transparent
             ),

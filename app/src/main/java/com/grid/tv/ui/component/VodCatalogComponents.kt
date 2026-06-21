@@ -455,12 +455,15 @@ fun VodEpisodeCard(
     progressFraction: Float?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    externallyFocused: Boolean = false
 ) {
     val shape = RoundedCornerShape(8.dp)
+    val displayTitle = remember(title) { cleanVodDisplayTitle(title) }
     var focused by remember { mutableStateOf(false) }
+    val showFocused = focused || externallyFocused
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.03f else 1f,
+        targetValue = if (showFocused) 1.03f else 1f,
         animationSpec = tween(150),
         label = "episodeCardScale"
     )
@@ -482,7 +485,7 @@ fun VodEpisodeCard(
             }
             .onFocusChanged { focused = it.isFocused }
             .tvFocusBorder(
-                focused = focused,
+                focused = showFocused,
                 shape = shape,
                 width = 3.dp,
                 unfocusedWidth = 1.dp,
@@ -518,7 +521,7 @@ fun VodEpisodeCard(
                 }
             }
             Text(
-                text = title,
+                text = displayTitle,
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 13.sp,
@@ -560,11 +563,11 @@ fun VodHeroSection(
 ) {
     val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
-    val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
+    val displayTitle = remember(movie.title) { cleanVodDisplayTitle(movie.title) }
     val rating = enrichment?.rating?.takeIf { it > 0.0 }?.let { String.format("%.1f", it) }
         ?: movie.rating?.trim()?.takeIf { it.isNotBlank() }
     val year = enrichment?.releaseDate?.take(4)
-        ?: Regex("\\b(19\\d{2}|20\\d{2})\\b").find(movie.title)?.value
+        ?: parseVodReleaseYear(movie.title)
     val ageCert = enrichment?.ageCertification?.takeIf { it.isNotBlank() }
     val genres = (enrichment?.genres ?: movie.genre)
         ?.split(",")

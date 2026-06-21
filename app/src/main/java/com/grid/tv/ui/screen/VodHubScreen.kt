@@ -301,6 +301,8 @@ fun VodHubScreen(
         genreFocusIndex = selectedGenreIndex.coerceIn(0, (genreLabels.lastIndex).coerceAtLeast(0))
     }
 
+    fun tabBarVisible(): Boolean = searchQuery.isBlank() && !vodSearchFocused
+
     LaunchedEffect(
         focusZone,
         showInlineSearch,
@@ -329,11 +331,12 @@ fun VodHubScreen(
                 searchQuery.isBlank() &&
                 !showInlineSearch ->
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.FILTER_PANEL ->
-                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-            focusZone == VodFocusZone.GENRE_PANEL ->
-                genrePanelFocusRequester.requestFocusSafelyAfterLayout()
-            // TOP_BAR: root retains focus for manual D-pad routing via onPreviewKeyEvent.
+            focusZone == VodFocusZone.FILTER_PANEL ||
+                focusZone == VodFocusZone.GENRE_PANEL ||
+                (focusZone == VodFocusZone.CONTENT && !showBrowseGrid) ||
+                focusZone == VodFocusZone.TOP_BAR ||
+                focusZone == VodFocusZone.HERO ->
+                rootFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 
@@ -617,7 +620,11 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionUp -> {
-                focusZone = VodFocusZone.TOP_BAR
+                focusZone = if (tabBarVisible()) {
+                    VodFocusZone.FILTER_PANEL
+                } else {
+                    VodFocusZone.TOP_BAR
+                }
                 true
             }
             else -> false
@@ -690,6 +697,8 @@ fun VodHubScreen(
                     contentRowIndex -= 1
                     val maxCol = wallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
+                } else if (tabBarVisible()) {
+                    focusZone = VodFocusZone.FILTER_PANEL
                 } else if (heroMovie != null && searchQuery.isBlank()) {
                     focusZone = VodFocusZone.HERO
                 } else {
@@ -738,6 +747,7 @@ fun VodHubScreen(
                 when {
                     topBarFocusIndex == GridNavTabs.indexOf(EpgNavTab.Search) -> activateInlineSearch()
                     showInlineSearch && hasBrowseResults -> focusSearchResults()
+                    tabBarVisible() -> focusZone = VodFocusZone.FILTER_PANEL
                     showBrowseGrid && hasBrowseResults -> focusBrowseResultsFromTopBar()
                     heroMovie != null && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
                     wallRows.isNotEmpty() -> {
@@ -833,8 +843,6 @@ fun VodHubScreen(
                 enabled = !seriesDetailOpen &&
                     !movieDetailOpen &&
                     !imeTypingActive &&
-                    focusZone != VodFocusZone.FILTER_PANEL &&
-                    focusZone != VodFocusZone.GENRE_PANEL &&
                     !(focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults)
             )
             .focusProperties {
@@ -929,13 +937,6 @@ fun VodHubScreen(
                         VodContentFilter.entries.indices
                     )],
                     barFocused = focusZone == VodFocusZone.FILTER_PANEL,
-                    showGenrePanel = showGenrePanel,
-                    genrePanelFocusRequester = genrePanelFocusRequester,
-                    contentGridFocusRequester = browseGridFocusRequester,
-                    entryFocusRequester = filterPanelFocusRequester,
-                    onFocusedFilterChange = { filter ->
-                        filterFocusIndex = VodContentFilter.entries.indexOf(filter).coerceAtLeast(0)
-                    },
                     onFilterSelected = { filter ->
                         applyContentFilter(VodContentFilter.entries.indexOf(filter).coerceAtLeast(0))
                     }

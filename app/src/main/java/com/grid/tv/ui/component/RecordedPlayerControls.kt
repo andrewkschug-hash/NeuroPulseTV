@@ -16,10 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -45,8 +42,6 @@ fun RecordedPlayerControlsOverlay(
     transportFocusIndex: Int,
     bottomFocusIndex: Int,
     seekTooltip: String?,
-    playPauseFocusRequester: FocusRequester? = null,
-    onTransportFocusIndexChanged: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -85,31 +80,16 @@ fun RecordedPlayerControlsOverlay(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 20.dp)
-                .focusGroup(),
+                .padding(top = 20.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             transportLabels.forEachIndexed { index, label ->
                 val focused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                val chipModifier = Modifier
-                    .focusable()
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            onTransportFocusIndexChanged(index)
-                        }
-                    }
-                    .then(
-                        if (index == 2 && playPauseFocusRequester != null) {
-                            Modifier.focusRequester(playPauseFocusRequester)
-                        } else {
-                            Modifier
-                        }
-                    )
                 PlayerControlChip(
                     label = label,
                     focused = focused,
-                    modifier = chipModifier
+                    modifier = Modifier.focusProperties { canFocus = false }
                 )
             }
         }

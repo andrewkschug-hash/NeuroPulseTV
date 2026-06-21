@@ -96,10 +96,7 @@ fun SplitViewScreen(
     val channelPlayers = remember { mutableStateMapOf<Long, ExoPlayer>() }
 
     fun releaseChannelPlayer(channelId: Long) {
-        channelPlayers.remove(channelId)?.let { player ->
-            player.clearVideoSurface()
-            player.release()
-        }
+        channelPlayers.remove(channelId)?.release()
     }
 
     var showControls by remember { mutableStateOf(true) }
@@ -109,10 +106,7 @@ fun SplitViewScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            channelPlayers.values.forEach { player ->
-                player.clearVideoSurface()
-                player.release()
-            }
+            channelPlayers.values.forEach { player -> player.release() }
             channelPlayers.clear()
         }
     }
@@ -142,11 +136,10 @@ fun SplitViewScreen(
             val url = ch.streamUrl
             if (url.isBlank()) return@forEach
             val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-            if (currentUri == url) return@forEach
-            player.clearVideoSurface()
-            player.stop()
-            player.clearMediaItems()
-            delay(75)
+            if (currentUri == url) {
+                if (!player.playWhenReady) player.playWhenReady = true
+                return@forEach
+            }
             player.setMediaItem(MediaItem.fromUri(url))
             player.prepare()
             player.playWhenReady = true
@@ -157,6 +150,7 @@ fun SplitViewScreen(
         paneChannels.forEachIndexed { index, channel ->
             val player = channel?.id?.let { channelPlayers[it] } ?: return@forEachIndexed
             player.volume = if (index == audioPaneIndex) 1f else 0f
+            if (!player.playWhenReady) player.playWhenReady = true
         }
     }
 
@@ -446,8 +440,8 @@ private fun SplitPaneGrid(
     paneIndex: Int,
     audioPaneIndex: Int
 ) {
-    when (paneChannels.size) {
-        0 -> Box(
+    when {
+        paneChannels.isEmpty() -> Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
@@ -458,30 +452,38 @@ private fun SplitPaneGrid(
                 fontSize = 16.sp
             )
         }
-        1 -> SplitPaneSlot(
-            paneIndex = 0,
-            channel = paneChannels[0],
-            channelPlayers = channelPlayers,
-            focused = paneIndex == 0,
-            activeAudio = audioPaneIndex == 0,
-            modifier = Modifier.fillMaxSize()
-        )
-        2 -> Row(
+        paneChannels.size <= 2 -> Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            paneChannels.forEachIndexed { index, channel ->
+            key(0) {
                 SplitPaneSlot(
-                    paneIndex = index,
-                    channel = channel,
+                    paneIndex = 0,
+                    channel = paneChannels.getOrNull(0),
                     channelPlayers = channelPlayers,
-                    focused = paneIndex == index,
-                    activeAudio = audioPaneIndex == index,
-                    modifier = Modifier.weight(1f)
+                    focused = paneIndex == 0,
+                    activeAudio = audioPaneIndex == 0,
+                    modifier = if (paneChannels.size == 1) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier.weight(1f)
+                    }
                 )
             }
+            if (paneChannels.size >= 2) {
+                key(1) {
+                    SplitPaneSlot(
+                        paneIndex = 1,
+                        channel = paneChannels.getOrNull(1),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 1,
+                        activeAudio = audioPaneIndex == 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
-        3 -> Column(
+        paneChannels.size == 3 -> Column(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -491,83 +493,97 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                SplitPaneSlot(
-                    paneIndex = 0,
-                    channel = paneChannels[0],
-                    channelPlayers = channelPlayers,
-                    focused = paneIndex == 0,
-                    activeAudio = audioPaneIndex == 0,
-                    modifier = Modifier.weight(1f)
-                )
-                SplitPaneSlot(
-                    paneIndex = 1,
-                    channel = paneChannels[1],
-                    channelPlayers = channelPlayers,
-                    focused = paneIndex == 1,
-                    activeAudio = audioPaneIndex == 1,
-                    modifier = Modifier.weight(1f)
-                )
+                key(0) {
+                    SplitPaneSlot(
+                        paneIndex = 0,
+                        channel = paneChannels.getOrNull(0),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 0,
+                        activeAudio = audioPaneIndex == 0,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                key(1) {
+                    SplitPaneSlot(
+                        paneIndex = 1,
+                        channel = paneChannels.getOrNull(1),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 1,
+                        activeAudio = audioPaneIndex == 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
-            SplitPaneSlot(
-                paneIndex = 2,
-                channel = paneChannels[2],
-                channelPlayers = channelPlayers,
-                focused = paneIndex == 2,
-                activeAudio = audioPaneIndex == 2,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
-        }
-        4 -> Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                SplitPaneSlot(
-                    paneIndex = 0,
-                    channel = paneChannels[0],
-                    channelPlayers = channelPlayers,
-                    focused = paneIndex == 0,
-                    activeAudio = audioPaneIndex == 0,
-                    modifier = Modifier.weight(1f)
-                )
-                SplitPaneSlot(
-                    paneIndex = 1,
-                    channel = paneChannels[1],
-                    channelPlayers = channelPlayers,
-                    focused = paneIndex == 1,
-                    activeAudio = audioPaneIndex == 1,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
+            key(2) {
                 SplitPaneSlot(
                     paneIndex = 2,
-                    channel = paneChannels[2],
+                    channel = paneChannels.getOrNull(2),
                     channelPlayers = channelPlayers,
                     focused = paneIndex == 2,
                     activeAudio = audioPaneIndex == 2,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
                 )
-                SplitPaneSlot(
-                    paneIndex = 3,
-                    channel = paneChannels[3],
-                    channelPlayers = channelPlayers,
-                    focused = paneIndex == 3,
-                    activeAudio = audioPaneIndex == 3,
-                    modifier = Modifier.weight(1f)
-                )
+            }
+        }
+        else -> Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                key(0) {
+                    SplitPaneSlot(
+                        paneIndex = 0,
+                        channel = paneChannels.getOrNull(0),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 0,
+                        activeAudio = audioPaneIndex == 0,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                key(1) {
+                    SplitPaneSlot(
+                        paneIndex = 1,
+                        channel = paneChannels.getOrNull(1),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 1,
+                        activeAudio = audioPaneIndex == 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                key(2) {
+                    SplitPaneSlot(
+                        paneIndex = 2,
+                        channel = paneChannels.getOrNull(2),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 2,
+                        activeAudio = audioPaneIndex == 2,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                key(3) {
+                    SplitPaneSlot(
+                        paneIndex = 3,
+                        channel = paneChannels.getOrNull(3),
+                        channelPlayers = channelPlayers,
+                        focused = paneIndex == 3,
+                        activeAudio = audioPaneIndex == 3,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
@@ -585,26 +601,34 @@ private fun SplitPaneSlot(
 ) {
     val ch = channel ?: return
     val player = channelPlayers[ch.id] ?: return
-    key(ch.id, paneIndex) {
-        SplitPane(
-            label = ch.name,
-            player = player,
-            focused = focused,
-            activeAudio = activeAudio,
-            modifier = modifier
-        )
-    }
+    SplitPane(
+        paneIndex = paneIndex,
+        label = ch.name,
+        player = player,
+        focused = focused,
+        activeAudio = activeAudio,
+        modifier = modifier
+    )
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun SplitPane(
+    paneIndex: Int,
     label: String,
     player: ExoPlayer,
     focused: Boolean,
     activeAudio: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val playerView = remember(paneIndex) {
+        PlayerView(context).apply {
+            useController = false
+            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+            setKeepContentOnPlayerReset(true)
+        }
+    }
     val borderColor = when {
         focused -> EpgColors.Accent
         activeAudio -> EpgColors.Accent.copy(alpha = 0.45f)
@@ -625,22 +649,14 @@ private fun SplitPane(
     ) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    setKeepContentOnPlayerReset(true)
-                }
-            },
+            factory = { playerView },
             update = { view ->
                 if (view.player !== player) {
-                    view.player = null
                     view.player = player
                 }
             },
             onRelease = { view ->
                 view.player = null
-                player.clearVideoSurface()
             }
         )
         Column(

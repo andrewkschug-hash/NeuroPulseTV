@@ -33,7 +33,8 @@ class PlayerFactory @Inject constructor() {
         context: Context,
         bufferSize: BufferSize = BufferSize.MEDIUM,
         preferHardwareDecoding: Boolean = true,
-        startupPriority: PlaybackStartupPriority? = null
+        startupPriority: PlaybackStartupPriority? = null,
+        handleAudioFocus: Boolean = true
     ): ExoPlayer {
         val caps = context.devicePlaybackCapabilities()
         val priority = startupPriority ?: caps.startupPriority
@@ -104,7 +105,7 @@ class PlayerFactory @Inject constructor() {
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
-            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+            .setAudioAttributes(audioAttributes, handleAudioFocus)
             .build()
             .also { exo ->
                 exo.addListener(PlayerAudioRecoveryListener(exo))

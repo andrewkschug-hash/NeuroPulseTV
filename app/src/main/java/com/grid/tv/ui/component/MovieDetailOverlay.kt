@@ -71,7 +71,7 @@ fun MovieDetailOverlay(
     val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
     val posterUrl = enrichment?.posterUrl ?: movie.posterUrl
-    val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
+    val displayTitle = remember(movie.title) { cleanVodDisplayTitle(movie.title) }
     val metadataItems = buildMovieDetailMetadata(movie, enrichment, runtimeLabel)
     val synopsis = resolveMovieOverview(movie, enrichment)
         ?: overview?.takeIf { it.isNotBlank() }

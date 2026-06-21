@@ -745,14 +745,11 @@ fun VodGenreSidePanel(
 ) {
     if (genres.isEmpty()) return
     val listState = rememberLazyListState()
-    val rowFocusRequesters = remember(genres.size) { List(genres.size) { FocusRequester() } }
 
     LaunchedEffect(focusedIndex, panelFocused, genres.size) {
         if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
         val targetIndex = focusedIndex.coerceIn(0, genres.lastIndex)
         listState.animateScrollToItem(targetIndex)
-        val requester = entryFocusRequester ?: rowFocusRequesters.getOrNull(targetIndex)
-        requester?.requestFocusSafelyAfterLayout()
     }
 
     Column(
@@ -760,7 +757,8 @@ fun VodGenreSidePanel(
             .width(168.dp)
             .fillMaxHeight()
             .background(Color(0xFF101010))
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 12.dp, horizontal = 8.dp)
+            .focusProperties { canFocus = false },
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
@@ -792,29 +790,13 @@ fun VodGenreSidePanel(
                     focused -> Color(0xFF333333)
                     else -> Color(0xFF161616)
                 }
-                val rowFocusRequester = if (index == focusedIndex && entryFocusRequester != null) {
-                    entryFocusRequester
-                } else {
-                    rowFocusRequesters[index]
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(containerColor)
                         .clickable { onGenreSelected(index) }
-                        .focusRequester(rowFocusRequester)
-                        .focusable(enabled = panelFocused)
-                        .focusProperties {
-                            if (contentGridFocusRequester != null) {
-                                right = contentGridFocusRequester
-                            }
-                        }
-                        .onFocusChanged { state ->
-                            if (state.isFocused) {
-                                onFocusedIndexChange?.invoke(index)
-                            }
-                        }
+                        .focusProperties { canFocus = false }
                         .then(
                             if (focused) {
                                 Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
@@ -845,31 +827,19 @@ fun VodContentFilterTabBar(
     focusedFilter: VodContentFilter,
     barFocused: Boolean,
     onFilterSelected: (VodContentFilter) -> Unit,
-    modifier: Modifier = Modifier,
-    showGenrePanel: Boolean = false,
-    genrePanelFocusRequester: FocusRequester? = null,
-    contentGridFocusRequester: FocusRequester? = null,
-    entryFocusRequester: FocusRequester? = null,
-    onFocusedFilterChange: ((VodContentFilter) -> Unit)? = null
+    modifier: Modifier = Modifier
 ) {
     val filters = VodContentFilter.entries
-    val filterFocusRequesters = remember { List(filters.size) { FocusRequester() } }
-
-    LaunchedEffect(focusedFilter, barFocused) {
-        if (!barFocused) return@LaunchedEffect
-        val index = filters.indexOf(focusedFilter).coerceAtLeast(0)
-        val requester = entryFocusRequester ?: filterFocusRequesters.getOrNull(index)
-        requester?.requestFocusSafelyAfterLayout()
-    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .focusProperties { canFocus = false },
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        filters.forEachIndexed { index, filter ->
+        filters.forEach { filter ->
             val selected = filter == selectedFilter
             val focused = barFocused && filter == focusedFilter
             val label = when (filter) {
@@ -884,35 +854,18 @@ fun VodContentFilterTabBar(
                 else -> Color.Transparent
             }
             val borderColor = when {
-                selected -> Color.White.copy(alpha = 0.35f)
                 focused -> VodNetflixColors.Accent
+                selected -> Color.White.copy(alpha = 0.35f)
                 else -> Color.White.copy(alpha = 0.18f)
             }
-            val rowFocusRequester = if (focused && entryFocusRequester != null) {
-                entryFocusRequester
-            } else {
-                filterFocusRequesters[index]
-            }
+            val borderWidth = if (focused) 2.dp else 1.dp
             Box(
                 modifier = Modifier
                     .clip(shape)
                     .background(backgroundColor, shape)
-                    .border(1.dp, borderColor, shape)
+                    .border(borderWidth, borderColor, shape)
                     .clickable { onFilterSelected(filter) }
-                    .focusRequester(rowFocusRequester)
-                    .focusable(enabled = barFocused)
-                    .focusProperties {
-                        down = when {
-                            showGenrePanel && genrePanelFocusRequester != null -> genrePanelFocusRequester
-                            contentGridFocusRequester != null -> contentGridFocusRequester
-                            else -> FocusRequester.Default
-                        }
-                    }
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            onFocusedFilterChange?.invoke(filter)
-                        }
-                    }
+                    .focusProperties { canFocus = false }
                     .padding(horizontal = 18.dp, vertical = 8.dp)
             ) {
                 Text(

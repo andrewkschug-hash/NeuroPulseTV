@@ -23,9 +23,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.grid.tv.domain.model.SearchResultType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,6 +105,35 @@ fun SearchOverlay(
         buildSearchRows(unifiedResults, query)
     }
     val selectableRows = remember(rows) { rows.filterIsInstance<SearchListRow.Result>() }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(focusedIndex, focusZone, rows) {
+        if (focusZone != SearchFocusZone.RESULTS || focusedIndex < 0) return@LaunchedEffect
+        val targetRowIndex = rows.indexOfFirst { row ->
+            row is SearchListRow.Result && row.flatIndex == focusedIndex
+        }
+        if (targetRowIndex >= 0) {
+            listState.animateScrollToItem(targetRowIndex)
+        }
+    }
+
+    val stickySectionTitle by remember(rows, listState) {
+        derivedStateOf {
+            val visibleIndex = listState.firstVisibleItemIndex
+            if (visibleIndex < 0 || rows.isEmpty()) return@derivedStateOf null
+            val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            if (firstVisible?.index == visibleIndex &&
+                rows.getOrNull(visibleIndex) is SearchListRow.Header &&
+                firstVisible.offset >= 0
+            ) {
+                return@derivedStateOf null
+            }
+            rows.take(visibleIndex + 1)
+                .filterIsInstance<SearchListRow.Header>()
+                .lastOrNull()
+                ?.title
+        }
+    }
 
     val pulseTransition = rememberInfiniteTransition(label = "micPulse")
     val micPulse by pulseTransition.animateFloat(
@@ -286,28 +318,49 @@ fun SearchOverlay(
                 )
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(rows) { _, row ->
-                    when (row) {
-                        is SearchListRow.Header -> SearchSectionHeader(row.title)
-                        is SearchListRow.Chip -> Unit
-                        is SearchListRow.Result -> SearchResultRow(
-                            result = row.item,
-                            focused = focusZone == SearchFocusZone.RESULTS && focusedIndex == row.flatIndex,
-                            onClick = { onResultSelected(row.item) }
-                        )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    rows.forEach { row ->
+                        when (row) {
+                            is SearchListRow.Header -> item(key = "header-${row.title}") {
+                                SearchSectionHeader(title = row.title)
+                            }
+                            is SearchListRow.Result -> item(key = row.item.id) {
+                                SearchResultRow(
+                                    result = row.item,
+                                    focused = focusZone == SearchFocusZone.RESULTS &&
+                                        focusedIndex == row.flatIndex,
+                                    onClick = { onResultSelected(row.item) }
+                                )
+                            }
+                            is SearchListRow.Chip -> Unit
+                        }
+                    }
+                    if (flatResults.isNotEmpty()) {
+                        item(key = "search-results-hint") {
+                            Text(
+                                text = "↓ results  ·  Enter to open",
+                                color = EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
-            }
-
-            if (flatResults.isNotEmpty()) {
-                Text(
-                    text = "↓ results  ·  Enter to open",
-                    color = EpgColors.TextDimmed,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-                )
+                if (stickySectionTitle != null) {
+                    SearchSectionHeader(
+                        title = stickySectionTitle!!,
+                        modifier = Modifier.align(Alignment.TopStart)
+                    )
+                }
             }
         }
     }
@@ -462,15 +515,21 @@ private fun ClearHistoryChip(focused: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SearchSectionHeader(title: String) {
-    Text(
-        text = title,
-        color = EpgColors.Accent,
-        fontFamily = DmSansFamily,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-    )
+private fun SearchSectionHeader(title: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(EpgColors.Background)
+    ) {
+        Text(
+            text = title,
+            color = EpgColors.Accent,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+        )
+    }
 }
 
 private fun buildSearchRows(unified: UnifiedSearchResults, query: String): List<SearchListRow> {
@@ -645,6 +704,13 @@ private fun SearchResultRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayTitle = remember(result.primaryTitle, result.type) {
+        when (result.type) {
+            SearchResultType.VOD, SearchResultType.SERIES, SearchResultType.EPISODE ->
+                cleanVodDisplayTitle(result.primaryTitle)
+            else -> result.primaryTitle
+        }
+    }
     val bg = if (focused) Color(0xFF1C1C2E) else Color.Transparent
     GridFocusSurface(
         onClick = onClick,
@@ -694,7 +760,7 @@ private fun SearchResultRow(
             }
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(
-                    text = result.primaryTitle,
+                    text = displayTitle,
                     color = EpgColors.TextPrimary,
                     fontFamily = DmSansFamily,
                     fontSize = 14.sp,

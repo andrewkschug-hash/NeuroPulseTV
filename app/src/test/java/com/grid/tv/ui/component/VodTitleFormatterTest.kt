@@ -19,6 +19,37 @@ class VodTitleFormatterTest {
     }
 
     @Test
+    fun cleanVodDisplayTitle_stripsYearAndTrailingLanguage() {
+        assertEquals("1899", cleanVodDisplayTitle("4K - 1899 (2022) (DE)"))
+    }
+
+    @Test
+    fun formatVodPlayerOverlayTitle_keepsYearAndStripsPrefixAndTags() {
+        assertEquals(
+            "All Of You (2024)",
+            formatVodPlayerOverlayTitle("EN - All Of You (2024) (MULTI SUB)")
+        )
+    }
+
+    @Test
+    fun parseVodStreamTagBadge_readsLanguagePrefixOrStreamTag() {
+        assertEquals("EN", parseVodStreamTagBadge("EN - All Of You (2024) (MULTI SUB)"))
+        assertEquals("MULTI SUB", parseVodStreamTagBadge("All Of You (2024) (MULTI SUB)"))
+    }
+
+    @Test
+    fun formatSearchRatingLabel_hidesZeroRatings() {
+        assertNull(formatSearchRatingLabel("0"))
+        assertNull(formatSearchRatingLabel("0.0"))
+        assertEquals("★ 7.5", formatSearchRatingLabel("7.5"))
+    }
+
+    @Test
+    fun parseVodLanguageBadge_readsTrailingLanguageCode() {
+        assertEquals("DE", parseVodLanguageBadge("4K - 1899 (2022) (DE)"))
+    }
+
+    @Test
     fun parseVodLanguageBadge_readsPrefixCode() {
         assertEquals("EN", parseVodLanguageBadge("EN - Movie"))
         assertEquals("FR", parseVodLanguageBadge("FR - Movie"))
