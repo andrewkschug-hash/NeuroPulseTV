@@ -11,6 +11,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
 import com.grid.tv.domain.model.SeriesShow
@@ -75,7 +83,9 @@ fun VodPagedVerticalGrid(
     onItemClick: (VodGridCardModel) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
-    minCellSize: androidx.compose.ui.unit.Dp = 112.dp
+    minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
+    firstItemFocusRequester: FocusRequester? = null,
+    onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -93,12 +103,31 @@ fun VodPagedVerticalGrid(
         ) { index ->
             val show = pagingItems[index] ?: return@items
             val card = show.toGridCardModel()
+            val itemModifier = if (index == 0 && firstItemFocusRequester != null) {
+                Modifier
+                    .focusRequester(firstItemFocusRequester)
+                    .onPreviewKeyEvent { event ->
+                        if (index == 0 &&
+                            onNavigateUpFromFirstRow != null &&
+                            event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionUp
+                        ) {
+                            onNavigateUpFromFirstRow()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            } else {
+                Modifier
+            }
             VodPosterCard(
                 title = card.title,
                 posterUrl = card.posterUrl,
                 progressFraction = progressFraction(card, progressByStreamId),
                 showHdBadge = card.showHdBadge,
-                onClick = { onItemClick(card) }
+                onClick = { onItemClick(card) },
+                modifier = itemModifier
             )
         }
     }
@@ -112,7 +141,9 @@ fun VodMoviePagedGrid(
     onItemClick: (VodItem) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
-    minCellSize: androidx.compose.ui.unit.Dp = 112.dp
+    minCellSize: androidx.compose.ui.unit.Dp = 112.dp,
+    firstItemFocusRequester: FocusRequester? = null,
+    onNavigateUpFromFirstRow: (() -> Unit)? = null
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -130,12 +161,31 @@ fun VodMoviePagedGrid(
         ) { index ->
             val movie = pagingItems[index] ?: return@items
             val card = movie.toGridCardModel()
+            val itemModifier = if (index == 0 && firstItemFocusRequester != null) {
+                Modifier
+                    .focusRequester(firstItemFocusRequester)
+                    .onPreviewKeyEvent { event ->
+                        if (index == 0 &&
+                            onNavigateUpFromFirstRow != null &&
+                            event.type == KeyEventType.KeyDown &&
+                            event.key == Key.DirectionUp
+                        ) {
+                            onNavigateUpFromFirstRow()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            } else {
+                Modifier
+            }
             VodPosterCard(
                 title = card.title,
                 posterUrl = card.posterUrl,
                 progressFraction = progressFraction(card, progressByStreamId),
                 showHdBadge = card.showHdBadge,
-                onClick = { onItemClick(movie) }
+                onClick = { onItemClick(movie) },
+                modifier = itemModifier
             )
         }
     }

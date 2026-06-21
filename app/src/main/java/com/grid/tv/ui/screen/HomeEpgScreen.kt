@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -38,6 +37,7 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.ui.component.EpgLayout
+import com.grid.tv.ui.component.EpgNowTicker
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.buildGuideGroupCategories
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
@@ -158,11 +158,10 @@ fun HomeEpgScreen(
     val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val livePlayerManager = viewModel.livePlayerManager
 
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
-            now = System.currentTimeMillis()
-            delay(1_000)
+            delay(EpgNowTicker.WINDOW_SYNC_INTERVAL_MS)
+            viewModel.syncTimelineWindowToLocalNow()
         }
     }
 
@@ -393,7 +392,11 @@ fun HomeEpgScreen(
             if (guidePosition.hasSavedPosition) {
                 ui.didInitialScroll = true
             } else {
-                val offsetDp = EpgLayout.offsetForTime(now, windowStart, windowDurationMs)
+                val offsetDp = EpgLayout.offsetForLocalNow(
+                    windowStart,
+                    windowDurationMs,
+                    System.currentTimeMillis()
+                )
                 val offsetPx = density.run { offsetDp.toPx() }
                 val target = (offsetPx - 400f).coerceAtLeast(0f).toInt()
                 hScroll.scrollTo(target)
@@ -440,7 +443,8 @@ fun HomeEpgScreen(
         focusedChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
     }
     val focusedProgram = if (ui.focusOnChannelColumn) {
-        channelPrograms.firstOrNull { now in it.startTime..it.endTime }
+        val nowMs = System.currentTimeMillis()
+        channelPrograms.firstOrNull { nowMs in it.startTime..it.endTime }
             ?: channelPrograms.firstOrNull()
     } else {
         channelPrograms.getOrNull(ui.focusProgramIndex)
@@ -457,13 +461,13 @@ fun HomeEpgScreen(
         focusedChannel,
         focusedProgram,
         ui.focusOnChannelColumn,
-        previewChannelPrograms,
-        now
+        previewChannelPrograms
     ) {
+        val nowMs = System.currentTimeMillis()
         if (previewChannel?.id == focusedChannel?.id && !ui.focusOnChannelColumn) {
             focusedProgram
         } else {
-            previewChannelPrograms.firstOrNull { now in it.startTime..it.endTime }
+            previewChannelPrograms.firstOrNull { nowMs in it.startTime..it.endTime }
                 ?: previewChannelPrograms.firstOrNull()
         }
     }
@@ -536,7 +540,6 @@ fun HomeEpgScreen(
         viewModel = viewModel,
         recordingViewModel = recordingViewModel,
         searchViewModel = searchViewModel,
-        now = now,
         windowStart = windowStart,
         windowDurationMs = windowDurationMs,
         density = density,
@@ -619,7 +622,6 @@ fun HomeEpgScreen(
             controller = controller,
             deps = deps,
             context = context,
-            now = now,
             profileInitials = profileInitials,
             profileAvatarColor = profileAvatarColor,
             profileAccessMessage = profileAccessMessage,

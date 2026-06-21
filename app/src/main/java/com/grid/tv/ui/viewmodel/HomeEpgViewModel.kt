@@ -26,6 +26,7 @@ import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.domain.epg.EpgTime
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.player.LivePlayerManager
@@ -319,7 +320,12 @@ class HomeEpgViewModel @Inject constructor(
     private val _epgLoading = MutableStateFlow(false)
     val epgLoading = _epgLoading.asStateFlow()
 
-    private val _windowStart = MutableStateFlow(System.currentTimeMillis() - 90 * 60 * 1000)
+    private val _windowStart = MutableStateFlow(
+        EpgTime.anchoredWindowStart(
+            currentWindowStart = System.currentTimeMillis() - 90 * 60 * 1000,
+            windowDurationMs = 4 * 60 * 60 * 1000L
+        )
+    )
     val windowStart: StateFlow<Long> = _windowStart.asStateFlow()
 
     private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
@@ -488,6 +494,18 @@ class HomeEpgViewModel @Inject constructor(
         if (current >= MAX_WINDOW_MS) return
         _windowDurationMs.value = (current + WINDOW_CHUNK_MS).coerceAtMost(MAX_WINDOW_MS)
         viewModelScope.launch(Dispatchers.IO) { loadWindow() }
+    }
+
+    /** Re-anchor the EPG window to the device local clock so the live tracker stays accurate. */
+    fun syncTimelineWindowToLocalNow() {
+        val now = System.currentTimeMillis()
+        val adjusted = EpgTime.anchoredWindowStart(
+            currentWindowStart = _windowStart.value,
+            windowDurationMs = _windowDurationMs.value,
+            nowMs = now
+        )
+        if (adjusted == _windowStart.value) return
+        _windowStart.value = adjusted
     }
 
     /** Extend the visible timeline backward (into the past). Returns scroll adjustment in px. */

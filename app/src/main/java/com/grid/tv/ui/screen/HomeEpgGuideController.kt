@@ -55,7 +55,6 @@ internal data class HomeEpgGuideDeps(
     val viewModel: HomeEpgViewModel,
     val recordingViewModel: RecordingViewModel,
     val searchViewModel: SearchViewModel,
-    val now: Long,
     val windowStart: Long,
     val windowDurationMs: Long,
     val density: Density,
@@ -120,7 +119,8 @@ internal class HomeEpgGuideController(
     }
 
     fun liveScrollTarget(): Int {
-        val offsetDp = EpgLayout.offsetForTime(deps.now, deps.windowStart, deps.windowDurationMs)
+        val now = System.currentTimeMillis()
+        val offsetDp = EpgLayout.offsetForLocalNow(deps.windowStart, deps.windowDurationMs, now)
         val offsetPx = deps.density.run { offsetDp.toPx() }
         return (offsetPx - 400f).coerceAtLeast(0f).toInt()
     }
@@ -141,7 +141,7 @@ internal class HomeEpgGuideController(
 
     fun playProgram(channel: Channel, program: Program, instant: Boolean = false) {
         val full = deps.channels.find { it.id == channel.id } ?: channel
-        val replay = deps.viewModel.replayState(program, full, deps.now)
+        val replay = deps.viewModel.replayState(program, full, System.currentTimeMillis())
         when (replay.action) {
             EpgProgramAction.WATCH_REPLAY -> {
                 deps.scope.launch {
@@ -165,7 +165,7 @@ internal class HomeEpgGuideController(
         return deps.viewModel.replayState(
             program,
             deps.channels.find { it.id == channel.id } ?: channel,
-            deps.now
+            System.currentTimeMillis()
         ).action.label
     }
 
@@ -187,7 +187,7 @@ internal class HomeEpgGuideController(
         val replay = deps.viewModel.replayState(
             program,
             deps.channels.find { it.id == channel.id } ?: channel,
-            deps.now
+            System.currentTimeMillis()
         )
         if (replay.action == EpgProgramAction.WATCH_REPLAY) {
             playProgram(channel, program, instant = true)
@@ -333,8 +333,8 @@ internal class HomeEpgGuideController(
             2 -> {
                 if (prog == null) {
                     deps.recordingViewModel.startImmediateRecording(deps.context, full, full.name)
-                } else if (prog.startTime <= deps.now) {
-                    val duration = (prog.endTime - deps.now).coerceAtLeast(10 * 60 * 1000)
+                } else if (prog.startTime <= System.currentTimeMillis()) {
+                    val duration = (prog.endTime - System.currentTimeMillis()).coerceAtLeast(10 * 60 * 1000)
                     deps.recordingViewModel.startImmediateRecording(deps.context, full, prog.title, duration)
                 } else {
                     deps.recordingViewModel.scheduleProgram(full, prog)
@@ -661,7 +661,9 @@ internal class HomeEpgGuideController(
                 val progs = programsForChannel(channel)
                 if (ui.focusOnChannelColumn) {
                     ui.focusOnChannelColumn = false
-                    val progsNow = progs.indexOfFirst { deps.now in it.startTime..it.endTime }
+                    val progsNow = progs.indexOfFirst {
+                        System.currentTimeMillis() in it.startTime..it.endTime
+                    }
                     ui.focusProgramIndex = if (progsNow >= 0) progsNow else clampProgramIndex(ui.focusChannelIndex, 0)
                     scrollToProgram(progs.getOrNull(ui.focusProgramIndex))
                 } else if (ui.focusProgramIndex < progs.lastIndex) {

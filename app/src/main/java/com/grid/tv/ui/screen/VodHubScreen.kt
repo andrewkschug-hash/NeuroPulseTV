@@ -119,14 +119,6 @@ fun VodHubScreen(
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
 
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(1_000)
-        }
-    }
-
     val recordingViewModel: RecordingViewModel = hiltViewModel()
     val homeViewModel: HomeEpgViewModel = hiltViewModel()
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
@@ -154,6 +146,8 @@ fun VodHubScreen(
     val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
+    val hasBrowseResults = moviePagingItems.itemSnapshotList.items.isNotEmpty() ||
+        seriesPagingItems.itemSnapshotList.items.isNotEmpty()
     val selectedShowId by seriesViewModel.selectedShowId.collectAsStateWithLifecycle()
     val seriesDetailOpen = selectedShowId != null
     val movieDetailOpen = selectedMovie != null
@@ -278,6 +272,7 @@ fun VodHubScreen(
     val heroPlayFocusRequester = remember { FocusRequester() }
     val heroMoreInfoFocusRequester = remember { FocusRequester() }
     val contentFocusRequester = remember { FocusRequester() }
+    val browseGridFocusRequester = remember { FocusRequester() }
     val searchOverlayFocusRequester = remember { FocusRequester() }
     val movieWatchFocusRequester = remember { FocusRequester() }
 
@@ -293,6 +288,8 @@ fun VodHubScreen(
                 focusZone = VodFocusZone.SEARCH_OVERLAY
                 searchOverlayFocusRequester.requestFocusSafelyAfterLayout()
             }
+            focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults ->
+                browseGridFocusRequester.requestFocusSafelyAfterLayout()
             focusZone == VodFocusZone.HERO && heroMovie != null ->
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
             else -> rootFocusRequester.requestFocusSafelyAfterLayout()
@@ -327,6 +324,18 @@ fun VodHubScreen(
         val movie = selectedMovie ?: return
         closeMovieDetail()
         playMovie(movie)
+    }
+
+    fun focusBrowseResultsFromTopBar() {
+        focusZone = VodFocusZone.CONTENT
+        contentRowIndex = 0
+        contentColIndex = 0
+    }
+
+    fun focusTopBarFromBrowseGrid() {
+        focusZone = VodFocusZone.TOP_BAR
+        vodSearchFocused = searchQuery.isNotBlank()
+        topBarFocusIndex = if (searchQuery.isNotBlank()) -1 else topBarFocusIndex
     }
 
     fun openSearchOverlay() {
@@ -633,13 +642,19 @@ fun VodHubScreen(
             }
             Key.DirectionDown -> {
                 when {
+                    showBrowseGrid && hasBrowseResults -> focusBrowseResultsFromTopBar()
                     heroMovie != null && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
                     wallRows.isNotEmpty() -> {
                         focusZone = VodFocusZone.CONTENT
                         contentRowIndex = 0
                         contentColIndex = 0
                     }
-                    else -> focusZone = VodFocusZone.FILTER_PANEL
+                    searchQuery.isBlank() -> {
+                        focusZone = when {
+                            showBrowseGrid && showGenrePanel -> VodFocusZone.GENRE_PANEL
+                            else -> VodFocusZone.FILTER_PANEL
+                        }
+                    }
                 }
                 true
             }
@@ -701,7 +716,12 @@ fun VodHubScreen(
             .fillMaxSize()
             .background(VodNetflixColors.Background)
             .focusRequester(rootFocusRequester)
-            .focusable(enabled = !seriesDetailOpen && !movieDetailOpen && !showSearchOverlay)
+            .focusable(
+                enabled = !seriesDetailOpen &&
+                    !movieDetailOpen &&
+                    !showSearchOverlay &&
+                    !(focusZone == VodFocusZone.CONTENT && showBrowseGrid && hasBrowseResults)
+            )
             .focusProperties {
                 if (seriesDetailOpen || movieDetailOpen || showSearchOverlay) {
                     canFocus = false
@@ -738,7 +758,6 @@ fun VodHubScreen(
                 )
         ) {
             EpgTopBar(
-                now = now,
                 selectedTab = EpgNavTab.Vod,
                 focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
                 navFocused = focusZone == VodFocusZone.TOP_BAR &&
@@ -824,30 +843,56 @@ fun VodHubScreen(
                         .padding(top = 4.dp)
                 ) {
                     when {
-                        searchQuery.isNotBlank() -> {
-                            if (contentFilter != VodContentFilter.SERIES) {
-                                VodMoviePagedGrid(
-                                    pagingItems = moviePagingItems,
-                                    progressByStreamId = vodProgress,
-                                    progressFraction = movieProgressFraction,
-                                    onItemClick = ::openMovieDetail,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                )
-                            }
-                            if (contentFilter != VodContentFilter.MOVIES) {
-                                VodPagedVerticalGrid(
-                                    pagingItems = seriesPagingItems,
-                                    progressByStreamId = vodProgress,
-                                    progressFraction = { _, _ -> null },
-                                    onItemClick = { card ->
-                                        seriesViewModel.selectShow(card.showId, null)
-                                    },
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                )
+                        searchQuery.isNotBlank() && !showSearchOverlay -> {
+                            val showMovies = contentFilter != VodContentFilter.SERIES
+                            val showSeries = contentFilter != VodContentFilter.MOVIES
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                if (hasBrowseResults) {
+                                    if (showMovies && moviePagingItems.itemSnapshotList.items.isNotEmpty()) {
+                                        VodMoviePagedGrid(
+                                            pagingItems = moviePagingItems,
+                                            progressByStreamId = vodProgress,
+                                            progressFraction = movieProgressFraction,
+                                            onItemClick = ::openMovieDetail,
+                                            firstItemFocusRequester = browseGridFocusRequester,
+                                            onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .weight(1f)
+                                        )
+                                    }
+                                    if (showSeries && seriesPagingItems.itemSnapshotList.items.isNotEmpty()) {
+                                        VodPagedVerticalGrid(
+                                            pagingItems = seriesPagingItems,
+                                            progressByStreamId = vodProgress,
+                                            progressFraction = { _, _ -> null },
+                                            onItemClick = { card ->
+                                                seriesViewModel.selectShow(card.showId, null)
+                                            },
+                                            firstItemFocusRequester = if (
+                                                !showMovies || moviePagingItems.itemSnapshotList.items.isEmpty()
+                                            ) {
+                                                browseGridFocusRequester
+                                            } else {
+                                                null
+                                            },
+                                            onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth()
+                                        )
+                                    }
+                                } else {
+                                    VodEmptyState(
+                                        title = "No matches",
+                                        message = "Try a different title, actor, or genre.",
+                                        onRetry = { openSearchOverlay() }
+                                    )
+                                }
                             }
                         }
                         contentFilter == VodContentFilter.MOVIES -> {
@@ -856,6 +901,8 @@ fun VodHubScreen(
                                 progressByStreamId = vodProgress,
                                 progressFraction = movieProgressFraction,
                                 onItemClick = ::openMovieDetail,
+                                firstItemFocusRequester = browseGridFocusRequester,
+                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -869,6 +916,8 @@ fun VodHubScreen(
                                 onItemClick = { card ->
                                     seriesViewModel.selectShow(card.showId, null)
                                 },
+                                firstItemFocusRequester = browseGridFocusRequester,
+                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -954,7 +1003,18 @@ fun VodHubScreen(
                 placeholder = "Search movies and series…",
                 onQueryChange = hubViewModel::setSearchQuery,
                 onDismiss = ::closeSearchOverlay,
-                focusRequester = searchOverlayFocusRequester
+                focusRequester = searchOverlayFocusRequester,
+                contentFilter = contentFilter,
+                moviePagingItems = moviePagingItems,
+                seriesPagingItems = seriesPagingItems,
+                onMovieClick = { movie ->
+                    closeSearchOverlay()
+                    openMovieDetail(movie)
+                },
+                onSeriesClick = { show ->
+                    closeSearchOverlay()
+                    seriesViewModel.selectShow(show.id, null, preview = show)
+                }
             )
         }
 

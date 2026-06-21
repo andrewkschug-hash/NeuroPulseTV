@@ -29,11 +29,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.style.TextAlign
@@ -63,6 +67,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.paging.compose.LazyPagingItems
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
@@ -74,7 +79,9 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodWallItem
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.ui.theme.DmSansFamily
+import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvTextInputSession
 
 private val PosterWidth = 130.dp
 private val PosterHeight = 195.dp
@@ -1023,6 +1030,14 @@ fun VodTopBarSearchIcon(
     }
 }
 
+private enum class VodSearchFocusZone { FIELD, RESULTS }
+
+private sealed class VodSearchListRow {
+    data class Header(val title: String) : VodSearchListRow()
+    data class Movie(val item: VodItem, val flatIndex: Int) : VodSearchListRow()
+    data class Series(val item: SeriesShow, val flatIndex: Int) : VodSearchListRow()
+}
+
 @Composable
 fun VodSearchOverlay(
     query: String,
@@ -1030,25 +1045,117 @@ fun VodSearchOverlay(
     onQueryChange: (String) -> Unit,
     onDismiss: () -> Unit,
     focusRequester: FocusRequester,
+    contentFilter: VodContentFilter,
+    moviePagingItems: LazyPagingItems<VodItem>,
+    seriesPagingItems: LazyPagingItems<SeriesShow>,
+    onMovieClick: (VodItem) -> Unit,
+    onSeriesClick: (SeriesShow) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val modalTrapFocusRequester = remember { FocusRequester() }
+    val resultsListState = rememberLazyListState()
+    var focusZone by remember { mutableStateOf(VodSearchFocusZone.FIELD) }
+    var focusedIndex by remember { mutableIntStateOf(0) }
+
+    val movieResults = moviePagingItems.itemSnapshotList.items
+    val seriesResults = seriesPagingItems.itemSnapshotList.items
+    val showMovies = contentFilter != VodContentFilter.SERIES
+    val showSeries = contentFilter != VodContentFilter.MOVIES
+
+    val rows = remember(movieResults, seriesResults, contentFilter, query) {
+        if (query.isBlank()) return@remember emptyList()
+        val built = mutableListOf<VodSearchListRow>()
+        var flatIndex = 0
+        if (showMovies && movieResults.isNotEmpty()) {
+            built += VodSearchListRow.Header("Movies")
+            movieResults.forEach { movie ->
+                built += VodSearchListRow.Movie(movie, flatIndex++)
+            }
+        }
+        if (showSeries && seriesResults.isNotEmpty()) {
+            built += VodSearchListRow.Header("Series")
+            seriesResults.forEach { show ->
+                built += VodSearchListRow.Series(show, flatIndex++)
+            }
+        }
+        built
+    }
+    val selectableRows = remember(rows) {
+        rows.filter { it is VodSearchListRow.Movie || it is VodSearchListRow.Series }
+    }
+    val hasResults = selectableRows.isNotEmpty()
 
     BackHandler(onBack = onDismiss)
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocusSafelyAfterLayout()
     }
-    LaunchedEffect(query) {
-        focusRequester.requestFocusSafelyAfterLayout()
+    LaunchedEffect(selectableRows.size) {
+        focusedIndex = if (selectableRows.isNotEmpty()) 0 else -1
+        if (selectableRows.isNotEmpty()) {
+            resultsListState.scrollToItem(0)
+        }
+    }
+    LaunchedEffect(focusZone, focusedIndex) {
+        when (focusZone) {
+            VodSearchFocusZone.FIELD -> focusRequester.requestFocusSafelyAfterLayout()
+            VodSearchFocusZone.RESULTS -> modalTrapFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+    LaunchedEffect(focusedIndex, focusZone) {
+        if (focusZone != VodSearchFocusZone.RESULTS || focusedIndex < 0) return@LaunchedEffect
+        val targetRow = selectableRows.getOrNull(focusedIndex) ?: return@LaunchedEffect
+        val listIndex = rows.indexOf(targetRow).coerceAtLeast(0)
+        resultsListState.animateScrollToItem(listIndex)
     }
 
-    fun handleBack(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+    fun selectAt(index: Int) {
+        when (val row = selectableRows.getOrNull(index)) {
+            is VodSearchListRow.Movie -> onMovieClick(row.item)
+            is VodSearchListRow.Series -> onSeriesClick(row.item)
+            else -> Unit
+        }
+    }
+
+    fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.Back, Key.Escape -> {
                 onDismiss()
                 true
+            }
+            Key.DirectionDown -> {
+                when (focusZone) {
+                    VodSearchFocusZone.FIELD -> if (hasResults) {
+                        focusZone = VodSearchFocusZone.RESULTS
+                        if (focusedIndex < 0) focusedIndex = 0
+                    }
+                    VodSearchFocusZone.RESULTS -> if (focusedIndex < selectableRows.lastIndex) {
+                        focusedIndex += 1
+                    }
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                when (focusZone) {
+                    VodSearchFocusZone.RESULTS -> if (focusedIndex <= 0) {
+                        focusZone = VodSearchFocusZone.FIELD
+                    } else {
+                        focusedIndex -= 1
+                    }
+                    VodSearchFocusZone.FIELD -> Unit
+                }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> when (focusZone) {
+                VodSearchFocusZone.RESULTS -> if (selectableRows.isNotEmpty()) {
+                    selectAt(focusedIndex.coerceAtLeast(0))
+                    true
+                } else {
+                    false
+                }
+                VodSearchFocusZone.FIELD -> false
             }
             else -> false
         }
@@ -1061,16 +1168,16 @@ fun VodSearchOverlay(
             .background(Color.Black.copy(alpha = 0.92f))
             .focusRequester(modalTrapFocusRequester)
             .focusable()
-            .onPreviewKeyEvent(::handleBack)
+            .onPreviewKeyEvent(::handleKey)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 48.dp, vertical = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Search",
+                text = "Search movies & series",
                 color = VodNetflixColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 28.sp,
@@ -1087,14 +1194,168 @@ fun VodSearchOverlay(
                     .fillMaxWidth()
                     .focusRequester(focusRequester)
                     .focusable()
-                    .onPreviewKeyEvent(::handleBack)
+                    .onPreviewKeyEvent(::handleKey)
             )
+
+            when {
+                query.isBlank() -> {
+                    Text(
+                        text = "Type to search your VOD catalog",
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp
+                    )
+                }
+                !hasResults -> {
+                    Text(
+                        text = "No results for \"$query\"",
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp
+                    )
+                }
+                else -> {
+                    Text(
+                        text = "↓ ${selectableRows.size} results  ·  Enter to open",
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp
+                    )
+                    LazyColumn(
+                        state = resultsListState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentPadding = PaddingValues(bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        itemsIndexed(rows, key = { index, row ->
+                            when (row) {
+                                is VodSearchListRow.Header -> "header_${row.title}_$index"
+                                is VodSearchListRow.Movie -> "movie_${row.item.playlistId}_${row.item.streamId}"
+                                is VodSearchListRow.Series -> "series_${row.item.playlistId}_${row.item.id}"
+                            }
+                        }) { _, row ->
+                            when (row) {
+                                is VodSearchListRow.Header -> {
+                                    Text(
+                                        text = row.title,
+                                        color = VodNetflixColors.Accent,
+                                        fontFamily = DmSansFamily,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                    )
+                                }
+                                is VodSearchListRow.Movie -> VodSearchResultRow(
+                                    title = row.item.title,
+                                    subtitle = row.item.genre?.takeIf { it.isNotBlank() } ?: "Movie",
+                                    posterUrl = row.item.posterUrl,
+                                    focused = focusZone == VodSearchFocusZone.RESULTS &&
+                                        focusedIndex == row.flatIndex,
+                                    onClick = { onMovieClick(row.item) }
+                                )
+                                is VodSearchListRow.Series -> VodSearchResultRow(
+                                    title = row.item.name,
+                                    subtitle = row.item.genre?.takeIf { it.isNotBlank() } ?: "Series",
+                                    posterUrl = row.item.coverUrl,
+                                    focused = focusZone == VodSearchFocusZone.RESULTS &&
+                                        focusedIndex == row.flatIndex,
+                                    onClick = { onSeriesClick(row.item) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Text(
                 text = "Press Back to close",
                 color = VodNetflixColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 13.sp
             )
+        }
+    }
+}
+
+@Composable
+private fun VodSearchResultRow(
+    title: String,
+    subtitle: String,
+    posterUrl: String?,
+    focused: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val bg = if (focused) Color(0xFF1C1C2E) else Color.Transparent
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .then(
+                if (focused) Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(0.dp))
+                else Modifier
+            ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp)),
+        colors = ClickableSurfaceDefaults.colors(containerColor = bg, focusedContainerColor = bg)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (focused) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .background(VodNetflixColors.Accent)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .padding(start = if (focused) 10.dp else 12.dp, end = 12.dp)
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFF1A1A22)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!posterUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = posterUrl,
+                        contentDescription = title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = title.take(2).uppercase(),
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = VodNetflixColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = VodNetflixColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

@@ -602,7 +602,6 @@ fun RecordingsScreen(
 
         Column(modifier = Modifier.fillMaxSize()) {
             EpgTopBar(
-                now = now,
                 selectedTab = EpgNavTab.Recordings,
                 focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
                 navFocused = focusZone == RecFocusZone.TOP_BAR && topBarRow == 0 && topBarFocusIndex <= GridNavTabs.lastIndex,

@@ -74,6 +74,8 @@ import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.RecordingPrecheckDialog
 import com.grid.tv.ui.component.SearchOverlay
 import com.grid.tv.ui.component.StorageLocationPicker
+import com.grid.tv.ui.component.EpgNowTicker
+import com.grid.tv.ui.component.rememberEpgNowMillis
 import com.grid.tv.ui.component.formatEpgDay
 import com.grid.tv.ui.component.formatLastChecked
 import com.grid.tv.ui.platform.LocalDeviceFormFactor
@@ -129,7 +131,6 @@ internal fun HomeEpgScreenMainColumn(
     controller: HomeEpgGuideController,
     deps: HomeEpgGuideDeps,
     context: Context,
-    now: Long,
     profileInitials: String,
     profileAvatarColor: String,
     profileAccessMessage: String?,
@@ -172,7 +173,6 @@ internal fun HomeEpgScreenMainColumn(
             }
     ) {
         EpgTopBar(
-            now = now,
             selectedTab = ui.selectedTab,
             focusedNavTabIndex = ui.topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
             navFocused = ui.focusZone == EpgFocusZone.TOP_BAR && ui.topBarFocusIndex <= GridNavTabs.lastIndex,
@@ -245,7 +245,6 @@ internal fun HomeEpgScreenMainColumn(
             HomeEpgPreviewSection(
                 channel = previewChannel,
                 program = deps.previewProgram,
-                now = now,
                 player = previewPlayer,
                 streamStatus = previewStreamStatus,
                 detailActionIndex = ui.detailActionIndex,
@@ -285,7 +284,6 @@ internal fun HomeEpgScreenMainColumn(
             gridFocused = ui.focusZone == EpgFocusZone.GRID,
             displayChannelsEmpty = deps.displayChannels.isEmpty(),
             hScroll = hScroll,
-            now = now,
             windowStart = deps.windowStart,
             windowDurationMs = deps.windowDurationMs,
             guideFilter = deps.guideFilter,
@@ -332,7 +330,7 @@ internal fun HomeEpgScreenMainColumn(
                 deps.viewModel.replayState(
                     program,
                     deps.channels.find { it.id == channel.id } ?: channel,
-                    now
+                    System.currentTimeMillis()
                 )
             }
         )
@@ -570,7 +568,6 @@ internal fun HomeEpgContinueWatchingRow(
 internal fun HomeEpgPreviewSection(
     channel: Channel?,
     program: Program?,
-    now: Long,
     player: androidx.media3.exoplayer.ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
     detailActionIndex: Int,
@@ -595,7 +592,6 @@ internal fun HomeEpgPreviewSection(
     EpgPreviewSection(
         channel = ch,
         program = program,
-        now = now,
         player = player,
         streamStatus = streamStatus,
         detailActionFocused = detailActionIndex,
@@ -629,7 +625,6 @@ internal fun HomeEpgChannelList(
     gridFocused: Boolean,
     displayChannelsEmpty: Boolean,
     hScroll: androidx.compose.foundation.ScrollState,
-    now: Long,
     windowStart: Long,
     windowDurationMs: Long,
     guideFilter: GuideChannelFilter,
@@ -665,6 +660,7 @@ internal fun HomeEpgChannelList(
         EpgProgramReplayState(0, com.grid.tv.ui.component.ProgramTimeState.FUTURE, com.grid.tv.domain.epg.EpgProgramAction.NONE, false, null)
     }
 ) {
+    val gridNow = rememberEpgNowMillis(EpgNowTicker.GRID_INTERVAL_MS)
     val touchGesturesEnabled = LocalDeviceFormFactor.current.enableTouchGestures
     val gridFilterUpTarget = when {
         showPreviewSection -> previewFocusRequester
@@ -691,7 +687,7 @@ internal fun HomeEpgChannelList(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         androidx.tv.material3.Text(
-                            text = formatEpgDay(now),
+                            text = formatEpgDay(gridNow),
                             color = EpgColors.TextSecondary,
                             fontFamily = DmSansFamily,
                             fontSize = 12.sp
@@ -729,8 +725,7 @@ internal fun HomeEpgChannelList(
                 ) {
                     EpgTimelineHeader(
                         windowStart = windowStart,
-                        windowDurationMs = windowDurationMs,
-                        now = now
+                        windowDurationMs = windowDurationMs
                     )
                 }
             }
@@ -780,8 +775,7 @@ internal fun HomeEpgChannelList(
                                         showBottomSeparator = index < displayChannels.lastIndex,
                                         scanStatus = channelScanStatuses[channel.id]?.status,
                                         lastCheckedLabel = formatLastChecked(
-                                            channelScanStatuses[channel.id]?.lastCheckedAt,
-                                            now
+                                            channelScanStatuses[channel.id]?.lastCheckedAt
                                         ),
                                         onClick = if (touchGesturesEnabled) {
                                             { onChannelClick(index, channel) }
@@ -795,7 +789,7 @@ internal fun HomeEpgChannelList(
                                         programs = programs,
                                         windowStart = windowStart,
                                         windowDurationMs = windowDurationMs,
-                                        now = now,
+                                        now = gridNow,
                                         channelIndex = index,
                                         focusChannelIndex = focusChannelIndex,
                                         focusProgramIndex = focusProgramIndex,
@@ -839,7 +833,6 @@ internal fun HomeEpgChannelList(
                         EpgNowLine(
                             windowStart = windowStart,
                             windowDurationMs = windowDurationMs,
-                            now = now,
                             scrollOffsetPx = hScroll.value,
                             modifier = Modifier.fillMaxSize()
                         )

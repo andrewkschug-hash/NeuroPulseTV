@@ -8,20 +8,11 @@ import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
-import java.text.SimpleDateFormat
+import com.grid.tv.domain.epg.EpgTime
 import java.util.Locale
-import java.util.TimeZone
 import java.util.zip.GZIPInputStream
 
 class XmlTvParser {
-
-    private val formatWithTimezone = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US).apply {
-        timeZone = UTC
-    }
-    /** IPTV providers (Xtream xmltv.php) send timezone-less timestamps as UTC wall clock. */
-    private val formatUtc = SimpleDateFormat("yyyyMMddHHmmss", Locale.US).apply {
-        timeZone = UTC
-    }
 
     fun parse(xml: String): ParsedXmlTv =
         parse(xml.byteInputStream(Charsets.UTF_8), Charsets.UTF_8.name())
@@ -150,10 +141,9 @@ class XmlTvParser {
         val hasExplicitTimezone = normalized.length > 14 &&
             (normalized[14] == ' ' || normalized[14] == '+' || normalized[14] == '-')
         return if (hasExplicitTimezone) {
-            runCatching { formatWithTimezone.parse(normalized)?.time }.getOrNull() ?: 0L
+            EpgTime.parseXmlTvWithOffset(normalized)
         } else {
-            val datePart = normalized.take(14)
-            runCatching { formatUtc.parse(datePart)?.time }.getOrNull() ?: 0L
+            EpgTime.parseXmlTvLocalWallClock(normalized)
         }
     }
 
@@ -161,7 +151,6 @@ class XmlTvParser {
         private const val TAG = "EpgFlow"
         private const val GZIP_MAGIC_0: Byte = 0x1f
         private const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
-        private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
         /**
          * XMLTV timestamps vary by provider: `20240615120000 +0000`, `20240615120000+0000`,

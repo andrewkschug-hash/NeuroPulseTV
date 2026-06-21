@@ -4,30 +4,34 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
-import java.util.Calendar
-import java.util.TimeZone
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class XmlTvParserTest {
 
     private val parser = XmlTvParser()
 
     @Test
-    fun parse_timezoneLessTimestampUsesUtc() {
+    fun parse_timezoneLessTimestampUsesLocalZone() {
         val xml = """
             <?xml version="1.0" encoding="UTF-8"?>
             <tv>
               <channel id="test.ch"><display-name>Test</display-name></channel>
               <programme channel="test.ch" start="20240616120000" stop="20240616130000">
-                <title>Utc News</title>
+                <title>Local News</title>
               </programme>
             </tv>
         """.trimIndent()
 
         val program = parser.parse(xml).programs.single()
-        val expected = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-            set(2024, Calendar.JUNE, 16, 12, 0, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        val expected = LocalDateTime.parse(
+            "20240616120000",
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        )
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
 
         assertEquals(expected, program.startTime)
     }
@@ -45,10 +49,13 @@ class XmlTvParserTest {
         """.trimIndent()
 
         val program = parser.parse(xml).programs.single()
-        val expected = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-            set(2024, Calendar.JUNE, 16, 12, 0, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+        val expected = LocalDateTime.parse(
+            "20240616120000",
+            DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        )
+            .atZone(ZoneId.of("UTC"))
+            .toInstant()
+            .toEpochMilli()
 
         assertEquals(expected, program.startTime)
         assertTrue(program.endTime > program.startTime)
@@ -116,12 +123,5 @@ class XmlTvParserTest {
         val b = XmlTvParser.stableProgramId("bbc1.uk", 1_718_534_400_000L)
         assertEquals(a, b)
         assertTrue(a > 0L)
-    }
-
-    private fun assertEqualsApprox(expected: Long, actual: Long, toleranceMs: Long) {
-        assertTrue(
-            "expected=$expected actual=$actual tolerance=$toleranceMs",
-            kotlin.math.abs(expected - actual) <= toleranceMs
-        )
     }
 }

@@ -64,7 +64,6 @@ fun channelQualityLabel(channel: Channel): String {
 fun EpgPreviewSection(
     channel: Channel,
     program: Program?,
-    now: Long,
     player: ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
     detailActionFocused: Int,
@@ -77,6 +76,7 @@ fun EpgPreviewSection(
     onRecord: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val now = System.currentTimeMillis()
     val programSubtitle = when {
         program != null -> {
             val time = "${formatEpgTime(program.startTime)} – ${formatEpgTime(program.endTime)}"
@@ -114,7 +114,6 @@ fun EpgPreviewSection(
         EpgPreviewInfoSidebar(
             channel = channel,
             program = program,
-            now = now,
             streamStatus = streamStatus,
             modifier = Modifier.width(EpgLayout.PreviewInfoWidth)
         )
@@ -324,10 +323,10 @@ private fun EpgPreviewPlayerPane(
 private fun EpgPreviewInfoSidebar(
     channel: Channel,
     program: Program?,
-    now: Long,
     streamStatus: StreamPlaybackStatus?,
     modifier: Modifier = Modifier
 ) {
+    val now = System.currentTimeMillis()
     val shape = RoundedCornerShape(10.dp)
     val quality = channelQualityLabel(channel)
     val isLiveNow = program?.let { now in it.startTime..it.endTime } ?: true

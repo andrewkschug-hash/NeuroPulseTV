@@ -545,7 +545,6 @@ fun SettingsScreen(
                 )
         ) {
             EpgTopBar(
-                now = now,
                 selectedTab = EpgNavTab.Settings,
                 focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
                 navFocused = focusPanel == SettingsFocusPanel.TOP_BAR &&
