@@ -76,6 +76,7 @@ import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import android.util.Log
+import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.domain.model.VodCatalogEmptyReason
@@ -137,6 +138,7 @@ fun SeriesBrowserScreen(
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
     val selectedShow by viewModel.selectedShow.collectAsStateWithLifecycle()
     val selectedShowOverview by viewModel.selectedShowOverview.collectAsStateWithLifecycle()
+    val selectedShowEnrichment by viewModel.selectedShowEnrichment.collectAsStateWithLifecycle()
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
@@ -161,6 +163,10 @@ fun SeriesBrowserScreen(
             it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == initialSeriesId
         }
         viewModel.selectShow(initialSeriesId, cw?.seasonNumber)
+    }
+
+    LaunchedEffect(selectedShowEnrichment) {
+        selectedShowEnrichment?.let { hubViewModel.publishEnrichment(it) }
     }
 
     if (message != null) {
@@ -309,6 +315,7 @@ fun SeriesBrowserScreen(
                 SeriesDetailPane(
                     show = show,
                     description = resolveSeriesSynopsis(show, selectedShowOverview),
+                    enrichment = selectedShowEnrichment,
                     seasons = seasons,
                     episodes = selectedSeasonEpisodes,
                     selectedSeasonNumber = selectedSeasonNumber,
@@ -398,6 +405,7 @@ private enum class SeriesHeaderFocusTarget {
 private fun SeriesDetailPane(
     show: SeriesShow,
     description: String,
+    enrichment: TitleEnrichmentEntity? = null,
     seasons: List<SeriesSeason>,
     episodes: List<SeriesEpisode>,
     selectedSeasonNumber: Int?,
@@ -595,7 +603,8 @@ private fun SeriesDetailPane(
         Column(modifier = Modifier.fillMaxSize()) {
             SeriesDetailHeader(
                 rawShowName = show.name,
-                coverUrl = show.coverUrl,
+                coverUrl = enrichment?.posterUrl?.takeIf { it.isNotBlank() } ?: show.coverUrl,
+                rating = enrichment?.rating?.takeIf { it > 0.0 }?.let { String.format("%.1f", it) },
                 description = description,
                 onBackToShows = onBackToShows,
                 onRecordSeries = onRecordSeries,
@@ -640,6 +649,7 @@ private fun SeriesDetailPane(
 private fun SeriesDetailHeader(
     rawShowName: String,
     coverUrl: String?,
+    rating: String? = null,
     description: String,
     onBackToShows: () -> Unit,
     onRecordSeries: () -> Unit,
@@ -690,13 +700,16 @@ private fun SeriesDetailHeader(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            if (releaseYear != null || languageCode != null || resolutionBadge != null) {
+            if (releaseYear != null || rating != null || languageCode != null || resolutionBadge != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
                     releaseYear?.let { year ->
                         SeriesDetailMetadataPill(text = year, accent = false, useDarkTheme = useDarkTheme)
+                    }
+                    rating?.let { score ->
+                        SeriesDetailMetadataPill(text = "★ $score", accent = false, useDarkTheme = useDarkTheme)
                     }
                     languageCode?.let { code ->
                         SeriesDetailMetadataPill(text = code, accent = false, useDarkTheme = useDarkTheme)
@@ -1025,6 +1038,7 @@ private fun SeriesDetailOverlay(
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
     val selectedShow by viewModel.selectedShow.collectAsStateWithLifecycle()
     val selectedShowOverview by viewModel.selectedShowOverview.collectAsStateWithLifecycle()
+    val selectedShowEnrichment by viewModel.selectedShowEnrichment.collectAsStateWithLifecycle()
     val seasonsLoading by viewModel.seasonsLoading.collectAsStateWithLifecycle()
     val selectedSeasonNumber by viewModel.selectedSeasonNumber.collectAsStateWithLifecycle()
     val selectedSeasonEpisodes by viewModel.selectedSeasonEpisodes.collectAsStateWithLifecycle()
@@ -1047,6 +1061,10 @@ private fun SeriesDetailOverlay(
             it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == initialSeriesId
         }
         viewModel.selectShow(initialSeriesId, cw?.seasonNumber)
+    }
+
+    LaunchedEffect(selectedShowEnrichment) {
+        selectedShowEnrichment?.let { hubViewModel.publishEnrichment(it) }
     }
 
     if (message != null) {
@@ -1088,6 +1106,7 @@ private fun SeriesDetailOverlay(
         SeriesDetailPane(
             show = resolvedShow,
             description = resolveSeriesSynopsis(resolvedShow, selectedShowOverview),
+            enrichment = selectedShowEnrichment,
             seasons = seasons,
             episodes = selectedSeasonEpisodes,
             selectedSeasonNumber = selectedSeasonNumber,

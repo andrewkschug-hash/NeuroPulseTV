@@ -270,6 +270,10 @@ class VodHubViewModel @Inject constructor(
         return map[TitleEnrichmentRepository.xtreamVodKey(item.playlistId, item.streamId)]
     }
 
+    fun publishEnrichment(entity: TitleEnrichmentEntity) {
+        enrichmentByKey.value = enrichmentByKey.value + (entity.providerKey to entity)
+    }
+
     fun displayRating(item: VodItem, enrichment: TitleEnrichmentEntity?): String? {
         enrichment?.rating?.takeIf { it > 0.0 }?.let { return String.format("%.1f", it) }
         return item.rating?.trim()?.takeIf { it.isNotBlank() }

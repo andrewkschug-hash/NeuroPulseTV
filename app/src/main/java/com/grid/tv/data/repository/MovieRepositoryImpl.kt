@@ -44,7 +44,7 @@ class MovieRepositoryImpl @Inject constructor(
 
     private suspend fun fetchFromSupabase(movieId: Long): MovieDetailsDto {
         val client = supabaseClientProvider.clientOrNull()
-            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env")
+            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to local.properties")
 
         val response = client.functions.invoke(
             function = GET_MOVIE_DETAILS_FUNCTION,

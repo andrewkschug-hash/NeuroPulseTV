@@ -3,6 +3,7 @@ package com.grid.tv.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.cachedIn
+import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingContentType
@@ -145,6 +146,9 @@ class SeriesViewModel @Inject constructor(
     private val _selectedShowOverview = MutableStateFlow<String?>(null)
     val selectedShowOverview: StateFlow<String?> = _selectedShowOverview.asStateFlow()
 
+    private val _selectedShowEnrichment = MutableStateFlow<TitleEnrichmentEntity?>(null)
+    val selectedShowEnrichment: StateFlow<TitleEnrichmentEntity?> = _selectedShowEnrichment.asStateFlow()
+
     private val _focusedEpisodeNumber = MutableStateFlow<Int?>(null)
     val focusedEpisodeNumber: StateFlow<Int?> = _focusedEpisodeNumber.asStateFlow()
 
@@ -230,6 +234,7 @@ class SeriesViewModel @Inject constructor(
         _selectedShowId.value = showId
         _selectedShow.value = preview
         _selectedShowOverview.value = null
+        _selectedShowEnrichment.value = null
         _selectedEpisodeDetail.value = null
         _focusedEpisodeNumber.value = null
         _seasons.value = emptyList()
@@ -279,6 +284,7 @@ class SeriesViewModel @Inject constructor(
                         releaseYear = parseYear(displayShow.name),
                         isTv = true
                     )
+                    _selectedShowEnrichment.value = enrichment
                     _selectedShowOverview.value = enrichment?.overview?.takeIf { it.isNotBlank() }
                         ?: detail.plot?.takeIf { it.isNotBlank() }
                         ?: displayShow.plot?.takeIf { it.isNotBlank() }
@@ -296,6 +302,7 @@ class SeriesViewModel @Inject constructor(
         _selectedShowId.value = null
         _selectedShow.value = null
         _selectedShowOverview.value = null
+        _selectedShowEnrichment.value = null
         _selectedEpisodeDetail.value = null
         _focusedEpisodeNumber.value = null
         _seasons.value = emptyList()

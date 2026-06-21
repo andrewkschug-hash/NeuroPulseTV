@@ -54,3 +54,9 @@
 -keep class com.google.android.gms.cast.** { *; }
 -keep class com.google.android.gms.cast.framework.** { *; }
 -dontwarn com.google.android.gms.cast.**
+
+# kxml2 / XmlPullParser conflict with Android SDK
+-dontwarn org.xmlpull.v1.**
+-keep class org.xmlpull.v1.** { *; }
+-dontwarn org.kxml2.**
+-keep class org.kxml2.** { *; }

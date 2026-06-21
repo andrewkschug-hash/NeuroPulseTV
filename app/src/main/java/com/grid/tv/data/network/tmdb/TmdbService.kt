@@ -52,6 +52,19 @@ class TmdbService @Inject constructor(
         return json.optJSONArray("results")?.optJSONObject(0)
     }
 
+    suspend fun resolveMovieId(title: String, year: Int? = null): Long? =
+        searchMovie(title, year)?.optLong("id")?.takeIf { it > 0L }
+
+    suspend fun resolveTvId(title: String, year: Int? = null): Long? =
+        searchTV(title, year)?.optLong("id")?.takeIf { it > 0L }
+
+    suspend fun resolveImdbMatch(imdbId: String): Pair<Long, String>? {
+        val found = findByIMDbId(imdbId) ?: return null
+        val id = found.optLong("id", -1L).takeIf { it > 0L } ?: return null
+        val mediaType = found.optString("media_type").ifBlank { "movie" }
+        return id to mediaType
+    }
+
     suspend fun getMovieDetails(tmdbId: Long): JSONObject {
         return getJson(
             "/movie/$tmdbId",

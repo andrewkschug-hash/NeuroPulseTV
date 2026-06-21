@@ -2,8 +2,8 @@ package com.grid.tv.data.network.parser
 
 import android.util.Log
 import com.grid.tv.data.db.entity.ProgramEntity
-import org.kxml2.io.KXmlParser
 import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -177,7 +177,8 @@ class XmlTvParser {
             return hash and Long.MAX_VALUE
         }
 
-        private fun newPullParser(): XmlPullParser = KXmlParser()
+        private fun newPullParser(): XmlPullParser =
+            XmlPullParserFactory.newInstance().newPullParser()
 
         internal fun openDecompressedStream(
             stream: InputStream,

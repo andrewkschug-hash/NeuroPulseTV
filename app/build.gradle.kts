@@ -7,6 +7,18 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun readLocalProp(key: String, default: String = ""): String =
+    localProps.getProperty(key)?.trim()?.takeIf { it.isNotBlank() } ?: default
+
 fun readEnvValue(key: String, default: String = ""): String {
     val envFile = rootProject.file(".env")
     if (!envFile.exists()) return default
@@ -34,8 +46,8 @@ android {
         buildConfigField("String", "TMDB_BASE_URL", "\"${readEnvValue("TMDB_BASE_URL", "https://api.themoviedb.org/3")}\"")
         buildConfigField("String", "TMDB_IMAGE_BASE_URL", "\"${readEnvValue("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p/")}\"")
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnvValue("OPENSUBTITLES_API_KEY")}\"")
-        buildConfigField("String", "SUPABASE_URL", "\"${readEnvValue("SUPABASE_URL")}\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readEnvValue("SUPABASE_ANON_KEY")}\"")
+        buildConfigField("String", "SUPABASE_URL", "\"${readLocalProp("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readLocalProp("SUPABASE_ANON_KEY")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${readEnvValue("GOOGLE_WEB_CLIENT_ID")}\"")
         manifestPlaceholders["supabaseAuthRedirectScheme"] = "com.grid.tv"
     }
@@ -104,9 +116,17 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    configurations.configureEach {
+        exclude(group = "net.sf.kxml", module = "kxml2")
+    }
 }
 
 dependencies {
+    configurations.configureEach {
+        exclude(group = "net.sf.kxml", module = "kxml2")
+    }
+
     implementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.core.ktx)
@@ -168,7 +188,6 @@ dependencies {
     implementation(libs.play.services.cast.framework)
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
-    implementation("net.sf.kxml:kxml2:2.3.0")
 
     testImplementation(libs.junit4)
     testImplementation(libs.mockk)
