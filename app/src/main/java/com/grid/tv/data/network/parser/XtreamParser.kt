@@ -234,10 +234,10 @@ class XtreamParser {
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val id = optCategoryId(item) ?: continue
-            val name = item.optString("category_name").ifBlank { "Movies" }
+            val name = optCategoryName(item, fallback = "Movies")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
-        return out
+        return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
     fun parseSeriesCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
@@ -246,10 +246,10 @@ class XtreamParser {
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val id = optCategoryId(item) ?: continue
-            val name = item.optString("category_name").ifBlank { "Series" }
+            val name = optCategoryName(item, fallback = "Series")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
-        return out
+        return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
     fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS)?.length() ?: 0
@@ -521,6 +521,24 @@ class XtreamParser {
             is String -> value.takeIf { it.isNotBlank() }
             else -> null
         }
+    }
+
+    private fun optCategoryName(item: JSONObject, fallback: String): String {
+        val id = optCategoryId(item)
+        val candidates = listOf(
+            item.optString("category_name"),
+            item.optString("name"),
+            item.optString("title"),
+            item.optString("category")
+        )
+        for (candidate in candidates) {
+            val trimmed = candidate.trim()
+            if (trimmed.isBlank()) continue
+            if (id != null && trimmed == id) continue
+            if (trimmed.all { it.isDigit() }) continue
+            return trimmed
+        }
+        return fallback
     }
 
     private fun sanitizeJsonPayload(raw: String): String =

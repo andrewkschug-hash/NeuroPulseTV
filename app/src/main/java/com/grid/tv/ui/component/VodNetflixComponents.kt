@@ -81,8 +81,10 @@ import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
 import com.grid.tv.util.TvTextInputSession
 
-private val PosterWidth = 130.dp
-private val PosterHeight = 195.dp
+private val PosterWidth = 112.dp
+private val PosterHeight = 168.dp
+private val PosterTitleHeight = 40.dp
+private val FocusPopupHeight = 96.dp
 private val PosterShape = RoundedCornerShape(6.dp)
 private val LandscapeWidth = 300.dp
 private val LandscapeHeight = 168.dp
@@ -124,14 +126,15 @@ fun movieMetaSubtitle(movie: VodItem, rating: String?): String {
 @Composable
 fun VodFocusInfoPopup(
     title: String,
-    rating: String?,
-    meta: String?,
-    overview: String?,
+    releaseYear: String? = null,
+    genres: String? = null,
+    rating: String? = null,
+    meta: String? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
-            .width(PosterWidth + 40.dp)
+            .width(PosterWidth + 24.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF1A1A1A).copy(alpha = 0.96f))
             .border(1.dp, VodNetflixColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
@@ -144,11 +147,12 @@ fun VodFocusInfoPopup(
             fontFamily = DmSansFamily,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
+            maxLines = 3,
             overflow = TextOverflow.Ellipsis
         )
         val metaLine = listOfNotNull(
             rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
+            releaseYear?.takeIf { it.isNotBlank() },
             meta?.takeIf { it.isNotBlank() }
         ).joinToString(" · ")
         if (metaLine.isNotBlank()) {
@@ -159,13 +163,13 @@ fun VodFocusInfoPopup(
                 fontSize = 11.sp
             )
         }
-        if (!overview.isNullOrBlank()) {
+        if (!genres.isNullOrBlank()) {
             Text(
-                text = overview,
+                text = genres,
                 color = VodNetflixColors.TextSecondary,
                 fontFamily = DmSansFamily,
                 fontSize = 11.sp,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 14.sp
             )
@@ -175,16 +179,21 @@ fun VodFocusInfoPopup(
 
 @Composable
 fun NetflixPosterCard(
-    title: String,
+    rawTitle: String,
     posterUrl: String?,
     progressFraction: Float?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     focusRating: String? = null,
     focusMeta: String? = null,
-    focusOverview: String? = null,
+    focusGenres: String? = null,
+    focusReleaseYear: String? = null,
     externallyFocused: Boolean = false
 ) {
+    val displayTitle = remember(rawTitle) { cleanVodDisplayTitle(rawTitle) }
+    val languageBadge = remember(rawTitle) { parseVodLanguageBadge(rawTitle) }
+    val resolutionBadge = remember(rawTitle) { parseVodResolutionBadge(rawTitle) }
+    val releaseYear = focusReleaseYear ?: remember(rawTitle) { parseVodReleaseYear(rawTitle) }
     val interactionSource = remember { MutableInteractionSource() }
     val interactionFocused by interactionSource.collectIsFocusedAsState()
     val focused = interactionFocused || externallyFocused
@@ -203,115 +212,148 @@ fun NetflixPosterCard(
         TvFocusDefaults.noBorder()
     }
 
-    val hasFocusPopup = focused && (
-        !focusOverview.isNullOrBlank() || !focusRating.isNullOrBlank() || !focusMeta.isNullOrBlank()
-        )
-    Box(
-        modifier = modifier
-            .width(PosterWidth)
-            .height(PosterHeight + if (hasFocusPopup) 84.dp else 0.dp)
+    val showFocusPopup = focused
+    val totalHeight = PosterHeight + PosterTitleHeight +
+        if (showFocusPopup) FocusPopupHeight + 8.dp else 0.dp
+
+    Column(
+        modifier = modifier.width(PosterWidth)
     ) {
-        Surface(
-            onClick = onClick,
+        Box(
             modifier = Modifier
-                .align(Alignment.TopCenter)
                 .width(PosterWidth)
-                .height(PosterHeight)
-                .scale(scale)
-                .zIndex(if (focused) 1f else 0f),
-            interactionSource = interactionSource,
-            shape = ClickableSurfaceDefaults.shape(PosterShape),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = VodNetflixColors.CardPlaceholder,
-                focusedContainerColor = VodNetflixColors.CardPlaceholder
-            ),
-            scale = TvFocusDefaults.NoScale,
-            border = border,
-            glow = TvFocusDefaults.noGlow()
+                .height(totalHeight)
         ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (!posterUrl.isNullOrBlank()) {
-                val context = LocalContext.current
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(posterUrl)
-                        .size(Size(240, 360))
-                        .crossfade(200)
-                        .build(),
-                    contentDescription = title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(VodNetflixColors.CardPlaceholder),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = title.take(2).uppercase(),
-                        color = VodNetflixColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 18.sp
-                    )
-                }
-            }
-
-            progressFraction?.takeIf { it in 0.01f..0.98f }?.let { fraction ->
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .background(Color.Black.copy(alpha = 0.55f))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(fraction)
-                            .height(4.dp)
-                            .background(VodNetflixColors.Accent)
-                    )
-                }
-            }
-
-            if (!focused) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))
-                            )
-                        )
-                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = title,
-                        color = VodNetflixColors.TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-        }
-
-        if (hasFocusPopup) {
-            VodFocusInfoPopup(
-                title = title,
-                rating = focusRating,
-                meta = focusMeta,
-                overview = focusOverview,
+            Surface(
+                onClick = onClick,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = PosterHeight + 6.dp)
-                    .zIndex(2f)
+                    .width(PosterWidth)
+                    .height(PosterHeight)
+                    .scale(scale)
+                    .zIndex(if (focused) 1f else 0f),
+                interactionSource = interactionSource,
+                shape = ClickableSurfaceDefaults.shape(PosterShape),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = VodNetflixColors.CardPlaceholder,
+                    focusedContainerColor = VodNetflixColors.CardPlaceholder
+                ),
+                scale = TvFocusDefaults.NoScale,
+                border = border,
+                glow = TvFocusDefaults.noGlow()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (!posterUrl.isNullOrBlank()) {
+                        val context = LocalContext.current
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(posterUrl)
+                                .size(Size(224, 336))
+                                .crossfade(200)
+                                .build(),
+                            contentDescription = displayTitle,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(VodNetflixColors.CardPlaceholder),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = displayTitle.take(2).uppercase(),
+                                color = VodNetflixColors.TextSecondary,
+                                fontFamily = DmSansFamily,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+
+                    languageBadge?.let { badge ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(6.dp)
+                                .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = Color.White,
+                                fontFamily = DmSansFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    resolutionBadge?.let { badge ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .background(Color(0xCC78350F), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = Color(0xFFFFD54F),
+                                fontFamily = DmSansFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    progressFraction?.takeIf { it in 0.01f..0.98f }?.let { fraction ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height(3.dp)
+                                .background(Color.Black.copy(alpha = 0.55f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction)
+                                    .height(3.dp)
+                                    .background(VodNetflixColors.Accent)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = displayTitle,
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = PosterHeight + 4.dp)
+                    .width(PosterWidth)
             )
+
+            if (showFocusPopup) {
+                VodFocusInfoPopup(
+                    title = displayTitle,
+                    releaseYear = releaseYear,
+                    genres = focusGenres,
+                    rating = focusRating,
+                    meta = focusMeta,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = PosterHeight + PosterTitleHeight + 8.dp)
+                        .zIndex(2f)
+                )
+            }
         }
     }
 }
@@ -332,7 +374,7 @@ fun NetflixCategoryRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 48.dp, end = 48.dp, bottom = 10.dp),
+                .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -379,22 +421,13 @@ fun NetflixPosterCardWithMeta(
 ) {
     Column(
         modifier = modifier.width(PosterWidth),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         NetflixPosterCard(
-            title = title,
+            rawTitle = title,
             posterUrl = posterUrl,
             progressFraction = progressFraction,
             onClick = onClick
-        )
-        Text(
-            text = title,
-            color = VodNetflixColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
         )
         if (!subtitle.isNullOrBlank()) {
             Text(
@@ -638,7 +671,7 @@ fun NetflixSeriesRow(
                 Modifier
             }
             NetflixPosterCard(
-                title = show.name,
+                rawTitle = show.name,
                 posterUrl = show.coverUrl,
                 progressFraction = null,
                 onClick = { onOpenSeries(show) },
@@ -707,6 +740,7 @@ fun VodGenreSidePanel(
     onGenreSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     contentGridFocusRequester: FocusRequester? = null,
+    entryFocusRequester: FocusRequester? = null,
     onFocusedIndexChange: ((Int) -> Unit)? = null
 ) {
     if (genres.isEmpty()) return
@@ -717,7 +751,8 @@ fun VodGenreSidePanel(
         if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
         val targetIndex = focusedIndex.coerceIn(0, genres.lastIndex)
         listState.animateScrollToItem(targetIndex)
-        rowFocusRequesters.getOrNull(targetIndex)?.requestFocusSafelyAfterLayout()
+        val requester = entryFocusRequester ?: rowFocusRequesters.getOrNull(targetIndex)
+        requester?.requestFocusSafelyAfterLayout()
     }
 
     Column(
@@ -757,13 +792,18 @@ fun VodGenreSidePanel(
                     focused -> Color(0xFF333333)
                     else -> Color(0xFF161616)
                 }
+                val rowFocusRequester = if (index == focusedIndex && entryFocusRequester != null) {
+                    entryFocusRequester
+                } else {
+                    rowFocusRequesters[index]
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
                         .background(containerColor)
                         .clickable { onGenreSelected(index) }
-                        .focusRequester(rowFocusRequesters[index])
+                        .focusRequester(rowFocusRequester)
                         .focusable(enabled = panelFocused)
                         .focusProperties {
                             if (contentGridFocusRequester != null) {
@@ -798,24 +838,131 @@ fun VodGenreSidePanel(
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun VodContentFilterTabBar(
+    selectedFilter: VodContentFilter,
+    focusedFilter: VodContentFilter,
+    barFocused: Boolean,
+    onFilterSelected: (VodContentFilter) -> Unit,
+    modifier: Modifier = Modifier,
+    showGenrePanel: Boolean = false,
+    genrePanelFocusRequester: FocusRequester? = null,
+    contentGridFocusRequester: FocusRequester? = null,
+    entryFocusRequester: FocusRequester? = null,
+    onFocusedFilterChange: ((VodContentFilter) -> Unit)? = null
+) {
+    val filters = VodContentFilter.entries
+    val filterFocusRequesters = remember { List(filters.size) { FocusRequester() } }
+
+    LaunchedEffect(focusedFilter, barFocused) {
+        if (!barFocused) return@LaunchedEffect
+        val index = filters.indexOf(focusedFilter).coerceAtLeast(0)
+        val requester = entryFocusRequester ?: filterFocusRequesters.getOrNull(index)
+        requester?.requestFocusSafelyAfterLayout()
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        filters.forEachIndexed { index, filter ->
+            val selected = filter == selectedFilter
+            val focused = barFocused && filter == focusedFilter
+            val label = when (filter) {
+                VodContentFilter.ALL -> "All"
+                VodContentFilter.MOVIES -> "Movies"
+                VodContentFilter.SERIES -> "Series"
+            }
+            val shape = RoundedCornerShape(999.dp)
+            val backgroundColor = when {
+                selected -> Color(0xFF2A2A2A)
+                focused -> Color(0xFF333333)
+                else -> Color.Transparent
+            }
+            val borderColor = when {
+                selected -> Color.White.copy(alpha = 0.35f)
+                focused -> VodNetflixColors.Accent
+                else -> Color.White.copy(alpha = 0.18f)
+            }
+            val rowFocusRequester = if (focused && entryFocusRequester != null) {
+                entryFocusRequester
+            } else {
+                filterFocusRequesters[index]
+            }
+            Box(
+                modifier = Modifier
+                    .clip(shape)
+                    .background(backgroundColor, shape)
+                    .border(1.dp, borderColor, shape)
+                    .clickable { onFilterSelected(filter) }
+                    .focusRequester(rowFocusRequester)
+                    .focusable(enabled = barFocused)
+                    .focusProperties {
+                        down = when {
+                            showGenrePanel && genrePanelFocusRequester != null -> genrePanelFocusRequester
+                            contentGridFocusRequester != null -> contentGridFocusRequester
+                            else -> FocusRequester.Default
+                        }
+                    }
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            onFocusedFilterChange?.invoke(filter)
+                        }
+                    }
+                    .padding(horizontal = 18.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = label,
+                    color = if (selected || focused) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun VodContentFilterPanel(
     selectedFilter: VodContentFilter,
     focusedFilter: VodContentFilter,
     panelFocused: Boolean,
     onFilterSelected: (VodContentFilter) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showGenrePanel: Boolean = false,
+    genrePanelFocusRequester: FocusRequester? = null,
+    contentGridFocusRequester: FocusRequester? = null,
+    entryFocusRequester: FocusRequester? = null,
+    onFocusedFilterChange: ((VodContentFilter) -> Unit)? = null
 ) {
     val filters = VodContentFilter.entries
+    val filterFocusRequesters = remember { List(filters.size) { FocusRequester() } }
+
+    LaunchedEffect(focusedFilter, panelFocused) {
+        if (!panelFocused) return@LaunchedEffect
+        val index = filters.indexOf(focusedFilter).coerceAtLeast(0)
+        val requester = if (entryFocusRequester != null) {
+            entryFocusRequester
+        } else {
+            filterFocusRequesters.getOrNull(index)
+        }
+        requester?.requestFocusSafelyAfterLayout()
+    }
+
     Column(
         modifier = modifier
             .width(56.dp)
-            .padding(vertical = 12.dp)
-            .focusProperties { canFocus = false },
+            .padding(vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        filters.forEach { filter ->
+        filters.forEachIndexed { index, filter ->
             val selected = filter == selectedFilter
             val focused = panelFocused && filter == focusedFilter
             val icon = when (filter) {
@@ -833,13 +980,31 @@ fun VodContentFilterPanel(
                 focused -> Color(0xFF333333)
                 else -> Color(0xFF141414)
             }
+            val rowFocusRequester = if (focused && entryFocusRequester != null) {
+                entryFocusRequester
+            } else {
+                filterFocusRequesters[index]
+            }
             Box(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(containerColor)
                     .clickable { onFilterSelected(filter) }
-                    .focusProperties { canFocus = false }
+                    .focusRequester(rowFocusRequester)
+                    .focusable(enabled = panelFocused)
+                    .focusProperties {
+                        right = when {
+                            showGenrePanel && genrePanelFocusRequester != null -> genrePanelFocusRequester
+                            contentGridFocusRequester != null -> contentGridFocusRequester
+                            else -> FocusRequester.Default
+                        }
+                    }
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            onFocusedFilterChange?.invoke(filter)
+                        }
+                    }
                     .then(
                         if (focused) {
                             Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
@@ -903,7 +1068,7 @@ fun NetflixContentWallRow(
         LazyRow(
             state = listState,
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 56.dp, end = 56.dp, bottom = 6.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(row.items.size, key = { row.items[it].key }) { index ->
@@ -914,12 +1079,13 @@ fun NetflixContentWallRow(
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item
                         NetflixPosterCard(
-                            title = cw.title,
+                            rawTitle = cw.title,
                             posterUrl = cw.posterUrl,
                             progressFraction = cw.progressFraction.takeIf { it in 0.01f..0.98f },
                             onClick = { onActivateItem(item) },
                             focusMeta = formatContinueWatchingSubtitle(cw),
-                            focusOverview = cw.subtitle.ifBlank { "Continue watching" },
+                            focusGenres = cw.subtitle.ifBlank { "Continue watching" },
+                            focusReleaseYear = parseVodReleaseYear(cw.title),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )
@@ -934,13 +1100,14 @@ fun NetflixContentWallRow(
                             null
                         }
                         NetflixPosterCard(
-                            title = movie.title,
+                            rawTitle = movie.title,
                             posterUrl = posterUrlForMovie(movie),
                             progressFraction = fraction,
                             onClick = { onActivateItem(item) },
                             focusRating = ratingForMovie(movie),
                             focusMeta = metaForMovie(movie),
-                            focusOverview = overviewForMovie(movie) ?: movie.plot,
+                            focusGenres = formatVodGenreTags(movie.genre),
+                            focusReleaseYear = parseVodReleaseYear(movie.title),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )
@@ -948,12 +1115,13 @@ fun NetflixContentWallRow(
                     is VodWallItem.SeriesItem -> {
                         val show = item.show
                         NetflixPosterCard(
-                            title = show.name,
+                            rawTitle = show.name,
                             posterUrl = show.coverUrl,
                             progressFraction = null,
                             onClick = { onActivateItem(item) },
                             focusMeta = "Series",
-                            focusOverview = overviewForSeries(show) ?: show.genre,
+                            focusGenres = formatVodGenreTags(show.genre),
+                            focusReleaseYear = parseVodReleaseYear(show.name),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )

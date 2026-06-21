@@ -67,6 +67,7 @@ internal data class HomeEpgGuideDeps(
     val focusedChannel: Channel?,
     val focusedProgram: Program?,
     val previewProgram: Program?,
+    val previewNextProgram: Program?,
     val guideGroupCategories: List<GuideGroupCategory>,
     val guideFilter: GuideChannelFilter,
     val demoFavoriteIds: Set<Long>,

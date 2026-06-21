@@ -34,20 +34,25 @@ fun genreIntegratedRowTitle(rowId: String, title: String): String = when (rowId)
     "recent" -> "New Releases"
     "top_imdb" -> "Top Rated"
     "4k" -> "4K Ultra HD"
-    "trending" -> "Trending: Movies & Series"
-    "all" -> "Popular Series"
-    else -> {
-        val clean = title.trim()
-        when {
-            clean.contains("action", ignoreCase = true) -> "Popular Action & Adventure"
-            clean.contains("comedy", ignoreCase = true) -> "Top Comedy"
-            clean.contains("drama", ignoreCase = true) -> "Drama Picks"
-            clean.contains("horror", ignoreCase = true) -> "Horror & Thrillers"
-            clean.startsWith("Popular", ignoreCase = true) -> clean
-            clean.endsWith("Series", ignoreCase = true) -> "Top $clean"
-            else -> "Popular $clean"
-        }
+    "trending" -> "Trending"
+    "continue_watching" -> "Continue Watching"
+    "recommended" -> "Recommended For You"
+    "all" -> sanitizeVodRowHeading(title)
+    else -> sanitizeVodRowHeading(title)
+}
+
+private fun sanitizeVodRowHeading(raw: String): String {
+    var clean = raw.trim()
+        .removePrefix("Top ")
+        .removePrefix("Popular ")
+        .replace(Regex("""^(?:Top|Popular)\s+\d+\s*""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""\s+\d+$"""), "")
+        .replace(Regex("""^\d+\s*[-:]?\s*"""), "")
+        .trim()
+    if (clean.endsWith(" Series", ignoreCase = true)) {
+        clean = clean.dropLast(" Series".length).trim()
     }
+    return clean.ifBlank { raw.trim() }
 }
 
 fun buildVodWallRows(
@@ -100,7 +105,7 @@ fun buildVodWallRows(
             seriesGenreRows.getOrNull(index)?.let { browseRow ->
                 rows += VodWallRow(
                     id = "series_${browseRow.id}",
-                    title = genreIntegratedRowTitle(browseRow.id, "${browseRow.title} Series"),
+                    title = genreIntegratedRowTitle(browseRow.id, browseRow.title),
                     items = browseRow.series.map { VodWallItem.SeriesItem(it) }
                 )
             }

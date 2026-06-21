@@ -189,4 +189,13 @@ class XtreamParserTest {
         assertEquals("12", categories.first().id)
         assertEquals("Drama", categories.first().name)
     }
+
+    @Test
+    fun parseVodCategoriesUsesNameFieldWhenCategoryNameMissing() {
+        val raw = """[{"category_id":1006,"name":"NETFLIX ASIA"}]"""
+        val categories = parser.parseVodCategories(raw, playlistId = 1L)
+        assertEquals(1, categories.size)
+        assertEquals("1006", categories.first().id)
+        assertEquals("NETFLIX ASIA", categories.first().name)
+    }
 }

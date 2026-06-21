@@ -108,6 +108,10 @@ class UnifiedSearchEngine @Inject constructor(
         historyStore.recordSearch(query)
     }
 
+    suspend fun clearRecentHistory() {
+        historyStore.clearRecent()
+    }
+
     private suspend fun rebuildIndex(hasPlaylists: Boolean) {
         activeProfileId = repository.activeProfileId()
         val hasChannelsInDb = repository.hasChannels().first()

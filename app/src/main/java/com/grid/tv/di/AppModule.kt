@@ -45,6 +45,7 @@ import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
+import com.grid.tv.data.db.dao.MovieDetailsDao
 import com.grid.tv.data.sync.CloudSyncClient
 import com.grid.tv.data.sync.LocalOnlyCloudSyncClient
 import com.grid.tv.feature.scanner.ChannelScanGate
@@ -54,7 +55,9 @@ import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
 import com.grid.tv.data.repository.IptvRepositoryImpl
+import com.grid.tv.data.repository.MovieRepositoryImpl
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.domain.repository.MovieRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -135,6 +138,9 @@ object AppProvidesModule {
 
     @Provides
     fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
+
+    @Provides
+    fun provideMovieDetailsDao(db: AppDatabase): MovieDetailsDao = db.movieDetailsDao()
 
     @Provides
     fun provideSubtitleCacheDao(db: AppDatabase): SubtitleCacheDao = db.subtitleCacheDao()
@@ -224,6 +230,10 @@ object AppProvidesModule {
 abstract class AppBindsModule {
     @Binds
     abstract fun bindRepository(impl: IptvRepositoryImpl): IptvRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMovieRepository(impl: MovieRepositoryImpl): MovieRepository
 
     @Binds
     abstract fun bindCloudSync(impl: LocalOnlyCloudSyncClient): CloudSyncClient

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -86,7 +88,7 @@ fun rememberEpgNowMillis(intervalMs: Long): Long {
 object EpgLayout {
     val TopBarHeight = 72.dp
     val ChannelColumnWidth = 180.dp
-    val RowHeight = 64.dp
+    val RowHeight = 80.dp
     const val VisibleGuideRows = 6
     /** Minimum guide list height (~[VisibleGuideRows] rows); list expands to fill available space. */
     val GuideChannelListMinHeight = RowHeight * VisibleGuideRows
@@ -162,6 +164,55 @@ fun formatEpgDay(epochMs: Long): String = EpgTime.formatWallClockDay(epochMs)
 
 fun programDurationMinutes(program: Program): Int =
     ((program.endTime - program.startTime) / 60_000).toInt()
+
+data class EpgProgramTitleDisplay(
+    val visibleText: String?,
+    val isTruncated: Boolean
+)
+
+/**
+ * Fits a program title to [cellWidthDp] without ellipsis: show full text, a trimmed prefix,
+ * or hide entirely when the block is too narrow for readable characters.
+ */
+fun epgProgramTitleDisplay(
+    title: String,
+    cellWidthDp: Dp,
+    horizontalPaddingDp: Dp = 16.dp,
+    minCharsToShow: Int = 4,
+    charWidthDp: Float = 7.5f
+): EpgProgramTitleDisplay {
+    if (title.isBlank()) return EpgProgramTitleDisplay(null, isTruncated = false)
+    val availableDp = (cellWidthDp - horizontalPaddingDp).value.coerceAtLeast(0f)
+    val maxChars = (availableDp / charWidthDp).toInt()
+    return when {
+        maxChars < minCharsToShow -> EpgProgramTitleDisplay(null, isTruncated = true)
+        title.length <= maxChars -> EpgProgramTitleDisplay(title, isTruncated = false)
+        else -> EpgProgramTitleDisplay(title.take(maxChars), isTruncated = true)
+    }
+}
+
+fun parseProgramEpisodeInfo(title: String): String? {
+    Regex("""(?i)\bS(\d{1,2})E(\d{1,2})\b""").find(title)?.let { match ->
+        val season = match.groupValues[1].padStart(2, '0')
+        val episode = match.groupValues[2].padStart(2, '0')
+        return "S$season E$episode"
+    }
+    Regex("""(?i)\b(\d{1,2})x(\d{1,2})\b""").find(title)?.let { match ->
+        val season = match.groupValues[1].padStart(2, '0')
+        val episode = match.groupValues[2].padStart(2, '0')
+        return "S$season E$episode"
+    }
+    Regex("""(?i)season\s+(\d+)\s*,?\s*episode\s+(\d+)""").find(title)?.let { match ->
+        return "Season ${match.groupValues[1]} · Episode ${match.groupValues[2]}"
+    }
+    return null
+}
+
+fun nextProgramAfter(current: Program, programs: List<Program>): Program? =
+    programs
+        .asSequence()
+        .filter { it.startTime >= current.endTime }
+        .minByOrNull { it.startTime }
 
 enum class ProgramTimeState { PAST, AIRING, FUTURE }
 
@@ -447,6 +498,22 @@ fun EpgProgramCell(
     val timeState = programTimeState(program, now)
     val (baseBgColor, textColor) = cellColors(timeState)
     val isAiring = timeState == ProgramTimeState.AIRING
+    var progressNow by remember(program.id) { mutableLongStateOf(now) }
+    LaunchedEffect(isAiring, program.id) {
+        if (!isAiring) {
+            progressNow = now
+            return@LaunchedEffect
+        }
+        while (true) {
+            progressNow = System.currentTimeMillis()
+            delay(EpgNowTicker.CLOCK_INTERVAL_MS)
+        }
+    }
+    val airingProgress = if (isAiring && program.endTime > program.startTime) {
+        ((progressNow - program.startTime).toFloat() / (program.endTime - program.startTime)).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
     val effectiveBg = when {
         isFocused -> EpgColors.ChannelRowFocusBg
         isSelected -> EpgColors.SelectedFill.copy(alpha = 0.35f)
@@ -464,6 +531,8 @@ fun EpgProgramCell(
     )
     val safeWidth = EpgLayout.safeCellWidth(width.coerceAtLeast(1.dp), windowDurationMs)
     val showTime = safeWidth.value >= 100f
+    val titleDisplay = epgProgramTitleDisplay(program.title, safeWidth)
+    val showTitleTooltip = isFocused && titleDisplay.isTruncated
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
     } else {
@@ -501,15 +570,18 @@ fun EpgProgramCell(
                 )
             }
             Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-                Text(
-                    text = program.title,
-                    color = if (isFocused || isSelected) EpgColors.TextPrimary else textColor,
-                    fontFamily = DmSansFamily,
-                    fontSize = 13.sp,
-                    fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = if (isFocused) 2 else 1,
-                    overflow = if (isFocused) TextOverflow.Visible else TextOverflow.Ellipsis
-                )
+                titleDisplay.visibleText?.let { visibleTitle ->
+                    Text(
+                        text = visibleTitle,
+                        color = if (isFocused || isSelected) EpgColors.TextPrimary else textColor,
+                        fontFamily = DmSansFamily,
+                        fontSize = 13.sp,
+                        fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Clip,
+                        softWrap = false
+                    )
+                }
                 if (showTime) {
                     Text(
                         text = formatEpgTime(program.startTime),
@@ -519,6 +591,31 @@ fun EpgProgramCell(
                         maxLines = 1
                     )
                 }
+            }
+            if (isAiring && airingProgress > 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .background(EpgColors.CellPast.copy(alpha = 0.55f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(airingProgress)
+                            .background(EpgColors.Accent)
+                    )
+                }
+            }
+            if (showTitleTooltip) {
+                EpgProgramTitleTooltip(
+                    title = program.title,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = (-30).dp)
+                        .zIndex(2f)
+                )
             }
             if (isAiring && isFocused) {
                 Box(
@@ -557,6 +654,28 @@ fun EpgProgramCell(
             }
         }
     }
+}
+
+@Composable
+private fun EpgProgramTitleTooltip(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = title,
+        color = EpgColors.TextPrimary,
+        fontFamily = DmSansFamily,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier
+            .widthIn(max = 280.dp)
+            .wrapContentWidth(unbounded = true)
+            .background(Color(0xFF1A1A28), RoundedCornerShape(8.dp))
+            .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    )
 }
 
 @Composable

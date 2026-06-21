@@ -471,6 +471,11 @@ fun HomeEpgScreen(
                 ?: previewChannelPrograms.firstOrNull()
         }
     }
+    val previewNextProgram = remember(previewProgram, previewChannelPrograms) {
+        previewProgram?.let { current ->
+            com.grid.tv.ui.component.nextProgramAfter(current, previewChannelPrograms)
+        }
+    }
 
     val previewStreamStatus = if (previewChannelId == liveChannelId) {
         playbackStatus
@@ -552,6 +557,7 @@ fun HomeEpgScreen(
         focusedChannel = focusedChannel,
         focusedProgram = focusedProgram,
         previewProgram = previewProgram,
+        previewNextProgram = previewNextProgram,
         guideGroupCategories = guideGroupCategories,
         guideFilter = guideFilter,
         demoFavoriteIds = demoFavoriteIds,

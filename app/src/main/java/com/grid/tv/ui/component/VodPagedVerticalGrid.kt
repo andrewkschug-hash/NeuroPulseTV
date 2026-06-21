@@ -96,13 +96,7 @@ fun VodPagedVerticalGrid(
         contentPadding = PaddingValues(vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier.then(
-            if (gridFocusRequester != null) {
-                Modifier.focusRequester(gridFocusRequester)
-            } else {
-                Modifier
-            }
-        )
+        modifier = modifier
     ) {
         items(
             count = pagingItems.itemCount,
@@ -161,13 +155,7 @@ fun VodMoviePagedGrid(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier.then(
-            if (gridFocusRequester != null) {
-                Modifier.focusRequester(gridFocusRequester)
-            } else {
-                Modifier
-            }
-        )
+        modifier = modifier
     ) {
         items(
             count = pagingItems.itemCount,

@@ -873,4 +873,33 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_30_31 = object : Migration(30, 31) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS movie_details (
+                    tmdbId INTEGER NOT NULL,
+                    title TEXT,
+                    overview TEXT,
+                    tagline TEXT,
+                    releaseDate TEXT,
+                    releaseYear INTEGER,
+                    runtimeMinutes INTEGER,
+                    voteAverage REAL,
+                    voteCount INTEGER,
+                    genres TEXT,
+                    posterUrl TEXT,
+                    backdropUrl TEXT,
+                    imdbId TEXT,
+                    status TEXT,
+                    originalLanguage TEXT,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(tmdbId)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_movie_details_imdbId ON movie_details(imdbId)")
+        }
+    }
 }

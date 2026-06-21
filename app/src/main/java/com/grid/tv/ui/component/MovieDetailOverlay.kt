@@ -37,13 +37,18 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.tv.material3.Text
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextAlign
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.domain.model.VodItem
-import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.component.GlassFocusButton
+import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
 
@@ -67,6 +72,7 @@ fun MovieDetailOverlay(
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
     val posterUrl = enrichment?.posterUrl ?: movie.posterUrl
     val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
+    val metadataItems = buildMovieDetailMetadata(movie, enrichment, runtimeLabel)
     val synopsis = resolveMovieOverview(movie, enrichment)
         ?: overview?.takeIf { it.isNotBlank() }
         ?: "No description available."
@@ -163,15 +169,11 @@ fun MovieDetailOverlay(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (!runtimeLabel.isNullOrBlank()) {
-                    Text(
-                        text = runtimeLabel,
-                        color = VodNetflixColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                if (metadataItems.isNotEmpty()) {
+                    MovieDetailMetadataRow(items = metadataItems)
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 val scrollState = rememberScrollState()
                 Text(
@@ -186,14 +188,19 @@ fun MovieDetailOverlay(
                         .verticalScroll(scrollState)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlowFocusButton(
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    GlassFocusButton(
                         onClick = onWatchNow,
-                        modifier = Modifier.focusRequester(watchFocusRequester)
+                        primary = true,
+                        modifier = Modifier.focusRequester(watchFocusRequester),
+                        contentDescription = "Watch Now"
                     ) {
                         Text("Watch Now", fontFamily = DmSansFamily, fontSize = 15.sp)
                     }
-                    GlowFocusButton(onClick = onBack) {
+                    GlassFocusButton(
+                        onClick = onBack,
+                        contentDescription = "Back"
+                    ) {
                         Text("Back", fontFamily = DmSansFamily, fontSize = 15.sp)
                     }
                 }
@@ -227,3 +234,52 @@ fun formatVodRuntimeLabel(raw: String?, runtimeMinutes: Int? = null): String? {
 
 fun runtimeLabelForMovie(movie: VodItem, enrichment: TitleEnrichmentEntity?): String? =
     formatVodRuntimeLabel(movie.duration, enrichment?.runtimeMinutes)
+
+fun buildMovieDetailMetadata(
+    movie: VodItem,
+    enrichment: TitleEnrichmentEntity?,
+    runtimeLabel: String?
+): List<String> {
+    val parts = mutableListOf<String>()
+    runtimeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { parts += it }
+
+    val rating = enrichment?.rating?.takeIf { it > 0.0 }?.let { String.format("%.1f", it) }
+        ?: movie.rating?.trim()?.takeIf { it.isNotBlank() }
+    rating?.let { parts += "★ $it" }
+
+    val year = enrichment?.releaseYear?.takeIf { it in 1900..2100 }
+        ?: enrichment?.releaseDate?.take(4)?.toIntOrNull()?.takeIf { it in 1900..2100 }
+        ?: Regex("\\b(19\\d{2}|20\\d{2})\\b").find(movie.title)?.value?.toIntOrNull()
+    year?.let { parts += it.toString() }
+
+    return parts
+}
+
+@Composable
+private fun MovieDetailMetadataRow(items: List<String>) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        items.forEachIndexed { index, label ->
+            if (index > 0) {
+                Text(
+                    text = "·",
+                    color = Color.White.copy(alpha = 0.35f),
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(8.dp)
+                )
+            }
+            Text(
+                text = label,
+                color = EpgColors.TextSecondary.copy(alpha = 0.95f),
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.2.sp
+            )
+        }
+    }
+}

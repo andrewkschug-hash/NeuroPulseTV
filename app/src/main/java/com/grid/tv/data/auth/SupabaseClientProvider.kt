@@ -8,6 +8,7 @@ import io.github.jan.supabase.compose.auth.ComposeAuth
 import io.github.jan.supabase.compose.auth.googleNativeLogin
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.functions.Functions
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,6 +45,7 @@ class SupabaseClientProvider @Inject constructor() {
                 flowType = FlowType.PKCE
             }
             install(Postgrest)
+            install(Functions)
             install(ComposeAuth) {
                 val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID.trim()
                 if (webClientId.isNotBlank()) {

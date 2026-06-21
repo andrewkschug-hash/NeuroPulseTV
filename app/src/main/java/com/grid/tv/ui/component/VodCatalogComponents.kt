@@ -89,6 +89,11 @@ fun VodPosterCard(
     ratingBadge: String? = null,
     posterHeight: androidx.compose.ui.unit.Dp = 168.dp
 ) {
+    val displayTitle = remember(title) { cleanVodDisplayTitle(title) }
+    val languageBadge = remember(title) { parseVodLanguageBadge(title) }
+    val resolutionBadge = remember(title) {
+        parseVodResolutionBadge(title) ?: if (showHdBadge) "HD" else null
+    }
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier.width(112.dp),
@@ -114,21 +119,49 @@ fun VodPosterCard(
                             .size(Size(224, 336))
                             .crossfade(200)
                             .build(),
-                        contentDescription = title,
+                        contentDescription = displayTitle,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = title.take(2).uppercase(),
+                            text = displayTitle.take(2).uppercase(),
                             color = EpgColors.TextSecondary,
                             fontFamily = DmSansFamily,
                             fontSize = 18.sp
                         )
                     }
                 }
-                if (!ratingBadge.isNullOrBlank()) {
+                languageBadge?.let { badge ->
+                    Text(
+                        text = badge,
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+                resolutionBadge?.let { badge ->
+                    Text(
+                        text = badge,
+                        color = Color(0xFFFFD54F),
+                        fontFamily = DmSansFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .background(Color(0xCC78350F), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+                if (resolutionBadge == null && !ratingBadge.isNullOrBlank()) {
                     Text(
                         text = ratingBadge,
                         color = EpgColors.TextPrimary,
@@ -140,20 +173,6 @@ fun VodPosterCard(
                             .padding(6.dp)
                             .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
-                if (showHdBadge) {
-                    Text(
-                        text = "HD",
-                        color = EpgColors.TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .background(EpgColors.Accent.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
                 progressFraction?.takeIf { it in 0.01f..0.98f }?.let { fraction ->
@@ -174,7 +193,7 @@ fun VodPosterCard(
                 }
             }
             Text(
-                text = title,
+                text = displayTitle,
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 12.sp,

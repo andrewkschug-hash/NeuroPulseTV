@@ -1,0 +1,9 @@
+# NeuroPulseTV / GRID — Supabase Edge Function configuration
+#
+# get-movie-details uses withSupabase auth modes "user" and "publishable".
+# Platform JWT verification must be disabled so publishable-key requests
+# (apikey header) and user JWT requests are both validated inside the handler.
+# See: https://supabase.com/docs/guides/functions/auth
+
+[functions.get-movie-details]
+verify_jwt = false

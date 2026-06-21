@@ -33,8 +33,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -78,6 +85,7 @@ fun SearchOverlay(
     onMicClick: () -> Unit,
     onResultSelected: (SearchResultItem) -> Unit,
     onSuggestionSelected: (String) -> Unit,
+    onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val modalTrapFocusRequester = remember { FocusRequester() }
@@ -191,7 +199,7 @@ fun SearchOverlay(
             }
             Key.DirectionRight -> when (focusZone) {
                 SearchFocusZone.FIELD -> { focusZone = SearchFocusZone.MIC; true }
-                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.lastIndex) {
+                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.size) {
                     recentChipIndex += 1; true
                 } else false
                 else -> false
@@ -205,9 +213,15 @@ fun SearchOverlay(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> when (focusZone) {
                 SearchFocusZone.MIC -> { onMicClick(); true }
-                SearchFocusZone.RECENT -> {
-                    recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
-                    true
+                SearchFocusZone.RECENT -> when {
+                    recentChipIndex == recentSearches.size -> {
+                        onClearHistory()
+                        true
+                    }
+                    else -> {
+                        recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
+                        true
+                    }
                 }
                 SearchFocusZone.RESULTS -> if (selectableRows.isNotEmpty()) {
                     selectAt(focusedIndex.coerceAtLeast(0)); true
@@ -253,25 +267,13 @@ fun SearchOverlay(
             )
 
             if (showRecentChips) {
-                Text(
-                    text = "Recent searches",
-                    color = EpgColors.TextDimmed,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                RecentSearchesSection(
+                    recentSearches = recentSearches,
+                    focusZone = focusZone,
+                    focusedChipIndex = recentChipIndex,
+                    onSuggestionSelected = onSuggestionSelected,
+                    onClearHistory = onClearHistory
                 )
-                LazyRow(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(recentSearches) { index, term ->
-                        SearchChip(
-                            label = term,
-                            focused = focusZone == SearchFocusZone.RECENT && recentChipIndex == index,
-                            onClick = { onSuggestionSelected(term) }
-                        )
-                    }
-                }
             }
 
             if (query.isNotBlank() && unifiedResults.isEmpty && searchBarState != SearchBarState.LISTENING) {
@@ -312,6 +314,154 @@ fun SearchOverlay(
 }
 
 @Composable
+private fun RecentSearchesSection(
+    recentSearches: List<String>,
+    focusZone: SearchFocusZone,
+    focusedChipIndex: Int,
+    onSuggestionSelected: (String) -> Unit,
+    onClearHistory: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 8.dp)
+    ) {
+        Text(
+            text = "Recent searches",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+        )
+        LazyRow(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            itemsIndexed(recentSearches) { index, term ->
+                RecentSearchChip(
+                    label = term,
+                    focused = focusZone == SearchFocusZone.RECENT && focusedChipIndex == index,
+                    onClick = { onSuggestionSelected(term) }
+                )
+            }
+            item {
+                ClearHistoryChip(
+                    focused = focusZone == SearchFocusZone.RECENT &&
+                        focusedChipIndex == recentSearches.size,
+                    onClick = onClearHistory
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentSearchChip(label: String, focused: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(999.dp)
+    val borderColor = if (focused) EpgColors.Accent else Color.White.copy(alpha = 0.12f)
+    val backgroundColor = when {
+        focused -> EpgColors.Accent.copy(alpha = 0.16f)
+        else -> Color.White.copy(alpha = 0.06f)
+    }
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .widthIn(min = 72.dp, max = 240.dp)
+            .border(1.5.dp, borderColor, shape)
+            .drawBehind {
+                drawRoundRect(
+                    color = backgroundColor,
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f)
+                )
+            },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "↩",
+                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                fontSize = 13.sp
+            )
+            Text(
+                text = label,
+                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClearHistoryChip(focused: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(999.dp)
+    val borderColor = when {
+        focused -> Color(0xFFFF6B6B)
+        else -> Color(0xFFFF6B6B).copy(alpha = 0.35f)
+    }
+    val backgroundColor = when {
+        focused -> Color(0xFFFF6B6B).copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .defaultMinSize(minWidth = 120.dp)
+            .border(1.5.dp, borderColor, shape)
+            .drawBehind {
+                drawRoundRect(
+                    color = backgroundColor,
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f)
+                )
+            },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "✕",
+                color = if (focused) Color(0xFFFF8A8A) else Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Clear history",
+                color = if (focused) Color(0xFFFFB4B4) else Color(0xFFFF8A8A),
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
 private fun SearchSectionHeader(title: String) {
     Text(
         text = title,
@@ -321,28 +471,6 @@ private fun SearchSectionHeader(title: String) {
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
     )
-}
-
-@Composable
-private fun SearchChip(label: String, focused: Boolean, onClick: () -> Unit) {
-    val borderColor = if (focused) EpgColors.FocusBorder else Color(0xFF2A2A38)
-    GridFocusSurface(
-        onClick = onClick,
-        modifier = Modifier.border(1.5.dp, borderColor, RoundedCornerShape(16.dp)),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (focused) Color(0xFF252535) else Color(0xFF1A1A24),
-            focusedContainerColor = Color(0xFF252535)
-        )
-    ) {
-        Text(
-            text = label,
-            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-        )
-    }
 }
 
 private fun buildSearchRows(unified: UnifiedSearchResults, query: String): List<SearchListRow> {

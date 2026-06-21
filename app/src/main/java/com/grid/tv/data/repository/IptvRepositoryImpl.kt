@@ -90,6 +90,7 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
 import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.domain.model.VodCategory
+import com.grid.tv.domain.model.VodCategoryNameResolver
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodItem
@@ -1937,6 +1938,7 @@ class IptvRepositoryImpl @Inject constructor(
     override suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger) {
         warmLocalUiCache()
         refreshSeriesCategoriesIfMissing(trigger)
+        repairStoredCategoryNames()
         refreshVodSeriesCatalog(trigger = trigger, force = false)
     }
 
@@ -2107,6 +2109,7 @@ class IptvRepositoryImpl @Inject constructor(
                 seriesCategoryDao.clearByPlaylist(playlist.id)
                 seriesCategoryDao.insertAll(categories.map { it.toSeriesCategoryEntity() })
                 bumpVodCatalogRevision()
+                repairStoredCategoryNames()
             } else {
                 backfillSeriesCategoriesFromShows(playlist.id)
             }
@@ -2124,12 +2127,18 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun backfillSeriesCategoriesFromShows(playlistId: Long) {
         val pairs = seriesShowDao.distinctCategoryPairs().filter { it.playlistId == playlistId }
         if (pairs.isEmpty()) return
+        val lookup = buildCategoryNameLookup()
         seriesCategoryDao.insertAll(
             pairs.map { row ->
                 SeriesCategoryEntity(
                     playlistId = row.playlistId,
                     categoryId = row.categoryId,
-                    name = row.categoryId
+                    name = VodCategoryNameResolver.resolveDisplayName(
+                        categoryId = row.categoryId,
+                        storedName = row.categoryId,
+                        playlistId = row.playlistId,
+                        lookupById = lookup
+                    )
                 )
             }
         )
@@ -2140,10 +2149,77 @@ class IptvRepositoryImpl @Inject constructor(
         )
     }
 
-    private suspend fun buildFallbackSeriesCategories(): List<VodCategory> =
-        seriesShowDao.distinctCategoryPairs().map { row ->
-            VodCategory(id = row.categoryId, name = row.categoryId, playlistId = row.playlistId)
+    private suspend fun buildFallbackSeriesCategories(): List<VodCategory> {
+        val lookup = buildCategoryNameLookup()
+        return seriesShowDao.distinctCategoryPairs().map { row ->
+            VodCategory(
+                id = row.categoryId,
+                name = VodCategoryNameResolver.resolveDisplayName(
+                    categoryId = row.categoryId,
+                    storedName = row.categoryId,
+                    playlistId = row.playlistId,
+                    lookupById = lookup
+                ),
+                playlistId = row.playlistId
+            )
         }
+    }
+
+    private suspend fun buildCategoryNameLookup(): Map<String, String> {
+        val tables = mutableListOf<Map<String, String>>()
+        tables += VodCategoryNameResolver.buildLookupTable(
+            vodCategoryDao.all().map { it.toDomain() }
+        )
+        tables += VodCategoryNameResolver.buildLookupTable(
+            seriesCategoryDao.all().map { it.toDomain() }
+        )
+        playlistDao.all().forEach { playlist ->
+            val cached = vodCatalogDiskCache.load(playlist.id)?.categories.orEmpty()
+            if (cached.isNotEmpty()) {
+                tables += VodCategoryNameResolver.buildLookupTable(cached)
+            }
+        }
+        return VodCategoryNameResolver.mergeLookupTables(*tables.toTypedArray())
+    }
+
+    private suspend fun resolveCategoriesForDisplay(categories: List<VodCategory>): List<VodCategory> {
+        if (categories.isEmpty()) return categories
+        val lookup = buildCategoryNameLookup()
+        return categories.map { category ->
+            VodCategoryNameResolver.withResolvedNames(category, lookup)
+        }
+    }
+
+    private suspend fun repairStoredCategoryNames() {
+        val lookup = buildCategoryNameLookup()
+        val vodUpdates = vodCategoryDao.all().mapNotNull { entity ->
+            val resolved = VodCategoryNameResolver.resolveDisplayName(
+                categoryId = entity.categoryId,
+                storedName = entity.name,
+                playlistId = entity.playlistId,
+                lookupById = lookup
+            )
+            if (resolved != entity.name) entity.copy(name = resolved) else null
+        }
+        if (vodUpdates.isNotEmpty()) {
+            vodCategoryDao.insertAll(vodUpdates)
+            bumpVodCatalogRevision()
+        }
+
+        val seriesUpdates = seriesCategoryDao.all().mapNotNull { entity ->
+            val resolved = VodCategoryNameResolver.resolveDisplayName(
+                categoryId = entity.categoryId,
+                storedName = entity.name,
+                playlistId = entity.playlistId,
+                lookupById = lookup
+            )
+            if (resolved != entity.name) entity.copy(name = resolved) else null
+        }
+        if (seriesUpdates.isNotEmpty()) {
+            seriesCategoryDao.insertAll(seriesUpdates)
+            bumpVodCatalogRevision()
+        }
+    }
 
     private suspend fun publishVodProgressFromDb(trigger: VodRefreshTrigger) {
         publishVodCatalogCounts(
@@ -2456,6 +2532,7 @@ class IptvRepositoryImpl @Inject constructor(
                     vodCategoryDao.clearByPlaylist(playlist.id)
                     vodCategoryDao.insertAll(categories.map { it.toEntity() })
                     bumpVodCatalogRevision()
+                    repairStoredCategoryNames()
                 }
             }.onFailure { categoryError ->
                 Log.w(
@@ -2617,7 +2694,13 @@ class IptvRepositoryImpl @Inject constructor(
     override fun seriesShowCount(): Flow<Int> = seriesShowDao.observeTotalCount()
 
     override fun vodCategories(): Flow<List<VodCategory>> =
-        vodCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+        combine(vodCategoryDao.observeAll(), _vodCatalogRevision) { rows, _ -> rows }
+            .flatMapLatest { rows ->
+                flow {
+                    emit(resolveCategoriesForDisplay(rows.map { it.toDomain() }))
+                }
+            }
+            .flowOn(Dispatchers.IO)
 
     override fun seriesCategories(): Flow<List<VodCategory>> =
         combine(
@@ -2627,13 +2710,12 @@ class IptvRepositoryImpl @Inject constructor(
         ) { stored, _, _ -> stored }
             .flatMapLatest { stored ->
                 flow {
-                    emit(
-                        if (stored.isNotEmpty()) {
-                            stored.map { it.toDomain() }
-                        } else {
-                            buildFallbackSeriesCategories()
-                        }
-                    )
+                    val categories = if (stored.isNotEmpty()) {
+                        stored.map { it.toDomain() }
+                    } else {
+                        buildFallbackSeriesCategories()
+                    }
+                    emit(resolveCategoriesForDisplay(categories))
                 }
             }
             .flowOn(Dispatchers.IO)

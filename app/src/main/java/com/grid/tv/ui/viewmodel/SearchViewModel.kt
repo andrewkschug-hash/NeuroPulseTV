@@ -84,6 +84,13 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch { search(term) }
     }
 
+    fun clearRecentHistory() {
+        viewModelScope.launch {
+            unifiedSearchEngine.clearRecentHistory()
+            search(query.value)
+        }
+    }
+
     fun recordSelection(queryText: String) {
         unifiedSearchEngine.recordSearch(queryText)
     }

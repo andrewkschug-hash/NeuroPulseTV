@@ -57,7 +57,8 @@ internal object AppDatabaseHolder {
             .addMigrations(
                 DbMigrations.MIGRATION_27_28,
                 DbMigrations.MIGRATION_28_29,
-                DbMigrations.MIGRATION_29_30
+                DbMigrations.MIGRATION_29_30,
+                DbMigrations.MIGRATION_30_31
             )
             .build()
 }

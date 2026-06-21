@@ -42,6 +42,7 @@ import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
+import com.grid.tv.data.db.dao.MovieDetailsDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.entity.ContinueWatchingEntity
 import com.grid.tv.data.db.entity.ActiveProfileEntity
@@ -83,6 +84,7 @@ import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.ProfileTasteGenomeEntity
 import com.grid.tv.data.db.entity.SubtitleCacheEntity
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
+import com.grid.tv.data.db.entity.MovieDetailsEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
 import com.grid.tv.data.db.entity.WatchHistoryEntity
 
@@ -110,6 +112,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         ChannelScanEntity::class,
         ContinueWatchingEntity::class,
         TitleEnrichmentEntity::class,
+        MovieDetailsEntity::class,
         ProfileTasteGenomeEntity::class,
         SubtitleCacheEntity::class,
         CanonicalChannelEntity::class,
@@ -131,7 +134,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         ProfileGenreAffinityEntity::class,
         FeaturedBannerStatsEntity::class
     ],
-    version = 30,
+    version = 31,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -147,6 +150,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileSettingsDao(): ProfileSettingsDao
     abstract fun profileTasteGenomeDao(): ProfileTasteGenomeDao
     abstract fun titleEnrichmentDao(): TitleEnrichmentDao
+    abstract fun movieDetailsDao(): MovieDetailsDao
     abstract fun subtitleCacheDao(): SubtitleCacheDao
     abstract fun streamHealthDao(): StreamHealthDao
     abstract fun streamFailoverStatsDao(): StreamFailoverStatsDao

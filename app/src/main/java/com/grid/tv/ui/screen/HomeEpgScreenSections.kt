@@ -245,6 +245,7 @@ internal fun HomeEpgScreenMainColumn(
             HomeEpgPreviewSection(
                 channel = previewChannel,
                 program = deps.previewProgram,
+                nextProgram = deps.previewNextProgram,
                 player = previewPlayer,
                 streamStatus = previewStreamStatus,
                 detailActionIndex = ui.detailActionIndex,
@@ -516,7 +517,8 @@ internal fun HomeEpgScreenOverlays(
                 onResultSelected = controller::handleSearchResult,
                 onSuggestionSelected = { term ->
                     searchViewModel.applyTrendingOrRecent(term)
-                }
+                },
+                onClearHistory = searchViewModel::clearRecentHistory
             )
         }
     }
@@ -568,6 +570,7 @@ internal fun HomeEpgContinueWatchingRow(
 internal fun HomeEpgPreviewSection(
     channel: Channel?,
     program: Program?,
+    nextProgram: Program? = null,
     player: androidx.media3.exoplayer.ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
     detailActionIndex: Int,
@@ -592,6 +595,7 @@ internal fun HomeEpgPreviewSection(
     EpgPreviewSection(
         channel = ch,
         program = program,
+        nextProgram = nextProgram,
         player = player,
         streamStatus = streamStatus,
         detailActionFocused = detailActionIndex,
