@@ -31,12 +31,14 @@ import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
 import com.grid.tv.data.cache.VodCatalogDiskCache
+import com.grid.tv.data.db.dao.SeriesCategoryDao
 import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodCategoryDao
 import com.grid.tv.data.db.dao.VodStreamDao
 import com.grid.tv.data.db.AppDatabase
 import com.grid.tv.data.db.mapper.toDomain
 import com.grid.tv.data.db.mapper.toEntity
+import com.grid.tv.data.db.mapper.toSeriesCategoryEntity
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.data.network.EpgXmlTvFetchOutcome
 import com.grid.tv.data.network.RemoteTextFetcher
@@ -178,6 +180,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodStreamDao: VodStreamDao,
     private val vodCategoryDao: VodCategoryDao,
     private val seriesShowDao: SeriesShowDao,
+    private val seriesCategoryDao: SeriesCategoryDao,
     private val vodCatalogDiskCache: VodCatalogDiskCache,
     private val epgDownloadTracker: EpgDownloadTracker,
     private val epgDispatchers: EpgCoroutineDispatchers
@@ -311,6 +314,7 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun clearVodCatalogForPlaylist(playlistId: Long) {
         vodStreamDao.clearByPlaylist(playlistId)
         vodCategoryDao.clearByPlaylist(playlistId)
+        seriesCategoryDao.clearByPlaylist(playlistId)
         seriesShowDao.clearByPlaylist(playlistId)
         vodCatalogDiskCache.clear(playlistId)
         clearSeriesSeasonsForPlaylist(playlistId)
@@ -1518,6 +1522,7 @@ class IptvRepositoryImpl @Inject constructor(
             secureCredentialStore.removePlaylistCredentials(playlistId)
             vodStreamDao.clearByPlaylist(playlistId)
             vodCategoryDao.clearByPlaylist(playlistId)
+            seriesCategoryDao.clearByPlaylist(playlistId)
             seriesShowDao.clearByPlaylist(playlistId)
             vodCatalogDiskCache.clear(playlistId)
             bumpVodCatalogRevision()
@@ -1669,6 +1674,7 @@ class IptvRepositoryImpl @Inject constructor(
         playlistDao.delete(playlistId)
         vodStreamDao.clearByPlaylist(playlistId)
         vodCategoryDao.clearByPlaylist(playlistId)
+        seriesCategoryDao.clearByPlaylist(playlistId)
         seriesShowDao.clearByPlaylist(playlistId)
         vodCatalogDiskCache.clear(playlistId)
         clearSeriesSeasonsForPlaylist(playlistId)
@@ -2495,6 +2501,34 @@ class IptvRepositoryImpl @Inject constructor(
                 VOD_FLOW_TAG,
                 "Series commit playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength"
             )
+
+            runCatching {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "Starting get_series_categories playlist=${playlist.id} trigger=$trigger " +
+                        "at=${System.currentTimeMillis()}"
+                )
+                val seriesCategoriesRaw = remoteTextFetcher.fetch(
+                    buildXtreamApiUrl(server, user, pass, action = "get_series_categories")
+                )
+                val categories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, playlist.id)
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "Series categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
+                )
+                if (categories.isNotEmpty()) {
+                    seriesCategoryDao.clearByPlaylist(playlist.id)
+                    seriesCategoryDao.insertAll(categories.map { it.toSeriesCategoryEntity() })
+                    bumpVodCatalogRevision()
+                }
+            }.onFailure { categoryError ->
+                Log.w(
+                    VOD_FLOW_TAG,
+                    "Series categories fetch failed playlist=${playlist.id} trigger=$trigger — keeping prior categories",
+                    categoryError
+                )
+            }
+
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes,
                 parsedCount = parsedCount,
@@ -2530,6 +2564,9 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun vodCategories(): Flow<List<VodCategory>> =
         vodCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+
+    override fun seriesCategories(): Flow<List<VodCategory>> =
+        seriesCategoryDao.observeAll().map { rows -> rows.map { it.toDomain() } }
 
     override suspend fun vodPage(
         categoryId: String?,
@@ -2648,11 +2685,24 @@ class IptvRepositoryImpl @Inject constructor(
             seriesShowDao.fourK(itemsPerRow).takeIf { it.isNotEmpty() }?.let {
                 rows += VodBrowseRow("4k", "4K Series", series = it.map { e -> e.toDomain() })
             }
-            val categoryLabels = seriesShowDao.distinctCategoryIds()
-            categoryLabels.forEach { label ->
-                val items = seriesShowDao.byCategory(label, itemsPerRow)
-                if (items.isNotEmpty()) {
-                    rows += VodBrowseRow("cat_$label", label, series = items.map { it.toDomain() })
+            val storedCategories = seriesCategoryDao.all()
+            if (storedCategories.isNotEmpty()) {
+                storedCategories.forEach { category ->
+                    val items = seriesShowDao.byCategory(category.categoryId, itemsPerRow)
+                    if (items.isNotEmpty()) {
+                        rows += VodBrowseRow(
+                            id = "cat_${category.categoryId}",
+                            title = category.name,
+                            series = items.map { it.toDomain() }
+                        )
+                    }
+                }
+            } else {
+                seriesShowDao.distinctCategoryIds().forEach { categoryId ->
+                    val items = seriesShowDao.byCategory(categoryId, itemsPerRow)
+                    if (items.isNotEmpty()) {
+                        rows += VodBrowseRow("cat_$categoryId", categoryId, series = items.map { it.toDomain() })
+                    }
                 }
             }
             rows.filter { !it.isEmpty }.distinctBy { it.id }.take(maxRows)
@@ -2670,6 +2720,10 @@ class IptvRepositoryImpl @Inject constructor(
         }
 
     override suspend fun distinctSeriesCategories(): List<String> = withContext(Dispatchers.IO) {
+        val stored = seriesCategoryDao.all()
+        if (stored.isNotEmpty()) {
+            return@withContext stored.map { it.name }
+        }
         seriesShowDao.distinctCategoryIds()
     }
 
@@ -3053,6 +3107,7 @@ class IptvRepositoryImpl @Inject constructor(
         epgCache.clear()
         vodStreamDao.clearAll()
         vodCategoryDao.clearAll()
+        seriesCategoryDao.clearAll()
         seriesShowDao.clearAll()
         vodCatalogDiskCache.clearAll()
         seriesSeasonsCache.clear()

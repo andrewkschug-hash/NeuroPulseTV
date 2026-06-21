@@ -1,9 +1,6 @@
 package com.grid.tv.feature.recording
 
 import android.content.Context
-import android.os.Build
-import android.os.Environment
-import android.os.storage.StorageManager
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.db.dao.ProfileSettingsDao
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
@@ -55,73 +52,44 @@ class RecordingStorageManager @Inject constructor(
 ) {
     companion object {
         const val RECORDINGS_SUBDIR = "GRID/Recordings"
-        private const val TWO_GB = 2L * 1024 * 1024 * 1024
-        private const val CRITICAL_MB = 500L * 1024 * 1024
+        private const val USB_OPTION_ID = "usb"
     }
 
-    fun internalRecordingsDir(): File {
-        val movies = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
-        return File(movies, RECORDINGS_SUBDIR).also { it.mkdirs() }
+    fun isUsbStorageReady(): Boolean = StorageUtils.isUsbStorageReady(context)
+
+    fun usbStorageStatusLine(): String? = StorageUtils.usbStorageStatusLine(context)
+
+    fun getUsbRecordingsDir(): File? {
+        val usbRoot = StorageUtils.getExternalUsbStoragePath(context) ?: return null
+        return File(usbRoot, RECORDINGS_SUBDIR).also { it.mkdirs() }
     }
 
     fun enumerateOptions(): List<StorageOption> {
-        val options = linkedMapOf<String, StorageOption>()
-
-        fun addOption(id: String, type: StorageType, label: String, dir: File) {
-            if (!dir.exists() && !dir.mkdirs()) return
-            val key = dir.canonicalPath
-            if (options.containsKey(key)) return
-            options[key] = StorageOption(
-                id = id,
-                type = type,
-                label = label,
+        if (!isUsbStorageReady()) return emptyList()
+        val dir = getUsbRecordingsDir() ?: return emptyList()
+        return listOf(
+            StorageOption(
+                id = USB_OPTION_ID,
+                type = StorageType.USB,
+                label = "USB Drive",
                 recordingsDir = dir,
-                freeBytes = dir.usableSpace
+                freeBytes = StorageUtils.freeBytes(dir)
             )
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val storageManager = context.getSystemService(StorageManager::class.java)
-            storageManager.storageVolumes.forEach { volume ->
-                if (!volume.state.equals(Environment.MEDIA_MOUNTED, ignoreCase = true)) return@forEach
-                val root = volume.directory ?: return@forEach
-                if (root.absolutePath.contains("emulated", ignoreCase = true)) return@forEach
-
-                val description = volume.getDescription(context)
-                val isUsb = description.contains("USB", ignoreCase = true) ||
-                    root.absolutePath.contains("usb", ignoreCase = true)
-                val type = if (isUsb) StorageType.USB else StorageType.SD_CARD
-                val recordingsDir = File(root, RECORDINGS_SUBDIR)
-                addOption(volume.uuid ?: root.name, type, description, recordingsDir)
-            }
-        } else {
-            context.getExternalFilesDirs(null).drop(1).forEachIndexed { index, dir ->
-                dir ?: return@forEachIndexed
-                addOption("external_$index", StorageType.SD_CARD, "SD Card", File(dir, RECORDINGS_SUBDIR))
-            }
-        }
-
-        addOption("internal", StorageType.INTERNAL, "Internal Storage", internalRecordingsDir())
-
-        return options.values.sortedWith(
-            compareBy<StorageOption> {
-                when (it.type) {
-                    StorageType.USB -> 0
-                    StorageType.SD_CARD -> 1
-                    StorageType.INTERNAL -> 2
-                }
-            }.thenBy { it.label }
         )
     }
 
     suspend fun getSavedRecordingsDir(): File? {
-        val profileId = profileDao.activeProfile()?.profileId ?: return null
-        val path = profileSettingsDao.get(profileId)?.recordingStoragePath ?: return null
-        if (path.isBlank()) return null
-        return File(path).also { it.mkdirs() }
+        if (!isUsbStorageReady()) return null
+        return getUsbRecordingsDir()
     }
 
-    suspend fun hasConfiguredLocation(): Boolean = getSavedRecordingsDir() != null
+    suspend fun hasConfiguredLocation(): Boolean = isUsbStorageReady()
+
+    suspend fun ensureUsbLocationSaved() {
+        if (!isUsbStorageReady()) return
+        val dir = getUsbRecordingsDir() ?: return
+        saveLocation(dir)
+    }
 
     suspend fun saveLocation(recordingsDir: File) {
         val profileId = profileDao.activeProfile()?.profileId ?: return
@@ -132,25 +100,34 @@ class RecordingStorageManager @Inject constructor(
     }
 
     suspend fun saveLocationById(optionId: String) {
+        if (optionId != USB_OPTION_ID) return
         val option = enumerateOptions().firstOrNull { it.id == optionId } ?: return
         saveLocation(option.recordingsDir)
     }
 
     suspend fun currentStorageLabel(): String? {
-        val dir = getSavedRecordingsDir() ?: return null
-        return enumerateOptions().firstOrNull { it.recordingsDir.canonicalPath == dir.canonicalPath }?.label
-            ?: dir.absolutePath
+        if (!isUsbStorageReady()) return null
+        return "USB Drive"
     }
 
-    suspend fun freeBytes(): Long = getSavedRecordingsDir()?.usableSpace ?: internalRecordingsDir().usableSpace
+    suspend fun freeBytes(): Long {
+        val dir = getSavedRecordingsDir() ?: return 0L
+        return StorageUtils.freeBytes(dir)
+    }
 
-    suspend fun hasAtLeast2Gb(): Boolean = freeBytes() >= TWO_GB
+    suspend fun hasAtLeast4Gb(): Boolean {
+        val dir = getSavedRecordingsDir() ?: return false
+        return StorageUtils.hasAtLeast4Gb(dir)
+    }
 
-    suspend fun isCriticalLowStorage(): Boolean = freeBytes() < CRITICAL_MB
+    suspend fun isCriticalLowStorage(): Boolean {
+        val dir = getSavedRecordingsDir() ?: return true
+        return StorageUtils.isCriticalLowStorage(dir)
+    }
 
     suspend fun freeStorageSummaryLine(): String {
-        val label = currentStorageLabel() ?: "Internal Storage"
-        return "${StorageFormat.formatFreeSpace(freeBytes())} on $label"
+        val free = freeBytes()
+        return "${StorageFormat.formatFreeSpace(free)} on USB Drive"
     }
 
     suspend fun isStorageAvailable(dir: File): Boolean {
@@ -162,9 +139,9 @@ class RecordingStorageManager @Inject constructor(
     }
 
     suspend fun currentStorageHealth(dir: File): StorageHealth {
-        val free = runCatching { dir.usableSpace }.getOrDefault(0L)
+        val free = runCatching { StorageUtils.freeBytes(dir) }.getOrDefault(0L)
         val available = isStorageAvailable(dir)
-        val criticalLow = free < CRITICAL_MB
+        val criticalLow = StorageUtils.isCriticalLowStorage(dir)
         return StorageHealth(
             available = available,
             freeBytes = free,
@@ -173,7 +150,7 @@ class RecordingStorageManager @Inject constructor(
     }
 
     suspend fun lowStorageWarning(): String? =
-        if (!hasAtLeast2Gb()) "Storage is below 2 GB free. Recording may fail." else null
+        if (!hasAtLeast4Gb()) "USB storage is below 4 GB free. Recording may fail." else null
 
     suspend fun insufficientSpaceWarning(estimatedBytes: Long): String? {
         val free = freeBytes()

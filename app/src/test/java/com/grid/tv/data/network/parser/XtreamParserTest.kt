@@ -172,4 +172,21 @@ class XtreamParserTest {
             parser.diagnoseVodResponse("   ")
         )
     }
+
+    @Test
+    fun parseSeriesItemReadsNumericCategoryId() = runBlocking {
+        val raw = """[{"series_id":42,"name":"Test Show","category_id":7}]"""
+        val shows = parser.parseSeries(raw, playlistId = 1L)
+        assertEquals(1, shows.size)
+        assertEquals("7", shows.first().categoryId)
+    }
+
+    @Test
+    fun parseSeriesCategoriesReadsNumericCategoryId() {
+        val raw = """[{"category_id":12,"category_name":"Drama"}]"""
+        val categories = parser.parseSeriesCategories(raw, playlistId = 1L)
+        assertEquals(1, categories.size)
+        assertEquals("12", categories.first().id)
+        assertEquals("Drama", categories.first().name)
+    }
 }

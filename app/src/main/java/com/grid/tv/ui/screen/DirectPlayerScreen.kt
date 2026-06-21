@@ -56,7 +56,7 @@ import com.grid.tv.player.isCodecCapabilityError
 import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
 import com.grid.tv.ui.component.GlowFocusButton
-import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import com.grid.tv.ui.component.requestFocusSafely
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import androidx.compose.foundation.background
@@ -355,10 +355,16 @@ fun DirectPlayerScreen(
         restoreTransportFocus()
     }
 
-    LaunchedEffect(showOverlay, overlayToken, showSubtitlePanel) {
+    LaunchedEffect(showOverlay, showSubtitlePanel) {
         if (showOverlay && !showSubtitlePanel) {
             restoreTransportFocus()
-            playPauseFocusRequester.requestFocusSafelyAfterLayout()
+            delay(50)
+            playPauseFocusRequester.requestFocusSafely()
+        }
+    }
+
+    LaunchedEffect(showOverlay, overlayToken, showSubtitlePanel) {
+        if (showOverlay && !showSubtitlePanel) {
             delay(4_000)
             showOverlay = false
             seekTooltip = null
@@ -489,9 +495,7 @@ fun DirectPlayerScreen(
             Key.DirectionLeft -> {
                 revealOverlay()
                 when (vodFocusZone) {
-                    VodPlayerFocusZone.TRANSPORT -> {
-                        transportFocusIndex = (transportFocusIndex - 1).coerceAtLeast(0)
-                    }
+                    VodPlayerFocusZone.TRANSPORT -> return false
                     VodPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(-seekDeltaForScrub())
@@ -512,13 +516,7 @@ fun DirectPlayerScreen(
             Key.DirectionRight -> {
                 revealOverlay()
                 when (vodFocusZone) {
-                    VodPlayerFocusZone.TRANSPORT -> {
-                        if (transportFocusIndex >= 5) {
-                            openSubtitlePanel()
-                        } else {
-                            transportFocusIndex = (transportFocusIndex + 1).coerceAtMost(5)
-                        }
-                    }
+                    VodPlayerFocusZone.TRANSPORT -> return false
                     VodPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(seekDeltaForScrub())
@@ -611,9 +609,7 @@ fun DirectPlayerScreen(
             Key.DirectionLeft -> {
                 revealOverlay()
                 when (focusZone) {
-                    RecordedPlayerFocusZone.TRANSPORT -> {
-                        transportFocusIndex = (transportFocusIndex - 1).coerceAtLeast(0)
-                    }
+                    RecordedPlayerFocusZone.TRANSPORT -> return false
                     RecordedPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(-seekDeltaForScrub())
@@ -627,9 +623,7 @@ fun DirectPlayerScreen(
             Key.DirectionRight -> {
                 revealOverlay()
                 when (focusZone) {
-                    RecordedPlayerFocusZone.TRANSPORT -> {
-                        transportFocusIndex = (transportFocusIndex + 1).coerceAtMost(4)
-                    }
+                    RecordedPlayerFocusZone.TRANSPORT -> return false
                     RecordedPlayerFocusZone.SEEK -> {
                         seekRepeatCount++
                         seekBy(seekDeltaForScrub())
@@ -701,6 +695,7 @@ fun DirectPlayerScreen(
                     bottomFocusIndex = bottomFocusIndex,
                     seekTooltip = seekTooltip,
                     playPauseFocusRequester = playPauseFocusRequester,
+                    onTransportFocusIndexChanged = { transportFocusIndex = it },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -722,6 +717,7 @@ fun DirectPlayerScreen(
                     jumpToLiveFocused = jumpToLiveFocused && focusZone == RecordedPlayerFocusZone.BOTTOM,
                     seekTooltip = seekTooltip,
                     playPauseFocusRequester = playPauseFocusRequester,
+                    onTransportFocusIndexChanged = { transportFocusIndex = it },
                     onJumpToLive = {
                         playerViewRef[0]?.player = null
                         onJumpToLive(catchupSession.channelId)
@@ -748,6 +744,7 @@ fun DirectPlayerScreen(
                         subtitlesEnabled = subtitleSettings.subtitlesEnabled,
                         showSubtitlePanel = showSubtitlePanel,
                         playPauseFocusRequester = playPauseFocusRequester,
+                        onTransportFocusIndexChanged = { transportFocusIndex = it },
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                     if (showSubtitlePanel) {

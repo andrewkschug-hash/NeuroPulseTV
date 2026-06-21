@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Read-only TV text field that opens [TvTextInputDialog] on Enter/click.
@@ -61,6 +64,9 @@ fun TvDialogTextField(
     onConfirmed: (() -> Unit)? = null,
     confirmLabel: String = "Confirm",
     dialogLabel: String? = null,
+    imeAction: ImeAction = ImeAction.Done,
+    nextFocusRequester: FocusRequester? = null,
+    onImeNext: (() -> Unit)? = null,
     fieldHeight: Dp = 48.dp,
     backgroundColor: Color = Color(0xFF252836),
     focusedBorderColor: Color = TvFocusAccent,
@@ -76,6 +82,7 @@ fun TvDialogTextField(
     var focused by remember { mutableStateOf(false) }
     val innerFocusRequester = remember { FocusRequester() }
     val effectiveFocusRequester = focusRequester ?: innerFocusRequester
+    val scope = rememberCoroutineScope()
     val fieldShape = RoundedCornerShape(8.dp)
 
     fun openDialog() {
@@ -84,9 +91,23 @@ fun TvDialogTextField(
         onEditingChanged(true)
     }
 
-    fun closeDialog() {
+    fun restoreFieldFocus(advanceToNext: Boolean = false) {
+        scope.launch {
+            delay(50)
+            when {
+                advanceToNext -> {
+                    onImeNext?.invoke()
+                    nextFocusRequester?.requestFocusSafely()
+                }
+                else -> effectiveFocusRequester.requestFocusSafely()
+            }
+        }
+    }
+
+    fun closeDialog(advanceToNext: Boolean = false) {
         showDialog = false
         onEditingChanged(false)
+        restoreFieldFocus(advanceToNext = advanceToNext)
     }
 
     val displayText = when {
@@ -125,6 +146,13 @@ fun TvDialogTextField(
             .height(fieldHeight)
             .focusRequester(effectiveFocusRequester)
             .tvFocusScrollIntoView(minimalScroll = true)
+            .then(
+                if (nextFocusRequester != null) {
+                    Modifier.focusProperties { down = nextFocusRequester }
+                } else {
+                    Modifier
+                }
+            )
             .onFocusChanged {
                 focused = it.isFocused
                 onHighlightChanged(it.isFocused)
@@ -193,12 +221,15 @@ fun TvDialogTextField(
             keyboardType = keyboardType,
             isPassword = isPassword,
             confirmLabel = confirmLabel,
+            imeAction = imeAction,
             onConfirm = { confirmed ->
                 onValueChange(confirmed)
-                closeDialog()
+                val advanceNext = imeAction == ImeAction.Next &&
+                    (onImeNext != null || nextFocusRequester != null)
+                closeDialog(advanceToNext = advanceNext)
                 onConfirmed?.invoke()
             },
-            onDismiss = ::closeDialog
+            onDismiss = { closeDialog(advanceToNext = false) }
         )
     }
 }

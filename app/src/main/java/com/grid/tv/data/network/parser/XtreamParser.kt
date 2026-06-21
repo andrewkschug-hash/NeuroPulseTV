@@ -240,6 +240,18 @@ class XtreamParser {
         return out
     }
 
+    fun parseSeriesCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
+        val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val id = optCategoryId(item) ?: continue
+            val name = item.optString("category_name").ifBlank { "Series" }
+            out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
+        }
+        return out
+    }
+
     fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS)?.length() ?: 0
 
     fun parseSeriesArrayLength(raw: String): Int = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS)?.length() ?: 0
@@ -369,7 +381,7 @@ class XtreamParser {
             id = id,
             name = item.optString("name").ifBlank { "Series $id" },
             coverUrl = item.optString("cover").ifBlank { null },
-            categoryId = item.optString("category_id").ifBlank { null },
+            categoryId = optCategoryId(item),
             genre = item.optString("genre").ifBlank { null },
             plot = item.optString("plot").ifBlank { null },
             playlistId = playlistId

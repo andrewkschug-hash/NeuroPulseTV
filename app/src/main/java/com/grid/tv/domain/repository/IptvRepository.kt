@@ -106,6 +106,7 @@ interface IptvRepository {
     fun vodStreamCount(): Flow<Int>
     fun seriesShowCount(): Flow<Int>
     fun vodCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
+    fun seriesCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
     fun vodCatalogLoading(): Flow<Boolean>
     fun vodCatalogProgress(): Flow<com.grid.tv.domain.model.VodCatalogProgress>
     fun vodCatalogStatus(): Flow<com.grid.tv.domain.model.VodCatalogStatus>

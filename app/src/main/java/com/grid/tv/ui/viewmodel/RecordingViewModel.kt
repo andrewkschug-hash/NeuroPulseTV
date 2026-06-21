@@ -26,6 +26,7 @@ import com.grid.tv.feature.recording.RecordingStorageManager
 import com.grid.tv.feature.recording.RecordingStreamUrlResolver
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.recording.StorageOption
+import com.grid.tv.feature.recording.StorageUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -156,12 +157,11 @@ class RecordingViewModel @Inject constructor(
 
     private fun requestRecording(pending: PendingRecording) {
         viewModelScope.launch {
-            if (!storageManager.hasConfiguredLocation()) {
-                refreshStorageOptions()
-                _pendingRecording.value = pending
-                _showStoragePicker.value = true
+            if (!storageManager.isUsbStorageReady()) {
+                _message.value = StorageUtils.USB_REQUIRED_MESSAGE
                 return@launch
             }
+            storageManager.ensureUsbLocationSaved()
 
             if (pending.scheduled) {
                 proceedSchedule(pending)

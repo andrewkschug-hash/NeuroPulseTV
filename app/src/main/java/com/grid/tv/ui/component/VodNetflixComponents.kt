@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -18,10 +19,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.tv.foundation.PivotOffsets
-import androidx.tv.foundation.lazy.list.TvLazyColumn
-import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -708,7 +707,7 @@ fun VodGenreSidePanel(
     modifier: Modifier = Modifier
 ) {
     if (genres.isEmpty()) return
-    val listState = rememberTvLazyListState()
+    val listState = rememberLazyListState()
 
     LaunchedEffect(focusedIndex, panelFocused, genres.size) {
         if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
@@ -731,11 +730,12 @@ fun VodGenreSidePanel(
             fontFamily = DmSansFamily,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .focusProperties { canFocus = false }
         )
-        TvLazyColumn(
+        LazyColumn(
             state = listState,
-            pivotOffsets = PivotOffsets(parentFraction = 0.3f, childFraction = 0f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier
                 .weight(1f)
@@ -749,27 +749,25 @@ fun VodGenreSidePanel(
                 val label = genres[index]
                 val selected = index == selectedIndex
                 val focused = panelFocused && index == focusedIndex
-                val chipModifier = Modifier
-                    .fillMaxWidth()
-                    .focusProperties { canFocus = false }
-                    .then(
-                        if (focused) {
-                            Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
-                        } else {
-                            Modifier
-                        }
-                    )
-                GridFocusSurface(
-                    onClick = { onGenreSelected(index) },
-                    modifier = chipModifier,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = when {
-                            selected -> Color(0xFF2A2A2A)
-                            else -> Color(0xFF161616)
-                        },
-                        focusedContainerColor = Color(0xFF333333)
-                    )
+                val containerColor = when {
+                    selected -> Color(0xFF2A2A2A)
+                    focused -> Color(0xFF333333)
+                    else -> Color(0xFF161616)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(containerColor)
+                        .clickable { onGenreSelected(index) }
+                        .focusProperties { canFocus = false }
+                        .then(
+                            if (focused) {
+                                Modifier.border(1.dp, VodNetflixColors.Accent, RoundedCornerShape(8.dp))
+                            } else {
+                                Modifier
+                            }
+                        )
                 ) {
                     Text(
                         text = label,
@@ -798,7 +796,8 @@ fun VodContentFilterPanel(
     Column(
         modifier = modifier
             .width(56.dp)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 12.dp)
+            .focusProperties { canFocus = false },
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -815,29 +814,30 @@ fun VodContentFilterPanel(
                 VodContentFilter.MOVIES -> "Movies"
                 VodContentFilter.SERIES -> "Series"
             }
-            val chipModifier = Modifier
-                .size(44.dp)
-                .focusProperties { canFocus = false }
-                .then(
-                    if (focused) {
-                        Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
-                    } else if (selected) {
-                        Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-                    } else {
-                        Modifier
-                    }
-                )
-            GridFocusSurface(
-                onClick = { onFilterSelected(filter) },
-                modifier = chipModifier,
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (selected) Color(0xFF2A2A2A) else Color(0xFF141414),
-                    focusedContainerColor = Color(0xFF333333)
-                )
+            val containerColor = when {
+                selected -> Color(0xFF2A2A2A)
+                focused -> Color(0xFF333333)
+                else -> Color(0xFF141414)
+            }
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(containerColor)
+                    .clickable { onFilterSelected(filter) }
+                    .focusProperties { canFocus = false }
+                    .then(
+                        if (focused) {
+                            Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))
+                        } else if (selected) {
+                            Modifier.border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        } else {
+                            Modifier
+                        }
+                    ),
+                contentAlignment = Alignment.Center
             ) {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {

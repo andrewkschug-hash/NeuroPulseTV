@@ -110,6 +110,12 @@ class SettingsViewModel @Inject constructor(
     private val _currentStorageLabel = MutableStateFlow<String?>(null)
     val currentStorageLabel = _currentStorageLabel.asStateFlow()
 
+    private val _usbStorageReady = MutableStateFlow(false)
+    val usbStorageReady = _usbStorageReady.asStateFlow()
+
+    private val _usbStorageStatusLine = MutableStateFlow<String?>(null)
+    val usbStorageStatusLine = _usbStorageStatusLine.asStateFlow()
+
     private val _cacheMessage = MutableStateFlow<String?>(null)
     val cacheMessage = _cacheMessage.asStateFlow()
 
@@ -160,9 +166,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshStorageSettings() {
+        _usbStorageReady.value = recordingStorageManager.isUsbStorageReady()
+        _usbStorageStatusLine.value = recordingStorageManager.usbStorageStatusLine()
         _storageOptions.value = recordingStorageManager.enumerateOptions()
         viewModelScope.launch {
-            _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
+            if (_usbStorageReady.value) {
+                recordingStorageManager.ensureUsbLocationSaved()
+                _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
+            } else {
+                _currentStorageLabel.value = null
+            }
         }
     }
 

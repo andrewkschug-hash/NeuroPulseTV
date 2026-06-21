@@ -38,6 +38,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -215,7 +216,10 @@ fun SettingsFocusTextField(
     placeholder: String = "",
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
-    isPassword: Boolean = false
+    isPassword: Boolean = false,
+    imeAction: ImeAction = ImeAction.Done,
+    onImeNext: (() -> Unit)? = null,
+    nextFocusRequester: FocusRequester? = null
 ) {
     val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
     TvTextField(
@@ -227,6 +231,9 @@ fun SettingsFocusTextField(
         isPassword = isPassword,
         enabled = canReceiveFocus,
         focusRequester = focus.chain.requesters.getOrNull(chainIndex),
+        nextFocusRequester = nextFocusRequester,
+        imeAction = imeAction,
+        onImeNext = onImeNext,
         modifier = modifier,
         onHighlightChanged = { isFocused ->
             if (isFocused) {

@@ -1,5 +1,6 @@
 package com.grid.tv.data.db.mapper
 
+import com.grid.tv.data.db.entity.SeriesCategoryEntity
 import com.grid.tv.data.db.entity.SeriesShowEntity
 import com.grid.tv.data.db.entity.VodCategoryEntity
 import com.grid.tv.data.db.entity.VodStreamEntity
@@ -47,6 +48,18 @@ fun VodCategory.toEntity(): VodCategoryEntity = VodCategoryEntity(
 )
 
 fun VodCategoryEntity.toDomain(): VodCategory = VodCategory(
+    id = categoryId,
+    name = name,
+    playlistId = playlistId
+)
+
+fun VodCategory.toSeriesCategoryEntity(): SeriesCategoryEntity = SeriesCategoryEntity(
+    playlistId = playlistId,
+    categoryId = id,
+    name = name
+)
+
+fun SeriesCategoryEntity.toDomain(): VodCategory = VodCategory(
     id = categoryId,
     name = name,
     playlistId = playlistId

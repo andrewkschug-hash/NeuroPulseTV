@@ -38,6 +38,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
@@ -171,6 +172,8 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val storageOptions by viewModel.storageOptions.collectAsStateWithLifecycle()
     val currentStorageLabel by viewModel.currentStorageLabel.collectAsStateWithLifecycle()
+    val usbStorageReady by viewModel.usbStorageReady.collectAsStateWithLifecycle()
+    val usbStorageStatusLine by viewModel.usbStorageStatusLine.collectAsStateWithLifecycle()
     val progress by viewModel.m3uProgress.collectAsStateWithLifecycle()
     val isConnecting by viewModel.isConnecting.collectAsStateWithLifecycle()
     val connectionDialog by viewModel.connectionDialog.collectAsStateWithLifecycle()
@@ -829,10 +832,13 @@ fun SettingsScreen(
                             onTheme = { viewModel.updateTheme(it) }
                         )
                         SettingsSection.Recordings -> RecordingsSettingsContent(
+                            usbStorageReady = usbStorageReady,
+                            usbStorageStatusLine = usbStorageStatusLine,
                             currentStorageLabel = currentStorageLabel,
                             storageOptions = storageOptions,
                             focus = contentFocus,
-                            onSelectStorage = { viewModel.setRecordingStorage(it) }
+                            onSelectStorage = { viewModel.setRecordingStorage(it) },
+                            onRefreshStorage = { viewModel.refreshStorageSettings() }
                         )
                         SettingsSection.About -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
@@ -1410,13 +1416,21 @@ private fun ConnectionFormPanel(
         focus = focus
     ) {
         val base = formStartIndex
+        val serverFieldIndex = base + 3
+        val serverFocusRequester = focus.chain.requesters.getOrNull(serverFieldIndex)
         SettingsFocusTextField(
             label = "Connection name",
             value = name,
             onValueChange = onNameChange,
             placeholder = "e.g. Home IPTV",
             chainIndex = base,
-            focus = focus
+            focus = focus,
+            imeAction = ImeAction.Next,
+            nextFocusRequester = serverFocusRequester,
+            onImeNext = {
+                focus.chain.moveTo(serverFieldIndex)
+                focus.chain.requestFocusAtCurrentIndex()
+            }
         )
         SettingsFocusPillGroup(
             labels = listOf("M3U", "Xtream"),
@@ -2073,23 +2087,45 @@ private fun InterfaceSettingsContent(
 
 @Composable
 private fun RecordingsSettingsContent(
+    usbStorageReady: Boolean,
+    usbStorageStatusLine: String?,
     currentStorageLabel: String?,
     storageOptions: List<com.grid.tv.feature.recording.StorageOption>,
     focus: SettingsContentFocus,
-    onSelectStorage: (String) -> Unit
+    onSelectStorage: (String) -> Unit,
+    onRefreshStorage: () -> Unit
 ) {
+    LaunchedEffect(Unit) {
+        onRefreshStorage()
+    }
+
     SettingsPanel(
         title = "Recording storage",
-        description = "Choose where completed recordings are saved.",
+        description = if (usbStorageReady) {
+            "Recordings are saved to your USB drive only. Internal storage is never used."
+        } else {
+            com.grid.tv.feature.recording.StorageUtils.USB_REQUIRED_MESSAGE
+        },
         cardIndex = 0,
         focus = focus
     ) {
-        Text(
-            text = currentStorageLabel ?: "Not configured",
-            color = EpgColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
+        if (usbStorageReady) {
+            Text(
+                text = usbStorageStatusLine ?: (currentStorageLabel ?: "USB Drive"),
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        } else {
+            Text(
+                text = com.grid.tv.feature.recording.StorageUtils.USB_REQUIRED_MESSAGE,
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         storageOptions.forEachIndexed { index, option ->
             SettingsListRow(
                 title = option.label,
@@ -2101,7 +2137,8 @@ private fun RecordingsSettingsContent(
                         text = "Use",
                         onClick = { onSelectStorage(option.id) },
                         chainIndex = index,
-                        focus = focus
+                        focus = focus,
+                        enabled = usbStorageReady
                     )
                 }
             )

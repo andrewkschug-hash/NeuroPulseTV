@@ -14,6 +14,7 @@ import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.ui.component.EpisodeWatchStatus
 import com.grid.tv.ui.component.episodeWatchStatus
 import com.grid.tv.domain.repository.IptvRepository
@@ -28,7 +29,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,8 +52,8 @@ class SeriesViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _selectedCategory = MutableStateFlow("All")
-    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
+    private val _selectedCategoryId = MutableStateFlow<String?>(null)
+    val selectedCategoryId: StateFlow<String?> = _selectedCategoryId.asStateFlow()
 
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
@@ -61,17 +61,17 @@ class SeriesViewModel @Inject constructor(
     val pagedSeries = combine(
         repository.vodCatalogRevision(),
         _searchQuery,
-        _selectedCategory
-    ) { _, query, category ->
-        query to category
+        _selectedCategoryId
+    ) { _, query, categoryId ->
+        query to (categoryId ?: "All")
     }.flatMapLatest { (query, category) ->
         repository.seriesShowsPaging(category = category, search = query)
     }.cachedIn(viewModelScope)
 
     init {
         viewModelScope.launch {
-            combine(_searchQuery, _selectedCategory) { query, category ->
-                query to category
+            combine(_searchQuery, _selectedCategoryId) { query, categoryId ->
+                query to (categoryId ?: "All")
             }.collect { (query, category) ->
                 refreshFilteredCount(query, category)
             }
@@ -90,20 +90,15 @@ class SeriesViewModel @Inject constructor(
     val catalogTotalCount: StateFlow<Int> = repository.seriesShowCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val categories: StateFlow<List<String>> = repository.vodCatalogRevision()
-        .flatMapLatest {
-            flow {
-                emit(listOf("All") + repository.distinctSeriesCategories().sortedBy { it.lowercase() }.take(12))
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf("All"))
+    val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         repository.vodCatalogRevision(),
         repository.seriesShowCount()
     ) { _, _ -> Unit }
         .flatMapLatest {
-            flow { emit(repository.loadSeriesBrowseRows()) }
+            kotlinx.coroutines.flow.flow { emit(repository.loadSeriesBrowseRows()) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -173,8 +168,8 @@ class SeriesViewModel @Inject constructor(
         _searchQuery.value = query
     }
 
-    fun setCategory(category: String) {
-        _selectedCategory.value = category
+    fun setCategory(categoryId: String?) {
+        _selectedCategoryId.value = categoryId
     }
 
     fun refreshCatalog() {

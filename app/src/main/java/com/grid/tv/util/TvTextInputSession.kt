@@ -8,6 +8,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.type
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -20,16 +21,22 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object TvTextInputSession {
     private val depth = AtomicInteger(0)
+    private val compositionActive = mutableStateOf(false)
 
     val isActive: Boolean
         get() = depth.get() > 0
 
+    /** Observe in Compose to disable background focus while the IME dialog is open. */
+    val isActiveState = compositionActive
+
     fun begin() {
         depth.incrementAndGet()
+        compositionActive.value = true
     }
 
     fun end() {
         depth.updateAndGet { current -> (current - 1).coerceAtLeast(0) }
+        compositionActive.value = depth.get() > 0
     }
 
     /**

@@ -3,6 +3,7 @@ package com.grid.tv.ui.component
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,6 +76,7 @@ fun VodPlayerHudOverlay(
     subtitlesEnabled: Boolean,
     showSubtitlePanel: Boolean,
     playPauseFocusRequester: FocusRequester? = null,
+    onTransportFocusIndexChanged: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
@@ -106,20 +108,28 @@ fun VodPlayerHudOverlay(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 20.dp),
+                    .padding(top = 20.dp)
+                    .focusGroup(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 transportLabels.forEachIndexed { index, label ->
                     val isCc = index == transportLabels.lastIndex
                     val focused = focusZone == VodPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                    val chipModifier = if (index == 2 && playPauseFocusRequester != null) {
-                        Modifier
-                            .focusRequester(playPauseFocusRequester)
-                            .focusable()
-                    } else {
-                        Modifier
-                    }
+                    val chipModifier = Modifier
+                        .focusable()
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                onTransportFocusIndexChanged(index)
+                            }
+                        }
+                        .then(
+                            if (index == 2 && playPauseFocusRequester != null) {
+                                Modifier.focusRequester(playPauseFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
                     PlayerHudChip(
                         label = label,
                         focused = focused,

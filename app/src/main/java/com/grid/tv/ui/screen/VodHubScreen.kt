@@ -72,6 +72,7 @@ import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SeriesViewModel
 import com.grid.tv.ui.viewmodel.VodHubViewModel
+import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.quitAppToHome
 import kotlinx.coroutines.delay
@@ -84,6 +85,16 @@ private enum class VodFocusZone {
     HERO,
     CONTENT
 }
+
+private val vodManualFocusZones = setOf(
+    VodFocusZone.TOP_BAR,
+    VodFocusZone.FILTER_PANEL,
+    VodFocusZone.GENRE_PANEL,
+    VodFocusZone.HERO
+)
+
+private fun isVodTraversalKey(event: KeyEvent): Boolean =
+    TvImeKeyDispatcher.isImeNavigationKey(event.key)
 
 @Composable
 fun VodHubScreen(
@@ -123,6 +134,7 @@ fun VodHubScreen(
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val imeTypingActive = TvTextInputSession.isActiveState.value
     val heroMovie by hubViewModel.heroMovie.collectAsStateWithLifecycle()
     val heroEnrichment by hubViewModel.heroEnrichment.collectAsStateWithLifecycle()
     val featuredCarousel by hubViewModel.featuredCarousel.collectAsStateWithLifecycle()
@@ -136,7 +148,7 @@ fun VodHubScreen(
     val movieCategories by moviesViewModel.categories.collectAsStateWithLifecycle()
     val seriesCategories by seriesViewModel.categories.collectAsStateWithLifecycle()
     val selectedMovieCategoryId by moviesViewModel.selectedCategoryId.collectAsStateWithLifecycle()
-    val selectedSeriesCategory by seriesViewModel.selectedCategory.collectAsStateWithLifecycle()
+    val selectedSeriesCategoryId by seriesViewModel.selectedCategoryId.collectAsStateWithLifecycle()
     val catalogProgress by moviesViewModel.catalogProgress.collectAsStateWithLifecycle()
     val catalogLoading by moviesViewModel.catalogLoading.collectAsStateWithLifecycle()
     val catalogTotalCount by moviesViewModel.catalogTotalCount.collectAsStateWithLifecycle()
@@ -158,7 +170,7 @@ fun VodHubScreen(
     val genreLabels = remember(contentFilter, movieCategories, seriesCategories) {
         when (contentFilter) {
             VodContentFilter.MOVIES -> listOf("All") + movieCategories.map { it.name }
-            VodContentFilter.SERIES -> seriesCategories
+            VodContentFilter.SERIES -> listOf("All") + seriesCategories.map { it.name }
             else -> emptyList()
         }
     }
@@ -171,7 +183,14 @@ fun VodHubScreen(
                     .takeIf { it >= 0 }?.plus(1) ?: 0
             }
         }
-        VodContentFilter.SERIES -> seriesCategories.indexOf(selectedSeriesCategory).coerceAtLeast(0)
+        VodContentFilter.SERIES -> {
+            if (selectedSeriesCategoryId == null) {
+                0
+            } else {
+                seriesCategories.indexOfFirst { it.id == selectedSeriesCategoryId }
+                    .takeIf { it >= 0 }?.plus(1) ?: 0
+            }
+        }
         else -> 0
     }
     val scope = rememberCoroutineScope()
@@ -397,7 +416,7 @@ fun VodHubScreen(
         filterFocusIndex = index
         hubViewModel.setContentFilter(filter)
         moviesViewModel.setCategory(null)
-        seriesViewModel.setCategory("All")
+        seriesViewModel.setCategory(null)
         genreFocusIndex = 0
         contentRowIndex = 0
         contentColIndex = 0
@@ -418,7 +437,8 @@ fun VodHubScreen(
                 moviesViewModel.setCategory(categoryId)
             }
             VodContentFilter.SERIES -> {
-                seriesViewModel.setCategory(genreLabels.getOrNull(index) ?: "All")
+                val categoryId = if (index == 0) null else seriesCategories.getOrNull(index - 1)?.id
+                seriesViewModel.setCategory(categoryId)
             }
             else -> Unit
         }
@@ -751,9 +771,10 @@ fun VodHubScreen(
                 if (seriesDetailOpen || movieDetailOpen) {
                     return@onPreviewKeyEvent false
                 }
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
-                when (event.key) {
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) {
+                    return@onPreviewKeyEvent false
+                }
+                val handled = when (event.key) {
                     Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> when (focusZone) {
                         VodFocusZone.TOP_BAR -> handleTopBarKey(event)
@@ -763,6 +784,11 @@ fun VodHubScreen(
                         VodFocusZone.CONTENT -> handleContentKey(event)
                     }
                 }
+                if (handled) return@onPreviewKeyEvent true
+                if (focusZone in vodManualFocusZones && isVodTraversalKey(event)) {
+                    return@onPreviewKeyEvent true
+                }
+                false
             }
     ) {
         Column(
@@ -818,7 +844,17 @@ fun VodHubScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Row(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .then(
+                        if (imeTypingActive) {
+                            Modifier.focusProperties { canFocus = false }
+                        } else {
+                            Modifier
+                        }
+                    )
+            ) {
                 if (searchQuery.isBlank() && !vodSearchFocused) {
                     VodContentFilterPanel(
                         selectedFilter = contentFilter,
@@ -833,7 +869,7 @@ fun VodHubScreen(
                     )
                 }
 
-                if (showGenrePanel) {
+                if (showGenrePanel && !showInlineSearch) {
                     VodGenreSidePanel(
                         genres = genreLabels,
                         selectedIndex = selectedGenreIndex,

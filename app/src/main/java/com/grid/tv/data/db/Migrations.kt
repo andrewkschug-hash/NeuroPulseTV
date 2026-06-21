@@ -841,4 +841,23 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_28_29 = object : Migration(28, 29) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_categories (
+                    playlistId INTEGER NOT NULL,
+                    categoryId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    PRIMARY KEY(playlistId, categoryId),
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_series_categories_playlistId ON series_categories(playlistId)"
+            )
+        }
+    }
 }

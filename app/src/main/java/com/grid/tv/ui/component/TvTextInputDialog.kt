@@ -114,12 +114,19 @@ fun TvTextInputDialog(
 
     fun handleImeAction() {
         hideKeyboardAndClearFieldFocus()
-        if (submitOnImeAction) {
-            onConfirm(draft)
-            onImeSubmitted?.invoke()
-        } else {
-            focusZone = TvInputDialogFocus.Confirm
-            scope.launch { confirmFocusRequester.requestFocusSafelyAfterLayout() }
+        when {
+            imeAction == ImeAction.Next -> {
+                onConfirm(draft)
+                onImeSubmitted?.invoke()
+            }
+            submitOnImeAction -> {
+                onConfirm(draft)
+                onImeSubmitted?.invoke()
+            }
+            else -> {
+                focusZone = TvInputDialogFocus.Confirm
+                scope.launch { confirmFocusRequester.requestFocusSafelyAfterLayout() }
+            }
         }
     }
 
@@ -258,7 +265,8 @@ fun TvTextInputDialog(
                     keyboardActions = KeyboardActions(
                         onSearch = { handleImeAction() },
                         onDone = { handleImeAction() },
-                        onGo = { handleImeAction() }
+                        onGo = { handleImeAction() },
+                        onNext = { handleImeAction() }
                     ),
                     visualTransformation = if (isPassword) {
                         PasswordVisualTransformation()

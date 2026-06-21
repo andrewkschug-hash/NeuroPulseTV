@@ -125,7 +125,7 @@ fun SeriesBrowserScreen(
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
     val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
-    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
     val selectedShow by viewModel.selectedShow.collectAsStateWithLifecycle()
@@ -203,15 +203,15 @@ fun SeriesBrowserScreen(
     val seriesEmptyReason = catalogStatus.seriesEmptyReason(
         filteredCount = filteredTotalCount,
         catalogTotal = catalogTotalCount,
-        category = selectedCategory,
+        category = selectedCategoryId ?: "All",
         searchQuery = activeSearch
     )
 
-    LaunchedEffect(seriesEmptyReason, seriesPagingItems.itemCount, filteredTotalCount, catalogTotalCount, selectedCategory, seriesLoading, catalogProgress.seriesPhaseFinished) {
+    LaunchedEffect(seriesEmptyReason, seriesPagingItems.itemCount, filteredTotalCount, catalogTotalCount, selectedCategoryId, seriesLoading, catalogProgress.seriesPhaseFinished) {
         Log.i(
             "VodCatalogPipeline",
             "Series empty-state: reason=$seriesEmptyReason filter=Series paged=${seriesPagingItems.itemCount} " +
-                "filtered=$filteredTotalCount catalog=$catalogTotalCount category=$selectedCategory " +
+                "filtered=$filteredTotalCount catalog=$catalogTotalCount category=${selectedCategoryId ?: "All"} " +
                 "loading=$seriesLoading phaseFinished=${catalogProgress.seriesPhaseFinished}"
         )
     }
@@ -261,17 +261,21 @@ fun SeriesBrowserScreen(
                     .padding(bottom = 12.dp)
                     .then(focusUpModifier(onMoveFocusUp))
             ) {
-                itemsIndexed(categories) { index, cat ->
+                item(key = "all") {
                     VodCategoryChip(
-                        label = cat,
-                        selected = cat == selectedCategory,
+                        label = "All",
+                        selected = selectedCategoryId == null,
                         focused = false,
-                        onClick = { viewModel.setCategory(cat) },
-                        modifier = if (index == 0 && contentFocusRequester != null) {
-                            Modifier.focusRequester(contentFocusRequester)
-                        } else {
-                            Modifier
-                        }
+                        onClick = { viewModel.setCategory(null) },
+                        modifier = contentFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier
+                    )
+                }
+                items(categories, key = { it.id }) { cat ->
+                    VodCategoryChip(
+                        label = cat.name,
+                        selected = selectedCategoryId == cat.id,
+                        focused = false,
+                        onClick = { viewModel.setCategory(cat.id) }
                     )
                 }
             }

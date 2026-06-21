@@ -216,7 +216,8 @@ fun TvTextField(
     onNavigateBack: () -> Unit = {},
     @Suppress("UNUSED_PARAMETER") imeAction: ImeAction = ImeAction.Done,
     onImeNext: (() -> Unit)? = null,
-    onImeDone: (() -> Unit)? = null
+    onImeDone: (() -> Unit)? = null,
+    nextFocusRequester: FocusRequester? = null
 ) {
     TvDialogTextField(
         value = value,
@@ -237,6 +238,9 @@ fun TvTextField(
         onConfirmed = {
             onImeDone?.invoke() ?: onImeNext?.invoke()
         },
+        imeAction = imeAction,
+        nextFocusRequester = nextFocusRequester,
+        onImeNext = onImeNext,
         backgroundColor = TvInputBg,
         focusedBorderColor = TvInputFocusBorder,
         unfocusedBorderColor = TvInputBorder,

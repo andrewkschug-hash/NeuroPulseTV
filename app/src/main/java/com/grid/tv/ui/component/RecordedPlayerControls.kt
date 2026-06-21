@@ -2,6 +2,7 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -44,6 +46,7 @@ fun RecordedPlayerControlsOverlay(
     bottomFocusIndex: Int,
     seekTooltip: String?,
     playPauseFocusRequester: FocusRequester? = null,
+    onTransportFocusIndexChanged: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -82,19 +85,27 @@ fun RecordedPlayerControlsOverlay(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 20.dp),
+                .padding(top = 20.dp)
+                .focusGroup(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             transportLabels.forEachIndexed { index, label ->
                 val focused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                val chipModifier = if (index == 2 && playPauseFocusRequester != null) {
-                    Modifier
-                        .focusRequester(playPauseFocusRequester)
-                        .focusable()
-                } else {
-                    Modifier
-                }
+                val chipModifier = Modifier
+                    .focusable()
+                    .onFocusChanged { state ->
+                        if (state.isFocused) {
+                            onTransportFocusIndexChanged(index)
+                        }
+                    }
+                    .then(
+                        if (index == 2 && playPauseFocusRequester != null) {
+                            Modifier.focusRequester(playPauseFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
                 PlayerControlChip(
                     label = label,
                     focused = focused,
