@@ -3,7 +3,6 @@ package com.grid.tv.ui.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.data.repository.FavoritesRepository
 import com.grid.tv.domain.epg.CatchupUrlFormatter
 import com.grid.tv.domain.epg.EpgProgramAction
@@ -15,7 +14,6 @@ import com.grid.tv.domain.epg.resolveProgramAction
 import com.grid.tv.domain.model.CatchupPlaybackContext
 import com.grid.tv.domain.model.CatchupPlaybackSession
 import com.grid.tv.domain.model.Channel
-import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.Program
@@ -73,7 +71,6 @@ data class EpgGuidePosition(
 @HiltViewModel
 class HomeEpgViewModel @Inject constructor(
     private val repository: IptvRepository,
-    private val continueWatchingRepository: ContinueWatchingRepository,
     private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
     private val playbackOrchestrator: PlaybackOrchestrator,
@@ -225,12 +222,11 @@ class HomeEpgViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
-    val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
 
     /** Debounced scanner badges — consumed only by the grid subtree. */
     val debouncedChannelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = combine(
         channelScanner.statuses,
-        channels
+        _channels
     ) { allStatuses, visibleChannels ->
         if (visibleChannels.isEmpty()) {
             emptyMap()
@@ -246,10 +242,6 @@ class HomeEpgViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    /** @deprecated Use [debouncedChannelScanStatuses] from grid scope only. */
-    @Deprecated("Use debouncedChannelScanStatuses in grid host")
-    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = debouncedChannelScanStatuses
-
     private val _hasMoreChannels = MutableStateFlow(true)
     val hasMoreChannels: StateFlow<Boolean> = _hasMoreChannels.asStateFlow()
 
@@ -262,15 +254,6 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _guidePosition = MutableStateFlow(EpgGuidePosition())
     val guidePosition: StateFlow<EpgGuidePosition> = _guidePosition.asStateFlow()
-
-    val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> =
-        continueWatchingRepository.observeItems(limit = 12)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** Live channels are not tracked in Continue Watching (VOD + series only). */
-    val continueWatching: StateFlow<List<Channel>> =
-        kotlinx.coroutines.flow.flowOf(emptyList<Channel>())
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val recommendations: StateFlow<List<Recommendation>> = repository.recommendedChannels(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -294,11 +277,9 @@ class HomeEpgViewModel @Inject constructor(
     val replayUrlsByProgramId: StateFlow<Map<Long, String>> = _replayUrlsByProgramId.asStateFlow()
 
     private val _epgPrograms = MutableStateFlow<List<Program>>(emptyList())
-    val epgPrograms = _epgPrograms.asStateFlow()
 
     private var programmeIndexCache: ProgrammeIndex.Cache? = null
     private val _programmeIndex = MutableStateFlow(ProgrammeIndex.EMPTY)
-    val programmeIndex: StateFlow<ProgrammeIndex> = _programmeIndex.asStateFlow()
 
     fun replayState(program: Program, channel: Channel, nowMs: Long): EpgProgramReplayState {
         val replayUrl = _replayUrlsByProgramId.value[program.id]
@@ -351,7 +332,6 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private val _epgLoading = MutableStateFlow(false)
-    val epgLoading = _epgLoading.asStateFlow()
 
     private val _windowStart = MutableStateFlow(
         EpgTime.anchoredWindowStart(
@@ -359,13 +339,9 @@ class HomeEpgViewModel @Inject constructor(
             windowDurationMs = 4 * 60 * 60 * 1000L
         )
     )
-    val windowStart: StateFlow<Long> = _windowStart.asStateFlow()
-
     private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
-    val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
     private val _epgUiSnapshot = MutableStateFlow(EpgUiSnapshot.EMPTY)
-    val epgUiSnapshot: StateFlow<EpgUiSnapshot> = _epgUiSnapshot.asStateFlow()
 
     val homeEpgScreenState: StateFlow<HomeEpgScreenSnapshot> = combine(
         _epgUiSnapshot,
@@ -413,28 +389,6 @@ class HomeEpgViewModel @Inject constructor(
         )
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeEpgScreenSnapshot.INITIAL)
-
-    /** @deprecated Use [homeEpgScreenState].epg */
-    @Deprecated("Use homeEpgScreenState")
-    val guideData: StateFlow<HomeEpgGuideData> = _epgUiSnapshot.map { snap ->
-        HomeEpgGuideData(
-            channels = snap.channels,
-            epgPrograms = snap.programs,
-            programmeIndex = snap.programmeIndex,
-            windowStart = snap.windowStart,
-            windowDurationMs = snap.windowDurationMs
-        )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5000),
-        HomeEpgGuideData(
-            channels = emptyList(),
-            epgPrograms = emptyList(),
-            programmeIndex = ProgrammeIndex.EMPTY,
-            windowStart = _windowStart.value,
-            windowDurationMs = _windowDurationMs.value
-        )
-    )
 
     init {
         viewModelScope.launch {

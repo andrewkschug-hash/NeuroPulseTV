@@ -72,7 +72,6 @@ import com.grid.tv.domain.epg.EpgTime
 object EpgNowTicker {
     const val CLOCK_INTERVAL_MS = 1_000L
     const val GRID_INTERVAL_MS = 30_000L
-    const val WINDOW_SYNC_INTERVAL_MS = 60_000L
 }
 
 @Composable

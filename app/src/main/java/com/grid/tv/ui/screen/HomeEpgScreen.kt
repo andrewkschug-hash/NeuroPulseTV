@@ -120,7 +120,6 @@ fun HomeEpgScreen(
     val epg = screen.epg
     val chrome = screen.chrome
     val channels = epg.channels
-    val epgWindow = epg.programs
     val programmeIndex = epg.programmeIndex
     val windowStart = epg.windowStart
     val windowDurationMs = epg.windowDurationMs
@@ -205,16 +204,6 @@ fun HomeEpgScreen(
     }
     val showFilteredEmptyState = !usePlaceholder && !showEmptyState &&
         displayChannels.isEmpty() && (guideFilter.isActive || favoriteGroupFilter != null)
-    val displayPrograms = remember(displayChannels, epgWindow, windowStart, windowDurationMs, usePlaceholder, showEmptyState) {
-        when {
-            showEmptyState -> emptyList()
-            usePlaceholder -> EpgPlaceholderData.programs(
-                windowStart,
-                windowStart + windowDurationMs
-            )
-            else -> epgWindow
-        }
-    }
 
     if (PerformanceAudit.ENABLED) {
         SideEffect {
