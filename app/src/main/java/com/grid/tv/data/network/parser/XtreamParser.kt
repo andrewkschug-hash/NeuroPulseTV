@@ -166,6 +166,20 @@ class XtreamParser {
         return "$base/movie/${encodePath(username)}/${encodePath(password)}/$streamId.$ext"
     }
 
+    fun buildSeriesStreamUrl(
+        serverUrl: String,
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String,
+        directSource: String? = null
+    ): String {
+        sanitizeDirectSource(directSource)?.let { return it }
+        val base = serverUrl.trimEnd('/')
+        val ext = extension.ifBlank { "mp4" }
+        return "$base/series/${encodePath(username)}/${encodePath(password)}/$streamId.$ext"
+    }
+
     fun parseLiveCategories(raw: String): Map<String, String> {
         val arr = parseJsonArray(raw) ?: return emptyMap()
         val out = linkedMapOf<String, String>()
@@ -404,7 +418,15 @@ class XtreamParser {
                 val info = item.optJSONObject("info")
                 val ext = item.optString("container_extension").ifBlank { "mp4" }
                 val title = item.optString("title").ifBlank { "Episode $id" }
-                val url = "$serverUrl/series/${encodePath(username)}/${encodePath(password)}/$id.$ext"
+                val directSource = sanitizeDirectSource(item.optString("direct_source"))
+                val url = buildSeriesStreamUrl(
+                    serverUrl = serverUrl,
+                    username = username,
+                    password = password,
+                    streamId = id.toString(),
+                    extension = ext,
+                    directSource = directSource
+                )
                 val episodeNumber = item.optInt("episode_num", -1).takeIf { it > 0 }
                     ?: info?.optInt("episode_num", -1)?.takeIf { it > 0 }
                     ?: (i + 1)

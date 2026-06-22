@@ -30,7 +30,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,25 +42,16 @@ import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-/** Single TV focus target per row: requester, scroll sync, and Enter/D-pad-center activate. */
+/** TV focus wiring for guide-group rows (requester + scroll sync). Activation is handled by [GridFocusSurface]. */
 private fun Modifier.guideGroupRowTvFocus(
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
-    onActivate: () -> Unit,
     onFocusVisualChanged: (Boolean) -> Unit,
 ): Modifier = this
     .focusRequester(focusRequester)
     .onFocusChanged { state ->
         onFocusVisualChanged(state.isFocused)
         if (state.isFocused) onFocused()
-    }
-    .onPreviewKeyEvent { event ->
-        if (isTvActivateKey(event)) {
-            onActivate()
-            true
-        } else {
-            false
-        }
     }
 
 val GUIDE_GROUP_REGION_SEPARATORS = listOf(" ❖ ", " | ", " - ", " – ")
@@ -360,7 +350,6 @@ private fun GuideFilterDoneButton(
                     Modifier.guideGroupRowTvFocus(
                         focusRequester = focusRequester,
                         onFocused = {},
-                        onActivate = onClick,
                         onFocusVisualChanged = { rowFocused = it }
                     )
                 } else {
@@ -439,7 +428,6 @@ internal fun GuideGroupCategoryRow(
                     Modifier.guideGroupRowTvFocus(
                         focusRequester = focusRequester,
                         onFocused = onFocused,
-                        onActivate = onClick,
                         onFocusVisualChanged = { rowFocused = it }
                     )
                 } else {
@@ -557,7 +545,6 @@ private fun GuideGroupTreeRowShell(
                     Modifier.guideGroupRowTvFocus(
                         focusRequester = focusRequester,
                         onFocused = onFocused,
-                        onActivate = onClick,
                         onFocusVisualChanged = { rowFocused = it }
                     )
                 } else {

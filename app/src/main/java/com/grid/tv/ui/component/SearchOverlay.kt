@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -66,6 +67,7 @@ import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.util.TvTextInputSession
 
 private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
@@ -704,6 +706,8 @@ private fun SearchResultRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val logoPx = remember(context) { TvImageSizing.searchResultLogoPx(context) }
     val displayTitle = remember(result.primaryTitle, result.type) {
         when (result.type) {
             SearchResultType.VOD, SearchResultType.SERIES, SearchResultType.EPISODE ->
@@ -735,7 +739,12 @@ private fun SearchResultRow(
             }
             if (result.imageUrl != null) {
                 AsyncImage(
-                    model = result.imageUrl,
+                    model = TvImageSizing.sizedRequest(
+                        context = context,
+                        data = result.imageUrl,
+                        widthPx = logoPx,
+                        heightPx = logoPx
+                    ),
                     contentDescription = null,
                     modifier = Modifier
                         .padding(start = 12.dp)

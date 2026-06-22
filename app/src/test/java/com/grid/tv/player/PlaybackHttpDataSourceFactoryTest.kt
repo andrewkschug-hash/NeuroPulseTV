@@ -2,6 +2,8 @@ package com.grid.tv.player
 
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.domain.model.AppSettings
+import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
+import io.mockk.mockk
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -9,9 +11,15 @@ import org.junit.Test
 
 class PlaybackHttpDataSourceFactoryTest {
 
+    private fun metricsLogger(): PlaybackMetricsLogger =
+        PlaybackMetricsLogger(mockk<PlaybackTelemetryCollector>(relaxed = true))
+
+    private fun factory(): PlaybackHttpDataSourceFactory =
+        PlaybackHttpDataSourceFactory(AppHttpClient(), metricsLogger(), IptvStreamFormatRegistry())
+
     @Test
     fun mediaSourceFactory_isSingletonAcrossCalls() {
-        val factory = PlaybackHttpDataSourceFactory(AppHttpClient())
+        val factory = factory()
         val first = factory.mediaSourceFactory()
         val second = factory.mediaSourceFactory()
         assertSame(first, second)
@@ -19,7 +27,7 @@ class PlaybackHttpDataSourceFactoryTest {
 
     @Test
     fun dataSourceFactory_isSingletonAcrossCalls() {
-        val factory = PlaybackHttpDataSourceFactory(AppHttpClient())
+        val factory = factory()
         val first = factory.dataSourceFactory()
         val second = factory.dataSourceFactory()
         assertSame(first, second)
@@ -27,14 +35,14 @@ class PlaybackHttpDataSourceFactoryTest {
 
     @Test
     fun create_aliasReturnsSameDataSourceFactory() {
-        val factory = PlaybackHttpDataSourceFactory(AppHttpClient())
+        val factory = factory()
         assertSame(factory.create(), factory.dataSourceFactory())
     }
 
     @Test
     fun syncNetworkSettings_rebuildsStackWhenProxyChanges() {
         val httpClient = AppHttpClient()
-        val factory = PlaybackHttpDataSourceFactory(httpClient)
+        val factory = PlaybackHttpDataSourceFactory(httpClient, metricsLogger(), IptvStreamFormatRegistry())
         val before = factory.mediaSourceFactory()
         factory.syncNetworkSettings(AppSettings(useProxy = true, proxyUrl = "http://127.0.0.1:8888"))
         val after = factory.mediaSourceFactory()
@@ -44,7 +52,7 @@ class PlaybackHttpDataSourceFactoryTest {
 
     @Test
     fun syncNetworkSettings_noOpWhenConfigUnchanged() {
-        val factory = PlaybackHttpDataSourceFactory(AppHttpClient())
+        val factory = factory()
         factory.mediaSourceFactory()
         val generation = factory.stackGeneration()
         factory.syncNetworkSettings(AppSettings())
@@ -53,8 +61,12 @@ class PlaybackHttpDataSourceFactoryTest {
 
     @Test
     fun multiplePlayerFactoryCreates_shareMediaSourceFactory() {
-        val httpFactory = PlaybackHttpDataSourceFactory(AppHttpClient())
-        val playerFactory = PlayerFactory(httpFactory)
+        val httpFactory = PlaybackHttpDataSourceFactory(
+            AppHttpClient(),
+            metricsLogger(),
+            IptvStreamFormatRegistry()
+        )
+        val playerFactory = PlayerFactory(httpFactory, DecoderPressureTracker())
         // PlayerFactory needs Context — verify stack sharing at factory layer instead.
         val mediaA = httpFactory.mediaSourceFactory()
         val mediaB = httpFactory.mediaSourceFactory(AppSettings())

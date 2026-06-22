@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.grid.tv.worker.EpgRefreshWorker
 import com.grid.tv.worker.EpgResolverWorker
+import com.grid.tv.player.LowEndDeviceMode
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -71,7 +72,7 @@ class EpgJobCoordinator @Inject constructor(
         }
         enqueueRefresh(
             source = EpgJobSource.STARTUP,
-            initialDelaySec = STARTUP_EPG_INITIAL_DELAY_SEC,
+            initialDelaySec = LowEndDeviceMode.current().epgStartupDelaySec,
             policy = ExistingWorkPolicy.KEEP
         )
     }

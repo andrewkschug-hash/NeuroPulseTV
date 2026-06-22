@@ -7,6 +7,8 @@ import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.data.repository.FavoritesRepository
 import com.grid.tv.domain.epg.CatchupUrlFormatter
 import com.grid.tv.domain.epg.EpgProgramAction
+import com.grid.tv.domain.epg.ProgrammeIndex
+import com.grid.tv.domain.epg.programmeLookupKeys
 import com.grid.tv.domain.epg.EpgProgramReplayState
 import com.grid.tv.domain.epg.canReplayProgram
 import com.grid.tv.domain.epg.resolveProgramAction
@@ -30,9 +32,11 @@ import com.grid.tv.domain.epg.EpgTime
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.player.LivePlayerManager
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.util.FocusNavigationMetrics
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.ui.component.ProgramTimeState
 import com.grid.tv.ui.component.programTimeState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +47,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -90,6 +95,10 @@ class HomeEpgViewModel @Inject constructor(
         private const val VIEWPORT_EPG_MAX_CHANNEL_IDS = 10
         private const val GUIDE_POSITION_SAVE_DEBOUNCE_MS = 400L
         private const val FOCUS_SCANNER_PRIORITY_DEBOUNCE_MS = 150L
+        private const val MAX_RETAINED_CHANNEL_PAGES = 4
+        private const val MAX_RETAINED_CHANNEL_PAGES_LOW_END = 2
+        private const val INDEX_REBUILD_DEBOUNCE_MS = 16L
+        private const val SCAN_STATUS_UI_DEBOUNCE_MS = 2_000L
         private const val TAG = "EpgFlow"
 
         internal fun viewportEpgFetchKey(channelIds: List<Long>): String =
@@ -218,8 +227,8 @@ class HomeEpgViewModel @Inject constructor(
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
     val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
 
-    /** Only statuses for currently loaded guide rows — avoids recomposing on full 10k scan map updates. */
-    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = combine(
+    /** Debounced scanner badges — consumed only by the grid subtree. */
+    val debouncedChannelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = combine(
         channelScanner.statuses,
         channels
     ) { allStatuses, visibleChannels ->
@@ -232,7 +241,14 @@ class HomeEpgViewModel @Inject constructor(
                 }
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }
+        .debounce(SCAN_STATUS_UI_DEBOUNCE_MS)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /** @deprecated Use [debouncedChannelScanStatuses] from grid scope only. */
+    @Deprecated("Use debouncedChannelScanStatuses in grid host")
+    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = debouncedChannelScanStatuses
 
     private val _hasMoreChannels = MutableStateFlow(true)
     val hasMoreChannels: StateFlow<Boolean> = _hasMoreChannels.asStateFlow()
@@ -274,13 +290,15 @@ class HomeEpgViewModel @Inject constructor(
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private val now = MutableStateFlow(System.currentTimeMillis())
-
     private val _replayUrlsByProgramId = MutableStateFlow<Map<Long, String>>(emptyMap())
     val replayUrlsByProgramId: StateFlow<Map<Long, String>> = _replayUrlsByProgramId.asStateFlow()
 
     private val _epgPrograms = MutableStateFlow<List<Program>>(emptyList())
     val epgPrograms = _epgPrograms.asStateFlow()
+
+    private var programmeIndexCache: ProgrammeIndex.Cache? = null
+    private val _programmeIndex = MutableStateFlow(ProgrammeIndex.EMPTY)
+    val programmeIndex: StateFlow<ProgrammeIndex> = _programmeIndex.asStateFlow()
 
     fun replayState(program: Program, channel: Channel, nowMs: Long): EpgProgramReplayState {
         val replayUrl = _replayUrlsByProgramId.value[program.id]
@@ -346,7 +364,113 @@ class HomeEpgViewModel @Inject constructor(
     private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
     val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
+    private val _epgUiSnapshot = MutableStateFlow(EpgUiSnapshot.EMPTY)
+    val epgUiSnapshot: StateFlow<EpgUiSnapshot> = _epgUiSnapshot.asStateFlow()
+
+    val homeEpgScreenState: StateFlow<HomeEpgScreenSnapshot> = combine(
+        _epgUiSnapshot,
+        isInitializing,
+        hasConnection,
+        guideFilter,
+        favoriteGroupFilter,
+        guideFiltersConfigured,
+        guideSettingsLoaded,
+        isReloadingChannels,
+        channelGroups,
+        groupChannelCounts,
+        hasCatalogChannels,
+        demoFavoriteIds,
+        favoriteGroups,
+        favoriteSavedMessage,
+        guidePreviewEnabled,
+        guidePreviewChannelId,
+        guidePosition,
+        vodProgress
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val epg = values[0] as EpgUiSnapshot
+        HomeEpgScreenSnapshot(
+            epg = epg,
+            chrome = HomeEpgChromeSnapshot(
+                isInitializing = values[1] as Boolean,
+                hasConnection = values[2] as Boolean,
+                guideFilter = values[3] as GuideChannelFilter,
+                favoriteGroupFilter = values[4] as Long?,
+                guideFiltersConfigured = values[5] as Boolean,
+                guideSettingsLoaded = values[6] as Boolean,
+                isReloadingChannels = values[7] as Boolean,
+                channelGroups = values[8] as List<String>,
+                groupChannelCounts = values[9] as Map<String, Int>,
+                hasCatalogChannels = values[10] as Boolean,
+                demoFavoriteIds = values[11] as Set<Long>,
+                favoriteGroups = values[12] as List<FavoriteGroup>,
+                favoriteSavedMessage = values[13] as String?,
+                guidePreviewEnabled = values[14] as Boolean,
+                guidePreviewChannelId = values[15] as Long?,
+                guidePosition = values[16] as EpgGuidePosition,
+                vodProgress = values[17] as Map<Long, Long>
+            )
+        )
+    }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeEpgScreenSnapshot.INITIAL)
+
+    /** @deprecated Use [homeEpgScreenState].epg */
+    @Deprecated("Use homeEpgScreenState")
+    val guideData: StateFlow<HomeEpgGuideData> = _epgUiSnapshot.map { snap ->
+        HomeEpgGuideData(
+            channels = snap.channels,
+            epgPrograms = snap.programs,
+            programmeIndex = snap.programmeIndex,
+            windowStart = snap.windowStart,
+            windowDurationMs = snap.windowDurationMs
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        HomeEpgGuideData(
+            channels = emptyList(),
+            epgPrograms = emptyList(),
+            programmeIndex = ProgrammeIndex.EMPTY,
+            windowStart = _windowStart.value,
+            windowDurationMs = _windowDurationMs.value
+        )
+    )
+
     init {
+        viewModelScope.launch {
+            var latestSnapshot = EpgUiSnapshot.EMPTY
+            combine(_channels, _epgPrograms, _programmeIndex, _windowStart, _windowDurationMs) { ch, pr, idx, ws, wd ->
+                EpgUiSnapshot.build(
+                    channels = ch,
+                    programs = pr,
+                    programmeIndex = idx,
+                    windowStart = ws,
+                    windowDurationMs = wd,
+                    previous = latestSnapshot
+                )
+            }.distinctUntilChanged { old, new -> old.contentFingerprint == new.contentFingerprint }
+                .collect { snapshot ->
+                    if (snapshot.generation != latestSnapshot.generation) {
+                        PerformanceAudit.logEpgSnapshotEmission(
+                            generation = snapshot.generation,
+                            fingerprint = snapshot.contentFingerprint
+                        )
+                    }
+                    latestSnapshot = snapshot
+                    _epgUiSnapshot.value = snapshot
+                }
+        }
+        viewModelScope.launch {
+            combine(_channels, _epgPrograms) { ch, pr -> ch to pr }
+                .debounce(INDEX_REBUILD_DEBOUNCE_MS)
+                .collectLatest { (channels, programs) ->
+                    val result = withContext(Dispatchers.Default) {
+                        ProgrammeIndex.buildWithCache(programmeIndexCache, channels, programs)
+                    }
+                    programmeIndexCache = result.cache
+                    _programmeIndex.value = result.index
+                }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             _hasConnection.value = repository.hasActiveConnection()
             _activeProfile.value = repository.activeProfile()
@@ -521,7 +645,7 @@ class HomeEpgViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) { loadWindow() }
     }
 
-    /** Re-anchor the EPG window to the device local clock so the live tracker stays accurate. */
+    /** Re-anchor the EPG window on explicit user jump-to-live — not on a periodic timer. */
     fun syncTimelineWindowToLocalNow() {
         val now = System.currentTimeMillis()
         val adjusted = EpgTime.anchoredWindowStart(
@@ -661,18 +785,6 @@ class HomeEpgViewModel @Inject constructor(
         val success = status == StreamPlaybackStatus.PLAYING ||
             status == StreamPlaybackStatus.AUDIO_ONLY
         channelScanner.reportPlaybackResult(channelId, success)
-        viewModelScope.launch {
-            repository.reportStreamSession(
-                channelId = channelId,
-                loadMs = if (success) 1200 else 5000,
-                bufferEvents = when (status) {
-                    StreamPlaybackStatus.STALLED, StreamPlaybackStatus.NO_SIGNAL -> 3
-                    StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> 5
-                    else -> 0
-                },
-                success = success
-            )
-        }
     }
 
     /**
@@ -857,7 +969,15 @@ class HomeEpgViewModel @Inject constructor(
             channelDbOffset += page.size
             _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
             if (page.isEmpty()) return
-            _channels.value = _channels.value + page
+            val merged = trimRetainedChannels(
+                channels = _channels.value + page,
+                focusChannelIndex = _guidePosition.value.focusChannelIndex
+            )
+            _channels.value = merged.channels
+            if (merged.trimmedCount > 0) {
+                trimProgramsForDroppedChannels(merged.droppedChannels)
+                adjustGuidePositionAfterTrim(merged.trimmedCount)
+            }
             if (_channels.value.size <= CHANNEL_PAGE_SIZE) {
                 loadWindow()
             } else {
@@ -914,6 +1034,67 @@ class HomeEpgViewModel @Inject constructor(
             byId[program.id] = program
         }
         return byId.values.sortedBy { it.startTime }
+    }
+
+    private data class RetainedChannelMerge(
+        val channels: List<Channel>,
+        val trimmedCount: Int,
+        val droppedChannels: List<Channel>
+    )
+
+    private fun maxRetainedChannels(): Int {
+        val pages = if (LowEndDeviceMode.current().active) {
+            MAX_RETAINED_CHANNEL_PAGES_LOW_END
+        } else {
+            MAX_RETAINED_CHANNEL_PAGES
+        }
+        return pages * CHANNEL_PAGE_SIZE
+    }
+
+    private fun trimRetainedChannels(
+        channels: List<Channel>,
+        focusChannelIndex: Int
+    ): RetainedChannelMerge {
+        val max = maxRetainedChannels()
+        val softMax = max + CHANNEL_PAGE_SIZE
+        if (channels.size <= max ||
+            (channels.size <= softMax && focusChannelIndex < CHANNEL_PAGE_SIZE)
+        ) {
+            return RetainedChannelMerge(channels = channels, trimmedCount = 0, droppedChannels = emptyList())
+        }
+        val trimmedCount = channels.size - max
+        val dropped = channels.take(trimmedCount)
+        return RetainedChannelMerge(
+            channels = channels.drop(trimmedCount),
+            trimmedCount = trimmedCount,
+            droppedChannels = dropped
+        )
+    }
+
+    private suspend fun trimProgramsForDroppedChannels(droppedChannels: List<Channel>) {
+        if (droppedChannels.isEmpty()) return
+        val droppedKeys = droppedChannels
+            .flatMap { it.programmeLookupKeys() }
+            .map { it.lowercase() }
+            .toSet()
+        if (droppedKeys.isEmpty()) return
+        val filtered = _epgPrograms.value.filter { program ->
+            program.channelEpgId.lowercase() !in droppedKeys
+        }
+        withContext(Dispatchers.Main.immediate) {
+            _epgPrograms.value = filtered
+        }
+    }
+
+    private suspend fun adjustGuidePositionAfterTrim(trimmedCount: Int) {
+        if (trimmedCount <= 0) return
+        withContext(Dispatchers.Main.immediate) {
+            val pos = _guidePosition.value
+            if (!pos.hasSavedPosition) return@withContext
+            _guidePosition.value = pos.copy(
+                focusChannelIndex = (pos.focusChannelIndex - trimmedCount).coerceAtLeast(0)
+            )
+        }
     }
 
     private suspend fun loadWindow() {

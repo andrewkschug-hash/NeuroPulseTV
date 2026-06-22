@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AspectRatioSetting
 import com.grid.tv.domain.model.BufferSize
@@ -204,6 +205,7 @@ fun SettingsScreen(
     var pendingNewPin by remember { mutableStateOf("") }
     var pendingHideAdultValue by remember { mutableStateOf<Boolean?>(null) }
     val cacheMessage by viewModel.cacheMessage.collectAsStateWithLifecycle()
+    val playbackHealthSummary by viewModel.playbackHealthSummary.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
@@ -848,8 +850,16 @@ fun SettingsScreen(
                                 SupabaseEntryPoint::class.java
                             ).supabaseClientProvider().clientOrNull()
                             AboutSettingsContent(
+                                appVersion = viewModel.appVersion,
+                                lowEndDeviceModeActive = LowEndDeviceMode.isActive(context),
+                                lowEndDeviceSummary = LowEndDeviceMode.profile(context).let { profile ->
+                                    if (!profile.active) null
+                                    else "RAM ${profile.totalRamMb} MB · max ${profile.maxPaneCount} panes · " +
+                                        "buffer cap ${profile.maxBufferMsCap / 1000}s"
+                                },
                                 importSummary = importSummary,
                                 cacheMessage = cacheMessage,
+                                playbackHealthSummary = playbackHealthSummary,
                                 focus = contentFocus,
                                 isSignedIn = authUiState is AuthUiState.Authenticated,
                                 signedInEmail = signedInAccount?.email ?: signedInAccount?.displayName,
@@ -859,7 +869,9 @@ fun SettingsScreen(
                                 onExportBackup = { viewModel.exportBackup(context.cacheDir) },
                                 onClearCache = { showClearCacheConfirm = true },
                                 onResetSettings = { showResetSettingsConfirm = true },
-                                onResetApp = { showResetConfirm = true }
+                                onResetApp = { showResetConfirm = true },
+                                onRefreshPlaybackHealth = { viewModel.refreshPlaybackHealthSummary() },
+                                onLogPlaybackHealth = { viewModel.logPlaybackHealthDiagnostics() }
                             )
                         }
                         }
@@ -2177,8 +2189,12 @@ private fun playlistConnectionSubtitle(playlist: Playlist): String {
 
 @Composable
 private fun AboutSettingsContent(
+    appVersion: String,
+    lowEndDeviceModeActive: Boolean,
+    lowEndDeviceSummary: String?,
     importSummary: String?,
     cacheMessage: String?,
+    playbackHealthSummary: com.grid.tv.ui.viewmodel.PlaybackHealthSummary,
     focus: SettingsContentFocus,
     isSignedIn: Boolean,
     signedInEmail: String?,
@@ -2188,7 +2204,9 @@ private fun AboutSettingsContent(
     onExportBackup: () -> Unit,
     onClearCache: () -> Unit,
     onResetSettings: () -> Unit,
-    onResetApp: () -> Unit
+    onResetApp: () -> Unit,
+    onRefreshPlaybackHealth: () -> Unit,
+    onLogPlaybackHealth: () -> Unit
 ) {
     SettingsPanel(
         title = "Account",
@@ -2238,8 +2256,27 @@ private fun AboutSettingsContent(
         cardIndex = 1,
         focus = focus
     ) {
-        Text("Version ${SettingsViewModel.APP_VERSION}", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
+        Text("Version $appVersion", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
         Text("Live TV Guide for Android TV", color = EpgColors.TextDimmed, fontFamily = DmSansFamily, fontSize = 13.sp)
+        if (lowEndDeviceModeActive) {
+            Text(
+                text = "Low-End Device Mode active",
+                color = EpgColors.Accent,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            lowEndDeviceSummary?.let {
+                Text(
+                    text = it,
+                    color = EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
         SettingsFocusButton(
             text = "Export .grid backup",
             onClick = onExportBackup,
@@ -2262,15 +2299,48 @@ private fun AboutSettingsContent(
         }
     }
     SettingsPanel(
+        title = "Playback health",
+        description = "Aggregated startup, buffering, failover, and error metrics from live playback sessions.",
+        cardIndex = 2,
+        focus = focus
+    ) {
+        playbackHealthSummary.diagnosticsMessage?.let {
+            Text(it, color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 13.sp)
+        }
+        if (playbackHealthSummary.problemChannels.isNotEmpty()) {
+            Text(
+                text = "Unstable channels: ${playbackHealthSummary.problemChannels.joinToString()}",
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        SettingsFocusButton(
+            text = "Refresh health summary",
+            onClick = onRefreshPlaybackHealth,
+            chainIndex = 3,
+            focus = focus,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        SettingsFocusButton(
+            text = "Log diagnostics to logcat",
+            onClick = onLogPlaybackHealth,
+            chainIndex = 4,
+            focus = focus,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+    SettingsPanel(
         title = "Reset settings",
         description = "Restore defaults for playback, guide, interface, and parental controls. Profiles and connections are kept.",
-        cardIndex = 2,
+        cardIndex = 3,
         focus = focus
     ) {
         SettingsFocusButton(
             text = "Reset all settings",
             onClick = onResetSettings,
-            chainIndex = 3,
+            chainIndex = 5,
             focus = focus,
             destructive = true
         )
@@ -2278,13 +2348,13 @@ private fun AboutSettingsContent(
     SettingsPanel(
         title = "Reset app",
         description = "Delete all profiles, connections, watch history, favorites, and settings. Restarts as a fresh install.",
-        cardIndex = 3,
+        cardIndex = 4,
         focus = focus
     ) {
         SettingsFocusButton(
             text = "Reset everything",
             onClick = onResetApp,
-            chainIndex = 4,
+            chainIndex = 6,
             focus = focus,
             destructive = true
         )

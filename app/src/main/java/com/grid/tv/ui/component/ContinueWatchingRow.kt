@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,7 @@ import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.TvImageSizing
 
 @Composable
 fun ContinueWatchingRow(
@@ -67,6 +69,7 @@ private fun ContinueWatchingCard(
     isFocused: Boolean,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val bg = if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF1A1A22)
     GridFocusSurface(
         onClick = onClick,
@@ -90,8 +93,14 @@ private fun ContinueWatchingCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (item.posterUrl != null) {
+                    val posterPx = TvImageSizing.continueWatchingPosterPx(context)
                     AsyncImage(
-                        model = item.posterUrl,
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = item.posterUrl,
+                            widthPx = posterPx,
+                            heightPx = posterPx
+                        ),
                         contentDescription = item.title,
                         modifier = Modifier.size(120.dp).clip(RoundedCornerShape(6.dp))
                     )

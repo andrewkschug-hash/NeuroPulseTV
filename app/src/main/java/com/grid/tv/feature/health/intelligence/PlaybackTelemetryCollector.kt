@@ -2,14 +2,17 @@ package com.grid.tv.feature.health.intelligence
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Collects playback session telemetry from the player layer.
- * Call [startSession] when tuning begins and [endSession] when playback stops or errors.
+ * Call [beginSession] when tuning begins and [endSession] when playback stops or errors.
  */
 @Singleton
 class PlaybackTelemetryCollector @Inject constructor(
-    private val aggregator: StreamHealthAggregator
+    private val aggregator: StreamHealthAggregator,
+    private val reporter: PlaybackTelemetryReporter
 ) {
     data class ActiveSession(
         val channelId: Long,
@@ -22,13 +25,31 @@ class PlaybackTelemetryCollector @Inject constructor(
         var playbackErrorCount: Int = 0,
         var streamSwitchCount: Int = 0,
         var reconnectAttempts: Int = 0,
+        var loadRetryCount: Int = 0,
         var playbackSuccess: Boolean = false,
         var watchDurationMs: Long = 0
     )
 
+    private val mutex = Mutex()
+
     @Volatile
     private var active: ActiveSession? = null
 
+    @Volatile
+    private var bufferingEpisodeStartMs: Long = 0L
+
+    suspend fun beginSession(channelId: Long, providerId: Long, streamId: String = StreamSourceId.PRIMARY.storageKey) {
+        endSession(success = null)
+        active = ActiveSession(
+            channelId = channelId,
+            streamId = streamId,
+            providerId = providerId,
+            sessionStart = System.currentTimeMillis()
+        )
+        bufferingEpisodeStartMs = 0L
+    }
+
+    /** @deprecated Prefer [beginSession] which closes any open session first. */
     fun startSession(channelId: Long, providerId: Long, streamId: String = StreamSourceId.PRIMARY.storageKey) {
         active = ActiveSession(
             channelId = channelId,
@@ -36,6 +57,7 @@ class PlaybackTelemetryCollector @Inject constructor(
             providerId = providerId,
             sessionStart = System.currentTimeMillis()
         )
+        bufferingEpisodeStartMs = 0L
     }
 
     fun onStartupComplete(loadMs: Long) {
@@ -43,11 +65,20 @@ class PlaybackTelemetryCollector @Inject constructor(
     }
 
     fun onBufferingStarted() {
+        if (bufferingEpisodeStartMs == 0L) {
+            bufferingEpisodeStartMs = System.currentTimeMillis()
+        }
         active?.bufferingEventCount = (active?.bufferingEventCount ?: 0) + 1
     }
 
-    fun onBufferingEnded(durationMs: Long) {
-        active?.bufferingDurationMs = (active?.bufferingDurationMs ?: 0) + durationMs.coerceAtLeast(0)
+    fun onBufferingEnded(durationMs: Long? = null) {
+        val duration = durationMs?.coerceAtLeast(0)
+            ?: bufferingEpisodeStartMs.takeIf { it > 0L }?.let { System.currentTimeMillis() - it }
+            ?: 0L
+        bufferingEpisodeStartMs = 0L
+        if (duration > 0L) {
+            active?.bufferingDurationMs = (active?.bufferingDurationMs ?: 0) + duration
+        }
     }
 
     fun onPlaybackError() {
@@ -65,16 +96,23 @@ class PlaybackTelemetryCollector @Inject constructor(
         active?.reconnectAttempts = (active?.reconnectAttempts ?: 0) + 1
     }
 
+    fun onLoadRetry() {
+        active?.loadRetryCount = (active?.loadRetryCount ?: 0) + 1
+    }
+
     fun onPlaybackSuccess() {
         active?.playbackSuccess = true
     }
+
+    fun peekActive(): ActiveSession? = active
 
     fun tickWatchDuration(deltaMs: Long) {
         active?.watchDurationMs = (active?.watchDurationMs ?: 0) + deltaMs.coerceAtLeast(0)
     }
 
-    suspend fun endSession(success: Boolean? = null): PlaybackSessionRecord? {
-        val session = active ?: return null
+    suspend fun endSession(success: Boolean? = null): PlaybackSessionRecord? = mutex.withLock {
+        val session = active ?: return@withLock null
+        onBufferingEnded()
         active = null
         val end = System.currentTimeMillis()
         val record = PlaybackSessionRecord(
@@ -91,13 +129,16 @@ class PlaybackTelemetryCollector @Inject constructor(
             playbackErrorCount = session.playbackErrorCount,
             streamSwitchCount = session.streamSwitchCount,
             reconnectAttempts = session.reconnectAttempts,
+            loadRetryCount = session.loadRetryCount,
             playbackSuccess = success ?: session.playbackSuccess
         )
         aggregator.processSession(record)
-        return record
+        reporter.logSessionCompleted(record)
+        record
     }
 
     suspend fun recordCompletedSession(record: PlaybackSessionRecord) {
         aggregator.processSession(record)
+        reporter.logSessionCompleted(record)
     }
 }

@@ -10,6 +10,8 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.grid.tv.data.db.AppDatabaseHolder
 import com.grid.tv.di.StartupEntryPoint
+import com.grid.tv.player.LowEndDeviceMode
+import com.grid.tv.util.PerformanceAudit
 import dagger.hilt.android.HiltAndroidApp
 import dagger.hilt.android.EntryPointAccessors
 import javax.inject.Inject
@@ -22,7 +24,19 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        // Start Room open immediately on a background thread — do not wait for the coroutine dispatcher.
+        LowEndDeviceMode.init(this)
+        PerformanceAudit.lowEndModeActive = !LowEndDeviceMode.current().performanceAuditEnabled
+        val imageProfile = LowEndDeviceMode.current()
+        registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
+            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
+            override fun onLowMemory() = trimImageCaches()
+            override fun onTrimMemory(level: Int) {
+                LowEndDeviceMode.onTrimMemory(level)
+                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                    trimImageCaches()
+                }
+            }
+        })
         Thread({
             runBlocking { runDeferredStartup() }
         }, "app-deferred-startup").start()
@@ -30,18 +44,24 @@ class StreamFlowApplication : Application(), Configuration.Provider {
             ImageLoader.Builder(this)
                 .memoryCache {
                     MemoryCache.Builder(this)
-                        .maxSizeBytes(48 * 1024 * 1024)
+                        .maxSizeBytes(imageProfile.coilMemoryCacheBytes.toInt())
                         .build()
                 }
                 .diskCache {
                     DiskCache.Builder()
                         .directory(cacheDir.resolve("image_cache"))
-                        .maxSizeBytes(50L * 1024 * 1024)
+                        .maxSizeBytes(imageProfile.coilDiskCacheBytes)
                         .build()
                 }
-                .crossfade(200)
+                .crossfade(if (imageProfile.active) 0 else 200)
                 .build()
         )
+    }
+
+    private fun trimImageCaches() {
+        runCatching {
+            Coil.imageLoader(this).memoryCache?.clear()
+        }
     }
 
     /**
@@ -55,8 +75,11 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         entryPoint.startupCoordinator().warmCriticalLocalData()
         val scheduler = entryPoint.epgScheduler()
         scheduler.scheduleAtLaunch()
+        if (!LowEndDeviceMode.current().deferChannelHealthProbe) {
+            entryPoint.channelHealthScheduler().schedule()
+        }
         scheduler.scheduleStartupEpg()
-        Log.i(TAG, "Startup tasks scheduled (local UI warm, EPG delayed 5s, scanner deferred)")
+        Log.i(TAG, "Startup tasks scheduled (local UI warm, EPG delayed ${LowEndDeviceMode.current().epgStartupDelaySec}s)")
     }
 
     override val workManagerConfiguration: Configuration

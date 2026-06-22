@@ -6,19 +6,17 @@ import android.content.Context
 object MultiPanePlaybackPolicy {
 
     fun maxPaneCount(context: Context): Int {
+        val lowEnd = LowEndDeviceMode.profile(context)
         val profile = DeviceDecoderLimits.profile()
-        val caps = context.devicePlaybackCapabilities()
         return when {
-            profile.isChromecastGoogleTv -> 2
-            caps.isLowEndDevice -> 2
-            else -> 4
+            profile.isChromecastGoogleTv -> 2.coerceAtMost(lowEnd.maxPaneCount)
+            else -> lowEnd.maxPaneCount
         }
     }
 
-    /** When true, only the audio-focused pane keeps an active decode pipeline. */
     fun decodeOnlyActiveAudioPane(context: Context): Boolean {
         val profile = DeviceDecoderLimits.profile()
-        val caps = context.devicePlaybackCapabilities()
-        return profile.isChromecastGoogleTv || caps.isLowEndDevice
+        val lowEnd = LowEndDeviceMode.profile(context)
+        return profile.isChromecastGoogleTv || lowEnd.decodeOnlyMultiPaneAudio || lowEnd.active
     }
 }

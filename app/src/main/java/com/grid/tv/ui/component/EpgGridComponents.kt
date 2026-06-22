@@ -54,7 +54,9 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import androidx.compose.material3.Icon
+import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.userLabel
@@ -344,36 +346,22 @@ enum class EpgNavTab(val glyph: String, val label: String) {
 fun EpgChannelCell(
     channel: Channel,
     isFocused: Boolean,
-    isRowActive: Boolean = isFocused,
+    isRowHighlighted: Boolean = isFocused,
     showBottomSeparator: Boolean = true,
     scanStatus: com.grid.tv.domain.model.ChannelScanStatus? = null,
     lastCheckedLabel: String? = null,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bgColor by animateColorAsState(
-        targetValue = when {
-            isFocused -> EpgColors.ChannelRowFocusBg
-            isRowActive -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.45f)
-            else -> EpgColors.ChannelColumnBg
-        },
-        animationSpec = tween(durationMillis = 120),
-        label = "channelCellBg"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isFocused -> EpgColors.FocusBorder
-            isRowActive -> EpgColors.Accent.copy(alpha = 0.55f)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(durationMillis = 120),
-        label = "channelCellBorder"
-    )
-    val logoTint = if (isFocused || isRowActive) EpgColors.TextPrimary else EpgColors.TextSecondary
-    val nameColor = if (isFocused || isRowActive) EpgColors.TextPrimary else EpgColors.TextSecondary
-    val showAccentBar = isFocused || isRowActive
+    val bgColor = if (isRowHighlighted) Color.Transparent else EpgColors.ChannelColumnBg
+    val emphasized = isRowHighlighted
+    val logoTint = if (emphasized) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val nameColor = if (emphasized) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val showAccentBar = isFocused
     val initials = channel.name.take(2).uppercase()
     val logoModel = remember(channel.id, channel.logoUrl) { channel.logoUrl }
+    val context = LocalContext.current
+    val logoSizePx = remember(context) { TvImageSizing.channelLogoPx(context, 36) }
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
     } else {
@@ -385,28 +373,15 @@ fun EpgChannelCell(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(bgColor)
-                .then(
-                    if (showAccentBar) {
-                        Modifier.border(
-                            width = if (isFocused) 2.dp else 1.dp,
-                            color = borderColor,
-                            shape = RoundedCornerShape(0.dp)
-                        )
-                    } else {
-                        Modifier
-                    }
-                ),
+                .background(bgColor),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showAccentBar) {
                 Box(
                     modifier = Modifier
-                        .width(if (isFocused) 3.dp else 2.dp)
+                        .width(3.dp)
                         .fillMaxHeight()
-                        .background(
-                            if (isFocused) EpgColors.Accent else EpgColors.Accent.copy(alpha = 0.6f)
-                        )
+                        .background(EpgColors.Accent)
                 )
             }
             Row(
@@ -418,7 +393,12 @@ fun EpgChannelCell(
             ) {
                 if (logoModel != null) {
                     AsyncImage(
-                        model = logoModel,
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = logoModel,
+                            widthPx = logoSizePx,
+                            heightPx = logoSizePx
+                        ),
                         contentDescription = channel.name,
                         modifier = Modifier
                             .size(EpgLayout.ChannelLogoSize)
@@ -453,6 +433,7 @@ fun EpgChannelCell(
                         color = nameColor,
                         fontFamily = DmSansFamily,
                         fontSize = 13.sp,
+                        fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -552,7 +533,7 @@ fun EpgProgramCell(
                 .fillMaxSize()
                 .then(touchModifier)
                 .border(
-                    width = if (isFocused) 2.dp else 0.dp,
+                    width = 2.dp,
                     color = animatedBorder,
                     shape = RoundedCornerShape(2.dp)
                 )
@@ -693,7 +674,7 @@ fun EpgNoInformationCell(
         label = "noInfoCellBg"
     )
     val animatedBorder by animateColorAsState(
-        targetValue = if (isFocused) EpgColors.FocusBorder else EpgColors.BorderSubtle.copy(alpha = 0.35f),
+        targetValue = if (isFocused) EpgColors.FocusBorder else Color.Transparent,
         animationSpec = tween(durationMillis = 120),
         label = "noInfoCellBorder"
     )
@@ -710,7 +691,7 @@ fun EpgNoInformationCell(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .border(1.dp, animatedBorder, RoundedCornerShape(2.dp))
+                .border(2.dp, animatedBorder, RoundedCornerShape(2.dp))
                 .clip(RoundedCornerShape(2.dp))
                 .background(animatedBg)
                 .padding(horizontal = 10.dp),
@@ -1226,6 +1207,8 @@ fun RecordingsListRow(
     isFocused: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val (previewW, previewH) = remember(context) { TvImageSizing.epgPreviewPx(context) }
     val shape = RoundedCornerShape(8.dp)
     val bg = when {
         isFocused -> EpgColors.ChannelRowFocusBg
@@ -1259,7 +1242,12 @@ fun RecordingsListRow(
         }
         if (thumbnailPath != null && java.io.File(thumbnailPath).exists()) {
             AsyncImage(
-                model = java.io.File(thumbnailPath),
+                model = TvImageSizing.sizedRequest(
+                    context = context,
+                    data = java.io.File(thumbnailPath),
+                    widthPx = previewW,
+                    heightPx = previewH
+                ),
                 contentDescription = title,
                 modifier = Modifier
                     .padding(start = 12.dp)
@@ -1342,6 +1330,8 @@ fun RecordingsDetailPanel(
     modifier: Modifier = Modifier
 ) {
     if (!visible) return
+    val context = LocalContext.current
+    val (thumbW, thumbH) = remember(context) { TvImageSizing.recordingThumbnailSize(context) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1356,7 +1346,12 @@ fun RecordingsDetailPanel(
         ) {
             if (thumbnailPath != null && java.io.File(thumbnailPath).exists()) {
                 AsyncImage(
-                    model = java.io.File(thumbnailPath),
+                    model = TvImageSizing.sizedRequest(
+                        context = context,
+                        data = java.io.File(thumbnailPath),
+                        widthPx = thumbW,
+                        heightPx = thumbH
+                    ),
                     contentDescription = null,
                     modifier = Modifier
                         .size(48.dp)

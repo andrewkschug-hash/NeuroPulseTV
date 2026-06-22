@@ -1,10 +1,5 @@
 package com.grid.tv.ui.screen
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,20 +21,14 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.grid.tv.di.PlayerEntryPoint
-import com.grid.tv.di.SearchEntryPoint
 import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.ContinueWatchingItem
-import com.grid.tv.util.PerformanceAudit
-import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.ui.component.EpgLayout
-import com.grid.tv.ui.component.EpgNowTicker
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.buildGuideGroupCategories
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
@@ -47,10 +36,10 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
-import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
 
 internal enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FILTER, GRID }
@@ -127,53 +116,38 @@ fun HomeEpgScreen(
     val ui = remember { HomeEpgUiState() }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val sleepTimer = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
-            .sleepTimerController()
-    }
-    val sleepRemaining by sleepTimer.remainingSec.collectAsStateWithLifecycle()
-    val isInitializing by viewModel.isInitializing.collectAsStateWithLifecycle()
-    val hasConnection by viewModel.hasConnection.collectAsStateWithLifecycle()
-    val channels by viewModel.channels.collectAsStateWithLifecycle()
-    val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
-    val vodProgress by viewModel.vodProgress.collectAsStateWithLifecycle()
-    val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
-    val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
-    val recordingHealth by recordingViewModel.recordingHealth.collectAsStateWithLifecycle()
-    val favoriteGroups by viewModel.favoriteGroups.collectAsStateWithLifecycle()
-    val favoriteGroupFilter by viewModel.favoriteGroupFilter.collectAsStateWithLifecycle()
-    val guideFilter by viewModel.guideFilter.collectAsStateWithLifecycle()
-    val guideFiltersConfigured by viewModel.guideFiltersConfigured.collectAsStateWithLifecycle()
-    val guideSettingsLoaded by viewModel.guideSettingsLoaded.collectAsStateWithLifecycle()
-    val isReloadingChannels by viewModel.isReloadingChannels.collectAsStateWithLifecycle()
-    val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
-    val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
-    val hasCatalogChannels by viewModel.hasCatalogChannels.collectAsStateWithLifecycle()
-    val demoFavoriteIds by viewModel.demoFavoriteIds.collectAsStateWithLifecycle()
-    val favoriteSavedMessage by viewModel.favoriteSavedMessage.collectAsStateWithLifecycle()
+    val screen by viewModel.homeEpgScreenState.collectAsStateWithLifecycle()
+    val epg = screen.epg
+    val chrome = screen.chrome
+    val channels = epg.channels
+    val epgWindow = epg.programs
+    val programmeIndex = epg.programmeIndex
+    val windowStart = epg.windowStart
+    val windowDurationMs = epg.windowDurationMs
+    val isInitializing = chrome.isInitializing
+    val hasConnection = chrome.hasConnection
+    val guideFilter = chrome.guideFilter
+    val favoriteGroupFilter = chrome.favoriteGroupFilter
+    val guideFiltersConfigured = chrome.guideFiltersConfigured
+    val guideSettingsLoaded = chrome.guideSettingsLoaded
+    val isReloadingChannels = chrome.isReloadingChannels
+    val channelGroups = chrome.channelGroups
+    val groupChannelCounts = chrome.groupChannelCounts
+    val hasCatalogChannels = chrome.hasCatalogChannels
+    val demoFavoriteIds = chrome.demoFavoriteIds
+    val favoriteGroups = chrome.favoriteGroups
+    val favoriteSavedMessage = chrome.favoriteSavedMessage
+    val guidePreviewEnabled = chrome.guidePreviewEnabled
+    val previewChannelId = chrome.guidePreviewChannelId
+    val guidePosition = chrome.guidePosition
+    val vodProgress = chrome.vodProgress
     val profileAccessMessage = viewModel.profileAccessMessage()
-    val epgWindow by viewModel.epgPrograms.collectAsStateWithLifecycle()
-    val windowStart by viewModel.windowStart.collectAsStateWithLifecycle()
-    val windowDurationMs by viewModel.windowDurationMs.collectAsStateWithLifecycle()
-    val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
-    val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
-    val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
-    val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val livePlayerManager = viewModel.livePlayerManager
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(EpgNowTicker.WINDOW_SYNC_INTERVAL_MS)
-            viewModel.syncTimelineWindowToLocalNow()
-        }
-    }
 
     LaunchedEffect(Unit) {
         viewModel.reloadPlaybackSettings(context)
     }
 
-    val guidePreviewEnabled by viewModel.guidePreviewEnabled.collectAsStateWithLifecycle()
-    val previewChannelId by viewModel.guidePreviewChannelId.collectAsStateWithLifecycle()
     val guidePreviewEnabledState = rememberUpdatedState(guidePreviewEnabled)
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -241,12 +215,11 @@ fun HomeEpgScreen(
             else -> epgWindow
         }
     }
-    val programmeIndex = remember(displayChannels, displayPrograms) {
-        ProgrammeIndex.build(displayChannels, displayPrograms)
-    }
 
-    SideEffect {
-        PerformanceAudit.logEpgRecomposition("HomeEpgScreen")
+    if (PerformanceAudit.ENABLED) {
+        SideEffect {
+            PerformanceAudit.logEpgRecomposition("HomeEpgScreen")
+        }
     }
 
     LaunchedEffect(favoriteSavedMessage) {
@@ -256,76 +229,14 @@ fun HomeEpgScreen(
         }
     }
 
-    val playbackUi by livePlayerManager.playbackUiState.collectAsStateWithLifecycle()
-    val liveChannelId = playbackUi.activeChannelId
-    val playbackStatus = playbackUi.status
-
-    LaunchedEffect(liveChannelId, channels) {
-        val id = liveChannelId ?: return@LaunchedEffect
-        channels.find { it.id == id }?.let { viewModel.setLastPlayedChannel(it) }
-    }
-    val channelScanStatuses by viewModel.channelScanStatuses.collectAsStateWithLifecycle()
-    val guidePosition by viewModel.guidePosition.collectAsStateWithLifecycle()
-
-    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
-    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
-    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
-    val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
-    val preferredSearchInput by searchViewModel.preferredInputMode.collectAsStateWithLifecycle()
-
-    val micSearchTrigger = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, SearchEntryPoint::class.java)
-            .micSearchTrigger()
-    }
-
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
-            searchViewModel.beginVoiceSearch()
-        }
-    }
-
-    val requestVoiceSearch: () -> Unit = {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            searchViewModel.beginVoiceSearch()
-        } else {
-            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-
-    val openVoiceSearch: () -> Unit = {
-        ui.showSearchOverlay = true
-        requestVoiceSearch()
-    }
-
-    LaunchedEffect(Unit) {
-        micSearchTrigger.events.collect {
-            openVoiceSearch()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        searchViewModel.toastMessage.collect { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    LaunchedEffect(ui.showSearchOverlay) {
-        if (ui.showSearchOverlay && preferredSearchInput == SearchInputMode.VOICE) {
-            requestVoiceSearch()
-        } else if (!ui.showSearchOverlay) {
-            searchViewModel.stopVoiceSearch()
-        }
-    }
-
-    LaunchedEffect(guidePreviewEnabled, previewChannelId, liveChannelId) {
-        if (!guidePreviewEnabled) return@LaunchedEffect
-        if (previewChannelId == null && liveChannelId == null) return@LaunchedEffect
-        viewModel.resumeGuidePreviewIfEnabled(context)
-    }
+    HomeEpgLivePlaybackSideEffects(
+        livePlayerManager = livePlayerManager,
+        viewModel = viewModel,
+        context = context,
+        channels = channels,
+        guidePreviewEnabled = guidePreviewEnabled,
+        previewChannelId = previewChannelId
+    )
 
     LaunchedEffect(guideFilter, displayChannels, previewChannelId, guidePreviewEnabled) {
         if (!guidePreviewEnabled) return@LaunchedEffect
@@ -354,11 +265,6 @@ fun HomeEpgScreen(
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
-    val needsPreviewPlayer = guidePreviewEnabled && previewChannelId != null
-    val playerGeneration by livePlayerManager.playerGeneration.collectAsStateWithLifecycle()
-    val previewPlayer = remember(playerGeneration, context, needsPreviewPlayer) {
-        if (needsPreviewPlayer) livePlayerManager.getOrCreatePlayer(context) else null
-    }
 
     val controller = remember(ui) { HomeEpgGuideController(ui) }
 
@@ -386,8 +292,9 @@ fun HomeEpgScreen(
         )
     }
 
-    LaunchedEffect(guidePosition, displayChannels.size, liveChannelId) {
+    LaunchedEffect(guidePosition, displayChannels.size, livePlayerManager) {
         if (ui.didRestoreGuide || displayChannels.isEmpty()) return@LaunchedEffect
+        val liveChannelId = livePlayerManager.playbackUiState.value.activeChannelId
         if (guidePosition.hasSavedPosition) {
             ui.focusChannelIndex = guidePosition.focusChannelIndex.coerceIn(0, displayChannels.lastIndex)
             ui.focusProgramIndex = guidePosition.focusProgramIndex
@@ -495,17 +402,8 @@ fun HomeEpgScreen(
         }
     }
 
-    val previewStreamStatus = if (previewChannelId == liveChannelId) {
-        playbackStatus
-    } else {
-        com.grid.tv.player.StreamPlaybackStatus.LOADING
-    }
     val showPreviewSection = guidePreviewEnabled && previewChannel != null
     val hasContinueWatching = false
-
-    LaunchedEffect(liveChannelId, playbackStatus) {
-        liveChannelId?.let { viewModel.reportPlaybackHealth(it, playbackStatus) }
-    }
 
     LaunchedEffect(hasCatalogChannels, guideFiltersConfigured, channelGroups, guideSettingsLoaded) {
         if (!guideSettingsLoaded) return@LaunchedEffect
@@ -595,7 +493,6 @@ fun HomeEpgScreen(
         showPreviewSection = showPreviewSection,
         hasContinueWatching = hasContinueWatching,
         usePlaceholder = usePlaceholder,
-        searchQuery = searchQuery,
         onWatchChannel = onWatchChannel,
         onPlayCatchup = onPlayCatchup,
         onNavigateRecordings = onNavigateRecordings,
@@ -649,18 +546,14 @@ fun HomeEpgScreen(
             profileInitials = profileInitials,
             profileAvatarColor = profileAvatarColor,
             profileAccessMessage = profileAccessMessage,
-            isRecording = isRecording,
-            activeRecordingTitle = activeRecordingTitle,
-            recordingHealth = recordingHealth,
+            recordingViewModel = recordingViewModel,
             onNavigateRecordings = onNavigateRecordings,
             onNavigateProfile = onNavigateProfile,
             onNavigateSettings = onNavigateSettings,
-            previewPlayer = previewPlayer,
-            previewStreamStatus = previewStreamStatus,
+            livePlayerManager = livePlayerManager,
             previewSurfaceAttached = previewSurfaceAttached,
             channelGroups = channelGroups,
-            channelScanStatuses = channelScanStatuses,
-            scheduled = scheduled,
+            viewModel = viewModel,
             timelineWidth = timelineWidth,
             scrolledAwayFromLive = scrolledAwayFromLive,
             showFilteredEmptyState = showFilteredEmptyState,
@@ -668,7 +561,7 @@ fun HomeEpgScreen(
             listState = listState,
         )
 
-        HomeEpgScreenOverlays(
+        HomeEpgSearchOverlayHost(
             modifier = Modifier.fillMaxSize(),
             ui = ui,
             controller = controller,
@@ -679,15 +572,7 @@ fun HomeEpgScreen(
             favoriteGroups = favoriteGroups,
             favoriteSavedMessage = favoriteSavedMessage,
             recordingViewModel = recordingViewModel,
-            showStoragePicker = showStoragePicker,
-            storageOptions = storageOptions,
-            precheck = precheck,
-            searchQuery = searchQuery,
-            unifiedSearchResults = unifiedSearchResults,
-            searchResults = searchResults,
-            searchBarState = searchBarState,
             searchViewModel = searchViewModel,
-            onRequestVoiceSearch = requestVoiceSearch,
         )
     }
 }

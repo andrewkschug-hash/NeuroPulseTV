@@ -28,7 +28,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -168,12 +167,6 @@ fun DirectPlayerScreen(
     var playbackError by remember(url) { mutableStateOf<String?>(null) }
     val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
-    val decoderTracker = remember(context) {
-        EntryPointAccessors.fromApplication(
-            context.applicationContext,
-            PlayerEntryPoint::class.java
-        ).decoderPressureTracker()
-    }
     val playbackOrchestrator = remember(context) {
         EntryPointAccessors.fromApplication(
             context.applicationContext,
@@ -208,11 +201,19 @@ fun DirectPlayerScreen(
         return
     }
 
-    val player = remember(url, immediateResumeMs) {
+    val onDemandContentKind = remember(isCatchupPlayback, isRecordedPlayback, pendingVodMeta) {
+        com.grid.tv.player.IptvOnDemandMediaItem.contentKindFor(
+            isCatchupPlayback = isCatchupPlayback,
+            isRecordedPlayback = isRecordedPlayback,
+            vodMeta = pendingVodMeta
+        )
+    }
+
+    val player = remember(url, immediateResumeMs, onDemandContentKind) {
         resumeSeekState.applied = immediateResumeMs > 0L
         resumeSeekState.pendingMs = immediateResumeMs
         viewModel.createPlayer(context).apply {
-            val mediaItem = MediaItem.fromUri(url)
+            val mediaItem = viewModel.buildOnDemandMediaItem(url, onDemandContentKind)
             if (immediateResumeMs > 0L) {
                 setMediaItem(mediaItem, immediateResumeMs)
                 Log.d(
@@ -253,6 +254,13 @@ fun DirectPlayerScreen(
                     }
                     if (playbackRetryCount[0] < 2) {
                         playbackRetryCount[0] += 1
+                        val resumePos = currentPosition.coerceAtLeast(0L)
+                        stop()
+                        clearMediaItems()
+                        setMediaItem(
+                            viewModel.buildOnDemandMediaItem(url, onDemandContentKind),
+                            resumePos
+                        )
                         prepare()
                         playWhenReady = true
                     } else {
@@ -355,15 +363,14 @@ fun DirectPlayerScreen(
             if (durationMs <= 0L) durationMs = player.duration.coerceAtLeast(0L)
             if (isRecordedPlayback && recordingId > 0L) {
                 viewModel.saveRecordingPosition(recordingId, positionMs)
-            } else {
+            } else if (!isCatchupPlayback) {
                 viewModel.persistProgress(streamId, positionMs, title, durationMs, url)
             }
             playerViewRef[0]?.let { view ->
                 PlaybackSurfaceInstrument.releasePlayerView("vod_direct", player, view)
             }
             player.clearVideoSurface()
-            decoderTracker.unregisterPlayer(player)
-            player.release()
+            viewModel.releasePlayer(player)
         }
     }
 

@@ -539,7 +539,7 @@ private const val PLAYBACK_CARD3_COUNT =
 const val INTERFACE_FOCUS_COUNT = 16
 
 /** AboutSettingsContent chain indices 0..4. */
-const val ABOUT_FOCUS_COUNT = 5
+const val ABOUT_FOCUS_COUNT = 7
 
 private const val SETTINGS_FOCUS_LOG_TAG = "SettingsFocus"
 

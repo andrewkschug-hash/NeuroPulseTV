@@ -51,6 +51,7 @@ import com.grid.tv.ui.component.GlassFocusButton
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvImageSizing
 
 fun resolveMovieOverview(movie: VodItem, enrichment: TitleEnrichmentEntity?): String? =
     enrichment?.overview?.takeIf { it.isNotBlank() }
@@ -103,12 +104,15 @@ fun MovieDetailOverlay(
             }
     ) {
         if (!backdropUrl.isNullOrBlank()) {
+            val (backdropW, backdropH) = TvImageSizing.vodBackdropSize(context)
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(backdropUrl)
-                    .size(Size(1920, 800))
-                    .crossfade(300)
-                    .build(),
+                model = TvImageSizing.sizedRequest(
+                    context = context,
+                    data = backdropUrl,
+                    widthPx = backdropW,
+                    heightPx = backdropH,
+                    crossfadeMs = if (TvImageSizing.crossfadeMs(context) == 0) 0 else 300
+                ),
                 contentDescription = displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -144,8 +148,14 @@ fun MovieDetailOverlay(
                     .background(Color(0xFF13131A))
             ) {
                 if (!posterUrl.isNullOrBlank()) {
+                    val (posterW, posterH) = TvImageSizing.vodPosterSize(context)
                     AsyncImage(
-                        model = posterUrl,
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = posterUrl,
+                            widthPx = posterW,
+                            heightPx = posterH
+                        ),
                         contentDescription = displayTitle,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

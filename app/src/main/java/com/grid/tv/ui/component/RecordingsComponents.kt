@@ -42,12 +42,14 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.data.db.entity.RecordedMediaEntity
 import com.grid.tv.feature.recording.RecordingHealth
 import com.grid.tv.feature.recording.StorageFormat
@@ -241,6 +243,8 @@ fun RecordingGridCard(
     nowMs: Long,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val (thumbW, thumbH) = remember(context) { TvImageSizing.recordingThumbnailSize(context) }
     val borderColor = when {
         isFocused -> EpgColors.Accent
         else -> EpgColors.BorderSubtle.copy(alpha = 0.65f)
@@ -268,7 +272,12 @@ fun RecordingGridCard(
         ) {
             if (thumbnailPath != null && File(thumbnailPath).exists()) {
                 AsyncImage(
-                    model = File(thumbnailPath),
+                    model = TvImageSizing.sizedRequest(
+                        context = context,
+                        data = File(thumbnailPath),
+                        widthPx = thumbW,
+                        heightPx = thumbH
+                    ),
                     contentDescription = title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -400,6 +409,8 @@ fun RecordingsBottomSheetPanel(
     onAction: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val (thumbW, thumbH) = remember(context) { TvImageSizing.recordingThumbnailSize(context) }
     AnimatedVisibility(
         visible = visible,
         enter = slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
@@ -429,7 +440,12 @@ fun RecordingsBottomSheetPanel(
             ) {
                 if (thumbnailPath != null && File(thumbnailPath).exists()) {
                     AsyncImage(
-                        model = File(thumbnailPath),
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = File(thumbnailPath),
+                            widthPx = thumbW,
+                            heightPx = thumbH
+                        ),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop

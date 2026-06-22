@@ -4,9 +4,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -65,13 +70,29 @@ fun GridFocusSurface(
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
+    var lastActivationUptime by remember { mutableLongStateOf(0L) }
+    fun dispatchClick() {
+        if (!enabled) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastActivationUptime < 300) return
+        lastActivationUptime = now
+        keyboard?.hide()
+        TvRemoteKeyboard.dismissKeyboard(view)
+        onClick()
+    }
     Surface(
-        onClick = {
-            keyboard?.hide()
-            TvRemoteKeyboard.dismissKeyboard(view)
-            onClick()
-        },
-        modifier = modifier.touchTarget(),
+        onClick = ::dispatchClick,
+        modifier = modifier
+            .touchTarget()
+            .onPreviewKeyEvent { event ->
+                if (!enabled) return@onPreviewKeyEvent false
+                if (isTvActivateKey(event)) {
+                    dispatchClick()
+                    true
+                } else {
+                    false
+                }
+            },
         enabled = enabled,
         shape = shape,
         colors = colors,

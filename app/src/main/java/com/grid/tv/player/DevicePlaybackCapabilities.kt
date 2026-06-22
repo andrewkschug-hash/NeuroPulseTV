@@ -13,14 +13,10 @@ data class DevicePlaybackCapabilities(
     val isTelevision: Boolean,
     val isLowEndDevice: Boolean,
     val isPhone: Boolean,
-    val isEmulator: Boolean
-) {
-    val startupPriority: PlaybackStartupPriority = when {
-        isTelevision -> PlaybackStartupPriority.STABLE
-        isPhone -> PlaybackStartupPriority.FAST
-        else -> PlaybackStartupPriority.BALANCED
-    }
-}
+    val isEmulator: Boolean,
+    val startupPriority: PlaybackStartupPriority,
+    val totalRamMb: Long = 4096
+)
 
 enum class PlaybackStartupPriority {
     /** Phones: minimize time-to-first-frame. */
@@ -31,17 +27,28 @@ enum class PlaybackStartupPriority {
 }
 
 fun Context.devicePlaybackCapabilities(): DevicePlaybackCapabilities {
+    val lowEndProfile = LowEndDeviceMode.profile(this)
     val am = getSystemService(ActivityManager::class.java)
     val lowRam = am?.isLowRamDevice == true
-    val lowMemory = (am?.memoryClass ?: 256) < 128
+    val lowMemory = (am?.memoryClass ?: 256) < 192
     val tv = isTelevision()
     val sw = resources.configuration.smallestScreenWidthDp
     val phone = !tv && sw in 0..599
+    val lowEnd = lowEndProfile.active || lowRam || lowMemory
+    val startupPriority = when {
+        lowEnd && tv -> lowEndProfile.liveStartupPriority
+        lowEnd -> PlaybackStartupPriority.BALANCED
+        tv -> PlaybackStartupPriority.STABLE
+        phone -> PlaybackStartupPriority.FAST
+        else -> PlaybackStartupPriority.BALANCED
+    }
     return DevicePlaybackCapabilities(
         isTelevision = tv,
-        isLowEndDevice = lowRam || lowMemory,
+        isLowEndDevice = lowEnd,
         isPhone = phone,
-        isEmulator = isEmulator()
+        isEmulator = isEmulator(),
+        startupPriority = startupPriority,
+        totalRamMb = lowEndProfile.totalRamMb
     )
 }
 

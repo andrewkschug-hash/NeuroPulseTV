@@ -8,6 +8,7 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -109,14 +110,17 @@ class AppHttpClient @Inject constructor() {
             .build()
 
     /**
-     * Live/VOD playback: same proxy + DNS stack as EPG/scanner; infinite read timeout for streaming.
+     * Live/VOD playback: shorter connect timeout for faster failure/recovery on dead origins;
+     * infinite read timeout for open segment streams.
      */
     private fun buildPlaybackClient(settings: AppSettings): OkHttpClient =
-        baseBuilder(settings)
+        baseBuilder(settings, connectTimeoutSeconds = PLAYBACK_CONNECT_TIMEOUT_SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .writeTimeout(PLAYBACK_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.MILLISECONDS)
-            .retryOnConnectionFailure(true)
+            // Media3 load-error policy owns segment retries; avoid stacking OkHttp connection retries.
+            .retryOnConnectionFailure(false)
+            .connectionPool(PLAYBACK_CONNECTION_POOL)
             .build()
 
     private fun baseBuilder(
@@ -152,6 +156,13 @@ class AppHttpClient @Inject constructor() {
         const val PROBE_MAX_REQUESTS = 8
         const val PROBE_MAX_REQUESTS_PER_HOST = 4
         const val PLAYBACK_WRITE_TIMEOUT_SECONDS = 30L
+        /** Fail dead IPTV origins quickly so ExoPlayer/load-error policy can retry or failover. */
+        const val PLAYBACK_CONNECT_TIMEOUT_SECONDS = 30
+        val PLAYBACK_CONNECTION_POOL = ConnectionPool(
+            maxIdleConnections = 8,
+            keepAliveDuration = 5,
+            timeUnit = TimeUnit.MINUTES
+        )
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {

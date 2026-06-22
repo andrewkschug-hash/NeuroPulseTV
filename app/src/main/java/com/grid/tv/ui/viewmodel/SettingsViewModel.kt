@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.ContentResolver
 import android.net.Uri
-import com.grid.tv.BuildConfig
+import com.grid.tv.util.AppVersion
 import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.AspectRatioSetting
@@ -53,6 +53,14 @@ sealed interface ConnectionDialogState {
     data class Failure(val errorMessage: String) : ConnectionDialogState
 }
 
+data class PlaybackHealthSummary(
+    val totalSessions: Int = 0,
+    val averageScore: Int = 0,
+    val problemChannelCount: Int = 0,
+    val problemChannels: List<String> = emptyList(),
+    val diagnosticsMessage: String? = null
+)
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: IptvRepository,
@@ -63,14 +71,14 @@ class SettingsViewModel @Inject constructor(
     private val themeManager: ThemeManager,
     private val pipController: PictureInPictureController,
     private val livePlayerManager: LivePlayerManager,
+    private val streamHealthAnalytics: com.grid.tv.feature.health.intelligence.StreamHealthAnalyticsService,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
 
-    companion object {
-        val APP_VERSION: String get() = BuildConfig.VERSION_NAME
-    }
+    val appVersion: String
+        get() = AppVersion.installedVersionName(appContext)
 
     val playlists: StateFlow<List<Playlist>> = repository.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -78,6 +86,9 @@ class SettingsViewModel @Inject constructor(
     val recordings = repository.recordings().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val healthBest = repository.healthBest(5).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val healthWorst = repository.healthWorst(5).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _playbackHealthSummary = MutableStateFlow(PlaybackHealthSummary())
+    val playbackHealthSummary: StateFlow<PlaybackHealthSummary> = _playbackHealthSummary.asStateFlow()
     val xtreamAccounts: StateFlow<List<XtreamAccountInfo>> = repository.xtreamAccounts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -129,13 +140,45 @@ class SettingsViewModel @Inject constructor(
             _settingsReady.value = true
             refreshStorageSettings()
             syncScannerSettings()
+            refreshPlaybackHealthSummary()
         }
     }
 
-    suspend fun shouldShowWhatsNew(): Boolean = repository.shouldShowWhatsNew(APP_VERSION)
+    fun refreshPlaybackHealthSummary() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val totalSessions = streamHealthAnalytics.totalRecordedSessions()
+                val average = streamHealthAnalytics.averageHealthScore().toInt()
+                val unstable = streamHealthAnalytics.unstableSources(limit = 5)
+                _playbackHealthSummary.value = PlaybackHealthSummary(
+                    totalSessions = totalSessions,
+                    averageScore = average,
+                    problemChannelCount = unstable.size,
+                    problemChannels = unstable.mapNotNull { diagnostic ->
+                        diagnostic.entityLabel?.let { "$it (${diagnostic.healthScore})" }
+                            ?: "Channel ${diagnostic.entityId} (${diagnostic.healthScore})"
+                    },
+                    diagnosticsMessage = if (totalSessions == 0) {
+                        "No playback sessions recorded yet. Watch live TV to build health scores."
+                    } else {
+                        "Average channel health $average/100 across $totalSessions sessions."
+                    }
+                )
+            }
+        }
+    }
+
+    fun logPlaybackHealthDiagnostics() {
+        viewModelScope.launch(Dispatchers.IO) {
+            streamHealthAnalytics.logUnstableSourcesReport(limit = 10)
+            refreshPlaybackHealthSummary()
+        }
+    }
+
+    suspend fun shouldShowWhatsNew(): Boolean = repository.shouldShowWhatsNew(appVersion)
 
     fun markWhatsNewSeen() {
-        viewModelScope.launch { repository.markVersionSeen(APP_VERSION) }
+        viewModelScope.launch { repository.markVersionSeen(appVersion) }
     }
 
     fun exportBackup(cacheDir: File) {

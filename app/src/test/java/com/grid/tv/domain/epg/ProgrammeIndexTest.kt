@@ -4,6 +4,7 @@ import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ProgramGenre
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgrammeIndexTest {
@@ -25,6 +26,52 @@ class ProgrammeIndexTest {
         Program(2L, "other", "Other", "", 0L, 1L, ProgramGenre.GENERAL, null),
         Program(3L, "bbc1.uk", "Late", "", 300L, 400L, ProgramGenre.GENERAL, null)
     )
+
+    @Test
+    fun buildWithCache_skipsWhenFingerprintUnchanged() {
+        val first = ProgrammeIndex.buildWithCache(null, listOf(channel), programs)
+        val second = ProgrammeIndex.buildWithCache(first.cache, listOf(channel), programs)
+        assertEquals(true, second.skipped)
+        assertEquals(first.index.programsFor(channel.id), second.index.programsFor(channel.id))
+    }
+
+    @Test
+    fun buildWithCache_incrementallyAppendsNewChannels() {
+        val channelTwo = channel.copy(id = 2L, name = "BBC Two", epgId = "bbc2.uk")
+        val first = ProgrammeIndex.buildWithCache(null, listOf(channel), programs)
+        val second = ProgrammeIndex.buildWithCache(
+            first.cache,
+            listOf(channel, channelTwo),
+            programs
+        )
+        assertEquals(true, second.incrementalChannels)
+        assertEquals(listOf("News", "Late"), second.index.programsFor(channel.id).map { it.title })
+        assertTrue(second.index.programsFor(channelTwo.id).isEmpty())
+    }
+
+    @Test
+    fun buildWithCache_fullRebuildUnderTwoHundredMsForTypicalGuideWindow() {
+        val channels = (1L..200L).map { id ->
+            channel.copy(id = id, epgId = "ch$id", name = "Channel $id")
+        }
+        val windowPrograms = (1L..2000L).map { id ->
+            Program(
+                id,
+                "ch${id % 200 + 1}",
+                "Program $id",
+                "",
+                id * 1000L,
+                id * 1000L + 3_600_000L,
+                ProgramGenre.GENERAL,
+                null
+            )
+        }
+        val startNs = System.nanoTime()
+        val result = ProgrammeIndex.buildWithCache(null, channels, windowPrograms)
+        val elapsedMs = (System.nanoTime() - startNs) / 1_000_000
+        assertEquals(200, result.index.channelCount)
+        assertTrue("index build took ${elapsedMs}ms", elapsedMs < 200)
+    }
 
     @Test
     fun programsFor_returnsSortedMatchesForChannelId() {

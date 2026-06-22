@@ -60,6 +60,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
@@ -98,6 +99,7 @@ import com.grid.tv.ui.viewmodel.SelectedEpisodeDetail
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.ui.viewmodel.SeriesViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.ui.viewmodel.VodHubViewModel
@@ -663,6 +665,7 @@ private fun SeriesDetailHeader(
     headerFocused: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val displayTitle = remember(rawShowName) { cleanVodDisplayTitle(rawShowName) }
     val releaseYear = remember(rawShowName) { parseVodReleaseYear(rawShowName) }
     val languageCode = remember(rawShowName) { parseVodLanguageBadge(rawShowName) }
@@ -686,8 +689,14 @@ private fun SeriesDetailHeader(
                 .background(Color(0xFF13131A))
         ) {
             if (!coverUrl.isNullOrBlank()) {
+                val (coverW, coverH) = TvImageSizing.seriesCoverSize(context)
                 AsyncImage(
-                    model = coverUrl,
+                    model = TvImageSizing.sizedRequest(
+                        context = context,
+                        data = coverUrl,
+                        widthPx = coverW,
+                        heightPx = coverH
+                    ),
                     contentDescription = displayTitle,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

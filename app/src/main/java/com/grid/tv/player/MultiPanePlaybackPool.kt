@@ -1,9 +1,13 @@
 package com.grid.tv.player
 
 import android.content.Context
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.grid.tv.util.MediaAttribution
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,19 +19,29 @@ import javax.inject.Singleton
 @Singleton
 class MultiPanePlaybackPool @Inject constructor(
     private val playerFactory: PlayerFactory,
-    private val decoderPressureTracker: DecoderPressureTracker
+    private val streamFormatRegistry: IptvStreamFormatRegistry,
+    private val streamFormatProber: IptvStreamFormatProber,
+    private val paneWatchdog: MultiPanePlaybackWatchdog
 ) {
     private val players = mutableMapOf<Int, ExoPlayer>()
     private var activeAudioPaneIndex: Int = 0
+    private val tuneScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @UnstableApi
     fun getOrCreatePlayer(context: Context, paneIndex: Int, owner: String): ExoPlayer {
         return players.getOrPut(paneIndex) {
             val appContext = MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
+            val caps = appContext.devicePlaybackCapabilities()
             playerFactory.create(
                 context = appContext,
                 handleAudioFocus = false,
-                decoderOwner = "${owner}_pane_$paneIndex"
+                decoderOwner = "${owner}_pane_$paneIndex",
+                startupPriority = if (caps.isLowEndDevice) {
+                    PlaybackStartupPriority.FAST
+                } else {
+                    PlaybackStartupPriority.BALANCED
+                },
+                preferLiveStability = caps.isTelevision && !caps.isLowEndDevice
             )
         }
     }
@@ -40,11 +54,25 @@ class MultiPanePlaybackPool @Inject constructor(
         val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
         if (currentUri == streamUrl) {
             if (!player.playWhenReady) player.playWhenReady = true
+            paneWatchdog.attachPane(paneIndex, player, streamUrl)
             return
         }
-        player.setMediaItem(MediaItem.fromUri(streamUrl))
-        player.prepare()
-        player.playWhenReady = true
+        tuneScope.launch {
+            withContext(Dispatchers.IO) {
+                streamFormatProber.probeAndRegister(streamUrl)
+            }
+            val player = getOrCreatePlayer(context, paneIndex, owner)
+            val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (currentUri == streamUrl) {
+                if (!player.playWhenReady) player.playWhenReady = true
+                paneWatchdog.attachPane(paneIndex, player, streamUrl)
+                return@launch
+            }
+            player.setMediaItem(IptvLiveMediaItem.build(streamUrl, registry = streamFormatRegistry))
+            player.prepare()
+            player.playWhenReady = true
+            paneWatchdog.attachPane(paneIndex, player, streamUrl)
+        }
     }
 
     /**
@@ -93,16 +121,16 @@ class MultiPanePlaybackPool @Inject constructor(
     }
 
     fun releasePane(paneIndex: Int) {
+        paneWatchdog.detachPane(paneIndex)
         players.remove(paneIndex)?.let { player ->
-            decoderPressureTracker.unregisterPlayer(player)
-            player.release()
+            playerFactory.releasePlayer(player)
         }
     }
 
     fun releaseAll() {
-        players.values.forEach { player ->
-            decoderPressureTracker.unregisterPlayer(player)
-            player.release()
+        paneWatchdog.detachAll()
+        players.values.toList().forEach { player ->
+            playerFactory.releasePlayer(player)
         }
         players.clear()
         activeAudioPaneIndex = 0

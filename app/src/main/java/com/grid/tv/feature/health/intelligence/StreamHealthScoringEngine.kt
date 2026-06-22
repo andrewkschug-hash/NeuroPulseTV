@@ -20,6 +20,7 @@ class StreamHealthScoringEngine(
         score -= session.playbackErrorCount * 8.0
         score -= session.streamSwitchCount * 5.0
         score -= session.reconnectAttempts * 4.0
+        score -= session.loadRetryCount * 2.0
 
         val watchMinutes = session.watchDurationMs / 60_000.0
         if (watchMinutes >= 30) score += 5.0
@@ -82,6 +83,7 @@ class StreamHealthScoringEngine(
             playbackErrorCount = session.playbackErrorCount,
             streamSwitchCount = session.streamSwitchCount,
             reconnectAttempts = session.reconnectAttempts,
+            loadRetryCount = session.loadRetryCount,
             playbackSuccess = session.playbackSuccess
         )
 }

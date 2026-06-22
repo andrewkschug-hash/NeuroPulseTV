@@ -18,6 +18,8 @@ import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
+import com.grid.tv.player.IptvStreamFormatRegistry
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.util.cache.AppCacheRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -54,12 +56,13 @@ class ChannelScanner @Inject constructor(
     private val epgDownloadTracker: EpgDownloadTracker,
     private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val scanMetrics: ScanMetricsLogger,
+    private val streamFormatRegistry: IptvStreamFormatRegistry,
     appCacheRegistry: AppCacheRegistry
 ) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val probe by lazy {
-        ChannelProbe(appHttpClient.probeClient(), hostFailureTracker, scanMetrics)
+        ChannelProbe(appHttpClient.probeClient(), hostFailureTracker, scanMetrics, streamFormatRegistry)
     }
     private val limiter = ScanConcurrencyLimiter(ScanConcurrencyLimiter.MAX_CONCURRENCY)
     private val stateMutex = Mutex()
@@ -184,7 +187,13 @@ class ChannelScanner @Inject constructor(
 
     fun updateSettings(newSettings: ScannerSettings) {
         settings = newSettings
-        limiter.updateLimit(newSettings.concurrentChecks)
+        limiter.updateLimit(effectiveConcurrentChecks(newSettings))
+    }
+
+    private fun effectiveConcurrentChecks(settings: ScannerSettings): Int {
+        val requested = settings.concurrentChecks
+        if (!LowEndDeviceMode.isActive(context)) return requested
+        return requested.coerceAtMost(LOW_END_MAX_CONCURRENT_CHECKS)
     }
 
     fun scanNow() {
@@ -617,6 +626,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private companion object {
+        private const val LOW_END_MAX_CONCURRENT_CHECKS = 4
         private const val TAG = "ChannelScanner"
         private const val SCAN_TICK_MS = 2_000L
         private const val SETTINGS_POLL_MS = 5_000L

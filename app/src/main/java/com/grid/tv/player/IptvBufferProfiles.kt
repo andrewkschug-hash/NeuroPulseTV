@@ -40,17 +40,17 @@ object IptvBufferProfiles {
         )
         PlaybackStartupPriority.BALANCED -> Durations(
             profileName = "BALANCED",
-            minBufferMs = 10_000,
+            minBufferMs = 15_000,
             maxBufferMs = 120_000,
-            bufferForPlaybackMs = 1_500,
-            bufferForPlaybackAfterRebufferMs = 3_500
+            bufferForPlaybackMs = 2_500,
+            bufferForPlaybackAfterRebufferMs = 5_000
         )
         PlaybackStartupPriority.STABLE -> Durations(
             profileName = "STABLE",
-            minBufferMs = 15_000,
+            minBufferMs = 25_000,
             maxBufferMs = 300_000,
-            bufferForPlaybackMs = 2_000,
-            bufferForPlaybackAfterRebufferMs = 5_000
+            bufferForPlaybackMs = 3_500,
+            bufferForPlaybackAfterRebufferMs = 8_000
         )
     }
 
@@ -67,13 +67,22 @@ object IptvBufferProfiles {
     fun resolve(
         bufferSize: BufferSize,
         startupPriority: PlaybackStartupPriority?,
-        isLowEndDevice: Boolean
+        isLowEndDevice: Boolean,
+        isTelevision: Boolean = false
     ): Durations {
-        val priority = startupPriority ?: bufferSizeToPriority(bufferSize)
+        val userPriority = startupPriority ?: bufferSizeToPriority(bufferSize)
+        val priority = when {
+            isLowEndDevice && isTelevision && userPriority == PlaybackStartupPriority.STABLE ->
+                PlaybackStartupPriority.BALANCED
+            isTelevision && userPriority != PlaybackStartupPriority.FAST && !isLowEndDevice ->
+                PlaybackStartupPriority.STABLE
+            else -> userPriority
+        }
         val base = forPriority(priority)
         if (!isLowEndDevice) return base
         return base.copy(
-            maxBufferMs = base.maxBufferMs.coerceAtMost(120_000),
+            minBufferMs = base.minBufferMs.coerceAtMost(10_000),
+            maxBufferMs = base.maxBufferMs.coerceAtMost(60_000),
             profileName = "${base.profileName}_LOW_END"
         )
     }

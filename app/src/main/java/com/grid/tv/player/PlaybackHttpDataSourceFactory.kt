@@ -28,7 +28,9 @@ import javax.inject.Singleton
  */
 @Singleton
 class PlaybackHttpDataSourceFactory @Inject constructor(
-    private val appHttpClient: AppHttpClient
+    private val appHttpClient: AppHttpClient,
+    private val playbackMetricsLogger: PlaybackMetricsLogger,
+    private val streamFormatRegistry: IptvStreamFormatRegistry
 ) {
     @Volatile
     private var stack: PlaybackSourceStack? = null
@@ -117,9 +119,16 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
         val clientId = System.identityHashCode(client)
         val dataSourceFactory = OkHttpDataSource.Factory(client)
             .setUserAgent(STREAM_USER_AGENT)
+        val loadErrorPolicy = IptvLoadErrorHandlingPolicy(playbackMetricsLogger)
         val hlsFactory = HlsMediaSource.Factory(dataSourceFactory)
             .setAllowChunklessPreparation(true)
-        val mediaSourceFactory = IptvMediaSourceFactory(dataSourceFactory, hlsFactory)
+            .setLoadErrorHandlingPolicy(loadErrorPolicy)
+        val mediaSourceFactory = IptvMediaSourceFactory(
+            dataSourceFactory = dataSourceFactory,
+            hlsFactory = hlsFactory,
+            streamFormatRegistry = streamFormatRegistry
+        )
+            .also { it.setLoadErrorHandlingPolicy(loadErrorPolicy) }
         val newStack = PlaybackSourceStack(
             generation = generation,
             okHttpClientId = clientId,
@@ -149,17 +158,43 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
     @UnstableApi
     internal class IptvMediaSourceFactory(
         dataSourceFactory: DataSource.Factory,
-        private val hlsFactory: HlsMediaSource.Factory
+        private val hlsFactory: HlsMediaSource.Factory,
+        private val streamFormatRegistry: IptvStreamFormatRegistry
     ) : MediaSource.Factory {
         private val defaultFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         override fun createMediaSource(mediaItem: MediaItem): MediaSource {
             val uri = mediaItem.localConfiguration?.uri?.toString().orEmpty()
-            return if (uri.contains(".m3u8", ignoreCase = true)) {
-                hlsFactory.createMediaSource(mediaItem)
+            val format = when (IptvOnDemandMediaItem.readPlaybackScope(mediaItem)) {
+                IptvPlaybackScope.ON_DEMAND -> {
+                    val contentKind = IptvOnDemandMediaItem.readContentKind(mediaItem)
+                        ?: IptvOnDemandContentKind.VOD_MOVIE
+                    IptvStreamFormatDetector.resolveForOnDemandPlayback(
+                        url = uri,
+                        contentKind = contentKind,
+                        mediaItem = mediaItem,
+                        registry = streamFormatRegistry
+                    )
+                }
+                IptvPlaybackScope.LIVE -> IptvStreamFormatDetector.resolveForPlayback(
+                    url = uri,
+                    mediaItem = mediaItem,
+                    registry = streamFormatRegistry
+                )
+            }
+            return if (format.isHls()) {
+                hlsFactory.createMediaSource(ensureHlsMimeType(mediaItem))
             } else {
                 defaultFactory.createMediaSource(mediaItem)
             }
+        }
+
+        private fun ensureHlsMimeType(mediaItem: MediaItem): MediaItem {
+            val mime = mediaItem.localConfiguration?.mimeType
+            if (mime == androidx.media3.common.MimeTypes.APPLICATION_M3U8) return mediaItem
+            return mediaItem.buildUpon()
+                .setMimeType(androidx.media3.common.MimeTypes.APPLICATION_M3U8)
+                .build()
         }
 
         override fun setDrmSessionManagerProvider(

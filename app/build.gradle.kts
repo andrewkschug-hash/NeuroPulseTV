@@ -29,6 +29,23 @@ fun readEnvValue(key: String, default: String = ""): String {
     return line.substringAfter("=")
 }
 
+val versionProps = Properties().apply {
+    val file = rootProject.file("version.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun resolveVersionName(): String =
+    readEnvValue("VERSION_NAME").takeIf { it.isNotBlank() }
+        ?: versionProps.getProperty("VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+        ?: "1.0"
+
+fun resolveVersionCode(versionName: String): Int =
+    readEnvValue("VERSION_CODE").toIntOrNull()
+        ?: versionProps.getProperty("VERSION_CODE")?.trim()?.toIntOrNull()
+        ?: semverToVersionCode(versionName)
+
 /** Maps semver (e.g. 2.1.0) to a monotonic versionCode — keep in sync with AppVersion.semverToVersionCode. */
 fun semverToVersionCode(versionName: String): Int {
     val normalized = versionName.trim().removePrefix("v").removePrefix("V")
@@ -47,11 +64,9 @@ android {
         applicationId = "com.grid.tv"
         minSdk = 23
         targetSdk = 34
-        val appVersionName = readEnvValue("VERSION_NAME", "1.0")
+        val appVersionName = resolveVersionName()
         versionName = appVersionName
-        versionCode = readEnvValue("VERSION_CODE")
-            .toIntOrNull()
-            ?: semverToVersionCode(appVersionName)
+        versionCode = resolveVersionCode(appVersionName)
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }

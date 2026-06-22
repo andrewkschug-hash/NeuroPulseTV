@@ -27,5 +27,6 @@ data class PlaybackSessionTelemetryEntity(
     val playbackErrorCount: Int,
     val streamSwitchCount: Int,
     val reconnectAttempts: Int,
+    val loadRetryCount: Int = 0,
     val playbackSuccess: Boolean
 )

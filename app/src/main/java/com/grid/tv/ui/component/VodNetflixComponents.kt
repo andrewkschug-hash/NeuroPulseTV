@@ -80,6 +80,7 @@ import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.util.TvTextInputSession
 
 private val PosterWidth = 112.dp
@@ -246,12 +247,14 @@ fun NetflixPosterCard(
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (!posterUrl.isNullOrBlank()) {
                         val context = LocalContext.current
+                        val (posterW, posterH) = TvImageSizing.vodPosterSize(context)
                         AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(posterUrl)
-                                .size(Size(224, 336))
-                                .crossfade(200)
-                                .build(),
+                            model = TvImageSizing.sizedRequest(
+                                context = context,
+                                data = posterUrl,
+                                widthPx = posterW,
+                                heightPx = posterH
+                            ),
                             contentDescription = displayTitle,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
@@ -489,12 +492,14 @@ fun ContinueWatchingLandscapeCard(
             Box(modifier = Modifier.fillMaxSize()) {
                 if (!item.posterUrl.isNullOrBlank()) {
                     val context = LocalContext.current
+                    val (landscapeW, landscapeH) = TvImageSizing.vodLandscapeSize(context)
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(item.posterUrl)
-                            .size(Size(600, 336))
-                            .crossfade(200)
-                            .build(),
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = item.posterUrl,
+                            widthPx = landscapeW,
+                            heightPx = landscapeH
+                        ),
                         contentDescription = item.title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

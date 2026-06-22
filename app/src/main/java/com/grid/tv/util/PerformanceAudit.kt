@@ -4,6 +4,7 @@ import android.os.Debug
 import android.os.Looper
 import android.util.Log
 import androidx.media3.exoplayer.ExoPlayer
+import com.grid.tv.BuildConfig
 
 /**
  * Temporary instrumentation for performance root-cause verification.
@@ -12,10 +13,15 @@ import androidx.media3.exoplayer.ExoPlayer
  */
 object PerformanceAudit {
     const val TAG = "PerfAudit"
-    const val ENABLED = true
+    val ENABLED: Boolean = BuildConfig.DEBUG
+
+    @Volatile
+    var lowEndModeActive: Boolean = false
+
+    private fun isActive(): Boolean = ENABLED && !lowEndModeActive
 
     private inline fun auditLog(block: () -> Unit) {
-        if (!ENABLED) return
+        if (!isActive()) return
         runCatching { block() }
     }
 
@@ -28,7 +34,7 @@ object PerformanceAudit {
         generation: Int,
         channelId: Long? = null
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         val hash = player?.let { System.identityHashCode(it) } ?: -1
         auditLog {
             Log.i(
@@ -45,7 +51,7 @@ object PerformanceAudit {
         generation: Int,
         channelId: Long? = null
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -69,7 +75,7 @@ object PerformanceAudit {
         minBufferMs: Long,
         profileName: String = "unknown"
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         val runtime = Runtime.getRuntime()
         val heapUsedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
         val nativeMb = Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
@@ -90,7 +96,7 @@ object PerformanceAudit {
         profile: com.grid.tv.player.IptvBufferProfiles.Durations,
         legacyBaseline: com.grid.tv.player.IptvBufferProfiles.Durations
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -101,7 +107,7 @@ object PerformanceAudit {
     }
 
     fun logBufferTuneStarted(channelId: Long, profileName: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(TAG, "bufferTune START channelId=$channelId profile=$profileName")
         }
@@ -113,7 +119,7 @@ object PerformanceAudit {
         reason: String,
         config: com.grid.tv.data.network.NetworkPlaybackConfig?
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -125,7 +131,7 @@ object PerformanceAudit {
     }
 
     fun logPlaybackFactoryReuse(stackId: Int, okHttpClientId: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -135,14 +141,14 @@ object PerformanceAudit {
     }
 
     fun logPlaybackFactoryInvalidated(reason: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(TAG, "playbackFactory INVALIDATE reason=$reason")
         }
     }
 
     fun logBufferStartupReady(elapsedMs: Long, profileName: String, playerHash: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -154,7 +160,7 @@ object PerformanceAudit {
     private var rebufferCount = 0
 
     fun logRebufferEvent(profileName: String, playerHash: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         rebufferCount++
         auditLog {
             Log.w(
@@ -176,7 +182,7 @@ object PerformanceAudit {
         resultCount: Int,
         elapsedMs: Long
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -187,7 +193,7 @@ object PerformanceAudit {
     }
 
     fun logProgrammeIndexBuild(channelCount: Int, programCount: Int, elapsedMs: Long) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -199,7 +205,7 @@ object PerformanceAudit {
     }
 
     fun logProgrammeIndexLookup(channelId: Long, resultCount: Int, elapsedNs: Long) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -210,26 +216,71 @@ object PerformanceAudit {
     }
 
     private var epgRecompositionCount = 0
+    private var gridSectionRecompositionCount = 0
+    private var epgSnapshotEmissions = 0
+    private var lastLoggedEpgGeneration = -1L
+    private val epgSnapshotEmissionTimestampsMs = mutableListOf<Long>()
 
     fun logEpgRecomposition(label: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         epgRecompositionCount++
         auditLog {
             Log.d(TAG, "epgRecompose label=$label count=$epgRecompositionCount thread=main:${isMainThread()}")
         }
     }
 
+    fun logGridSectionRecomposition(label: String) {
+        if (!isActive()) return
+        gridSectionRecompositionCount++
+        auditLog {
+            Log.d(
+                TAG,
+                "gridRecompose label=$label count=$gridSectionRecompositionCount thread=main:${isMainThread()}"
+            )
+        }
+    }
+
+    fun logEpgSnapshotEmission(generation: Long, fingerprint: Long) {
+        if (!isActive()) return
+        epgSnapshotEmissions++
+        val nowMs = System.currentTimeMillis()
+        epgSnapshotEmissionTimestampsMs.add(nowMs)
+        if (generation != lastLoggedEpgGeneration) {
+            lastLoggedEpgGeneration = generation
+            auditLog {
+                Log.i(
+                    TAG,
+                    "epgSnapshot generation=$generation fingerprint=$fingerprint " +
+                        "totalEmissions=$epgSnapshotEmissions thread=main:${isMainThread()}"
+                )
+            }
+        }
+    }
+
     internal fun epgRecompositionCountForTests(): Int = epgRecompositionCount
+
+    internal fun gridSectionRecompositionCountForTests(): Int = gridSectionRecompositionCount
+
+    internal fun epgSnapshotEmissionCountForTests(): Int = epgSnapshotEmissions
+
+    internal fun epgSnapshotEmissionsDuringWindowMs(windowMs: Long, nowMs: Long = System.currentTimeMillis()): Int {
+        val cutoff = nowMs - windowMs
+        return epgSnapshotEmissionTimestampsMs.count { it >= cutoff }
+    }
 
     internal fun resetEpgMetricsForTests() {
         epgRecompositionCount = 0
+        gridSectionRecompositionCount = 0
+        epgSnapshotEmissions = 0
+        lastLoggedEpgGeneration = -1L
+        epgSnapshotEmissionTimestampsMs.clear()
     }
 
     private var focusNavigationEvents = 0
     private var focusSideEffectBlocks = 0
 
     fun logFocusNavigation(label: String, channelIndex: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         focusNavigationEvents++
         auditLog {
             Log.d(
@@ -241,7 +292,7 @@ object PerformanceAudit {
     }
 
     fun logFocusSideEffectBlocked(label: String, reason: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         focusSideEffectBlocks++
         auditLog {
             Log.w(
@@ -257,7 +308,7 @@ object PerformanceAudit {
     }
 
     fun logGridKeyFilter(keyName: String, channelIndex: Int, totalProgramCount: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -285,7 +336,7 @@ object PerformanceAudit {
         channelId: Long,
         streamUrl: String
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         totalTuneSuppressed++
         tuneSuppressedSinceZap++
         auditLog {
@@ -299,7 +350,7 @@ object PerformanceAudit {
     }
 
     fun logTuneReuseSkipFlush(channelId: Long, streamUrl: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -309,7 +360,7 @@ object PerformanceAudit {
     }
 
     fun logTunePipelineStart(channelId: Long, streamUrl: String, configureFailover: Boolean) {
-        if (!ENABLED) return
+        if (!isActive()) return
         totalTunePipelineStarts++
         tunePipelineStartsSinceZap++
         auditLog {
@@ -323,7 +374,7 @@ object PerformanceAudit {
     }
 
     fun logTunePipelineEnd(channelId: Long, streamUrl: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(
                 TAG,
@@ -333,7 +384,7 @@ object PerformanceAudit {
     }
 
     fun recordPlaybackStatusEmission(status: com.grid.tv.player.StreamPlaybackStatus) {
-        if (!ENABLED) return
+        if (!isActive()) return
         totalPlaybackStatusEmissions++
         playbackStatusEmissionsSinceZap++
         auditLog {
@@ -342,13 +393,13 @@ object PerformanceAudit {
     }
 
     fun recordPlaybackUiEmission(ui: com.grid.tv.player.LivePlaybackUiState) {
-        if (!ENABLED) return
+        if (!isActive()) return
         totalPlaybackUiEmissions++
         playbackUiEmissionsSinceZap++
     }
 
     fun beginZap(channelId: Long, playerHash: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         zapSequence++
         pendingZapStartMs = System.currentTimeMillis()
         pendingZapChannelId = channelId
@@ -365,7 +416,7 @@ object PerformanceAudit {
     }
 
     fun completeZap(playerHash: Int, channelId: Long) {
-        if (!ENABLED) return
+        if (!isActive()) return
         if (pendingZapChannelId != channelId) return
         val elapsedMs = (System.currentTimeMillis() - pendingZapStartMs).coerceAtLeast(0L)
         zapReadyTimesMs.add(elapsedMs)
@@ -397,7 +448,7 @@ object PerformanceAudit {
     }
 
     fun logZapMemoryCheckpoint(zapCount: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         val runtime = Runtime.getRuntime()
         val heapUsedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
         val nativeMb = runCatching { Debug.getNativeHeapAllocatedSize() / (1024 * 1024) }.getOrDefault(-1L)
@@ -410,7 +461,7 @@ object PerformanceAudit {
     }
 
     fun logZapBatchSummary(lastN: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         val samples = zapReadyTimesMs.takeLast(lastN)
         if (samples.isEmpty()) return
         val avgMs = samples.average().toLong()
@@ -430,7 +481,7 @@ object PerformanceAudit {
         playerHash: Int,
         snapshot: com.grid.tv.player.DecoderPressureTracker.Snapshot
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -445,7 +496,7 @@ object PerformanceAudit {
     }
 
     fun logDecoderSurface(event: String, owner: String, playerHash: Int, surfaceType: String, count: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(
                 TAG,
@@ -455,28 +506,28 @@ object PerformanceAudit {
     }
 
     fun logDecoderInitialized(playerHash: Int, decoderName: String, initMs: Long) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(TAG, "decoderInit hash=$playerHash name=$decoderName initMs=$initMs")
         }
     }
 
     fun logDecoderReleased(playerHash: Int, decoderName: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.i(TAG, "decoderRelease hash=$playerHash name=$decoderName")
         }
     }
 
     fun logDecoderDroppedFrames(playerHash: Int, droppedFrames: Int, elapsedMs: Long) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.w(TAG, "decoderDropped hash=$playerHash dropped=$droppedFrames elapsedMs=$elapsedMs")
         }
     }
 
     fun logDecoderFormatSwitch(playerHash: Int, width: Int, height: Int, bitrate: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             Log.d(TAG, "decoderFormatSwitch hash=$playerHash ${width}x$height bitrate=$bitrate")
         }
@@ -488,7 +539,7 @@ object PerformanceAudit {
         snapshot: com.grid.tv.player.DecoderPressureTracker.Snapshot,
         profile: com.grid.tv.player.DeviceDecoderProfile
     ) {
-        if (!ENABLED) return
+        if (!isActive()) return
         auditLog {
             val message =
                 "decoderPressure level=$level device=${profile.deviceLabel} reason=$reason " +
@@ -511,7 +562,7 @@ object PerformanceAudit {
     private var jsonParseMainThreadViolations = 0
 
     fun logJsonParse(label: String, elapsedMs: Long, itemCount: Int) {
-        if (!ENABLED) return
+        if (!isActive()) return
         jsonParseCounts[label.substringBefore(' ')] = (jsonParseCounts[label.substringBefore(' ')] ?: 0) + 1
         auditLog {
             val countSuffix = if (itemCount >= 0) " items=$itemCount" else ""
@@ -520,7 +571,7 @@ object PerformanceAudit {
     }
 
     fun logJsonParseMainThreadViolation(label: String) {
-        if (!ENABLED) return
+        if (!isActive()) return
         jsonParseMainThreadViolations++
         auditLog {
             Log.e(TAG, "jsonParse MAIN_THREAD_VIOLATION label=$label count=$jsonParseMainThreadViolations")

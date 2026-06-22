@@ -14,6 +14,8 @@ import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.data.network.toNetworkPlaybackConfig
 import com.grid.tv.domain.model.Channel
+import com.grid.tv.domain.model.sourceIdForUrl
+import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.util.PerformanceAudit
 import kotlinx.coroutines.CoroutineScope
@@ -59,7 +61,12 @@ class LivePlayerManager @Inject constructor(
     private val streamFailover: StreamFailoverController,
     private val channelScanner: ChannelScanner,
     private val catalogHydrationGuard: CatalogHydrationGuard,
-    private val decoderPressureTracker: DecoderPressureTracker
+    private val decoderPressureTracker: DecoderPressureTracker,
+    private val playbackMetrics: PlaybackMetricsLogger,
+    private val playbackTelemetry: PlaybackTelemetryCollector,
+    private val streamFormatRegistry: IptvStreamFormatRegistry,
+    private val playbackHealthMonitor: PlaybackHealthMonitor,
+    private val streamFormatProber: IptvStreamFormatProber
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -95,7 +102,7 @@ class LivePlayerManager @Inject constructor(
 
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
+    private val playbackMonitor = StreamPlaybackMonitor(monitorScope, playbackMetrics)
 
     /** Combined UI snapshot — prefer this over collecting individual flows in Compose. */
     val playbackUiState: StateFlow<LivePlaybackUiState> = combine(
@@ -162,6 +169,7 @@ class LivePlayerManager @Inject constructor(
     private var fullscreenSessions: Int = 0
     private var volumeFadeMultiplier: Float = 1f
     private var streamTransitionJob: Job? = null
+    private var watchDurationJob: Job? = null
     private var playerReleasedForBackground = false
     private val tuneGuard = TunePipelineGuard()
 
@@ -170,6 +178,9 @@ class LivePlayerManager @Inject constructor(
             .onEach { status ->
                 PerformanceAudit.recordPlaybackStatusEmission(status)
                 streamFailover.onPlaybackStatus(status)
+                if (status == StreamPlaybackStatus.ERROR || status == StreamPlaybackStatus.UNAVAILABLE) {
+                    playbackTelemetry.onPlaybackError()
+                }
             }
             .launchIn(monitorScope)
         monitorScope.launch {
@@ -189,27 +200,42 @@ class LivePlayerManager @Inject constructor(
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) {
                 player?.let { exo ->
+                    playbackMetrics.onBufferingEnded()
+                    playbackTelemetry.onBufferingEnded()
                     refreshTimeshiftWindow(exo)
                     if (bufferStartupStartedAtMs > 0L) {
+                        val elapsed = System.currentTimeMillis() - bufferStartupStartedAtMs
                         PerformanceAudit.logBufferStartupReady(
-                            elapsedMs = System.currentTimeMillis() - bufferStartupStartedAtMs,
+                            elapsedMs = elapsed,
                             profileName = TimeshiftManager.activeProfileName,
                             playerHash = System.identityHashCode(exo)
                         )
+                        playbackTelemetry.onStartupComplete(elapsed)
                         bufferStartupStartedAtMs = 0L
+                        playbackHealthMonitor.evaluateAndLog(
+                            channelId = currentChannelId,
+                            streamUrl = currentStreamUrl,
+                            startupTimeMs = elapsed,
+                            failoverCount = streamFailover.sessionFailoverCount()
+                        )
                     }
                     pendingZapChannelId?.let { channelId ->
                         PerformanceAudit.completeZap(System.identityHashCode(exo), channelId)
                         pendingZapChannelId = null
                     }
                     playbackReadySeen = true
+                    playbackTelemetry.onPlaybackSuccess()
                 }
-            } else if (playbackState == Player.STATE_BUFFERING && playbackReadySeen) {
-                player?.let { exo ->
-                    PerformanceAudit.logRebufferEvent(
-                        profileName = TimeshiftManager.activeProfileName,
-                        playerHash = System.identityHashCode(exo)
-                    )
+            } else if (playbackState == Player.STATE_BUFFERING) {
+                playbackMetrics.onBufferingStarted()
+                playbackTelemetry.onBufferingStarted()
+                if (playbackReadySeen) {
+                    player?.let { exo ->
+                        PerformanceAudit.logRebufferEvent(
+                            profileName = TimeshiftManager.activeProfileName,
+                            playerHash = System.identityHashCode(exo)
+                        )
+                    }
                 }
             }
         }
@@ -225,6 +251,15 @@ class LivePlayerManager @Inject constructor(
         ) {
             player?.let { refreshTimeshiftWindow(it) }
         }
+
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            playbackMetrics.logPlaybackError(
+                errorCode = error.errorCode,
+                recoverable = error.errorCode != androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                message = error.message
+            )
+            playbackTelemetry.onPlaybackError()
+        }
     }
 
     @UnstableApi
@@ -233,16 +268,19 @@ class LivePlayerManager @Inject constructor(
             val caps = context.devicePlaybackCapabilities()
             val profile = IptvBufferProfiles.resolve(
                 bufferSize = bufferSize,
-                startupPriority = null,
-                isLowEndDevice = caps.isLowEndDevice
+                startupPriority = caps.startupPriority,
+                isLowEndDevice = caps.isLowEndDevice,
+                isTelevision = caps.isTelevision
             )
             TimeshiftManager.syncBufferProfile(profile)
             player = playerFactory.create(
                 context.applicationContext,
                 bufferSize,
                 preferHardwareDecoding,
+                startupPriority = caps.startupPriority,
                 networkSettings = cachedNetworkSettings,
-                decoderOwner = "live_guide"
+                decoderOwner = "live_guide",
+                preferLiveStability = caps.isTelevision && !caps.isLowEndDevice
             ).also { exo ->
                 exo.addListener(timeshiftListener)
                 PerformanceAudit.logPlayerLifecycle("CREATE", exo, _playerGeneration.value)
@@ -281,8 +319,9 @@ class LivePlayerManager @Inject constructor(
         this.preferHardwareDecoding = preferHardwareDecoding
         val profile = IptvBufferProfiles.resolve(
             bufferSize = bufferSize,
-            startupPriority = null,
-            isLowEndDevice = context.devicePlaybackCapabilities().isLowEndDevice
+            startupPriority = context.devicePlaybackCapabilities().startupPriority,
+            isLowEndDevice = context.devicePlaybackCapabilities().isLowEndDevice,
+            isTelevision = context.devicePlaybackCapabilities().isTelevision
         )
         TimeshiftManager.syncBufferProfile(profile)
         rebuildPlayerPreservingTune(context.applicationContext)
@@ -540,8 +579,8 @@ class LivePlayerManager @Inject constructor(
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
         streamFailover.attach(exo, failoverActions)
-        if (configureFailover) {
-            val failoverChannel = channelSnapshot
+            if (configureFailover) {
+                val failoverChannel = channelSnapshot
                 ?: currentChannel?.takeIf { it.id == channelId }
                 ?: Channel(
                     id = channelId,
@@ -554,10 +593,20 @@ class LivePlayerManager @Inject constructor(
                     playlistId = 0,
                     isFavorite = false
                 )
-            streamFailover.configure(failoverChannel, streamUrl)
+            streamFailover.configureWithHealthRanking(failoverChannel, streamUrl)
         }
 
+        streamFormatProber.probeAndRegister(streamUrl)
+
         playbackMonitor.onTuneStarted(streamUrl)
+        playbackMetrics.onTuneStarted(channelId, streamUrl)
+        playbackHealthMonitor.reset()
+        playbackTelemetry.beginSession(
+            channelId = channelId,
+            providerId = channelSnapshot?.playlistId ?: 0L,
+            streamId = channelSnapshot?.sourceIdForUrl(streamUrl) ?: streamUrl
+        )
+        startWatchDurationTicker()
         this.catchupDays = catchupDays
 
         if (configureFailover) {
@@ -567,7 +616,6 @@ class LivePlayerManager @Inject constructor(
         }
 
         TimeshiftManager.reset()
-        clearStreamCache(context)
         resetTimeshiftState()
         this.catchupDays = catchupDays
 
@@ -604,7 +652,11 @@ class LivePlayerManager @Inject constructor(
         exo.prepare()
         exo.playWhenReady = playWhenReady
         applyVolume()
-        streamFailover.onStreamSwitched(streamUrl)
+        if (configureFailover) {
+            streamFailover.onStreamSwitched(streamUrl)
+        } else {
+            streamFailover.onSuccessfulUrlSwitch(streamUrl)
+        }
         syncCatalogHydrationGuard()
     }
 
@@ -614,11 +666,15 @@ class LivePlayerManager @Inject constructor(
      */
     private fun resetPlayerForMediaSwap() {
         val exo = player ?: return
+        finalizeActiveTelemetrySession(success = playbackReadySeen)
+        stopWatchDurationTicker()
         PerformanceAudit.logPlayerLifecycle("SWAP_RESET", exo, _playerGeneration.value, currentChannelId)
         streamFailover.detach()
         exo.playWhenReady = false
         exo.stop()
         exo.clearMediaItems()
+        playbackReadySeen = false
+        bufferStartupStartedAtMs = 0L
     }
 
     /**
@@ -627,6 +683,8 @@ class LivePlayerManager @Inject constructor(
      */
     private fun destroyPlayerInstance(context: Context? = null, clearCache: Boolean = false) {
         val exo = player ?: return
+        finalizeActiveTelemetrySession(success = exo.playbackState == Player.STATE_READY)
+        stopWatchDurationTicker()
         PerformanceAudit.logPlayerLifecycle("RELEASE", exo, _playerGeneration.value, currentChannelId)
         playbackMonitor.detach()
         streamFailover.detach()
@@ -635,6 +693,7 @@ class LivePlayerManager @Inject constructor(
         exo.stop()
         exo.clearVideoSurface()
         exo.clearMediaItems()
+        playerFactory.detachAudioRecovery(exo)
         decoderPressureTracker.unregisterPlayer(exo)
         exo.release()
         player = null
@@ -646,11 +705,12 @@ class LivePlayerManager @Inject constructor(
     }
 
     private fun buildLiveMediaItem(streamUrl: String): MediaItem =
-        MediaItem.Builder().setUri(streamUrl).build()
+        IptvLiveMediaItem.build(streamUrl, registry = streamFormatRegistry)
 
     companion object {
         private const val TAG = "LivePlayerManager"
         private const val AUDIO_PIPELINE_FLUSH_DELAY_MS = 75L
+        private const val WATCH_DURATION_TICK_MS = 5_000L
     }
 
     fun lastChannel(): Channel? = _lastChannel.value
@@ -1006,5 +1066,34 @@ class LivePlayerManager @Inject constructor(
                 playbackState = exo.playbackState
             )
         )
+    }
+
+    private fun startWatchDurationTicker() {
+        watchDurationJob?.cancel()
+        val tickMs = LowEndDeviceMode.current().watchDurationTickMs
+        watchDurationJob = monitorScope.launch {
+            while (true) {
+                delay(tickMs)
+                val exo = player ?: continue
+                if (exo.isPlaying && exo.playbackState == Player.STATE_READY) {
+                    playbackTelemetry.tickWatchDuration(WATCH_DURATION_TICK_MS)
+                }
+            }
+        }
+    }
+
+    private fun stopWatchDurationTicker() {
+        watchDurationJob?.cancel()
+        watchDurationJob = null
+    }
+
+    private fun finalizeActiveTelemetrySession(success: Boolean) {
+        ioScope.launch {
+            runCatching {
+                playbackTelemetry.endSession(success = success)
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to finalize playback telemetry", error)
+            }
+        }
     }
 }

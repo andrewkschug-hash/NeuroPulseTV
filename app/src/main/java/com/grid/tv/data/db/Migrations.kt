@@ -903,8 +903,19 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_31_32 = object : Migration(31, 32) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                ALTER TABLE playback_session_telemetry
+                ADD COLUMN loadRetryCount INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 31
+    const val SCHEMA_VERSION = 32
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -939,6 +950,7 @@ object DbMigrations {
         MIGRATION_27_28,
         MIGRATION_28_29,
         MIGRATION_29_30,
-        MIGRATION_30_31
+        MIGRATION_30_31,
+        MIGRATION_31_32
     )
 }

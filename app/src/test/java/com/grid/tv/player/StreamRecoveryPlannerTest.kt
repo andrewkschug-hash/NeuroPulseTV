@@ -57,4 +57,28 @@ class StreamRecoveryPlannerTest {
         )
         assertEquals(0, steps.size)
     }
+
+    @Test
+    fun buildSteps_skipsBlockedUrls() {
+        val steps = StreamRecoveryPlanner.buildSteps(
+            streamUrls = channel.allStreamUrls(),
+            activeUrl = "http://backup1",
+            maxAttempts = 5,
+            urlAvailable = { it != "http://primary" }
+        )
+        assertEquals(3, steps.size)
+        assertEquals(StreamRecoveryPlanner.Step.Reconnect, steps[0])
+        assertEquals(StreamRecoveryPlanner.Step.SwitchUrl("http://backup2"), steps[1])
+        assertEquals(StreamRecoveryPlanner.Step.SwitchUrl("http://backup3"), steps[2])
+    }
+
+    @Test
+    fun reorderWithActiveFirst_placesActiveUrlAtHead() {
+        val ordered = StreamRecoveryPlanner.reorderWithActiveFirst(
+            channel.allStreamUrls(),
+            "http://backup2"
+        )
+        assertEquals("http://backup2", ordered.first())
+        assertEquals(4, ordered.size)
+    }
 }

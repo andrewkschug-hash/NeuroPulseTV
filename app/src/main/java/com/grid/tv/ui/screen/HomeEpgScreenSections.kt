@@ -2,10 +2,9 @@ package com.grid.tv.ui.screen
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,12 +21,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.Manifest
+import android.content.pm.PackageManager
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -47,9 +54,12 @@ import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.ChannelScanSnapshot
+import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.SearchBarState
+import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
+import com.grid.tv.di.SearchEntryPoint
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.recording.RecordingHealth
 import com.grid.tv.feature.recording.RecordingStatus
@@ -85,7 +95,9 @@ import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.util.quitAppToHome
+import dagger.hilt.android.EntryPointAccessors
 
 @Composable
 internal fun HomeEpgScreenLoadingGate(
@@ -124,6 +136,14 @@ internal fun HomeEpgScreenLoadingGate(
     return false
 }
 
+@Composable
+internal fun rememberDebouncedChannelScanStatuses(
+    viewModel: HomeEpgViewModel
+): Map<Long, ChannelScanSnapshot> {
+    val statuses by viewModel.debouncedChannelScanStatuses.collectAsStateWithLifecycle()
+    return statuses
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun HomeEpgScreenMainColumn(
@@ -135,24 +155,24 @@ internal fun HomeEpgScreenMainColumn(
     profileInitials: String,
     profileAvatarColor: String,
     profileAccessMessage: String?,
-    isRecording: Boolean,
-    activeRecordingTitle: String?,
-    recordingHealth: RecordingHealth?,
+    recordingViewModel: RecordingViewModel,
     onNavigateRecordings: () -> Unit,
     onNavigateProfile: () -> Unit,
     onNavigateSettings: () -> Unit,
-    previewPlayer: androidx.media3.exoplayer.ExoPlayer?,
-    previewStreamStatus: StreamPlaybackStatus?,
+    livePlayerManager: com.grid.tv.player.LivePlayerManager,
     previewSurfaceAttached: Boolean,
     channelGroups: List<String>,
-    channelScanStatuses: Map<Long, ChannelScanSnapshot>,
-    scheduled: List<ScheduledRecordingEntity>,
+    viewModel: HomeEpgViewModel,
     timelineWidth: Dp,
     scrolledAwayFromLive: Boolean,
     showFilteredEmptyState: Boolean,
     hScroll: ScrollState,
     listState: LazyListState,
 ) {
+    val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
+    val recordingHealth by recordingViewModel.recordingHealth.collectAsStateWithLifecycle()
+    val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
     val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
     Column(
         modifier = modifier
@@ -234,49 +254,19 @@ internal fun HomeEpgScreenMainColumn(
         }
 
         if (deps.showPreviewSection && deps.previewChannel != null) {
-            val previewChannel = deps.previewChannel
-            val initialPreviewFavorite = if (previewChannel.id < 0) {
-                previewChannel.id in deps.demoFavoriteIds
-            } else {
-                previewChannel.isFavorite
-            }
-            val previewIsFavorite by deps.viewModel
-                .observeChannelFavorite(previewChannel.id)
-                .collectAsStateWithLifecycle(initialValue = initialPreviewFavorite)
-            HomeEpgPreviewSection(
-                channel = previewChannel,
-                program = deps.previewProgram,
-                nextProgram = deps.previewNextProgram,
-                player = previewPlayer,
-                streamStatus = previewStreamStatus,
-                detailActionIndex = ui.detailActionIndex,
-                previewFocused = ui.focusZone == EpgFocusZone.PREVIEW,
-                attachSurface = previewSurfaceAttached,
-                isFavorite = previewIsFavorite,
-                primaryActionLabel = controller.primaryActionLabel(deps.previewChannel, deps.previewProgram),
-                onWatch = {
-                    ui.detailActionIndex = 0
-                    controller.executeDetailAction()
-                },
-                onFavorite = {
-                    ui.detailActionIndex = 1
-                    controller.executeDetailAction()
-                },
-                onRecord = {
-                    ui.detailActionIndex = 2
-                    controller.executeDetailAction()
-                },
-                previewFocusRequester = deps.previewFocusRequester,
-                continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-                topNavFocusRequester = deps.topNavFocusRequester,
-                gridFilterFocusRequester = deps.gridFilterFocusRequester,
-                gridFocusRequester = deps.gridFocusRequester,
+            HomeEpgPreviewBlock(
+                deps = deps,
+                ui = ui,
+                controller = controller,
+                livePlayerManager = livePlayerManager,
+                context = context,
+                previewSurfaceAttached = previewSurfaceAttached,
                 showGroupFilter = showGroupFilter,
-                hasContinueWatching = deps.hasContinueWatching,
-                onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
+                viewModel = viewModel
             )
         }
 
+        val channelScanStatuses = rememberDebouncedChannelScanStatuses(viewModel)
         HomeEpgChannelList(
             modifier = Modifier
                 .weight(1f)
@@ -337,6 +327,164 @@ internal fun HomeEpgScreenMainColumn(
             }
         )
     }
+}
+
+@Composable
+internal fun HomeEpgPreviewBlock(
+    deps: HomeEpgGuideDeps,
+    ui: HomeEpgUiState,
+    controller: HomeEpgGuideController,
+    livePlayerManager: com.grid.tv.player.LivePlayerManager,
+    context: Context,
+    previewSurfaceAttached: Boolean,
+    showGroupFilter: Boolean,
+    viewModel: HomeEpgViewModel,
+) {
+    val previewChannel = deps.previewChannel ?: return
+    val previewPlayer = rememberPreviewPlaybackPlayer(
+        livePlayerManager = livePlayerManager,
+        context = context,
+        previewChannelId = previewChannel.id,
+        guidePreviewEnabled = true
+    )
+    val previewStreamStatus = rememberPreviewStreamStatus(
+        livePlayerManager = livePlayerManager,
+        previewChannelId = previewChannel.id
+    )
+    val initialPreviewFavorite = if (previewChannel.id < 0) {
+        previewChannel.id in deps.demoFavoriteIds
+    } else {
+        previewChannel.isFavorite
+    }
+    val previewIsFavorite by viewModel
+        .observeChannelFavorite(previewChannel.id)
+        .collectAsStateWithLifecycle(initialValue = initialPreviewFavorite)
+    HomeEpgPreviewSection(
+        channel = previewChannel,
+        program = deps.previewProgram,
+        nextProgram = deps.previewNextProgram,
+        player = previewPlayer,
+        streamStatus = previewStreamStatus,
+        detailActionIndex = ui.detailActionIndex,
+        previewFocused = ui.focusZone == EpgFocusZone.PREVIEW,
+        attachSurface = previewSurfaceAttached,
+        isFavorite = previewIsFavorite,
+        primaryActionLabel = controller.primaryActionLabel(deps.previewChannel, deps.previewProgram),
+        onWatch = {
+            ui.detailActionIndex = 0
+            controller.executeDetailAction()
+        },
+        onFavorite = {
+            ui.detailActionIndex = 1
+            controller.executeDetailAction()
+        },
+        onRecord = {
+            ui.detailActionIndex = 2
+            controller.executeDetailAction()
+        },
+        previewFocusRequester = deps.previewFocusRequester,
+        continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
+        topNavFocusRequester = deps.topNavFocusRequester,
+        gridFilterFocusRequester = deps.gridFilterFocusRequester,
+        gridFocusRequester = deps.gridFocusRequester,
+        showGroupFilter = showGroupFilter,
+        hasContinueWatching = deps.hasContinueWatching,
+        onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
+    )
+}
+
+@Composable
+internal fun HomeEpgSearchOverlayHost(
+    modifier: Modifier = Modifier,
+    ui: HomeEpgUiState,
+    controller: HomeEpgGuideController,
+    deps: HomeEpgGuideDeps,
+    context: Context,
+    channelGroups: List<String>,
+    groupChannelCounts: Map<String, Int>,
+    favoriteGroups: List<FavoriteGroup>,
+    favoriteSavedMessage: String?,
+    recordingViewModel: RecordingViewModel,
+    searchViewModel: SearchViewModel,
+) {
+    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
+    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
+    val preferredSearchInput by searchViewModel.preferredInputMode.collectAsStateWithLifecycle()
+    val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
+    val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
+    val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
+
+    val micSearchTrigger = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, SearchEntryPoint::class.java)
+            .micSearchTrigger()
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            searchViewModel.beginVoiceSearch()
+        }
+    }
+
+    val requestVoiceSearch: () -> Unit = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            searchViewModel.beginVoiceSearch()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val openVoiceSearch: () -> Unit = {
+        ui.showSearchOverlay = true
+        requestVoiceSearch()
+    }
+
+    LaunchedEffect(Unit) {
+        micSearchTrigger.events.collect {
+            openVoiceSearch()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        searchViewModel.toastMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(ui.showSearchOverlay, preferredSearchInput) {
+        if (ui.showSearchOverlay && preferredSearchInput == SearchInputMode.VOICE) {
+            requestVoiceSearch()
+        } else if (!ui.showSearchOverlay) {
+            searchViewModel.stopVoiceSearch()
+        }
+    }
+
+    HomeEpgScreenOverlays(
+        modifier = modifier,
+        ui = ui,
+        controller = controller,
+        deps = deps,
+        context = context,
+        channelGroups = channelGroups,
+        groupChannelCounts = groupChannelCounts,
+        favoriteGroups = favoriteGroups,
+        favoriteSavedMessage = favoriteSavedMessage,
+        recordingViewModel = recordingViewModel,
+        showStoragePicker = showStoragePicker,
+        storageOptions = storageOptions,
+        precheck = precheck,
+        searchQuery = searchQuery,
+        unifiedSearchResults = unifiedSearchResults,
+        searchResults = searchResults,
+        searchBarState = searchBarState,
+        searchViewModel = searchViewModel,
+        onRequestVoiceSearch = requestVoiceSearch,
+    )
 }
 
 @Composable
@@ -659,6 +807,11 @@ internal fun HomeEpgChannelList(
         EpgProgramReplayState(0, com.grid.tv.ui.component.ProgramTimeState.FUTURE, com.grid.tv.domain.epg.EpgProgramAction.NONE, false, null)
     }
 ) {
+    if (PerformanceAudit.ENABLED) {
+        SideEffect {
+            PerformanceAudit.logGridSectionRecomposition("HomeEpgChannelList")
+        }
+    }
     val gridNow = rememberEpgNowMillis(EpgNowTicker.GRID_INTERVAL_MS)
     val touchGesturesEnabled = LocalDeviceFormFactor.current.enableTouchGestures
     val gridFilterUpTarget = when {
@@ -846,23 +999,25 @@ private fun EpgGuideChannelRow(
     onProgramClick: (Int, Int, Program) -> Unit,
     replayStateFor: (Channel, Program) -> EpgProgramReplayState
 ) {
-    val isActiveRow by remember {
-        derivedStateOf { gridFocused && index == focusChannelIndex }
-    }
-    val isChannelCellFocused by remember {
-        derivedStateOf { isActiveRow && focusOnChannelColumn }
-    }
+    val isActiveRow = gridFocused && index == focusChannelIndex
+    val isChannelCellFocused = isActiveRow && focusOnChannelColumn
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = EpgLayout.RowHeight)
             .height(EpgLayout.RowHeight)
             .focusProperties { canFocus = false }
+            .background(if (isActiveRow) EpgColors.ChannelRowFocusBg else Color.Transparent)
+            .border(
+                width = 2.dp,
+                color = if (isActiveRow) EpgColors.FocusBorder else Color.Transparent,
+                shape = RoundedCornerShape(0.dp)
+            )
     ) {
         EpgChannelCell(
             channel = channel,
             isFocused = isChannelCellFocused,
-            isRowActive = isActiveRow,
+            isRowHighlighted = isActiveRow,
             showBottomSeparator = index < displayChannelsLastIndex,
             scanStatus = channelScanStatuses[channel.id]?.status,
             lastCheckedLabel = formatLastChecked(
@@ -886,7 +1041,7 @@ private fun EpgGuideChannelRow(
             focusProgramIndex = focusProgramIndex,
             focusOnChannelColumn = focusOnChannelColumn,
             gridFocused = gridFocused,
-            isRowFocused = isActiveRow,
+            isRowHighlighted = isActiveRow,
             confirmedProgramId = confirmedProgramId,
             scheduled = scheduled,
             hScrollModifier = Modifier.horizontalScroll(
@@ -913,7 +1068,7 @@ private fun EpgChannelTimelineRow(
     focusProgramIndex: Int,
     focusOnChannelColumn: Boolean,
     gridFocused: Boolean,
-    isRowFocused: Boolean,
+    isRowHighlighted: Boolean,
     confirmedProgramId: Long?,
     scheduled: List<ScheduledRecordingEntity>,
     hScrollModifier: Modifier,
@@ -922,21 +1077,12 @@ private fun EpgChannelTimelineRow(
     onProgramClick: (Int, Int, Program) -> Unit = { _, _, _ -> },
     replayStateFor: (Channel, Program) -> EpgProgramReplayState
 ) {
-    val rowActive = gridFocused && channelIndex == focusChannelIndex
-    val rowBg by animateColorAsState(
-        targetValue = when {
-            rowActive && !focusOnChannelColumn -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.32f)
-            isRowFocused -> EpgColors.ChannelRowFocusBg.copy(alpha = 0.2f)
-            else -> EpgColors.GridBg
-        },
-        animationSpec = tween(durationMillis = 120),
-        label = "timelineRowBg"
-    )
+    val timelineBg = if (isRowHighlighted) Color.Transparent else EpgColors.GridBg
     Box(
         modifier = hScrollModifier
             .width(timelineWidth)
             .height(EpgLayout.RowHeight)
-            .background(rowBg)
+            .background(timelineBg)
     ) {
         if (programs.isEmpty()) {
             val isFocused = gridFocused &&

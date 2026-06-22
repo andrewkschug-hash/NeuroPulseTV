@@ -77,7 +77,6 @@ internal data class HomeEpgGuideDeps(
     val showPreviewSection: Boolean,
     val hasContinueWatching: Boolean,
     val usePlaceholder: Boolean,
-    val searchQuery: String,
     val onWatchChannel: (Long) -> Unit,
     val onPlayCatchup: (String, String) -> Unit,
     val onNavigateRecordings: () -> Unit,
@@ -243,6 +242,7 @@ internal class HomeEpgGuideController(
     }
 
     fun scrollToLive() {
+        deps.viewModel.syncTimelineWindowToLocalNow()
         deps.scope.launch { deps.hScroll.animateScrollTo(liveScrollTarget()) }
     }
 
@@ -280,7 +280,7 @@ internal class HomeEpgGuideController(
             }
             else -> Unit
         }
-        deps.searchViewModel.recordSelection(deps.searchQuery)
+        deps.searchViewModel.recordSelection(deps.searchViewModel.queryText.value)
         ui.showSearchOverlay = false
         deps.searchViewModel.clearQuery()
         when (result.type) {
@@ -333,7 +333,7 @@ internal class HomeEpgGuideController(
                         streamId = episode.id,
                         episodeTitle = episode.title.ifBlank { show.name }
                     )
-                    deps.onPlayVod(episode.streamUrl, episode.title.ifBlank { show.name }, false)
+                    deps.onPlayVod(episode.streamUrl, episode.title.ifBlank { show.name }, true)
                 }
             }
             else -> Unit
@@ -468,12 +468,11 @@ internal class HomeEpgGuideController(
         val row = visibleRows.getOrNull(index) ?: return
         when (row) {
             is GuideGroupVisibleRow.Category -> {
-                val willExpand = row.categoryIndex !in ui.categoryMenuExpandedCategories
                 ui.categoryMenuExpandedCategories = toggleCategoryExpansion(
                     ui.categoryMenuExpandedCategories,
                     row.categoryIndex
                 )
-                ui.categoryMenuFocusIndex = if (willExpand) index + 1 else index
+                ui.categoryMenuFocusIndex = index
             }
             is GuideGroupVisibleRow.SelectAll,
             is GuideGroupVisibleRow.Group -> {

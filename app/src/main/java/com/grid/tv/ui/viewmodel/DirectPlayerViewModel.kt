@@ -12,9 +12,13 @@ import com.grid.tv.feature.subtitles.ActiveSubtitle
 import com.grid.tv.feature.subtitles.SubtitleManager
 import com.grid.tv.feature.subtitles.SubtitleRequest
 import com.grid.tv.player.PictureInPictureController
+import com.grid.tv.player.IptvOnDemandContentKind
+import com.grid.tv.player.IptvOnDemandMediaItem
+import com.grid.tv.player.IptvStreamFormatRegistry
 import com.grid.tv.player.PlaybackStartupPriority
 import com.grid.tv.player.PlayerFactory
 import android.content.Context
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.SubtitleFontSize
@@ -39,7 +43,8 @@ class DirectPlayerViewModel @Inject constructor(
     private val recordedDao: RecordedMediaDao,
     private val subtitleManager: SubtitleManager,
     val pipController: PictureInPictureController,
-    private val playerFactory: PlayerFactory
+    private val playerFactory: PlayerFactory,
+    private val streamFormatRegistry: IptvStreamFormatRegistry
 ) : ViewModel() {
 
     companion object {
@@ -76,8 +81,16 @@ class DirectPlayerViewModel @Inject constructor(
             preferHardwareDecoding = settings.preferHardwareDecoding,
             startupPriority = PlaybackStartupPriority.FAST,
             networkSettings = settings,
-            decoderOwner = "vod_direct"
+            decoderOwner = "vod_direct",
+            preferLiveStability = false
         )
+    }
+
+    fun buildOnDemandMediaItem(url: String, contentKind: IptvOnDemandContentKind): MediaItem =
+        IptvOnDemandMediaItem.build(url, contentKind, streamFormatRegistry)
+
+    fun releasePlayer(player: ExoPlayer) {
+        playerFactory.releasePlayer(player)
     }
 
     fun attachAutoSubtitles(player: ExoPlayer, playerView: PlayerView?, url: String, title: String) {

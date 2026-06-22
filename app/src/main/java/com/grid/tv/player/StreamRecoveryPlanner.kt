@@ -13,17 +13,36 @@ internal object StreamRecoveryPlanner {
     fun buildSteps(
         streamUrls: List<String>,
         activeUrl: String?,
-        maxAttempts: Int
+        maxAttempts: Int,
+        blockedUrls: Set<String> = emptySet(),
+        urlAvailable: (String) -> Boolean = { it !in blockedUrls }
     ): List<Step> {
         if (streamUrls.isEmpty() || maxAttempts <= 0) return emptyList()
-        val allSteps = mutableListOf<Step>(Step.Reconnect)
-        val tried = mutableSetOf<String>()
-        activeUrl?.let { tried.add(it) }
-        streamUrls.forEach { url ->
-            if (tried.add(url)) {
-                allSteps += Step.SwitchUrl(url)
+
+        val steps = mutableListOf<Step>()
+        val active = activeUrl?.trim().orEmpty()
+
+        if (active.isNotBlank() && urlAvailable(active)) {
+            steps += Step.Reconnect
+        }
+
+        streamUrls
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != active && urlAvailable(it) }
+            .forEach { url -> steps += Step.SwitchUrl(url) }
+
+        return steps.take(maxAttempts)
+    }
+
+    fun reorderWithActiveFirst(streamUrls: List<String>, activeUrl: String): List<String> {
+        val active = activeUrl.trim()
+        if (active.isBlank()) return streamUrls
+        return buildList {
+            add(active)
+            streamUrls.forEach { url ->
+                val trimmed = url.trim()
+                if (trimmed.isNotBlank() && trimmed != active) add(trimmed)
             }
         }
-        return allSteps.take(maxAttempts)
     }
 }

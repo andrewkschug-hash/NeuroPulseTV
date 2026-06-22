@@ -29,6 +29,7 @@ import androidx.paging.compose.itemKey
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.ui.component.FocusCard
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.ui.viewmodel.BrowserViewModel
 import kotlinx.coroutines.delay
 
@@ -104,7 +105,17 @@ fun ChannelBrowserScreen(
                                 factory = { PlayerView(it).apply { useController = false; player = previewManager.activePlayer() } }
                             )
                         } else {
-                            AsyncImage(model = channel.logoUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().height(110.dp))
+                            val (logoW, logoH) = TvImageSizing.channelBrowserLogoPx(context)
+                            AsyncImage(
+                                model = TvImageSizing.sizedRequest(
+                                    context = context,
+                                    data = channel.logoUrl,
+                                    widthPx = logoW,
+                                    heightPx = logoH
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxWidth().height(110.dp)
+                            )
                         }
                         Text(channel.name)
                         Text(channel.currentProgram ?: "No current program")

@@ -16,14 +16,14 @@ class IptvBufferProfilesTest {
     @Test
     fun balancedProfile_matchesIptvStartingPoint() {
         val profile = IptvBufferProfiles.forPriority(PlaybackStartupPriority.BALANCED)
-        assertEquals(10_000, profile.minBufferMs)
+        assertEquals(15_000, profile.minBufferMs)
         assertEquals(120_000, profile.maxBufferMs)
     }
 
     @Test
     fun stableProfile_matchesIptvStartingPoint() {
         val profile = IptvBufferProfiles.forPriority(PlaybackStartupPriority.STABLE)
-        assertEquals(15_000, profile.minBufferMs)
+        assertEquals(25_000, profile.minBufferMs)
         assertEquals(300_000, profile.maxBufferMs)
     }
 
@@ -32,6 +32,25 @@ class IptvBufferProfilesTest {
         assertEquals("FAST", IptvBufferProfiles.resolve(BufferSize.LOW, null, false).profileName)
         assertEquals("BALANCED", IptvBufferProfiles.resolve(BufferSize.MEDIUM, null, false).profileName)
         assertEquals("STABLE", IptvBufferProfiles.resolve(BufferSize.HIGH, null, false).profileName)
+    }
+
+    @Test
+    fun televisionForcesStableProfileForLive() {
+        val profile = IptvBufferProfiles.resolve(BufferSize.MEDIUM, null, false, isTelevision = true)
+        assertEquals("STABLE", profile.profileName)
+    }
+
+    @Test
+    fun lowEndDevice_capsBalancedMinAndMaxBuffer() {
+        val profile = IptvBufferProfiles.resolve(
+            bufferSize = BufferSize.HIGH,
+            startupPriority = null,
+            isLowEndDevice = true,
+            isTelevision = true
+        )
+        assertEquals("BALANCED_LOW_END", profile.profileName)
+        assertEquals(10_000, profile.minBufferMs)
+        assertEquals(60_000, profile.maxBufferMs)
     }
 
     @Test

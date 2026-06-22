@@ -60,6 +60,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvImageSizing
 import java.text.NumberFormat
 
 fun parseVodDurationMs(raw: String?): Long? {
@@ -122,12 +123,14 @@ fun VodPosterCard(
             ) {
                 if (!posterUrl.isNullOrBlank()) {
                     val context = LocalContext.current
+                    val (posterW, posterH) = TvImageSizing.vodPosterSize(context)
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(posterUrl)
-                            .size(Size(224, 336))
-                            .crossfade(200)
-                            .build(),
+                        model = TvImageSizing.sizedRequest(
+                            context = context,
+                            data = posterUrl,
+                            widthPx = posterW,
+                            heightPx = posterH
+                        ),
                         contentDescription = displayTitle,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -592,12 +595,15 @@ fun VodHeroSection(
             .height(320.dp)
     ) {
         if (!backdropUrl.isNullOrBlank()) {
+            val (backdropW, backdropH) = TvImageSizing.vodBackdropSize(context)
             AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(backdropUrl)
-                    .size(Size(1920, 800))
-                    .crossfade(300)
-                    .build(),
+                model = TvImageSizing.sizedRequest(
+                    context = context,
+                    data = backdropUrl,
+                    widthPx = backdropW,
+                    heightPx = backdropH,
+                    crossfadeMs = if (TvImageSizing.crossfadeMs(context) == 0) 0 else 300
+                ),
                 contentDescription = displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

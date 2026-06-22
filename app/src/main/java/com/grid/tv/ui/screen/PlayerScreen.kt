@@ -576,22 +576,6 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(channel?.id, playbackStatus) {
-        if (channel?.id == null) return@LaunchedEffect
-        if (playbackStatus == StreamPlaybackStatus.IDLE || playbackStatus == StreamPlaybackStatus.LOADING) return@LaunchedEffect
-        val success = playbackStatus == StreamPlaybackStatus.PLAYING ||
-            playbackStatus == StreamPlaybackStatus.AUDIO_ONLY
-        viewModel.reportStreamHealth(
-            loadMs = if (success) 1200 else 5000,
-            bufferEvents = when (playbackStatus) {
-                StreamPlaybackStatus.STALLED, StreamPlaybackStatus.NO_SIGNAL -> 3
-                StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE -> 5
-                else -> 0
-            },
-            success = success
-        )
-    }
-
     DisposableEffect(Unit) {
         onDispose {
             playerViewRef[0]?.player = null

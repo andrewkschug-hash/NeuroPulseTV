@@ -1,6 +1,7 @@
 package com.grid.tv.di
 
 import com.grid.tv.feature.startup.StartupCoordinator
+import com.grid.tv.worker.ChannelHealthScheduler
 import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -11,4 +12,5 @@ import dagger.hilt.components.SingletonComponent
 interface StartupEntryPoint {
     fun epgScheduler(): EpgScheduler
     fun startupCoordinator(): StartupCoordinator
+    fun channelHealthScheduler(): ChannelHealthScheduler
 }

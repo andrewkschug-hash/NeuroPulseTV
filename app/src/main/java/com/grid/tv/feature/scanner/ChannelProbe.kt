@@ -1,5 +1,8 @@
 package com.grid.tv.feature.scanner
 
+import com.grid.tv.player.IptvStreamFormat
+import com.grid.tv.player.IptvStreamFormatDetector
+import com.grid.tv.player.IptvStreamFormatRegistry
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
@@ -46,7 +49,8 @@ data class ProbeDetail(
 class ChannelProbe(
     baseClient: OkHttpClient,
     private val hostTracker: HostFailureTracker,
-    private val metrics: ScanMetricsLogger
+    private val metrics: ScanMetricsLogger,
+    private val streamFormatRegistry: IptvStreamFormatRegistry? = null
 ) {
     private val client = baseClient.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -77,7 +81,7 @@ class ChannelProbe(
                 return@executeWithRetry headResult
             }
 
-            if (url.contains(".m3u8", ignoreCase = true)) {
+            if (shouldRunHlsManifestCheck(url)) {
                 return@executeWithRetry runCatching { hlsManifestCheck(url, host) }
                     .getOrElse { mapException(it, url, host) }
             }
@@ -85,6 +89,11 @@ class ChannelProbe(
             runCatching { rangeGetCheck(url, host) }
                 .getOrElse { mapException(it, url, host) }
         }
+    }
+
+    private fun shouldRunHlsManifestCheck(url: String): Boolean {
+        streamFormatRegistry?.get(url)?.let { return it == IptvStreamFormat.HLS }
+        return IptvStreamFormatDetector.resolveForPlayback(url, registry = streamFormatRegistry) == IptvStreamFormat.HLS
     }
 
     private inline fun executeWithRetry(
@@ -112,6 +121,9 @@ class ChannelProbe(
             client.newCall(request).execute().use { response ->
                 val latency = System.currentTimeMillis() - started
                 val code = response.code
+                response.header("Content-Type")?.let { contentType ->
+                    streamFormatRegistry?.putContentType(url, contentType)
+                }
                 when {
                     response.isSuccessful -> ProbeDetail(ProbeResult.LIVE, code, latency)
                     code in 400..499 -> ProbeDetail(ProbeResult.DEAD, code, latency)
@@ -165,6 +177,7 @@ class ChannelProbe(
                             String(buffer, 0, read)
                         }.orEmpty()
                         if (snippet.contains("#EXTINF", ignoreCase = true)) {
+                            streamFormatRegistry?.putManifestSnippet(url, snippet)
                             ProbeDetail(ProbeResult.LIVE, code, latency)
                         } else {
                             ProbeDetail(ProbeResult.DEAD, code, latency)

@@ -10,6 +10,8 @@ import com.grid.tv.data.db.entity.ChannelHealthAggregateEntity
 import com.grid.tv.data.db.entity.ProviderHealthAggregateEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.StreamSourceHealthEntity
+import com.grid.tv.domain.model.allStreamUrls
+import com.grid.tv.domain.model.orderStreamUrlsByHealthScores
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -110,6 +112,16 @@ class StreamHealthAggregator @Inject constructor(
         return StreamFailoverRanking(channelId = channelId, orderedStreamIds = ordered)
     }
 
+    /** Health-ranked stream URLs for live failover (matches source ids and legacy URL keys). */
+    suspend fun orderedStreamUrls(channel: com.grid.tv.domain.model.Channel): List<String> {
+        val default = channel.allStreamUrls()
+        if (default.isEmpty()) return default
+        val healthRows = streamSourceHealthDao.forChannel(channel.id)
+        if (healthRows.isEmpty()) return default
+        val scores = healthRows.associate { it.streamId to it.healthScore }
+        return channel.orderStreamUrlsByHealthScores(scores)
+    }
+
     private suspend fun syncLegacyChannelHealth(session: PlaybackSessionRecord, snapshot: HealthScoreSnapshot) {
         val existing = legacyStreamHealthDao.get(session.channelId)
         legacyStreamHealthDao.upsert(
@@ -161,6 +173,7 @@ class StreamHealthAggregator @Inject constructor(
             playbackErrorCount = playbackErrorCount,
             streamSwitchCount = streamSwitchCount,
             reconnectAttempts = reconnectAttempts,
+            loadRetryCount = loadRetryCount,
             playbackSuccess = playbackSuccess
         )
 }

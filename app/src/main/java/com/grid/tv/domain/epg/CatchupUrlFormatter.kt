@@ -33,10 +33,30 @@ object CatchupUrlFormatter {
 
         return when (channel.catchupMode?.lowercase(Locale.US)) {
             "append", "default", null -> appendUtcQuery(channel.streamUrl, startSec, endSec)
-            "shift" -> null
+            "shift" -> buildShiftUrl(channel.streamUrl, startSec, durationSec)
             "flussonic" -> appendFlussonic(channel.streamUrl, startSec, durationSec)
             else -> appendUtcQuery(channel.streamUrl, startSec, endSec)
         }
+    }
+
+    private fun buildShiftUrl(streamUrl: String, startSec: Long, durationSec: Long): String? {
+        if (streamUrl.isBlank()) return null
+        val timeshiftBase = streamUrl.replace("/live/", "/timeshift/", ignoreCase = true)
+        if (timeshiftBase != streamUrl) {
+            val withoutQuery = timeshiftBase.substringBefore('?').trimEnd('/')
+            val extension = withoutQuery.substringAfterLast('.', missingDelimiterValue = "")
+            val path = if (extension.isNotBlank() && withoutQuery.endsWith(".$extension")) {
+                withoutQuery.removeSuffix(".$extension")
+            } else {
+                withoutQuery
+            }
+            return if (extension.isNotBlank()) {
+                "$path/$durationSec/$startSec.$extension"
+            } else {
+                "$path/$durationSec/$startSec"
+            }
+        }
+        return appendUtcQuery(streamUrl, startSec, startSec + durationSec)
     }
 
     private fun appendUtcQuery(streamUrl: String, startSec: Long, endSec: Long): String? {

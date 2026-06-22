@@ -5,6 +5,7 @@ import com.grid.tv.domain.model.Program
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CatchupUrlFormatterTest {
@@ -58,5 +59,17 @@ class CatchupUrlFormatterTest {
     fun build_disabledWhenNoCatchupSupport() {
         val noCatchup = channel.copy(catchupDays = 0, catchupMode = null, catchupSource = null)
         assertNull(CatchupUrlFormatter.build(program, noCatchup))
+    }
+
+    @Test
+    fun build_shiftMode_usesTimeshiftPath() {
+        val shiftChannel = channel.copy(
+            streamUrl = "http://example.com/live/user/pass/123.ts",
+            catchupMode = "shift"
+        )
+        val url = CatchupUrlFormatter.build(program, shiftChannel)
+        assertNotNull(url)
+        assertTrue(url!!.contains("/timeshift/"))
+        assertTrue(url.contains("/3600/1700000000"))
     }
 }
