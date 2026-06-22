@@ -86,9 +86,29 @@ class RecordingService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun startRecording(streamUrl: String, endAt: Long) {
-        val savedDir = storageManager.getSavedRecordingsDir()
-        val internalDir = storageManager.internalRecordingsDir()
-        val outputDir = savedDir ?: internalDir
+        if (!StorageUtils.isUsbStorageReady(this)) {
+            Log.e(TAG, "USB storage not ready — aborting recording")
+            sendNotification(
+                "Recording unavailable — insert a USB drive with at least 4 GB free",
+                NOTIFICATION_ID_EVENTS
+            )
+            stopSelf()
+            return
+        }
+
+        val outputDir = storageManager.getUsbRecordingsDir()
+        if (outputDir == null || !outputDir.canWrite()) {
+            Log.e(TAG, "USB recordings directory unavailable — aborting recording")
+            sendNotification(
+                "Recording unavailable — USB storage is not writable",
+                NOTIFICATION_ID_EVENTS
+            )
+            stopSelf()
+            return
+        }
+
+        storageManager.ensureUsbLocationSaved()
+
         val outputFile = RecordingFilenameUtil.resolveUniqueFile(
             outputDir, currentChannelName, currentTitle, System.currentTimeMillis()
         )
@@ -97,14 +117,15 @@ class RecordingService : Service() {
 
         if (storageManager.currentStorageHealth(outputDir).isCriticalLow) {
             Log.e(TAG, "Critical low storage at start — aborting recording")
+            sendNotification("Recording unavailable — USB storage is nearly full", NOTIFICATION_ID_EVENTS)
             stopSelf()
             return
         }
 
         acquireWakeLock()
 
-        if (!storageManager.hasAtLeast2Gb()) {
-            Log.w(TAG, "Low storage (<2 GB free)")
+        if (!storageManager.hasAtLeast4Gb()) {
+            Log.w(TAG, "Low USB storage (<4 GB free)")
         }
 
         startForeground(NOTIFICATION_ID, buildNotification(0))
@@ -137,7 +158,14 @@ class RecordingService : Service() {
                         currentHealth = health
                         activeSession.setHealth(health)
                     },
-                    shouldPauseForStorage = { pauseForStorage }
+                    shouldPauseForStorage = { pauseForStorage },
+                    onStorageFailure = {
+                        sendNotification(
+                            "Recording stopped — USB storage full or unavailable",
+                            NOTIFICATION_ID_EVENTS
+                        )
+                        streamRecorder?.cancel()
+                    }
                 )
                 streamRecorder = recorder
                 val outcome = recorder.record(streamUrl)

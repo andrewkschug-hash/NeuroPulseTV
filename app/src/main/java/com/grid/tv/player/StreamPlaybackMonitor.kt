@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import com.grid.tv.util.PerformanceAudit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -52,6 +53,15 @@ class StreamPlaybackMonitor(
                 Player.STATE_READY -> {
                     tuning = false
                     scheduleEvaluation()
+                    player?.let { exo ->
+                        PerformanceAudit.logPlayerBufferSnapshot(
+                            label = "STATE_READY",
+                            player = exo,
+                            maxBufferMs = TimeshiftManager.maxBufferMs,
+                            minBufferMs = TimeshiftManager.minBufferMs,
+                            profileName = TimeshiftManager.activeProfileName
+                        )
+                    }
                 }
                 Player.STATE_ENDED -> {
                     if (tuning) {

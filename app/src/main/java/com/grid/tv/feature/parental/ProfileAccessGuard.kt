@@ -2,15 +2,11 @@ package com.grid.tv.feature.parental
 
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.UserProfile
+import com.grid.tv.util.isAdultChannelGroup
 import java.util.Calendar
 
 object ProfileAccessGuard {
-    private val adultPatterns = listOf("adult", "18+", "xxx", "mature", "erotic", "porn", "adults only")
-
-    fun isAdultGroup(groupName: String): Boolean {
-        val lower = groupName.lowercase()
-        return adultPatterns.any { lower.contains(it) }
-    }
+    fun isAdultGroup(groupName: String): Boolean = isAdultChannelGroup(groupName)
 
     fun shouldHideChannel(profile: UserProfile, channel: Channel, hideAdultContent: Boolean = true): Boolean {
         if (!hideAdultContent) return false

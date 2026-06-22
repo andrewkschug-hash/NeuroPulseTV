@@ -8,7 +8,9 @@ data class VodPlaybackMeta(
     val episodeNumber: Int? = null,
     val title: String? = null,
     val playlistId: Long? = null,
-    val isTv: Boolean = false
+    val isTv: Boolean = false,
+    /** Staged resume position from Continue Watching or caller intent (RESUME_POSITION). */
+    val resumePositionMs: Long = 0L
 ) {
     val isSeries: Boolean
         get() = seriesId != null && seasonNumber != null && episodeNumber != null
@@ -22,14 +24,16 @@ object VodPlaybackContext {
         posterUrl: String?,
         streamId: Long?,
         title: String? = null,
-        playlistId: Long? = null
+        playlistId: Long? = null,
+        resumePositionMs: Long = 0L
     ) {
         pending = VodPlaybackMeta(
             posterUrl = posterUrl,
             streamId = streamId,
             title = title,
             playlistId = playlistId,
-            isTv = false
+            isTv = false,
+            resumePositionMs = resumePositionMs.coerceAtLeast(0L)
         )
     }
 
@@ -40,7 +44,8 @@ object VodPlaybackContext {
         seasonNumber: Int,
         episodeNumber: Int,
         title: String? = null,
-        playlistId: Long? = null
+        playlistId: Long? = null,
+        resumePositionMs: Long = 0L
     ) {
         pending = VodPlaybackMeta(
             posterUrl = posterUrl,
@@ -50,7 +55,8 @@ object VodPlaybackContext {
             episodeNumber = episodeNumber,
             title = title,
             playlistId = playlistId,
-            isTv = true
+            isTv = true,
+            resumePositionMs = resumePositionMs.coerceAtLeast(0L)
         )
     }
 

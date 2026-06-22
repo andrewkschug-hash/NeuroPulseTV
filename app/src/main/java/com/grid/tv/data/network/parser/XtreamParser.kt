@@ -1,7 +1,9 @@
 package com.grid.tv.data.network.parser
 
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.data.db.entity.ProgramEntity
 import com.grid.tv.domain.model.EpgResolutionStatus
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
@@ -15,12 +17,26 @@ class XtreamParser {
 
     companion object {
         const val VOD_CATALOG_BATCH_SIZE = 75
-        private val JSON_ARRAY_WRAPPER_KEYS = listOf(
+        private val VOD_ARRAY_WRAPPER_KEYS = listOf(
             "vod_streams",
-            "series",
+            "movies",
             "movie_data",
-            "js",
-            "data"
+            "streams",
+            "data",
+            "js"
+        )
+        private val SERIES_ARRAY_WRAPPER_KEYS = listOf(
+            "series",
+            "series_list",
+            "data",
+            "js"
+        )
+        private val CATEGORY_ARRAY_WRAPPER_KEYS = listOf(
+            "categories",
+            "vod_categories",
+            "series_categories",
+            "data",
+            "js"
         )
     }
 
@@ -213,22 +229,57 @@ class XtreamParser {
     }
 
     fun parseVodCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
-        val arr = parseJsonArray(raw) ?: return emptyList()
+        val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
         val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
-            val id = item.optString("category_id")
-            val name = item.optString("category_name").ifBlank { "Movies" }
-            if (id.isNotBlank()) out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
+            val id = optCategoryId(item) ?: continue
+            val name = optCategoryName(item, fallback = "Movies")
+            out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
-        return out
+        return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
-    fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw)?.length() ?: 0
+    fun parseSeriesCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
+        val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val id = optCategoryId(item) ?: continue
+            val name = optCategoryName(item, fallback = "Series")
+            out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
+        }
+        return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
+    }
 
-    fun parseSeriesArrayLength(raw: String): Int = parseJsonArray(raw)?.length() ?: 0
+    fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS)?.length() ?: 0
 
-    fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
+    fun parseSeriesArrayLength(raw: String): Int = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS)?.length() ?: 0
+
+    /** Human-readable hint when a VOD payload cannot be parsed into a stream list. */
+    fun diagnoseVodResponse(raw: String): String? {
+        val trimmed = sanitizeJsonPayload(raw)
+        if (trimmed.isBlank()) return "Provider returned an empty response body."
+        if (trimmed.startsWith("<")) return "Provider returned HTML instead of JSON (check server URL)."
+        if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+            return "Unexpected response format: ${trimmed.take(80)}"
+        }
+        return try {
+            if (trimmed.startsWith("[")) return null
+            val obj = JSONObject(trimmed)
+            when {
+                obj.has("user_info") && parseJsonArray(trimmed, VOD_ARRAY_WRAPPER_KEYS) == null ->
+                    "Provider returned account info instead of a movie list (check server URL or credentials)."
+                obj.optString("error").isNotBlank() ->
+                    "Provider error: ${obj.optString("error")}"
+                else -> null
+            }
+        } catch (_: Exception) {
+            "Response is not valid JSON."
+        }
+    }
+
+    suspend fun parseVod(raw: String, username: String, password: String, serverUrl: String, playlistId: Long = 0L): List<VodItem> {
         val out = ArrayList<VodItem>()
         parseVodBatched(raw, username, password, serverUrl, playlistId) { batch ->
             out.addAll(batch)
@@ -236,16 +287,16 @@ class XtreamParser {
         return out
     }
 
-    fun parseVodBatched(
+    suspend fun parseVodBatched(
         raw: String,
         username: String,
         password: String,
         serverUrl: String,
         playlistId: Long = 0L,
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
-        onBatch: (List<VodItem>) -> Unit
+        onBatch: suspend (List<VodItem>) -> Unit
     ): Int {
-        val arr = parseJsonArray(raw) ?: return 0
+        val arr = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS) ?: return 0
         val batch = ArrayList<VodItem>(batchSize)
         for (i in 0 until arr.length()) {
             val parsed = parseVodItem(arr.optJSONObject(i), username, password, serverUrl, playlistId)
@@ -270,7 +321,7 @@ class XtreamParser {
         playlistId: Long
     ): VodItem? {
         item ?: return null
-        val id = optLongId(item, "stream_id", "num") ?: return null
+        val id = optLongId(item, "stream_id", "movie_id", "id", "num") ?: return null
         val ext = item.optString("container_extension").ifBlank { "mp4" }
         val directSource = item.optString("direct_source").ifBlank { null }
         val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), ext, directSource)
@@ -281,19 +332,19 @@ class XtreamParser {
             streamId = id,
             streamUrl = url,
             posterUrl = item.optString("stream_icon").ifBlank { null },
-            plot = item.optString("plot").ifBlank { null },
+            plot = plotOrDescription(item),
             cast = item.optString("cast").ifBlank { null },
             director = item.optString("director").ifBlank { null },
             genre = item.optString("genre").ifBlank { null },
             rating = item.optString("rating").ifBlank { null },
             duration = item.optString("duration").ifBlank { null },
-            categoryId = item.optString("category_id").ifBlank { null },
+            categoryId = optCategoryId(item),
             addedEpochSec = item.optString("added").toLongOrNull(),
             playlistId = playlistId
         )
     }
 
-    fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
+    suspend fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
         val out = ArrayList<SeriesShow>()
         parseSeriesBatched(raw, playlistId) { batch ->
             out.addAll(batch)
@@ -301,13 +352,13 @@ class XtreamParser {
         return out
     }
 
-    fun parseSeriesBatched(
+    suspend fun parseSeriesBatched(
         raw: String,
         playlistId: Long = 0L,
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
-        onBatch: (List<SeriesShow>) -> Unit
+        onBatch: suspend (List<SeriesShow>) -> Unit
     ): Int {
-        val arr = parseJsonArray(raw) ?: return 0
+        val arr = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS) ?: return 0
         val batch = ArrayList<SeriesShow>(batchSize)
         for (i in 0 until arr.length()) {
             val parsed = parseSeriesItem(arr.optJSONObject(i), playlistId) ?: continue
@@ -330,15 +381,17 @@ class XtreamParser {
             id = id,
             name = item.optString("name").ifBlank { "Series $id" },
             coverUrl = item.optString("cover").ifBlank { null },
-            categoryId = item.optString("category_id").ifBlank { null },
+            categoryId = optCategoryId(item),
             genre = item.optString("genre").ifBlank { null },
+            plot = item.optString("plot").ifBlank { null },
             playlistId = playlistId
         )
     }
 
-    fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): List<SeriesSeason> {
+    fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): SeriesDetail {
         val root = JSONObject(raw)
-        val episodes = root.optJSONObject("episodes") ?: return emptyList()
+        val plot = root.optJSONObject("info")?.optString("plot")?.ifBlank { null }
+        val episodes = root.optJSONObject("episodes") ?: return SeriesDetail(seasons = emptyList(), plot = plot)
         val seasons = mutableListOf<SeriesSeason>()
         val keys = episodes.keys()
         while (keys.hasNext()) {
@@ -368,7 +421,7 @@ class XtreamParser {
             val seasonNo = seasonKey.toIntOrNull() ?: (seasons.size + 1)
             seasons += SeriesSeason(number = seasonNo, episodes = episodeRows)
         }
-        return seasons.sortedBy { it.number }
+        return SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
     }
 
     fun parseSimpleDataTable(raw: String): List<Pair<Long, Long>> {
@@ -384,6 +437,72 @@ class XtreamParser {
         return out
     }
 
+    /**
+     * Parses Xtream `get_short_epg` JSON into programme rows keyed by [channelEpgId]
+     * (the playlist channel's tvg-id / epg id, not the provider xmltv id).
+     */
+    fun parseShortEpg(
+        raw: String,
+        channelEpgId: String,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<ProgramEntity> {
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyList()
+        val arr = root.optJSONArray("epg_listings") ?: return emptyList()
+        val out = ArrayList<ProgramEntity>(arr.length())
+        for (i in 0 until arr.length()) {
+            val row = arr.optJSONObject(i) ?: continue
+            val startSec = row.optString("start_timestamp").toLongOrNull()
+                ?: row.optString("start").toLongOrNull()
+            val endSec = row.optString("stop_timestamp").toLongOrNull()
+                ?: row.optString("end").toLongOrNull()
+            if (startSec == null || endSec == null) continue
+            val startMs = if (startSec > 1_000_000_000_000L) startSec else startSec * 1000L
+            val endMs = if (endSec > 1_000_000_000_000L) endSec else endSec * 1000L
+            if (endMs <= windowStart || startMs >= windowEnd) continue
+            val title = row.optString("title").ifBlank { "Untitled" }
+            val description = row.optString("description").ifBlank {
+                row.optString("desc")
+            }.trim()
+            val genre = normalizeShortEpgGenre(row.optString("category"))
+            out += ProgramEntity(
+                id = XmlTvParser.stableProgramId(channelEpgId, startMs),
+                channelEpgId = channelEpgId,
+                title = title,
+                description = description,
+                startTime = startMs,
+                endTime = endMs,
+                genre = genre
+            )
+        }
+        return out
+    }
+
+    private fun normalizeShortEpgGenre(value: String): String {
+        val lower = value.lowercase()
+        return when {
+            "news" in lower -> "NEWS"
+            "sport" in lower -> "SPORTS"
+            "movie" in lower || "film" in lower -> "MOVIES"
+            "kids" in lower || "children" in lower -> "KIDS"
+            else -> "GENERAL"
+        }
+    }
+
+    private fun plotOrDescription(item: JSONObject): String? {
+        item.optString("plot").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("description").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+        item.optJSONObject("info")?.let { info ->
+            info.optString("plot").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("description").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return null
+    }
+
     private fun optLongId(item: JSONObject, vararg keys: String): Long? {
         for (key in keys) {
             if (!item.has(key)) continue
@@ -395,22 +514,65 @@ class XtreamParser {
         return null
     }
 
-    private fun parseJsonArray(raw: String): JSONArray? {
-        if (raw.isBlank()) return null
-        val trimmed = raw.trim()
+    private fun optCategoryId(item: JSONObject): String? {
+        if (!item.has("category_id")) return null
+        return when (val value = item.opt("category_id")) {
+            is Number -> value.toLong().toString()
+            is String -> value.takeIf { it.isNotBlank() }
+            else -> null
+        }
+    }
+
+    private fun optCategoryName(item: JSONObject, fallback: String): String {
+        val id = optCategoryId(item)
+        val candidates = listOf(
+            item.optString("category_name"),
+            item.optString("name"),
+            item.optString("title"),
+            item.optString("category")
+        )
+        for (candidate in candidates) {
+            val trimmed = candidate.trim()
+            if (trimmed.isBlank()) continue
+            if (id != null && trimmed == id) continue
+            if (trimmed.all { it.isDigit() }) continue
+            return trimmed
+        }
+        return fallback
+    }
+
+    private fun sanitizeJsonPayload(raw: String): String =
+        raw.trim().removePrefix("\uFEFF").trim()
+
+    private fun parseJsonArray(raw: String, wrapperKeys: List<String>): JSONArray? {
+        val trimmed = sanitizeJsonPayload(raw)
+        if (trimmed.isBlank()) return null
         return try {
             when {
                 trimmed.startsWith("[") -> JSONArray(trimmed)
-                trimmed.startsWith("{") -> {
-                    val obj = JSONObject(trimmed)
-                    JSON_ARRAY_WRAPPER_KEYS.firstNotNullOfOrNull { key ->
-                        obj.optJSONArray(key)?.takeIf { it.length() > 0 }
-                    }
-                }
+                trimmed.startsWith("{") -> findWrappedJsonArray(JSONObject(trimmed), wrapperKeys)
                 else -> null
             }
         } catch (_: Exception) {
             null
         }
     }
+
+    private fun findWrappedJsonArray(obj: JSONObject, wrapperKeys: List<String>): JSONArray? {
+        for (key in wrapperKeys) {
+            if (obj.has(key) && obj.opt(key) is JSONArray) {
+                return obj.getJSONArray(key)
+            }
+        }
+        val nested = obj.optJSONObject("data") ?: return null
+        for (key in wrapperKeys) {
+            if (nested.has(key) && nested.opt(key) is JSONArray) {
+                return nested.getJSONArray(key)
+            }
+        }
+        return if (nested.opt("data") is JSONArray) nested.getJSONArray("data") else null
+    }
+
+    /** @deprecated internal callers should pass explicit wrapper keys */
+    private fun parseJsonArray(raw: String): JSONArray? = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS)
 }

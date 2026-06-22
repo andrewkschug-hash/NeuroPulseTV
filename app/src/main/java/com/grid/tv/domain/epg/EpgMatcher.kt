@@ -20,9 +20,11 @@ class EpgMatcher @Inject constructor(
     ): EpgMatchOutcome {
         val normalizedInput = normalizer.normalize(channelName)
         val ranked = mutableListOf<EpgMatchCandidate>()
+        var exactIdMatched = false
 
         playlistTvgId?.trim()?.takeIf { it.isNotEmpty() }?.let { tvgId ->
             candidates.firstOrNull { it.epgId.equals(tvgId, ignoreCase = true) }?.let { hit ->
+                exactIdMatched = true
                 ranked += EpgMatchCandidate(
                     epgId = hit.epgId,
                     epgName = hit.displayName,
@@ -31,16 +33,19 @@ class EpgMatcher @Inject constructor(
                     reason = EpgMatchReason.TVG_ID_EXACT
                 )
             }
-            val normalizedTvgId = EpgIdNormalizer.normalize(tvgId)
-            if (normalizedTvgId.isNotEmpty()) {
-                candidates.firstOrNull { EpgIdNormalizer.normalize(it.epgId) == normalizedTvgId }?.let { hit ->
-                    ranked += EpgMatchCandidate(
-                        epgId = hit.epgId,
-                        epgName = hit.displayName,
-                        confidence = 99,
-                        source = hit.source,
-                        reason = EpgMatchReason.TVG_ID_NORMALIZED
-                    )
+            if (!exactIdMatched) {
+                val normalizedTvgId = EpgIdNormalizer.normalize(tvgId)
+                if (normalizedTvgId.isNotEmpty()) {
+                    candidates.firstOrNull { EpgIdNormalizer.normalize(it.epgId) == normalizedTvgId }?.let { hit ->
+                        exactIdMatched = true
+                        ranked += EpgMatchCandidate(
+                            epgId = hit.epgId,
+                            epgName = hit.displayName,
+                            confidence = 99,
+                            source = hit.source,
+                            reason = EpgMatchReason.TVG_ID_NORMALIZED
+                        )
+                    }
                 }
             }
         }
@@ -90,16 +95,20 @@ class EpgMatcher @Inject constructor(
                 )
             }
 
-        candidates.forEach { candidate ->
-            val confidence = normalizer.calculateConfidence(channelName, candidate.displayName)
-            if (confidence >= 55) {
-                ranked += EpgMatchCandidate(
-                    epgId = candidate.epgId,
-                    epgName = candidate.displayName,
-                    confidence = confidence,
-                    source = candidate.source,
-                    reason = EpgMatchReason.FUZZY
-                )
+        if (!exactIdMatched) {
+            val alreadyMatched = ranked.map { it.epgId }.toSet()
+            val displayNames = candidates.map { it.displayName }
+            normalizer.bestFuzzyMatch(channelName, displayNames, minConfidence = 55)?.let { (index, confidence) ->
+                val hit = candidates[index]
+                if (!alreadyMatched.contains(hit.epgId)) {
+                    ranked += EpgMatchCandidate(
+                        epgId = hit.epgId,
+                        epgName = hit.displayName,
+                        confidence = confidence,
+                        source = hit.source,
+                        reason = EpgMatchReason.FUZZY
+                    )
+                }
             }
         }
 

@@ -6,14 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -38,15 +40,14 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.Program
+import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.isHealthy
 import com.grid.tv.player.userLabel
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
-import com.grid.tv.ui.component.formatEpgTime
 
 private val LiveRed = Color(0xFFEF4444)
-private val LiveGreen = Color(0xFF4ADE80)
 
 fun channelQualityLabel(channel: Channel): String {
     Regex("""\((\d+p)\)""", RegexOption.IGNORE_CASE).find(channel.name)?.groupValues?.get(1)?.let {
@@ -65,8 +66,7 @@ fun channelQualityLabel(channel: Channel): String {
 fun EpgPreviewSection(
     channel: Channel,
     program: Program?,
-    upcomingPrograms: List<Program>,
-    now: Long,
+    nextProgram: Program? = null,
     player: ExoPlayer?,
     streamStatus: StreamPlaybackStatus?,
     detailActionFocused: Int,
@@ -79,6 +79,7 @@ fun EpgPreviewSection(
     onRecord: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val now = System.currentTimeMillis()
     val programSubtitle = when {
         program != null -> {
             val time = "${formatEpgTime(program.startTime)} – ${formatEpgTime(program.endTime)}"
@@ -116,8 +117,7 @@ fun EpgPreviewSection(
         EpgPreviewInfoSidebar(
             channel = channel,
             program = program,
-            upcomingPrograms = upcomingPrograms,
-            now = now,
+            nextProgram = nextProgram,
             streamStatus = streamStatus,
             modifier = Modifier.width(EpgLayout.PreviewInfoWidth)
         )
@@ -144,7 +144,10 @@ private fun EpgPreviewPlayerPane(
 ) {
     var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
 
-    DisposableEffect(player) {
+    DisposableEffect(player, streamStatus) {
+        if (streamStatus != null) {
+            return@DisposableEffect onDispose { }
+        }
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 playbackState = state
@@ -158,8 +161,13 @@ private fun EpgPreviewPlayerPane(
     val showVideo = attachSurface &&
         player != null &&
         player.mediaItemCount > 0 &&
-        playbackState != Player.STATE_IDLE &&
-        playbackState != Player.STATE_ENDED
+        when (streamStatus) {
+            null -> playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED
+            StreamPlaybackStatus.IDLE,
+            StreamPlaybackStatus.ERROR,
+            StreamPlaybackStatus.UNAVAILABLE -> false
+            else -> true
+        }
     val shape = RoundedCornerShape(10.dp)
 
     Box(
@@ -177,13 +185,24 @@ private fun EpgPreviewPlayerPane(
                             useController = false
                             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                             this.player = player
+                            isFocusable = false
+                            isFocusableInTouchMode = false
+                        }.also { view ->
+                            PlaybackSurfaceInstrument.attach("epg_preview", player, view)
                         }
                     },
                     update = { view ->
                         if (view.player != player) view.player = player
+                        view.isFocusable = false
+                        view.isFocusableInTouchMode = false
                     },
-                    onRelease = { view -> view.player = null },
-                    modifier = Modifier.fillMaxSize()
+                    onRelease = { view ->
+                        PlaybackSurfaceInstrument.detach("epg_preview", player, view)
+                        view.player = null
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .focusProperties { canFocus = false }
                 )
             }
         }
@@ -299,12 +318,11 @@ private fun EpgPreviewPlayerPane(
                         onClick = onWatch,
                         compact = true
                     )
-                    EpgActionButton(
-                        label = if (isFavorite) "★ Favourite" else "☆ Favourite",
+                    EpgFavoriteActionButton(
+                        isFavorite = isFavorite,
                         isFocused = detailActionFocused == 1,
                         onClick = onFavorite,
-                        compact = true,
-                        labelColor = if (isFavorite) EpgColors.FavoriteStar else null
+                        compact = true
                     )
                     EpgActionButton(
                         label = "⏺ Record",
@@ -322,14 +340,15 @@ private fun EpgPreviewPlayerPane(
 private fun EpgPreviewInfoSidebar(
     channel: Channel,
     program: Program?,
-    upcomingPrograms: List<Program>,
-    now: Long,
+    nextProgram: Program?,
     streamStatus: StreamPlaybackStatus?,
     modifier: Modifier = Modifier
 ) {
+    val now = System.currentTimeMillis()
     val shape = RoundedCornerShape(10.dp)
-    val quality = channelQualityLabel(channel)
-    val isLiveNow = program?.let { now in it.startTime..it.endTime } ?: true
+    val scrollState = rememberScrollState()
+    val isLiveNow = program?.let { now in it.startTime..it.endTime } ?: false
+    val episodeInfo = program?.title?.let(::parseProgramEpisodeInfo)
 
     Column(
         modifier = modifier
@@ -337,45 +356,126 @@ private fun EpgPreviewInfoSidebar(
             .clip(shape)
             .background(Color(0xFF12121C))
             .border(1.dp, EpgColors.BorderSubtle, shape)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .verticalScroll(scrollState),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        EpgInfoField(label = "CHANNEL", value = channel.name)
-        EpgInfoField(label = "QUALITY", value = "$quality HD")
-        EpgInfoField(
-            label = "STATUS",
-            value = if (isLiveNow) "● Live now" else "Scheduled",
-            valueColor = if (isLiveNow) LiveGreen else EpgColors.TextSecondary
-        )
-        streamStatus?.let { status ->
-            if (status.userLabel().isNotBlank()) {
-                StreamStatusBadge(status = status, compact = true)
+        if (program != null) {
+            Text(
+                text = program.title,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = buildString {
+                    append(formatEpgTime(program.startTime))
+                    append(" – ")
+                    append(formatEpgTime(program.endTime))
+                    append("  ·  ")
+                    append(programDurationMinutes(program))
+                    append(" min")
+                },
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 1
+            )
+            if (isLiveNow) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "●", color = LiveRed, fontSize = 9.sp)
+                    Text(
+                        text = "On now",
+                        color = LiveRed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "Up Next",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.5.sp
-        )
-
-        if (upcomingPrograms.isEmpty()) {
-            repeat(3) { index ->
-                EpgUpNextRow(
-                    time = formatEpgTime(now + (index + 1) * 30 * 60 * 1000L),
-                    title = "No data"
+            episodeInfo?.let { episode ->
+                EpgInfoField(label = "EPISODE", value = episode)
+            }
+            val synopsis = program.description.trim()
+            if (synopsis.isNotBlank()) {
+                EpgInfoField(
+                    label = "DESCRIPTION",
+                    value = synopsis,
+                    maxLines = 5
                 )
             }
         } else {
-            upcomingPrograms.take(4).forEach { upcoming ->
-                EpgUpNextRow(
-                    time = formatEpgTime(upcoming.startTime),
-                    title = upcoming.title
-                )
+            Text(
+                text = channel.name,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = channel.currentProgram?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "No EPG data available for this channel.",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(EpgColors.BorderSubtle.copy(alpha = 0.6f))
+        )
+
+        Text(
+            text = "UP NEXT",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.8.sp
+        )
+        if (nextProgram != null) {
+            Text(
+                text = nextProgram.title,
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Starts ${formatEpgTime(nextProgram.startTime)}",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 1
+            )
+        } else {
+            Text(
+                text = "No upcoming program listed.",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                maxLines = 2
+            )
+        }
+
+        streamStatus?.let { status ->
+            if (status.userLabel().isNotBlank()) {
+                StreamStatusBadge(status = status, compact = true)
             }
         }
     }
@@ -385,7 +485,8 @@ private fun EpgPreviewInfoSidebar(
 private fun EpgInfoField(
     label: String,
     value: String,
-    valueColor: Color = EpgColors.TextPrimary
+    valueColor: Color = EpgColors.TextPrimary,
+    maxLines: Int = 2
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
@@ -400,36 +501,11 @@ private fun EpgInfoField(
             text = value,
             color = valueColor,
             fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun EpgUpNextRow(time: String, title: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = time,
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.width(72.dp)
-        )
-        Text(
-            text = title,
-            color = if (title == "No data") EpgColors.TextDimmed else EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            maxLines = 1,
+            fontSize = if (label == "DESCRIPTION") 12.sp else 14.sp,
+            fontWeight = if (label == "DESCRIPTION") FontWeight.Normal else FontWeight.SemiBold,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            lineHeight = if (label == "DESCRIPTION") 16.sp else 18.sp
         )
     }
 }

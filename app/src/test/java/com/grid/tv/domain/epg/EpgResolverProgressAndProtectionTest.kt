@@ -1,5 +1,6 @@
 package com.grid.tv.domain.epg
 
+import android.util.Log
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.EpgSourceChannelDao
@@ -7,8 +8,10 @@ import com.grid.tv.data.db.dao.ProgramDao
 import com.grid.tv.data.db.entity.ChannelEntity
 import com.grid.tv.data.network.AppHttpClient
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.coVerify
+import io.mockk.mockkStatic
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
@@ -25,6 +28,12 @@ class EpgResolverProgressAndProtectionTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
+
         channelDao = mockk(relaxed = true)
         programDao = mockk(relaxed = true)
         sourceDao = mockk(relaxed = true)
@@ -33,6 +42,8 @@ class EpgResolverProgressAndProtectionTest {
         val canonicalDao = mockk<com.grid.tv.data.db.dao.CanonicalChannelDao>(relaxed = true)
         val learnedDao = mockk<com.grid.tv.data.db.dao.EpgLearnedMappingDao>(relaxed = true)
         coEvery { canonicalDao.count() } returns 1
+        coEvery { canonicalDao.all() } returns emptyList()
+        coEvery { learnedDao.get(any()) } returns null
         val matcher = EpgMatcher(normalizer, canonicalDao, learnedDao)
         val seeder = CanonicalChannelSeeder(canonicalDao, normalizer)
         val analytics = EpgMatchAnalyticsTracker(
@@ -61,6 +72,7 @@ class EpgResolverProgressAndProtectionTest {
         coEvery { channelDao.unresolvedBatch(50, 50, any(), any()) } returns emptyList()
         coEvery { programDao.distinctChannelEpgIds() } returns listOf("cnn")
         coEvery { sourceDao.bySource(any()) } returns emptyList()
+        coEvery { sourceDao.all() } returns emptyList()
         coEvery { sourceDao.lastCachedAt(any()) } returns System.currentTimeMillis()
 
         val items = engine.resolveAllUnmatched().toList()

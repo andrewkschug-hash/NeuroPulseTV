@@ -8,6 +8,8 @@ import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.ui.component.buildMovieSearchSecondaryLine
+import com.grid.tv.ui.component.cleanVodDisplayTitle
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 
@@ -69,7 +71,6 @@ class UnifiedSearchIndex {
 
     fun search(
         query: String,
-        limitPerSection: Int = 5,
         recentSearches: List<String> = emptyList(),
         trendingSearches: List<String> = SearchHistoryStore.DEFAULT_TRENDING
     ): UnifiedSearchResults {
@@ -97,13 +98,13 @@ class UnifiedSearchIndex {
 
         return UnifiedSearchResults(
             query = q,
-            channels = ranked.filter { it.type == SearchResultType.CHANNEL }.take(limitPerSection),
-            movies = ranked.filter { it.type == SearchResultType.VOD }.take(limitPerSection),
-            series = ranked.filter { it.type == SearchResultType.SERIES }.take(limitPerSection),
-            episodes = ranked.filter { it.type == SearchResultType.EPISODE }.take(limitPerSection),
-            actors = ranked.filter { it.type == SearchResultType.ACTOR }.take(limitPerSection),
-            genres = ranked.filter { it.type == SearchResultType.GENRE }.take(limitPerSection),
-            programs = ranked.filter { it.type == SearchResultType.PROGRAM }.take(limitPerSection),
+            channels = ranked.filter { it.type == SearchResultType.CHANNEL },
+            movies = ranked.filter { it.type == SearchResultType.VOD },
+            series = ranked.filter { it.type == SearchResultType.SERIES },
+            episodes = ranked.filter { it.type == SearchResultType.EPISODE },
+            actors = ranked.filter { it.type == SearchResultType.ACTOR },
+            genres = ranked.filter { it.type == SearchResultType.GENRE },
+            programs = ranked.filter { it.type == SearchResultType.PROGRAM },
             recentSearches = recentSearches,
             trendingSearches = trendingSearches
         )
@@ -178,9 +179,8 @@ class UnifiedSearchIndex {
             val watched = if (movie.streamId in snapshot.lastWatchedVodStreamIds) now else 0L
             val result = SearchResultItem(
                 id = "vod-${movie.id}",
-                primaryTitle = movie.title,
-                secondaryLine = listOfNotNull("Movie", movie.genre, movie.rating?.let { "★ $it" })
-                    .joinToString(" · "),
+                primaryTitle = cleanVodDisplayTitle(movie.title),
+                secondaryLine = buildMovieSearchSecondaryLine(movie.genre, movie.rating),
                 imageUrl = movie.posterUrl,
                 type = SearchResultType.VOD,
                 vodItem = movie
@@ -194,7 +194,7 @@ class UnifiedSearchIndex {
         snapshot.series.forEach { show ->
             val result = SearchResultItem(
                 id = "series-${show.id}",
-                primaryTitle = show.name,
+                primaryTitle = cleanVodDisplayTitle(show.name),
                 secondaryLine = listOfNotNull("Series", show.genre).joinToString(" · "),
                 imageUrl = show.coverUrl,
                 type = SearchResultType.SERIES,
@@ -207,7 +207,9 @@ class UnifiedSearchIndex {
             val label = "S${indexed.seasonNumber}E${indexed.episode.episodeNumber ?: "?"} · ${indexed.series.name}"
             val result = SearchResultItem(
                 id = "ep-${indexed.series.id}-${indexed.seasonNumber}-${indexed.episode.id}",
-                primaryTitle = indexed.episode.title.ifBlank { indexed.series.name },
+                primaryTitle = cleanVodDisplayTitle(
+                    indexed.episode.title.ifBlank { indexed.series.name }
+                ),
                 secondaryLine = label,
                 imageUrl = indexed.series.coverUrl,
                 type = SearchResultType.EPISODE,

@@ -8,6 +8,7 @@ import java.net.URL
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 
@@ -24,17 +25,53 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var vodClient: OkHttpClient = buildVodClient(AppSettings())
 
+    /** Tight timeouts for Xtream get_short_epg viewport hydration — must not block the guide. */
+    @Volatile
+    private var shortEpgClient: OkHttpClient = buildShortEpgClient(AppSettings())
+
+    /** Bounded-concurrency client for IPTV channel HEAD/range probes. */
+    @Volatile
+    private var probeClient: OkHttpClient = buildProbeClient(AppSettings())
+
+    /** Long-lived reads for live/VOD ExoPlayer streams — shares proxy, DNS, and connect timeout with AppHttpClient. */
+    @Volatile
+    private var playbackClient: OkHttpClient = buildPlaybackClient(AppSettings())
+
     fun client(): OkHttpClient = client
 
+    fun probeClient(): OkHttpClient = probeClient
+
     fun epgClient(): OkHttpClient = epgClient
+
+    /** ExoPlayer stream segments — honors proxy, [IptvDns], and connection timeout from settings. */
+    fun playbackClient(): OkHttpClient = playbackClient
 
     /** Large Xtream VOD/series catalog JSON can be tens of MB — use extended timeouts. */
     fun vodClient(): OkHttpClient = vodClient
 
+    /** Viewport get_short_epg — fail fast so Cloudflare 522s do not stall the guide. */
+    fun shortEpgClient(): OkHttpClient = shortEpgClient
+
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
+        probeClient = buildProbeClient(settings)
         epgClient = buildEpgClient(settings)
         vodClient = buildVodClient(settings)
+        shortEpgClient = buildShortEpgClient(settings)
+        playbackClient = buildPlaybackClient(settings)
+    }
+
+    private fun buildProbeClient(settings: AppSettings): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = PROBE_MAX_REQUESTS
+            maxRequestsPerHost = PROBE_MAX_REQUESTS_PER_HOST
+        }
+        return baseBuilder(settings, connectTimeoutSeconds = 5)
+            .dispatcher(dispatcher)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
+            .build()
     }
 
     private fun buildClient(settings: AppSettings): OkHttpClient {
@@ -49,9 +86,11 @@ class AppHttpClient @Inject constructor() {
 
     private fun buildEpgClient(settings: AppSettings): OkHttpClient =
         baseBuilder(settings)
+            .connectTimeout(EPG_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .readTimeout(EPG_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(EPG_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(EPG_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .retryOnConnectionFailure(true)
             .build()
 
     private fun buildVodClient(settings: AppSettings): OkHttpClient =
@@ -59,6 +98,25 @@ class AppHttpClient @Inject constructor() {
             .readTimeout(VOD_READ_TIMEOUT_MINUTES, TimeUnit.MINUTES)
             .writeTimeout(60, TimeUnit.SECONDS)
             .callTimeout(VOD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            .build()
+
+    private fun buildShortEpgClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings, connectTimeoutSeconds = 5)
+            .readTimeout(SHORT_EPG_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(SHORT_EPG_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(SHORT_EPG_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(false)
+            .build()
+
+    /**
+     * Live/VOD playback: same proxy + DNS stack as EPG/scanner; infinite read timeout for streaming.
+     */
+    private fun buildPlaybackClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .writeTimeout(PLAYBACK_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(true)
             .build()
 
     private fun baseBuilder(
@@ -82,10 +140,18 @@ class AppHttpClient @Inject constructor() {
     }
 
     private companion object {
-        const val EPG_CALL_TIMEOUT_MINUTES = 5L
+        const val EPG_CONNECT_TIMEOUT_SECONDS = 30L
+        const val EPG_CALL_TIMEOUT_MINUTES = 8L
         const val EPG_READ_TIMEOUT_MINUTES = 5L
+        const val EPG_WRITE_TIMEOUT_SECONDS = 60L
         const val VOD_CALL_TIMEOUT_MINUTES = 10L
         const val VOD_READ_TIMEOUT_MINUTES = 10L
+        const val SHORT_EPG_CALL_TIMEOUT_SECONDS = 10L
+        const val SHORT_EPG_READ_TIMEOUT_SECONDS = 8L
+        const val SHORT_EPG_WRITE_TIMEOUT_SECONDS = 8L
+        const val PROBE_MAX_REQUESTS = 8
+        const val PROBE_MAX_REQUESTS_PER_HOST = 4
+        const val PLAYBACK_WRITE_TIMEOUT_SECONDS = 30L
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {

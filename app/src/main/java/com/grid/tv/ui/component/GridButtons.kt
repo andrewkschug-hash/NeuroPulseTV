@@ -1,9 +1,7 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,17 +12,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import com.grid.tv.ui.platform.touchTarget
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
-import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -43,26 +42,27 @@ fun GridPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    height: Dp = ButtonHeight,
+    shape: Shape = RoundedCornerShape(8.dp),
     contentDescription: String = text
 ) {
     var focused by remember { mutableStateOf(false) }
     val bg = if (focused) PrimaryBlueFocus else PrimaryBlue
 
-    val buttonShape = RoundedCornerShape(8.dp)
     GridFocusSurface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .height(ButtonHeight)
+            .height(height)
             .touchTarget()
             .onFocusChanged { focused = it.isFocused }
             .tvFocusBorder(
                 focused = focused,
-                shape = buttonShape,
+                shape = shape,
                 unfocusedColor = Color.Transparent
             )
             .semantics { this.contentDescription = contentDescription },
-        shape = ClickableSurfaceDefaults.shape(buttonShape),
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg,
@@ -72,7 +72,7 @@ fun GridPrimaryButton(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxHeight()
+                .fillMaxSize()
                 .padding(horizontal = ButtonHorizontalPadding),
             contentAlignment = Alignment.Center
         ) {
@@ -93,6 +93,11 @@ fun GridOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    height: Dp = ButtonHeight,
+    shape: Shape = RoundedCornerShape(8.dp),
+    horizontalPadding: Dp = ButtonHorizontalPadding,
+    fontSize: TextUnit = 14.sp,
+    fontWeight: FontWeight = FontWeight.Medium,
     contentDescription: String = text
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -103,11 +108,19 @@ fun GridOutlinedButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier
-            .height(ButtonHeight)
+            .height(height)
             .touchTarget()
             .onFocusChanged { focused = it.isFocused }
+            .tvFocusBorder(
+                focused = focused,
+                shape = shape,
+                width = 2.dp,
+                unfocusedWidth = 1.dp,
+                unfocusedColor = OutlinedBorder,
+                focusedColor = EpgColors.FocusBorder
+            )
             .semantics { this.contentDescription = contentDescription },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = bg,
             focusedContainerColor = bg,
@@ -117,18 +130,16 @@ fun GridOutlinedButton(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(8.dp))
-                .tvFocusBorder(focused = focused, shape = RoundedCornerShape(8.dp), unfocusedColor = Color.Transparent)
-                .padding(horizontal = ButtonHorizontalPadding),
+                .fillMaxSize()
+                .padding(horizontal = horizontalPadding),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = text,
                 color = textColor,
                 fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+                fontSize = fontSize,
+                fontWeight = fontWeight
             )
         }
     }

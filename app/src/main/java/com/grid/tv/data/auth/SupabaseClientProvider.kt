@@ -8,6 +8,7 @@ import io.github.jan.supabase.compose.auth.ComposeAuth
 import io.github.jan.supabase.compose.auth.googleNativeLogin
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.functions.Functions
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,14 +19,14 @@ class SupabaseClientProvider @Inject constructor() {
         if (!isConfigured) null else buildClient()
     }
 
-    /** True when SUPABASE_URL and SUPABASE_ANON_KEY are present in .env at build time. */
+    /** True when SUPABASE_URL and SUPABASE_ANON_KEY are present in local.properties at build time. */
     val isConfigured: Boolean
         get() = BuildConfig.SUPABASE_URL.trim().isNotBlank() &&
             BuildConfig.SUPABASE_ANON_KEY.trim().isNotBlank()
 
     val client: SupabaseClient
         get() = configuredClient
-            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env")
+            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to local.properties")
 
     fun clientOrNull(): SupabaseClient? = if (isConfigured) {
         runCatching { configuredClient }.getOrNull()
@@ -44,6 +45,7 @@ class SupabaseClientProvider @Inject constructor() {
                 flowType = FlowType.PKCE
             }
             install(Postgrest)
+            install(Functions)
             install(ComposeAuth) {
                 val webClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID.trim()
                 if (webClientId.isNotBlank()) {

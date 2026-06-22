@@ -24,6 +24,7 @@ class EpgMatcherTest {
     fun setup() {
         canonicalDao = mockk(relaxed = true)
         learnedDao = mockk(relaxed = true)
+        coEvery { learnedDao.get(any()) } returns null
         matcher = EpgMatcher(normalizer, canonicalDao, learnedDao)
     }
 
@@ -33,7 +34,7 @@ class EpgMatcherTest {
             epgSource("BBC.One.uk", "BBC One", "xmltv")
         )
         val outcome = matcher.match("BBC One", "bbc.one.uk", candidates)
-        assertEquals(EpgMatchReason.TVG_ID_NORMALIZED, outcome.best?.reason)
+        assertEquals(EpgMatchReason.TVG_ID_EXACT, outcome.best?.reason)
         assertEquals("BBC.One.uk", outcome.best?.epgId)
     }
 
@@ -87,6 +88,31 @@ class EpgMatcherTest {
         val outcome = matcher.match("TSN 5 CA", null, candidates)
         assertNotNull(outcome.best)
         assertEquals(EpgMatchReason.NORMALIZED_EXACT, outcome.best?.reason)
+    }
+
+    @Test
+    fun match_fuzzyWhenTvgIdNotInEpg() = runTest {
+        coEvery { canonicalDao.all() } returns emptyList()
+        val candidates = listOf(
+            epgSource("ohl01.ca", "OHL 01", "xmltv:1"),
+            epgSource("ohl02.ca", "OHL 02", "xmltv:1")
+        )
+        val outcome = matcher.match("OHL 01", "1948726", candidates)
+        assertNotNull(outcome.best)
+        assertEquals("ohl01.ca", outcome.best?.epgId)
+        assertEquals(EpgMatchReason.NORMALIZED_EXACT, outcome.best?.reason)
+    }
+
+    @Test
+    fun match_fuzzyNameWhenTvgIdWrongAndNamesSimilar() = runTest {
+        coEvery { canonicalDao.all() } returns emptyList()
+        val candidates = listOf(
+            epgSource("ohl01.ca", "OHL Ontario Hockey League 01", "xmltv:1")
+        )
+        val outcome = matcher.match("OHL 01", "1948726", candidates)
+        assertNotNull(outcome.best)
+        assertEquals("ohl01.ca", outcome.best?.epgId)
+        assertEquals(EpgMatchReason.FUZZY, outcome.best?.reason)
     }
 
     private fun epgSource(epgId: String, name: String, source: String) = EpgSourceChannelEntity(

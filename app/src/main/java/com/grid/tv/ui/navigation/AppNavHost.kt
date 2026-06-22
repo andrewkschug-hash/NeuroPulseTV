@@ -277,11 +277,13 @@ fun AppNavHost(
                     },
                     onResumeContinueWatching = { item ->
                         VodPlaybackHelper.stageContinueWatching(item)
+                        val resumeMs = VodPlaybackHelper.resumePositionFor(item)
                         navController.navigate(
                             Routes.DirectPlayer.build(
                                 title = item.title,
                                 url = item.streamUrl,
-                                resume = true
+                                resume = resumeMs > 0L,
+                                resumePositionMs = resumeMs
                             )
                         )
                     },
@@ -417,14 +419,17 @@ fun AppNavHost(
                     navArgument("recordingId") { type = NavType.LongType; defaultValue = 0L },
                     navArgument("recordedAt") { type = NavType.LongType; defaultValue = 0L },
                     navArgument("resume") { type = NavType.IntType; defaultValue = 0 },
+                    navArgument("resumePositionMs") { type = NavType.LongType; defaultValue = 0L },
                     navArgument("title") { type = NavType.StringType },
                     navArgument("url") { type = NavType.StringType }
                 )
             ) {
+                val resumePositionArg = it.arguments?.getLong("resumePositionMs") ?: 0L
                 DirectPlayerScreen(
                     recordingId = it.arguments?.getLong("recordingId") ?: 0L,
                     recordedAt = it.arguments?.getLong("recordedAt") ?: 0L,
                     resume = (it.arguments?.getInt("resume") ?: 0) == 1,
+                    resumePositionMs = resumePositionArg,
                     title = android.net.Uri.decode(it.arguments?.getString("title") ?: "Video"),
                     url = android.net.Uri.decode(it.arguments?.getString("url") ?: ""),
                     onBack = { navController.popBackStack() },

@@ -26,10 +26,20 @@ import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -37,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
@@ -48,6 +59,7 @@ import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.theme.VodNetflixColors
 import java.text.NumberFormat
 
 fun parseVodDurationMs(raw: String?): Long? {
@@ -75,11 +87,25 @@ fun VodPosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     ratingBadge: String? = null,
-    posterHeight: androidx.compose.ui.unit.Dp = 168.dp
+    posterHeight: androidx.compose.ui.unit.Dp = 168.dp,
+    externallyFocused: Boolean = false
 ) {
+    val displayTitle = remember(title) { cleanVodDisplayTitle(title) }
+    val languageBadge = remember(title) { parseVodLanguageBadge(title) }
+    val resolutionBadge = remember(title) {
+        parseVodResolutionBadge(title) ?: if (showHdBadge) "HD" else null
+    }
     GridFocusSurface(
         onClick = onClick,
-        modifier = modifier.width(112.dp),
+        modifier = modifier
+            .width(112.dp)
+            .then(
+                if (externallyFocused) {
+                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
+                } else {
+                    Modifier
+                }
+            ),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF13131A),
@@ -102,21 +128,49 @@ fun VodPosterCard(
                             .size(Size(224, 336))
                             .crossfade(200)
                             .build(),
-                        contentDescription = title,
+                        contentDescription = displayTitle,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            text = title.take(2).uppercase(),
+                            text = displayTitle.take(2).uppercase(),
                             color = EpgColors.TextSecondary,
                             fontFamily = DmSansFamily,
                             fontSize = 18.sp
                         )
                     }
                 }
-                if (!ratingBadge.isNullOrBlank()) {
+                languageBadge?.let { badge ->
+                    Text(
+                        text = badge,
+                        color = Color.White,
+                        fontFamily = DmSansFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+                resolutionBadge?.let { badge ->
+                    Text(
+                        text = badge,
+                        color = Color(0xFFFFD54F),
+                        fontFamily = DmSansFamily,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .background(Color(0xCC78350F), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
+                if (resolutionBadge == null && !ratingBadge.isNullOrBlank()) {
                     Text(
                         text = ratingBadge,
                         color = EpgColors.TextPrimary,
@@ -128,20 +182,6 @@ fun VodPosterCard(
                             .padding(6.dp)
                             .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
-                if (showHdBadge) {
-                    Text(
-                        text = "HD",
-                        color = EpgColors.TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .background(EpgColors.Accent.copy(alpha = 0.85f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
                 progressFraction?.takeIf { it in 0.01f..0.98f }?.let { fraction ->
@@ -162,7 +202,7 @@ fun VodPosterCard(
                 }
             }
             Text(
-                text = title,
+                text = displayTitle,
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 12.sp,
@@ -423,16 +463,48 @@ fun VodEpisodeCard(
     duration: String?,
     progressFraction: Float?,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    externallyFocused: Boolean = false
 ) {
     val shape = RoundedCornerShape(8.dp)
+    val displayTitle = remember(title) { cleanVodDisplayTitle(title) }
+    var focused by remember { mutableStateOf(false) }
+    val showFocused = focused || externallyFocused
+    val scale by animateFloatAsState(
+        targetValue = if (showFocused) 1.03f else 1f,
+        animationSpec = tween(150),
+        label = "episodeCardScale"
+    )
     GridFocusSurface(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(4.dp)
+            .then(
+                if (focusRequester != null) {
+                    Modifier.focusRequester(focusRequester)
+                } else {
+                    Modifier
+                }
+            )
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { focused = it.isFocused }
+            .tvFocusBorder(
+                focused = showFocused,
+                shape = shape,
+                width = 3.dp,
+                unfocusedWidth = 1.dp,
+                unfocusedColor = EpgColors.BorderSubtle.copy(alpha = 0.45f),
+                focusedColor = EpgColors.FocusBorder
+            ),
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color(0xFF13131A),
-            focusedContainerColor = Color(0xFF13131A)
+            focusedContainerColor = Color(0xFF1E1E2A)
         )
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -458,7 +530,7 @@ fun VodEpisodeCard(
                 }
             }
             Text(
-                text = title,
+                text = displayTitle,
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 13.sp,
@@ -494,14 +566,17 @@ fun VodHeroSection(
     carouselIndex: Int,
     onPlay: () -> Unit,
     onMoreInfo: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    playFocusRequester: FocusRequester? = null,
+    moreInfoFocusRequester: FocusRequester? = null
 ) {
+    val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
-    val displayTitle = movie.title.replace(Regex("\\s*\\(\\d{4}\\)\\s*"), "").trim()
+    val displayTitle = remember(movie.title) { cleanVodDisplayTitle(movie.title) }
     val rating = enrichment?.rating?.takeIf { it > 0.0 }?.let { String.format("%.1f", it) }
         ?: movie.rating?.trim()?.takeIf { it.isNotBlank() }
     val year = enrichment?.releaseDate?.take(4)
-        ?: Regex("\\b(19\\d{2}|20\\d{2})\\b").find(movie.title)?.value
+        ?: parseVodReleaseYear(movie.title)
     val ageCert = enrichment?.ageCertification?.takeIf { it.isNotBlank() }
     val genres = (enrichment?.genres ?: movie.genre)
         ?.split(",")
@@ -509,18 +584,20 @@ fun VodHeroSection(
         ?.filter { it.isNotBlank() }
         ?.take(3)
         .orEmpty()
-    val overview = enrichment?.overview?.takeIf { it.isNotBlank() }
-        ?: movie.plot?.takeIf { it.isNotBlank() }
-        ?: ""
+    val overview = resolveMovieOverview(movie, enrichment).orEmpty()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(400.dp)
+            .height(320.dp)
     ) {
         if (!backdropUrl.isNullOrBlank()) {
             AsyncImage(
-                model = backdropUrl,
+                model = ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .size(Size(1920, 800))
+                    .crossfade(300)
+                    .build(),
                 contentDescription = displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
@@ -529,7 +606,7 @@ fun VodHeroSection(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF1A1A28))
+                    .background(VodNetflixColors.CardPlaceholder)
             )
         }
 
@@ -539,10 +616,10 @@ fun VodHeroSection(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color.Black.copy(alpha = 0.15f),
-                            Color.Black.copy(alpha = 0.55f),
-                            Color.Black.copy(alpha = 0.92f),
-                            EpgColors.Background
+                            Color.Black.copy(alpha = 0.1f),
+                            Color.Black.copy(alpha = 0.45f),
+                            Color.Black.copy(alpha = 0.85f),
+                            VodNetflixColors.Background
                         )
                     )
                 )
@@ -552,16 +629,24 @@ fun VodHeroSection(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 28.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 56.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
-                text = displayTitle,
-                color = Color.White,
+                text = "FEATURED",
+                color = VodNetflixColors.Accent,
                 fontFamily = DmSansFamily,
-                fontSize = 34.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                letterSpacing = 1.2.sp
+            )
+            Text(
+                text = displayTitle,
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
@@ -569,6 +654,15 @@ fun VodHeroSection(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (!year.isNullOrBlank()) {
+                    Text(
+                        text = year,
+                        color = VodNetflixColors.TextSecondary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
                 if (!rating.isNullOrBlank()) {
                     Text(
                         text = "★ $rating",
@@ -581,103 +675,94 @@ fun VodHeroSection(
                 if (!ageCert.isNullOrBlank()) {
                     Text(
                         text = ageCert,
-                        color = EpgColors.TextSecondary,
+                        color = VodNetflixColors.TextSecondary,
                         fontFamily = DmSansFamily,
                         fontSize = 12.sp,
                         modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                            .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
-                }
-                if (!year.isNullOrBlank()) {
-                    Text(
-                        text = year,
-                        color = EpgColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-
-            if (genres.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    genres.forEach { genre ->
-                        Text(
-                            text = genre,
-                            color = EpgColors.TextPrimary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp))
-                                .padding(horizontal = 12.dp, vertical = 5.dp)
-                        )
-                    }
                 }
             }
 
             if (overview.isNotBlank()) {
                 Text(
                     text = overview,
-                    color = EpgColors.TextSecondary,
+                    color = VodNetflixColors.TextSecondary,
                     fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    maxLines = 2,
+                    fontSize = 13.sp,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 20.sp
+                    lineHeight = 18.sp,
+                    modifier = Modifier.fillMaxWidth(0.5f)
                 )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val playModifier = if (playFocusRequester != null) {
+                    Modifier.focusRequester(playFocusRequester)
+                } else {
+                    Modifier
+                }
                 GridFocusSurface(
                     onClick = onPlay,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    modifier = playModifier,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = EpgColors.Accent,
-                        focusedContainerColor = EpgColors.Accent
+                        containerColor = Color.White,
+                        focusedContainerColor = Color.White.copy(alpha = 0.92f)
                     )
                 ) {
                     Text(
                         text = "▶  Play",
-                        color = Color.White,
+                        color = Color.Black,
                         fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                     )
+                }
+                val moreModifier = if (moreInfoFocusRequester != null) {
+                    Modifier.focusRequester(moreInfoFocusRequester)
+                } else {
+                    Modifier
                 }
                 GridFocusSurface(
                     onClick = onMoreInfo,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    modifier = moreModifier.border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(24.dp)
+                    ),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(24.dp)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.12f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.18f)
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = Color.White.copy(alpha = 0.15f)
                     )
                 ) {
                     Text(
-                        text = "More Info",
-                        color = EpgColors.TextPrimary,
+                        text = "More info",
+                        color = VodNetflixColors.TextPrimary,
                         fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                     )
                 }
             }
 
             if (carouselSize > 1) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     repeat(carouselSize) { index ->
                         Box(
                             modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .size(if (index == carouselIndex) 8.dp else 6.dp)
+                                .size(if (index == carouselIndex) 6.dp else 4.dp)
                                 .background(
-                                    if (index == carouselIndex) Color.White else Color.White.copy(alpha = 0.35f),
+                                    if (index == carouselIndex) Color.White else Color.White.copy(alpha = 0.3f),
                                     CircleShape
                                 )
                         )
@@ -800,6 +885,22 @@ fun VodCatalogLoadingBanner(
     Text(
         text = vodCatalogStatusMessage(baseMessage, loaded, total),
         color = EpgColors.TextSecondary,
+        fontFamily = DmSansFamily,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        modifier = modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
+fun VodCatalogRefreshWarningBanner(
+    message: String?,
+    modifier: Modifier = Modifier
+) {
+    if (message.isNullOrBlank()) return
+    Text(
+        text = message,
+        color = VodNetflixColors.TextSecondary,
         fontFamily = DmSansFamily,
         fontSize = 12.sp,
         lineHeight = 17.sp,

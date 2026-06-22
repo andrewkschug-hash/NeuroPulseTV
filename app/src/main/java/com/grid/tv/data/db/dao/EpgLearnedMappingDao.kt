@@ -17,6 +17,9 @@ interface EpgLearnedMappingDao {
     @Query("SELECT * FROM epg_learned_mappings ORDER BY learnedAt DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<EpgLearnedMappingEntity>
 
+    @Query("SELECT * FROM epg_learned_mappings ORDER BY learnedAt DESC")
+    suspend fun all(): List<EpgLearnedMappingEntity>
+
     @Query("DELETE FROM epg_learned_mappings")
     suspend fun deleteAll()
 }

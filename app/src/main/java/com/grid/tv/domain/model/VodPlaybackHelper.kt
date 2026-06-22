@@ -1,14 +1,24 @@
 package com.grid.tv.domain.model
 
+import com.grid.tv.data.repository.ContinueWatchingRepository
 object VodPlaybackHelper {
 
+    fun resumePositionFor(item: ContinueWatchingItem): Long {
+        if (item.positionMs <= 5_000L) return 0L
+        if (item.durationMs <= 0L) return item.positionMs
+        val fraction = item.positionMs.toDouble() / item.durationMs.toDouble()
+        return if (fraction >= ContinueWatchingRepository.COMPLETION_THRESHOLD) 0L else item.positionMs
+    }
+
     fun stageContinueWatching(item: ContinueWatchingItem) {
+        val resumePositionMs = resumePositionFor(item)
         when (item.contentType) {
             ContinueWatchingContentType.MOVIE -> {
                 VodPlaybackContext.stageMovie(
                     posterUrl = item.posterUrl,
                     streamId = item.streamId,
-                    title = item.title
+                    title = item.title,
+                    resumePositionMs = resumePositionMs
                 )
             }
             ContinueWatchingContentType.SERIES -> {
@@ -21,7 +31,8 @@ object VodPlaybackHelper {
                     seriesId = seriesId,
                     seasonNumber = season,
                     episodeNumber = episode,
-                    title = item.title
+                    title = item.title,
+                    resumePositionMs = resumePositionMs
                 )
             }
         }

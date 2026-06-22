@@ -7,6 +7,8 @@ import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.ui.component.buildMovieSearchSecondaryLine
+import com.grid.tv.ui.component.cleanVodDisplayTitle
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.feature.epg.EpgPlaceholderData
@@ -41,13 +43,12 @@ class UnifiedSearchEngine @Inject constructor(
     init {
         scope.launch {
             combine(
-                repository.vodStreams(),
-                repository.seriesShows(),
+                repository.vodCatalogRevision(),
                 repository.playlists()
-            ) { vod, series, playlists ->
-                Triple(vod, series, playlists.isNotEmpty())
-            }.collect { (vod, series, hasPlaylists) ->
-                rebuildIndex(emptyList(), vod, series, hasPlaylists)
+            ) { _, playlists ->
+                playlists.isNotEmpty()
+            }.collect { hasPlaylists ->
+                rebuildIndex(hasPlaylists)
             }
         }
     }
@@ -57,15 +58,18 @@ class UnifiedSearchEngine @Inject constructor(
         val trending = buildTrending()
         val base = index.search(
             query = query,
-            limitPerSection = 5,
             recentSearches = recent,
             trendingSearches = trending
         )
         val trimmed = query.trim()
         if (trimmed.isEmpty()) return@withContext base
-        val channelMatches = repository.searchChannels(trimmed, limit = 20).map(::channelSearchResult)
+        val channelMatches = repository.searchChannels(trimmed, limit = 500).map(::channelSearchResult)
+        val vodMatches = repository.searchVod(trimmed, limit = 500).map(::vodSearchResult)
+        val seriesMatches = repository.searchSeriesShows(trimmed, limit = 500).map(::seriesSearchResult)
         base.copy(
-            channels = (channelMatches + base.channels).distinctBy { it.id }.take(5)
+            channels = (channelMatches + base.channels).distinctBy { it.id },
+            movies = (vodMatches + base.movies).distinctBy { it.id },
+            series = (seriesMatches + base.series).distinctBy { it.id }
         )
     }
 
@@ -80,30 +84,44 @@ class UnifiedSearchEngine @Inject constructor(
             isLive = true
         )
 
+    private fun vodSearchResult(movie: VodItem): SearchResultItem =
+        SearchResultItem(
+            id = "vod-${movie.id}",
+            primaryTitle = cleanVodDisplayTitle(movie.title),
+            secondaryLine = buildMovieSearchSecondaryLine(movie.genre, movie.rating),
+            imageUrl = movie.posterUrl,
+            type = SearchResultType.VOD,
+            vodItem = movie
+        )
+
+    private fun seriesSearchResult(show: SeriesShow): SearchResultItem =
+        SearchResultItem(
+            id = "series-${show.id}",
+            primaryTitle = cleanVodDisplayTitle(show.name),
+            secondaryLine = listOfNotNull("Series", show.genre).joinToString(" · "),
+            imageUrl = show.coverUrl,
+            type = SearchResultType.SERIES,
+            seriesShow = show
+        )
+
     fun recordSearch(query: String) {
         historyStore.recordSearch(query)
     }
 
-    private suspend fun rebuildIndex(
-        channels: List<com.grid.tv.domain.model.Channel>,
-        vod: List<VodItem>,
-        series: List<SeriesShow>,
-        hasPlaylists: Boolean
-    ) {
+    suspend fun clearRecentHistory() {
+        historyStore.clearRecent()
+    }
+
+    private suspend fun rebuildIndex(hasPlaylists: Boolean) {
         activeProfileId = repository.activeProfileId()
         val hasChannelsInDb = repository.hasChannels().first()
         val usePlaceholder = !hasChannelsInDb && hasPlaylists
-        val resolvedChannels = if (usePlaceholder) EpgPlaceholderData.channels() else channels
+        val resolvedChannels = if (usePlaceholder) EpgPlaceholderData.channels() else emptyList()
         val now = System.currentTimeMillis()
         val programs = if (usePlaceholder) {
             EpgPlaceholderData.programs(now - 4 * 60 * 60 * 1000, now + 4 * 60 * 60 * 1000)
-        } else if (resolvedChannels.isEmpty()) {
-            emptyList()
         } else {
-            repository.programs(
-                resolvedChannels.mapNotNull { it.epgId },
-                now - 6 * 60 * 60 * 1000
-            ).first()
+            emptyList()
         }
 
         val watchRows = watchHistoryDao.observeRecent(activeProfileId, 40).first()
@@ -112,14 +130,14 @@ class UnifiedSearchEngine @Inject constructor(
             .eachCount()
             .mapValues { (_, count) -> count * 20 }
 
-        val actors = buildActors(vod)
-        val genres = buildGenres(vod, series, resolvedChannels)
+        val actors = buildActors()
+        val genres = buildGenres(resolvedChannels)
 
         index.rebuild(
             UnifiedSearchIndex.Snapshot(
                 channels = resolvedChannels,
-                movies = vod,
-                series = series,
+                movies = emptyList(),
+                series = emptyList(),
                 episodes = emptyList(),
                 actors = actors,
                 genres = genres,
@@ -136,7 +154,7 @@ class UnifiedSearchEngine @Inject constructor(
         _indexReady.value = true
     }
 
-    private suspend fun buildActors(movies: List<VodItem>): List<UnifiedSearchIndex.IndexedActor> {
+    private suspend fun buildActors(): List<UnifiedSearchIndex.IndexedActor> {
         val byActor = linkedMapOf<String, MutableList<String>>()
         val posterByActor = mutableMapOf<String, String?>()
         val displayNameByKey = mutableMapOf<String, String>()
@@ -147,10 +165,6 @@ class UnifiedSearchEngine @Inject constructor(
             displayNameByKey.putIfAbsent(key, name)
             byActor.getOrPut(key) { mutableListOf() }.add(title)
             if (posterByActor[key] == null && poster != null) posterByActor[key] = poster
-        }
-
-        movies.forEach { movie ->
-            movie.cast?.split(",")?.forEach { actor -> addActor(actor, movie.title, movie.posterUrl) }
         }
 
         val enrichments = titleEnrichmentDao.topByPopularity(120)
@@ -170,19 +184,9 @@ class UnifiedSearchEngine @Inject constructor(
     }
 
     private fun buildGenres(
-        movies: List<VodItem>,
-        series: List<SeriesShow>,
         channels: List<com.grid.tv.domain.model.Channel>
     ): List<UnifiedSearchIndex.IndexedGenre> {
         val genres = linkedMapOf<String, Pair<String, String>>()
-        movies.mapNotNull { it.genre }.flatMap { it.split(",") }.forEach { g ->
-            val name = g.trim()
-            if (name.isNotBlank()) genres.putIfAbsent(name.lowercase(), name to "Movies & Series")
-        }
-        series.mapNotNull { it.genre }.flatMap { it.split(",") }.forEach { g ->
-            val name = g.trim()
-            if (name.isNotBlank()) genres.putIfAbsent(name.lowercase(), name to "TV Series")
-        }
         channels.map { it.group }.distinct().take(40).forEach { group ->
             val name = group.trim()
             if (name.isNotBlank()) genres.putIfAbsent(name.lowercase(), name to "Channel group")

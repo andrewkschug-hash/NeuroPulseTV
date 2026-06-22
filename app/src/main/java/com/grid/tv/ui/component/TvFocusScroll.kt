@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -57,6 +58,8 @@ val LocalTvFocusScrollState = compositionLocalOf<TvFocusScrollState?> { null }
 
 /**
  * Pure scroll-target calculation for focus-aware scrolling.
+ * [itemTop]/[itemBottom] are in the visible viewport's coordinate space (from
+ * [LayoutCoordinates.localPositionOf] on the scroll container), not content space.
  * Returns null when the focused item is already inside the safe zone.
  */
 fun calculateFocusScrollTarget(
@@ -72,20 +75,22 @@ fun calculateFocusScrollTarget(
     minimalScroll: Boolean = false
 ): Int? {
     if (viewportHeight <= 0) return null
-    val viewportTop = currentScroll.toFloat()
-    val viewportBottom = viewportTop + viewportHeight
-    val topSafe = viewportTop + safeZonePx
-    val bottomSafe = viewportBottom - safeZonePx
+    val topSafe = safeZonePx
+    val bottomSafe = viewportHeight - safeZonePx
+
+    fun targetFromDelta(delta: Float): Int? {
+        val target = (currentScroll + delta).roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
+        return if (target == currentScroll) null else target
+    }
 
     if (minimalScroll) {
         if (itemTop >= topSafe && itemBottom <= bottomSafe) return null
-        val rawTarget = when {
-            itemTop < topSafe -> currentScroll + (itemTop - topSafe)
-            itemBottom > bottomSafe -> currentScroll + (itemBottom - bottomSafe)
-            else -> currentScroll.toFloat()
+        val delta = when {
+            itemTop < topSafe -> itemTop - topSafe
+            itemBottom > bottomSafe -> itemBottom - bottomSafe
+            else -> 0f
         }
-        val target = rawTarget.roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
-        return if (target == currentScroll) null else target
+        return targetFromDelta(delta)
     }
 
     if (preferFullyVisible) {
@@ -104,33 +109,29 @@ fun calculateFocusScrollTarget(
             }
             else -> 0f
         }
-        val target = (currentScroll + scrollDelta).roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
-        return if (target == currentScroll) null else target
+        return targetFromDelta(scrollDelta)
     }
 
     if (!preferTopAlign && itemTop >= topSafe && itemBottom <= bottomSafe) return null
 
-    val rawTarget = when {
-        preferTopAlign -> {
-            when {
-                itemTop < topSafe -> currentScroll + (itemTop - topSafe)
-                itemTop > bottomSafe -> currentScroll + (itemTop - topSafe)
-                itemBottom > bottomSafe -> currentScroll + (itemTop - topSafe)
-                else -> currentScroll.toFloat()
-            }
+    val delta = when {
+        preferTopAlign -> when {
+            itemTop < topSafe -> itemTop - topSafe
+            itemTop > bottomSafe -> itemTop - topSafe
+            itemBottom > bottomSafe -> itemBottom - bottomSafe
+            else -> 0f
         }
         preferCenter -> {
             val itemCenter = (itemTop + itemBottom) / 2f
             itemCenter - viewportHeight / 2f
         }
         else -> when {
-            itemTop < topSafe -> currentScroll + (itemTop - topSafe)
-            itemBottom > bottomSafe -> currentScroll + (itemBottom - bottomSafe)
-            else -> currentScroll.toFloat()
+            itemTop < topSafe -> itemTop - topSafe
+            itemBottom > bottomSafe -> itemBottom - bottomSafe
+            else -> 0f
         }
     }
-    val target = rawTarget.roundToInt().coerceIn(0, maxScroll.coerceAtLeast(0))
-    return if (target == currentScroll) null else target
+    return targetFromDelta(delta)
 }
 
 @Stable
@@ -257,19 +258,18 @@ fun Modifier.tvFocusScrollIntoView(
         .onGloballyPositioned { coordinates = it }
         .onFocusChanged { focus ->
             if (focus.isFocused) {
-                val coords = coordinates
-                if (coords != null) {
-                    scope.launch {
-                        // Allow layout to settle after programmatic focus moves (D-pad chains).
-                        delay(16)
-                        scrollState.scrollIntoViewIfNeeded(
-                            coords,
-                            safeZonePx,
-                            preferTopAlign = preferTopAlign,
-                            preferFullyVisible = preferFullyVisible,
-                            minimalScroll = minimalScroll
-                        )
-                    }
+                scope.launch {
+                    // Allow layout to settle after programmatic focus moves (D-pad chains).
+                    withFrameMillis { }
+                    withFrameMillis { }
+                    val coords = coordinates ?: return@launch
+                    scrollState.scrollIntoViewIfNeeded(
+                        coords,
+                        safeZonePx,
+                        preferTopAlign = preferTopAlign,
+                        preferFullyVisible = preferFullyVisible,
+                        minimalScroll = minimalScroll
+                    )
                 }
             }
         }

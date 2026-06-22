@@ -1,5 +1,7 @@
 package com.grid.tv.util
 
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -8,6 +10,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.input.key.type
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -20,27 +23,63 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object TvTextInputSession {
     private val depth = AtomicInteger(0)
+    private val compositionActive = mutableStateOf(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var suppressFocusSearchUntilMs = 0L
+
+    private const val CLOSING_GRACE_MS = 400L
 
     val isActive: Boolean
         get() = depth.get() > 0
 
+    /** Observe in Compose to disable background focus while the IME dialog is open or closing. */
+    val isActiveState = compositionActive
+
     fun begin() {
+        mainHandler.removeCallbacks(clearGraceRunnable)
+        suppressFocusSearchUntilMs = 0L
         depth.incrementAndGet()
+        compositionActive.value = true
     }
 
     fun end() {
         depth.updateAndGet { current -> (current - 1).coerceAtLeast(0) }
+        if (depth.get() == 0) {
+            beginClosingGracePeriod()
+        } else {
+            compositionActive.value = true
+        }
     }
+
+    fun beginClosingGracePeriod(durationMs: Long = CLOSING_GRACE_MS) {
+        suppressFocusSearchUntilMs = System.currentTimeMillis() + durationMs
+        compositionActive.value = true
+        mainHandler.removeCallbacks(clearGraceRunnable)
+        mainHandler.postDelayed(clearGraceRunnable, durationMs)
+    }
+
+    fun shouldSuppressPostImeFocusSearch(): Boolean =
+        System.currentTimeMillis() < suppressFocusSearchUntilMs
 
     /**
      * @return true when TV focus-chain / screen handlers should stand down (return false, do not
      * consume) so the key can reach the IME. Back is included so the active field can dismiss.
      */
     fun shouldStandDownForActiveInput(event: KeyEvent): Boolean {
-        if (!isActive || event.type != KeyEventType.KeyDown) return false
+        if (event.type != KeyEventType.KeyDown) return false
+        if (shouldSuppressPostImeFocusSearch()) return true
+        if (!isActive) return false
         return TvImeKeyDispatcher.isImeNavigationKey(event.key) ||
             event.key == Key.Back ||
             event.key == Key.Escape
+    }
+
+    private val clearGraceRunnable = Runnable {
+        if (depth.get() == 0) {
+            compositionActive.value = false
+        }
     }
 }
 

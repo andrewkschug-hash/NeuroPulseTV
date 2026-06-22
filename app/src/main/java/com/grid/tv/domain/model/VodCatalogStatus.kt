@@ -21,6 +21,12 @@ data class VodCatalogStatus(
     val seriesParsedCount: Int = 0,
     val hasXtreamPlaylist: Boolean = true
 ) {
+    fun moviesRefreshWarning(catalogTotal: Int): String? =
+        moviesError?.takeIf { catalogTotal > 0 && progress.moviesPhaseFinished }
+
+    fun seriesRefreshWarning(catalogTotal: Int): String? =
+        seriesError?.takeIf { catalogTotal > 0 && progress.seriesPhaseFinished }
+
     fun moviesEmptyReason(filteredCount: Int, catalogTotal: Int, categoryId: String?, searchQuery: String): VodCatalogEmptyReason {
         if (progress.isLoading && !progress.moviesPhaseFinished) return VodCatalogEmptyReason.LOADING
         if (!hasXtreamPlaylist) return VodCatalogEmptyReason.NO_XTREAM_PLAYLIST
@@ -85,9 +91,17 @@ fun VodCatalogEmptyReason.vodEmptyMessage(status: VodCatalogStatus, isMovies: Bo
     }
     VodCatalogEmptyReason.PARSE_ZERO ->
         if (isMovies) {
-            "Your provider returned an empty movie catalog."
+            if (status.moviesRawLength == 0) {
+                "Couldn't load movies — no data received from your provider. Check your connection and tap Retry."
+            } else {
+                "Your provider returned an empty movie catalog."
+            }
         } else {
-            "Your provider returned an empty series catalog."
+            if (status.seriesRawLength == 0) {
+                "Couldn't load series — no data received from your provider. Check your connection and tap Retry."
+            } else {
+                "Your provider returned an empty series catalog."
+            }
         }
     VodCatalogEmptyReason.FILTERED_EMPTY ->
         "Try another category or clear your search filter."

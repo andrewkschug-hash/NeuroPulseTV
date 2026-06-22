@@ -5,8 +5,14 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.grid.tv.data.network.RemoteTextFetcher
 import com.grid.tv.domain.model.EpgFetchAttempt
+import com.grid.tv.domain.model.EpgRefreshReport
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.epg.EpgFlowLogger
+import com.grid.tv.feature.epg.EpgJobCoordinator
+import com.grid.tv.feature.epg.EpgJobSource
+import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -17,37 +23,69 @@ class EpgRefreshWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val repository: IptvRepository,
+    private val channelScanGate: ChannelScanGate,
+    private val epgJobCoordinator: EpgJobCoordinator,
     private val seriesRuleScheduler: SeriesRuleScheduler
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
+        val source = inputData.getString(KEY_SOURCE)?.let { raw ->
+            runCatching { EpgJobSource.valueOf(raw) }.getOrNull()
+        }
         Log.i(
             TAG,
-            "EpgRefreshWorker started (workId=$id, runAttempt=$runAttemptCount, tags=$tags)"
+            "EpgRefreshWorker started source=$source workId=$id runAttempt=$runAttemptCount tags=$tags"
         )
         return try {
-            Log.i(TAG, "Invoking repository.refreshEpgNow()")
+            if (source == EpgJobSource.IMPORT || source == EpgJobSource.STARTUP) {
+                channelScanGate.awaitValidationIdle()
+                if (channelScanGate.isValidationActive.value) {
+                    Log.w(TAG, "EpgRefreshWorker deferred — priority validation still active source=$source")
+                    return Result.retry()
+                }
+            }
+            Log.i(TAG, "Invoking repository.refreshEpgNow() source=$source")
             val report = repository.refreshEpgNow()
             logRefreshReport(report.attempts)
             Log.i(
                 TAG,
-                "refreshEpgNow summary: playlists=${report.playlistsTotal}, " +
+                "refreshEpgNow summary source=$source playlists=${report.playlistsTotal}, " +
                     "fetches=${report.urlsAttempted}, bytes=${report.totalBytesReceived}, " +
                     "channelsStored=${report.totalChannelsStored}, " +
                     "programmesStored=${report.totalProgrammesStored}, " +
                     "failures=${report.failures.size}"
             )
-            Log.i(TAG, "Applying series recording rules after EPG refresh")
+            if (shouldRetryForTransientFailures(report) && runAttemptCount < MAX_WORKER_ATTEMPTS - 1) {
+                Log.w(
+                    TAG,
+                    "EpgRefreshWorker scheduling WorkManager retry — transient network failures " +
+                        "source=$source attempt=${runAttemptCount + 1}/$MAX_WORKER_ATTEMPTS"
+                )
+                return Result.retry()
+            }
+            Log.i(TAG, "Applying series recording rules after EPG refresh source=$source")
             seriesRuleScheduler.applyRulesAfterEpgRefresh()
-            Log.i(TAG, "EpgRefreshWorker finished OK")
+            Log.i(TAG, "EpgRefreshWorker finished OK source=$source")
             Result.success()
         } catch (e: CancellationException) {
-            Log.w(TAG, "EpgRefreshWorker cancelled", e)
+            Log.i(TAG, "EpgRefreshWorker superseded or stopped source=$source")
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "EpgRefreshWorker failed: ${e.message}", e)
+            EpgFlowLogger.importFailed(playlistId = -1L, playlistName = "all", url = null, error = e)
+            Log.e(TAG, "EpgRefreshWorker failed source=$source: ${e.message}", e)
             Result.retry()
+        } finally {
+            if (source == EpgJobSource.IMPORT) {
+                epgJobCoordinator.onImportEpgWorkerFinished()
+            }
         }
+    }
+
+    private fun shouldRetryForTransientFailures(report: EpgRefreshReport): Boolean {
+        if (report.totalProgrammesStored > 0 || report.totalChannelsStored > 0) return false
+        val failedFetches = report.attempts.filter { it.error != null && it.skippedReason == null }
+        if (failedFetches.isEmpty()) return false
+        return failedFetches.all { RemoteTextFetcher.isRetryableErrorMessage(it.error) }
     }
 
     private fun logRefreshReport(attempts: List<EpgFetchAttempt>) {
@@ -81,5 +119,7 @@ class EpgRefreshWorker @AssistedInject constructor(
 
     companion object {
         private const val TAG = "EpgFlow"
+        private const val MAX_WORKER_ATTEMPTS = 3
+        const val KEY_SOURCE = "epg_source"
     }
 }

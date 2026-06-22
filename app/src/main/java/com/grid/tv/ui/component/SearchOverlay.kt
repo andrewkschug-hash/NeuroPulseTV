@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -22,9 +23,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.grid.tv.domain.model.SearchResultType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -32,8 +36,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -77,11 +88,12 @@ fun SearchOverlay(
     onMicClick: () -> Unit,
     onResultSelected: (SearchResultItem) -> Unit,
     onSuggestionSelected: (String) -> Unit,
+    onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val modalTrapFocusRequester = remember { FocusRequester() }
     val fieldFocusRequester = remember { FocusRequester() }
     val micFocusRequester = remember { FocusRequester() }
-    val resultsFocusRequester = remember { FocusRequester() }
     var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
     var focusedIndex by remember { mutableIntStateOf(0) }
     var recentChipIndex by remember { mutableIntStateOf(0) }
@@ -93,6 +105,35 @@ fun SearchOverlay(
         buildSearchRows(unifiedResults, query)
     }
     val selectableRows = remember(rows) { rows.filterIsInstance<SearchListRow.Result>() }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(focusedIndex, focusZone, rows) {
+        if (focusZone != SearchFocusZone.RESULTS || focusedIndex < 0) return@LaunchedEffect
+        val targetRowIndex = rows.indexOfFirst { row ->
+            row is SearchListRow.Result && row.flatIndex == focusedIndex
+        }
+        if (targetRowIndex >= 0) {
+            listState.animateScrollToItem(targetRowIndex)
+        }
+    }
+
+    val stickySectionTitle by remember(rows, listState) {
+        derivedStateOf {
+            val visibleIndex = listState.firstVisibleItemIndex
+            if (visibleIndex < 0 || rows.isEmpty()) return@derivedStateOf null
+            val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+            if (firstVisible?.index == visibleIndex &&
+                rows.getOrNull(visibleIndex) is SearchListRow.Header &&
+                firstVisible.offset >= 0
+            ) {
+                return@derivedStateOf null
+            }
+            rows.take(visibleIndex + 1)
+                .filterIsInstance<SearchListRow.Header>()
+                .lastOrNull()
+                ?.title
+        }
+    }
 
     val pulseTransition = rememberInfiniteTransition(label = "micPulse")
     val micPulse by pulseTransition.animateFloat(
@@ -108,20 +149,41 @@ fun SearchOverlay(
         SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
     }
 
+    BackHandler(onBack = onDismiss)
+
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
+    LaunchedEffect(searchBarState, unifiedResults, flatResults) {
+        when (focusZone) {
+            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
+                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
     LaunchedEffect(selectableRows) { focusedIndex = if (selectableRows.isNotEmpty()) 0 else -1 }
     LaunchedEffect(recentSearches) { recentChipIndex = 0 }
     LaunchedEffect(focusZone) {
         when (focusZone) {
             SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
             SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RECENT -> resultsFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RESULTS -> resultsFocusRequester.requestFocusSafelyAfterLayout()
+            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
+                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 
     fun selectAt(index: Int) {
         selectableRows.getOrNull(index)?.item?.let(onResultSelected)
+    }
+
+    fun moveFocusToSearchResults() {
+        focusZone = when {
+            selectableRows.isNotEmpty() -> SearchFocusZone.RESULTS
+            showRecentChips -> SearchFocusZone.RECENT
+            else -> SearchFocusZone.MIC
+        }
+        if (focusZone == SearchFocusZone.RESULTS && focusedIndex < 0) {
+            focusedIndex = 0
+        }
     }
 
     fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
@@ -169,7 +231,7 @@ fun SearchOverlay(
             }
             Key.DirectionRight -> when (focusZone) {
                 SearchFocusZone.FIELD -> { focusZone = SearchFocusZone.MIC; true }
-                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.lastIndex) {
+                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.size) {
                     recentChipIndex += 1; true
                 } else false
                 else -> false
@@ -183,9 +245,15 @@ fun SearchOverlay(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> when (focusZone) {
                 SearchFocusZone.MIC -> { onMicClick(); true }
-                SearchFocusZone.RECENT -> {
-                    recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
-                    true
+                SearchFocusZone.RECENT -> when {
+                    recentChipIndex == recentSearches.size -> {
+                        onClearHistory()
+                        true
+                    }
+                    else -> {
+                        recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
+                        true
+                    }
                 }
                 SearchFocusZone.RESULTS -> if (selectableRows.isNotEmpty()) {
                     selectAt(focusedIndex.coerceAtLeast(0)); true
@@ -201,7 +269,7 @@ fun SearchOverlay(
             .fillMaxSize()
             .zIndex(20f)
             .background(Color.Black.copy(alpha = 0.75f))
-            .focusRequester(resultsFocusRequester)
+            .focusRequester(modalTrapFocusRequester)
             .focusable()
             .onPreviewKeyEvent { handleKey(it) }
     ) {
@@ -226,29 +294,18 @@ fun SearchOverlay(
                 onClear = onClear,
                 onMicClick = onMicClick,
                 onSelectAt = ::selectAt,
+                onImeSubmitted = ::moveFocusToSearchResults,
                 handleKey = ::handleKey
             )
 
             if (showRecentChips) {
-                Text(
-                    text = "Recent searches",
-                    color = EpgColors.TextDimmed,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                RecentSearchesSection(
+                    recentSearches = recentSearches,
+                    focusZone = focusZone,
+                    focusedChipIndex = recentChipIndex,
+                    onSuggestionSelected = onSuggestionSelected,
+                    onClearHistory = onClearHistory
                 )
-                LazyRow(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    itemsIndexed(recentSearches) { index, term ->
-                        SearchChip(
-                            label = term,
-                            focused = focusZone == SearchFocusZone.RECENT && recentChipIndex == index,
-                            onClick = { onSuggestionSelected(term) }
-                        )
-                    }
-                }
             }
 
             if (query.isNotBlank() && unifiedResults.isEmpty && searchBarState != SearchBarState.LISTENING) {
@@ -261,27 +318,91 @@ fun SearchOverlay(
                 )
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                itemsIndexed(rows) { _, row ->
-                    when (row) {
-                        is SearchListRow.Header -> SearchSectionHeader(row.title)
-                        is SearchListRow.Chip -> Unit
-                        is SearchListRow.Result -> SearchResultRow(
-                            result = row.item,
-                            focused = focusZone == SearchFocusZone.RESULTS && focusedIndex == row.flatIndex,
-                            onClick = { onResultSelected(row.item) }
-                        )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    rows.forEach { row ->
+                        when (row) {
+                            is SearchListRow.Header -> item(key = "header-${row.title}") {
+                                SearchSectionHeader(title = row.title)
+                            }
+                            is SearchListRow.Result -> item(key = row.item.id) {
+                                SearchResultRow(
+                                    result = row.item,
+                                    focused = focusZone == SearchFocusZone.RESULTS &&
+                                        focusedIndex == row.flatIndex,
+                                    onClick = { onResultSelected(row.item) }
+                                )
+                            }
+                            is SearchListRow.Chip -> Unit
+                        }
+                    }
+                    if (flatResults.isNotEmpty()) {
+                        item(key = "search-results-hint") {
+                            Text(
+                                text = "↓ results  ·  Enter to open",
+                                color = EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                            )
+                        }
                     }
                 }
+                if (stickySectionTitle != null) {
+                    SearchSectionHeader(
+                        title = stickySectionTitle!!,
+                        modifier = Modifier.align(Alignment.TopStart)
+                    )
+                }
             }
+        }
+    }
+}
 
-            if (flatResults.isNotEmpty()) {
-                Text(
-                    text = "↓ results  ·  Enter to open",
-                    color = EpgColors.TextDimmed,
-                    fontFamily = DmSansFamily,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+@Composable
+private fun RecentSearchesSection(
+    recentSearches: List<String>,
+    focusZone: SearchFocusZone,
+    focusedChipIndex: Int,
+    onSuggestionSelected: (String) -> Unit,
+    onClearHistory: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 8.dp)
+    ) {
+        Text(
+            text = "Recent searches",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+        )
+        LazyRow(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            itemsIndexed(recentSearches) { index, term ->
+                RecentSearchChip(
+                    label = term,
+                    focused = focusZone == SearchFocusZone.RECENT && focusedChipIndex == index,
+                    onClick = { onSuggestionSelected(term) }
+                )
+            }
+            item {
+                ClearHistoryChip(
+                    focused = focusZone == SearchFocusZone.RECENT &&
+                        focusedChipIndex == recentSearches.size,
+                    onClick = onClearHistory
                 )
             }
         }
@@ -289,35 +410,124 @@ fun SearchOverlay(
 }
 
 @Composable
-private fun SearchSectionHeader(title: String) {
-    Text(
-        text = title,
-        color = EpgColors.Accent,
-        fontFamily = DmSansFamily,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-    )
+private fun RecentSearchChip(label: String, focused: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(999.dp)
+    val borderColor = if (focused) EpgColors.Accent else Color.White.copy(alpha = 0.12f)
+    val backgroundColor = when {
+        focused -> EpgColors.Accent.copy(alpha = 0.16f)
+        else -> Color.White.copy(alpha = 0.06f)
+    }
+    GridFocusSurface(
+        onClick = onClick,
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .widthIn(min = 72.dp, max = 240.dp)
+            .border(1.5.dp, borderColor, shape)
+            .drawBehind {
+                drawRoundRect(
+                    color = backgroundColor,
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f)
+                )
+            },
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "↩",
+                color = if (focused) EpgColors.Accent else EpgColors.TextDimmed,
+                fontSize = 13.sp
+            )
+            Text(
+                text = label,
+                color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }
 
 @Composable
-private fun SearchChip(label: String, focused: Boolean, onClick: () -> Unit) {
-    val borderColor = if (focused) EpgColors.FocusBorder else Color(0xFF2A2A38)
+private fun ClearHistoryChip(focused: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(999.dp)
+    val borderColor = when {
+        focused -> Color(0xFFFF6B6B)
+        else -> Color(0xFFFF6B6B).copy(alpha = 0.35f)
+    }
+    val backgroundColor = when {
+        focused -> Color(0xFFFF6B6B).copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
     GridFocusSurface(
         onClick = onClick,
-        modifier = Modifier.border(1.5.dp, borderColor, RoundedCornerShape(16.dp)),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .defaultMinSize(minWidth = 120.dp)
+            .border(1.5.dp, borderColor, shape)
+            .drawBehind {
+                drawRoundRect(
+                    color = backgroundColor,
+                    topLeft = Offset.Zero,
+                    size = Size(size.width, size.height),
+                    cornerRadius = CornerRadius(size.height / 2f)
+                )
+            },
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (focused) Color(0xFF252535) else Color(0xFF1A1A24),
-            focusedContainerColor = Color(0xFF252535)
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent
         )
     ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "✕",
+                color = if (focused) Color(0xFFFF8A8A) else Color(0xFFFF6B6B).copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Clear history",
+                color = if (focused) Color(0xFFFFB4B4) else Color(0xFFFF8A8A),
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchSectionHeader(title: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(EpgColors.Background)
+    ) {
         Text(
-            text = label,
-            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+            text = title,
+            color = EpgColors.Accent,
             fontFamily = DmSansFamily,
             fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
         )
     }
 }
@@ -358,6 +568,7 @@ private fun SearchInputRow(
     onClear: () -> Unit,
     onMicClick: () -> Unit,
     onSelectAt: (Int) -> Unit,
+    onImeSubmitted: () -> Unit,
     handleKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean
 ) {
     val leadingIcon = when (searchBarState) {
@@ -404,7 +615,8 @@ private fun SearchInputRow(
                 .height(52.dp),
             borderColorFocused = fieldBorderColor,
             borderColorUnfocused = fieldBorderColor.copy(alpha = 0.6f),
-            onPreviewKeyEvent = handleKey
+            onPreviewKeyEvent = handleKey,
+            onImeSubmitted = onImeSubmitted
         )
         MicButton(
             listening = searchBarState == SearchBarState.LISTENING,
@@ -492,6 +704,13 @@ private fun SearchResultRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val displayTitle = remember(result.primaryTitle, result.type) {
+        when (result.type) {
+            SearchResultType.VOD, SearchResultType.SERIES, SearchResultType.EPISODE ->
+                cleanVodDisplayTitle(result.primaryTitle)
+            else -> result.primaryTitle
+        }
+    }
     val bg = if (focused) Color(0xFF1C1C2E) else Color.Transparent
     GridFocusSurface(
         onClick = onClick,
@@ -541,7 +760,7 @@ private fun SearchResultRow(
             }
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(
-                    text = result.primaryTitle,
+                    text = displayTitle,
                     color = EpgColors.TextPrimary,
                     fontFamily = DmSansFamily,
                     fontSize = 14.sp,

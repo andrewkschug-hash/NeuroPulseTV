@@ -31,4 +31,6 @@ internal class HomeEpgUiState {
     var didInitialScroll by mutableStateOf(false)
     var didRestoreGuide by mutableStateOf(false)
     var hasRequestedInitialGridFocus by mutableStateOf(false)
+    /** True while opening preview; blocks spurious filter focus during grid→preview transition. */
+    var pendingPreviewFocus by mutableStateOf(false)
 }

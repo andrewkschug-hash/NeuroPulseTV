@@ -19,7 +19,8 @@ class TsStreamRecorder(
     private val client: OkHttpClient,
     private val outputFile: File,
     private val onHealthChanged: (RecordingHealth) -> Unit = {},
-    private val shouldPauseForStorage: () -> Boolean = { false }
+    private val shouldPauseForStorage: () -> Boolean = { false },
+    private val onStorageFailure: () -> Unit = {}
 ) {
     @Volatile
     private var cancelled = false
@@ -88,8 +89,11 @@ class TsStreamRecorder(
                                     corruptedChunksSkipped++
                                     continue
                                 }
-                                output.write(buffer, 0, read)
-                                progress.onBytes(read)
+                                if (isStorageExhausted()) {
+                                    handleStorageFailure(progress)
+                                    return outcome(hadDropouts = true, signalLost = true)
+                                }
+                                writeOrFail(output, buffer, read, progress)?.let { return it }
                                 disconnectWindowStart = null
                                 backoffMs = RecordingResilienceConfig.INITIAL_BACKOFF_MS
                             }
@@ -236,6 +240,35 @@ class TsStreamRecorder(
         }
     }
 
+    private fun storageDir(): File = outputFile.parentFile ?: outputFile
+
+    private fun isStorageExhausted(): Boolean {
+        val dir = storageDir()
+        return !dir.canWrite() || StorageUtils.isCriticalLowStorage(dir)
+    }
+
+    private fun writeOrFail(
+        output: FileOutputStream,
+        buffer: ByteArray,
+        read: Int,
+        progress: ByteProgressLogger
+    ): RecordingOutcome? {
+        return try {
+            output.write(buffer, 0, read)
+            progress.onBytes(read)
+            null
+        } catch (e: IOException) {
+            Log.e(TAG, "Direct stream disk write failed", e)
+            handleStorageFailure(progress)
+            outcome(hadDropouts = true, signalLost = true)
+        }
+    }
+
+    private fun handleStorageFailure(progress: ByteProgressLogger) {
+        onStorageFailure()
+        progress.logFinal()
+    }
+
     private fun isValidTsPayload(buffer: ByteArray, length: Int): Boolean {
         if (length < 188) return true
         var offset = 0
@@ -304,8 +337,18 @@ class TsStreamRecorder(
                         if (!isValidTsPayload(buffer, read)) {
                             return SegmentAppendResult.SKIPPED
                         }
-                        output.write(buffer, 0, read)
-                        progress.onBytes(read)
+                        if (isStorageExhausted()) {
+                            onStorageFailure()
+                            return SegmentAppendResult.FAILED
+                        }
+                        try {
+                            output.write(buffer, 0, read)
+                            progress.onBytes(read)
+                        } catch (e: IOException) {
+                            Log.e(TAG, "HLS segment disk write failed url=$segmentUrl", e)
+                            onStorageFailure()
+                            return SegmentAppendResult.FAILED
+                        }
                     }
                 }
             }

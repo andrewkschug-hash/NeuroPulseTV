@@ -1,6 +1,7 @@
 package com.grid.tv.player
 
 import android.util.Log
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.grid.tv.domain.model.Channel
@@ -28,8 +29,16 @@ interface StreamFailoverPlaybackActions {
     fun switchToStream(url: String)
 }
 
+enum class PlaybackFailureCategory {
+    NETWORK,
+    HTTP,
+    BUFFERING_TIMEOUT,
+    DECODER,
+    UNKNOWN
+}
+
 /**
- * Automatic stream failover: reconnect → retry primary → backup 1 → 2 → 3.
+ * Automatic stream failover: reconnect → alternate URLs, bounded by [AppSettings.streamRetries].
  * Monitors errors, stalls, excessive buffering, and tune timeouts.
  */
 @Singleton
@@ -56,13 +65,20 @@ class StreamFailoverController @Inject constructor(
     private var tuneStartedAtMs: Long = 0L
     private var autoReconnectEnabled: Boolean = true
     private var intentionalIdle = false
+    private var maxStreamRetries: Int = DEFAULT_STREAM_RETRIES
+    private var recoveryBlockedUntilMs: Long = 0L
 
     fun setAutoReconnectEnabled(enabled: Boolean) {
         autoReconnectEnabled = enabled
         if (!enabled) {
             cancelRecovery()
+            recoveryBlockedUntilMs = 0L
             _uiState.value = StreamFailoverUiState()
         }
+    }
+
+    fun setStreamRetries(count: Int) {
+        maxStreamRetries = count.coerceIn(MIN_STREAM_RETRIES, MAX_STREAM_RETRIES)
     }
 
     private val playerListener = object : Player.Listener {
@@ -71,20 +87,24 @@ class StreamFailoverController @Inject constructor(
                 Player.STATE_IDLE, Player.STATE_ENDED -> {
                     if (!autoReconnectEnabled) return
                     if (!intentionalIdle && !recoveryJob.isActive()) {
-                        requestRecovery(FailoverTrigger.PLAYBACK_IDLE)
+                        requestRecovery(
+                            trigger = FailoverTrigger.PLAYBACK_IDLE,
+                            category = PlaybackFailureCategory.UNKNOWN
+                        )
                     }
                 }
-                Player.STATE_BUFFERING -> {
-                    if (bufferingSinceMs == 0L) bufferingSinceMs = System.currentTimeMillis()
-                }
-                Player.STATE_READY -> onHealthyPlayback()
             }
         }
 
-        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+        override fun onPlayerError(error: PlaybackException) {
             if (!autoReconnectEnabled) return
-            Log.w(LOG_TAG, "playback error code=${error.errorCode} url=$activeUrl", error)
-            requestRecovery(FailoverTrigger.PLAYBACK_ERROR)
+            val category = error.failureCategory()
+            Log.w(
+                LOG_TAG,
+                "playback error category=$category code=${error.errorCode} url=$activeUrl",
+                error
+            )
+            requestRecovery(FailoverTrigger.PLAYBACK_ERROR, category)
         }
     }
 
@@ -96,6 +116,7 @@ class StreamFailoverController @Inject constructor(
         bufferingSinceMs = 0L
         unhealthySinceMs = 0L
         intentionalIdle = false
+        recoveryBlockedUntilMs = 0L
         cancelRecovery()
         clearRestoredBanner()
         _uiState.value = StreamFailoverUiState()
@@ -153,6 +174,7 @@ class StreamFailoverController @Inject constructor(
         tuneStartedAtMs = System.currentTimeMillis()
         bufferingSinceMs = 0L
         unhealthySinceMs = 0L
+        recoveryBlockedUntilMs = 0L
     }
 
     private fun startMonitoring() {
@@ -171,7 +193,10 @@ class StreamFailoverController @Inject constructor(
         if (!autoReconnectEnabled) return
         val elapsed = System.currentTimeMillis() - tuneStartedAtMs
         if (elapsed >= TUNE_TIMEOUT_MS) {
-            requestRecovery(FailoverTrigger.TUNE_TIMEOUT)
+            requestRecovery(
+                trigger = FailoverTrigger.TUNE_TIMEOUT,
+                category = PlaybackFailureCategory.BUFFERING_TIMEOUT
+            )
         }
     }
 
@@ -183,8 +208,12 @@ class StreamFailoverController @Inject constructor(
             return
         }
         if (bufferingSinceMs == 0L) bufferingSinceMs = System.currentTimeMillis()
+        if (exo.currentPosition > MID_STREAM_BUFFER_GRACE_POSITION_MS) return
         if (System.currentTimeMillis() - bufferingSinceMs >= EXCESSIVE_BUFFER_MS) {
-            requestRecovery(FailoverTrigger.EXCESSIVE_BUFFERING)
+            requestRecovery(
+                trigger = FailoverTrigger.EXCESSIVE_BUFFERING,
+                category = PlaybackFailureCategory.BUFFERING_TIMEOUT
+            )
         }
     }
 
@@ -196,13 +225,19 @@ class StreamFailoverController @Inject constructor(
             else -> UNHEALTHY_GRACE_MS
         }
         if (System.currentTimeMillis() - unhealthySinceMs >= threshold) {
-            requestRecovery(
-                when (status) {
-                    StreamPlaybackStatus.STALLED -> FailoverTrigger.STALL
-                    StreamPlaybackStatus.NO_SIGNAL -> FailoverTrigger.NO_SIGNAL
-                    else -> FailoverTrigger.PLAYBACK_ERROR
-                }
-            )
+            val trigger = when (status) {
+                StreamPlaybackStatus.STALLED -> FailoverTrigger.STALL
+                StreamPlaybackStatus.NO_SIGNAL -> FailoverTrigger.NO_SIGNAL
+                else -> FailoverTrigger.PLAYBACK_ERROR
+            }
+            val category = when (status) {
+                StreamPlaybackStatus.ERROR, StreamPlaybackStatus.UNAVAILABLE ->
+                    PlaybackFailureCategory.HTTP
+                StreamPlaybackStatus.STALLED,
+                StreamPlaybackStatus.NO_SIGNAL -> PlaybackFailureCategory.BUFFERING_TIMEOUT
+                else -> PlaybackFailureCategory.UNKNOWN
+            }
+            requestRecovery(trigger, category)
         }
     }
 
@@ -210,11 +245,11 @@ class StreamFailoverController @Inject constructor(
         bufferingSinceMs = 0L
         unhealthySinceMs = 0L
         tuneStartedAtMs = System.currentTimeMillis()
+        recoveryBlockedUntilMs = 0L
 
         if (wasRecovering || recoveryJob.isActive()) {
             wasRecovering = false
             recoveryJob?.cancel()
-            channel?.id?.let { analytics.recordSuccessfulRecovery(it) }
             showRestoredBanner()
         }
         if (_uiState.value.isRecovering) {
@@ -222,25 +257,39 @@ class StreamFailoverController @Inject constructor(
         }
     }
 
-    private fun requestRecovery(trigger: FailoverTrigger) {
+    private fun requestRecovery(trigger: FailoverTrigger, category: PlaybackFailureCategory) {
         if (!autoReconnectEnabled) return
         if (recoveryJob.isActive()) return
         if (channel == null || streamUrls.isEmpty()) return
         if (intentionalIdle) return
+        if (System.currentTimeMillis() < recoveryBlockedUntilMs) return
+
+        val maxAttempts = maxStreamRetries
+        if (maxAttempts <= 0) return
+
+        val steps = StreamRecoveryPlanner.buildSteps(streamUrls, activeUrl, maxAttempts)
+        if (steps.isEmpty()) return
 
         recoveryJob = scope.launch {
             wasRecovering = true
-            channel?.id?.let { analytics.recordFailover(it) }
-            _uiState.value = StreamFailoverUiState(
-                isRecovering = true,
-                message = RECOVERING_MESSAGE
-            )
+            val channelId = channel?.id
+            channelId?.let { analytics.recordFailover(it) }
+            _uiState.value = StreamFailoverUiState(isRecovering = true)
 
-            val steps = buildRecoverySteps()
+            var attempt = 0
             for (step in steps) {
+                attempt++
+                analytics.logRetryAttempt(
+                    channelId = channelId,
+                    trigger = trigger.name,
+                    category = category.name,
+                    attempt = attempt,
+                    maxAttempts = maxAttempts,
+                    step = stepLabel(step)
+                )
                 when (step) {
-                    RecoveryStep.Reconnect -> actions?.reconnectSameStream()
-                    is RecoveryStep.SwitchUrl -> {
+                    StreamRecoveryPlanner.Step.Reconnect -> actions?.reconnectSameStream()
+                    is StreamRecoveryPlanner.Step.SwitchUrl -> {
                         activeUrl = step.url
                         actions?.switchToStream(step.url)
                     }
@@ -249,16 +298,33 @@ class StreamFailoverController @Inject constructor(
                 bufferingSinceMs = 0L
                 unhealthySinceMs = 0L
                 if (waitForHealthy(STEP_TIMEOUT_MS)) {
+                    analytics.logRecoverySuccess(
+                        channelId = channelId,
+                        trigger = trigger.name,
+                        category = category.name,
+                        attemptsUsed = attempt,
+                        maxAttempts = maxAttempts
+                    )
+                    channelId?.let {
+                        analytics.recordSuccessfulRecovery(it, attemptsUsed = attempt)
+                    }
                     onHealthyPlayback()
                     return@launch
                 }
                 delay(STEP_GAP_MS)
             }
-            // Stay in recovering state without surfacing technical errors.
-            _uiState.value = StreamFailoverUiState(
-                isRecovering = true,
-                message = RECOVERING_MESSAGE
+
+            analytics.logFinalFailure(
+                channelId = channelId,
+                trigger = trigger.name,
+                category = category.name,
+                attemptsUsed = attempt,
+                maxAttempts = maxAttempts
             )
+            channelId?.let { analytics.recordFinalFailure(it, attemptsUsed = attempt) }
+            recoveryBlockedUntilMs = System.currentTimeMillis() + RECOVERY_COOLDOWN_MS
+            wasRecovering = false
+            _uiState.value = StreamFailoverUiState(isRecovering = false)
         }
     }
 
@@ -277,30 +343,9 @@ class StreamFailoverController @Inject constructor(
         return false
     }
 
-    private fun buildRecoverySteps(): List<RecoveryStep> {
-        val urls = streamUrls
-        if (urls.isEmpty()) return emptyList()
-        val steps = mutableListOf<RecoveryStep>(RecoveryStep.Reconnect)
-        val tried = mutableSetOf<String>()
-        activeUrl?.let { tried.add(it) }
-        urls.forEach { url ->
-            if (tried.add(url)) {
-                steps += RecoveryStep.SwitchUrl(url)
-            }
-        }
-        return steps
-    }
-
     private fun showRestoredBanner() {
         restoredHideJob?.cancel()
-        _uiState.value = StreamFailoverUiState(
-            showRestored = true,
-            message = RESTORED_MESSAGE
-        )
-        restoredHideJob = scope.launch {
-            delay(RESTORED_VISIBLE_MS)
-            _uiState.value = StreamFailoverUiState()
-        }
+        _uiState.value = StreamFailoverUiState()
     }
 
     private fun clearRestoredBanner() {
@@ -310,11 +355,6 @@ class StreamFailoverController @Inject constructor(
     private fun cancelRecovery() {
         recoveryJob?.cancel()
         wasRecovering = false
-    }
-
-    private sealed interface RecoveryStep {
-        data object Reconnect : RecoveryStep
-        data class SwitchUrl(val url: String) : RecoveryStep
     }
 
     private enum class FailoverTrigger {
@@ -333,11 +373,38 @@ class StreamFailoverController @Inject constructor(
         const val RECOVERING_MESSAGE = "Recovering stream..."
         const val RESTORED_MESSAGE = "Stream restored"
 
+        const val DEFAULT_STREAM_RETRIES = 3
+        const val MIN_STREAM_RETRIES = 0
+        const val MAX_STREAM_RETRIES = 10
+
         private const val TUNE_TIMEOUT_MS = 22_000L
         private const val EXCESSIVE_BUFFER_MS = 18_000L
+        private const val MID_STREAM_BUFFER_GRACE_POSITION_MS = 5_000L
         private const val UNHEALTHY_GRACE_MS = 4_000L
         private const val STEP_TIMEOUT_MS = 8_000L
         private const val STEP_GAP_MS = 1_200L
-        private const val RESTORED_VISIBLE_MS = 2_500L
+        private const val RECOVERY_COOLDOWN_MS = 30_000L
+
+        internal fun stepLabel(step: StreamRecoveryPlanner.Step): String = when (step) {
+            StreamRecoveryPlanner.Step.Reconnect -> "reconnect"
+            is StreamRecoveryPlanner.Step.SwitchUrl -> step.url
+        }
     }
+}
+
+private fun PlaybackException.failureCategory(): PlaybackFailureCategory = when (errorCode) {
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+    PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> PlaybackFailureCategory.NETWORK
+    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+    PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> PlaybackFailureCategory.HTTP
+    PlaybackException.ERROR_CODE_TIMEOUT,
+    PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW -> PlaybackFailureCategory.BUFFERING_TIMEOUT
+    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+    PlaybackException.ERROR_CODE_DECODING_FAILED,
+    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+    PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+    PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> PlaybackFailureCategory.DECODER
+    else -> PlaybackFailureCategory.UNKNOWN
 }

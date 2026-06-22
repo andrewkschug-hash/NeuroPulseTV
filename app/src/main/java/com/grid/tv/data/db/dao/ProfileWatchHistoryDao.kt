@@ -16,6 +16,19 @@ interface ProfileWatchHistoryDao {
     suspend fun get(profileId: Long, channelId: Long): ProfileWatchHistoryEntity?
 
     @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId ORDER BY lastWatched DESC LIMIT :limit")
+    suspend fun recentForProfile(profileId: Long, limit: Int): List<ProfileWatchHistoryEntity>
+
+    @Query(
+        """
+        SELECT channelId FROM profile_watch_history
+        WHERE profileId = :profileId AND channelId > 0
+        ORDER BY lastWatched DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun recentLiveChannelIds(profileId: Long, limit: Int): List<Long>
+
+    @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId ORDER BY lastWatched DESC LIMIT :limit")
     fun observeRecent(profileId: Long, limit: Int): Flow<List<ProfileWatchHistoryEntity>>
 
     @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId ORDER BY totalWatchMs DESC LIMIT :limit")

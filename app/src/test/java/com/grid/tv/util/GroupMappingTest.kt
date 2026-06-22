@@ -6,13 +6,29 @@ import org.junit.Test
 class GroupMappingTest {
 
     @Test
-    fun `region prefixes map to parent regions`() {
+    fun `adult groups map to dedicated parent at bottom tier`() {
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("US ❖ XXX"))
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("UK ❖ Adult"))
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("For Adult Channels"))
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("18+ ONLY"))
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("Pink TV"))
+        assertEquals(PARENT_GROUP_ADULT, resolveParentGroup("CA ❖ Porn"))
+    }
+
+    @Test
+    fun `adult parent sorts after other categories`() {
+        assert(parentGroupSortIndex(PARENT_GROUP_ADULT) > parentGroupSortIndex("Other"))
+        assert(parentGroupSortIndex(PARENT_GROUP_ADULT) > parentGroupSortIndex("USA"))
+    }
+
+    @Test
+    fun `non-adult groups still map to regions`() {
         assertEquals("Africa", resolveParentGroup("AFR|"))
         assertEquals("Europe", resolveParentGroup("AL|"))
         assertEquals("Americas", resolveParentGroup("AM|"))
         assertEquals("Europe", resolveParentGroup("EU ❖ Entertainment"))
         assertEquals("UK", resolveParentGroup("UK ❖ General"))
-        assertEquals("USA", resolveParentGroup("US|Sports"))
+        assertEquals("USA", resolveParentGroup("US ❖ General"))
         assertEquals("Canada", resolveParentGroup("CA ❖ Sports"))
         assertEquals("Australia", resolveParentGroup("AU|"))
         assertEquals("New Zealand", resolveParentGroup("NZ|"))

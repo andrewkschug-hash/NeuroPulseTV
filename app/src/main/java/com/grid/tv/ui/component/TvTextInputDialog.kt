@@ -1,5 +1,6 @@
 package com.grid.tv.ui.component
 
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -75,7 +76,11 @@ fun TvTextInputDialog(
     placeholder: String = "",
     keyboardType: KeyboardType = KeyboardType.Text,
     isPassword: Boolean = false,
-    confirmLabel: String = "Confirm"
+    confirmLabel: String = "Confirm",
+    imeAction: ImeAction = ImeAction.Done,
+    submitOnImeAction: Boolean = false,
+    onImeSubmitted: (() -> Unit)? = null,
+    restoreFocusRequester: FocusRequester? = null
 ) {
     var draft by remember(value) { mutableStateOf(value) }
     var focusZone by remember { mutableStateOf(TvInputDialogFocus.Field) }
@@ -95,24 +100,66 @@ fun TvTextInputDialog(
         scope.launch { showTextFieldKeyboard(keyboard, view, fieldFocusRequester) }
     }
 
-    fun confirm() {
+    fun hideKeyboard() {
         keyboard?.hide()
         TvRemoteKeyboard.dismissKeyboard(view)
+    }
+
+    fun scheduleRestoreFocus() {
+        restoreFocusRequester?.let { requester ->
+            scope.launch {
+                requester.requestFocusSafelyAfterLayout(delayMs = 80)
+            }
+        }
+    }
+
+    /** Begin IME teardown: block Compose focus search, hide keyboard, seed focus on caller. */
+    fun prepareToCloseDialog() {
+        TvTextInputSession.beginClosingGracePeriod()
+        hideKeyboard()
+        restoreFocusRequester?.requestFocusSafely()
+        scheduleRestoreFocus()
+    }
+
+    fun confirm() {
+        prepareToCloseDialog()
         onConfirm(draft)
     }
 
+    fun handleImeAction() {
+        when {
+            imeAction == ImeAction.Next -> {
+                prepareToCloseDialog()
+                onConfirm(draft)
+                onImeSubmitted?.invoke()
+            }
+            submitOnImeAction -> {
+                prepareToCloseDialog()
+                onConfirm(draft)
+                onImeSubmitted?.invoke()
+            }
+            else -> {
+                focusZone = TvInputDialogFocus.Confirm
+                hideKeyboard()
+                scope.launch { confirmFocusRequester.requestFocusSafelyAfterLayout() }
+            }
+        }
+    }
+
     fun dismiss() {
-        keyboard?.hide()
-        TvRemoteKeyboard.dismissKeyboard(view)
+        prepareToCloseDialog()
         onDismiss()
     }
 
     DisposableEffect(Unit) {
         TvTextInputSession.begin()
         onDispose {
-            TvTextInputSession.end()
+            TvTextInputSession.beginClosingGracePeriod()
             keyboard?.hide()
             TvRemoteKeyboard.dismissKeyboard(view)
+            restoreFocusRequester?.requestFocusSafely()
+            scheduleRestoreFocus()
+            TvTextInputSession.end()
         }
     }
 
@@ -129,8 +176,7 @@ fun TvTextInputDialog(
                 openKeyboard()
             }
             TvInputDialogFocus.Confirm -> {
-                keyboard?.hide()
-                TvRemoteKeyboard.dismissKeyboard(view)
+                hideKeyboard()
                 confirmFocusRequester.requestFocusSafelyAfterLayout()
             }
         }
@@ -233,9 +279,14 @@ fun TvTextInputDialog(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = keyboardType,
-                        imeAction = ImeAction.None
+                        imeAction = imeAction
                     ),
-                    keyboardActions = KeyboardActions.Default,
+                    keyboardActions = KeyboardActions(
+                        onSearch = { handleImeAction() },
+                        onDone = { handleImeAction() },
+                        onGo = { handleImeAction() },
+                        onNext = { handleImeAction() }
+                    ),
                     visualTransformation = if (isPassword) {
                         PasswordVisualTransformation()
                     } else {
@@ -263,7 +314,15 @@ fun TvTextInputDialog(
                                     dismiss()
                                     true
                                 }
-                                Key.Enter, Key.NumPadEnter, Key.DirectionCenter,
+                                Key.Enter, Key.NumPadEnter -> {
+                                    if ((event.nativeKeyEvent.flags and AndroidKeyEvent.FLAG_SOFT_KEYBOARD) != 0) {
+                                        handleImeAction()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Key.DirectionCenter,
                                 Key.DirectionUp, Key.DirectionDown,
                                 Key.DirectionLeft, Key.DirectionRight -> false
                                 else -> false

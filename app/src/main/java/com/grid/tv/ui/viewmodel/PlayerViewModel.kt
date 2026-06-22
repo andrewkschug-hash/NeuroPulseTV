@@ -33,6 +33,7 @@ class PlayerViewModel @Inject constructor(
     val numberInput = _numberInput.asStateFlow()
 
     private var previousChannelId: Long? = null
+    private var lastStreamHealthReport: Triple<Long, Boolean, Int>? = null
     private val _lastWatchedChannel = MutableStateFlow<Channel?>(null)
     val lastWatchedChannel: StateFlow<Channel?> = _lastWatchedChannel.asStateFlow()
 
@@ -154,6 +155,9 @@ class PlayerViewModel @Inject constructor(
 
     fun reportStreamHealth(loadMs: Long, bufferEvents: Int, success: Boolean) {
         val id = _channel.value?.id ?: return
+        val key = Triple(id, success, bufferEvents)
+        if (lastStreamHealthReport == key) return
+        lastStreamHealthReport = key
         viewModelScope.launch {
             repository.reportStreamSession(id, loadMs, bufferEvents, success)
         }

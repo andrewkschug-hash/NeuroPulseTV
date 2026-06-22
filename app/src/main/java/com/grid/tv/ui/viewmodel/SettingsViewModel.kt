@@ -25,11 +25,13 @@ import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.feature.dashboard.DashboardController
 import com.grid.tv.feature.recording.RecordingStorageManager
-import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +40,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.grid.tv.util.CONNECTION_FAILED_ERROR
 import com.grid.tv.util.CONNECTION_TIMEOUT_ERROR
@@ -56,10 +59,11 @@ class SettingsViewModel @Inject constructor(
     private val dashboardController: DashboardController,
     private val recordingStorageManager: RecordingStorageManager,
     private val channelScanner: ChannelScanner,
-    private val seriesRuleScheduler: SeriesRuleScheduler,
+    private val epgScheduler: EpgScheduler,
     private val themeManager: ThemeManager,
     private val pipController: PictureInPictureController,
-    private val livePlayerManager: LivePlayerManager
+    private val livePlayerManager: LivePlayerManager,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
@@ -109,6 +113,12 @@ class SettingsViewModel @Inject constructor(
 
     private val _currentStorageLabel = MutableStateFlow<String?>(null)
     val currentStorageLabel = _currentStorageLabel.asStateFlow()
+
+    private val _usbStorageReady = MutableStateFlow(false)
+    val usbStorageReady = _usbStorageReady.asStateFlow()
+
+    private val _usbStorageStatusLine = MutableStateFlow<String?>(null)
+    val usbStorageStatusLine = _usbStorageStatusLine.asStateFlow()
 
     private val _cacheMessage = MutableStateFlow<String?>(null)
     val cacheMessage = _cacheMessage.asStateFlow()
@@ -160,9 +170,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshStorageSettings() {
+        _usbStorageReady.value = recordingStorageManager.isUsbStorageReady()
+        _usbStorageStatusLine.value = recordingStorageManager.usbStorageStatusLine()
         _storageOptions.value = recordingStorageManager.enumerateOptions()
         viewModelScope.launch {
-            _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
+            if (_usbStorageReady.value) {
+                recordingStorageManager.ensureUsbLocationSaved()
+                _currentStorageLabel.value = recordingStorageManager.currentStorageLabel()
+            } else {
+                _currentStorageLabel.value = null
+            }
         }
     }
 
@@ -259,7 +276,12 @@ class SettingsViewModel @Inject constructor(
             }
             if (connected && isXtream) {
                 viewModelScope.launch {
-                    runCatching { repository.refreshVodSeriesCatalog() }
+                    runCatching {
+                        repository.refreshVodSeriesCatalog(
+                            trigger = com.grid.tv.domain.model.VodRefreshTrigger.PLAYLIST_CONNECT,
+                            force = true
+                        )
+                    }
                 }
             }
         }
@@ -276,7 +298,9 @@ class SettingsViewModel @Inject constructor(
         _isConnecting.value = true
         _m3uProgress.value = progressLabel
         return try {
-            withTimeout(connectionTimeoutMs(_settings.value.connectionTimeoutSeconds)) { block() }
+            withContext(Dispatchers.IO) {
+                withTimeout(connectionTimeoutMs(_settings.value.connectionTimeoutSeconds)) { block() }
+            }
             _connectionDialog.value = ConnectionDialogState.Success
             true
         } catch (_: TimeoutCancellationException) {
@@ -294,10 +318,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshEpg() {
-        viewModelScope.launch {
-            repository.refreshEpgNow()
-            seriesRuleScheduler.applyRulesAfterEpgRefresh()
-        }
+        epgScheduler.scheduleManualEpg()
     }
 
     private fun syncScannerSettings() {
@@ -314,9 +335,9 @@ class SettingsViewModel @Inject constructor(
 
     private fun persistScannerSettings(updated: com.grid.tv.domain.model.AppSettings) {
         _settings.value = updated
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.saveSettings(updated)
-            syncScannerSettings()
+            withContext(Dispatchers.Main) { syncScannerSettings() }
         }
     }
 
@@ -350,12 +371,9 @@ class SettingsViewModel @Inject constructor(
 
     fun updateGuideChannelGroups(groups: Set<String>) {
         viewModelScope.launch {
-            val updated = _settings.value.copy(
-                guideChannelGroups = groups,
-                guideFiltersConfigured = true
-            )
-            _settings.value = updated
-            repository.saveSettings(updated)
+            repository.saveGuideChannelFilter(groups, configured = true)
+            val latest = repository.loadSettings()
+            _settings.value = latest
         }
     }
 
@@ -364,6 +382,7 @@ class SettingsViewModel @Inject constructor(
             val updated = _settings.value.copy(streamRetries = value)
             _settings.value = updated
             repository.saveSettings(updated)
+            livePlayerManager.setStreamRetries(value)
         }
     }
 
@@ -381,7 +400,7 @@ class SettingsViewModel @Inject constructor(
 
     private fun persistSettings(updated: AppSettings) {
         _settings.value = updated
-        viewModelScope.launch { repository.saveSettings(updated) }
+        viewModelScope.launch(Dispatchers.IO) { repository.saveSettings(updated) }
     }
 
     fun updateParentalPinLock(enabled: Boolean) {
@@ -394,14 +413,23 @@ class SettingsViewModel @Inject constructor(
 
     fun updateConnectionTimeout(seconds: Int) {
         persistSettings(_settings.value.copy(connectionTimeoutSeconds = seconds))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateUseProxy(enabled: Boolean) {
         persistSettings(_settings.value.copy(useProxy = enabled))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateProxyUrl(url: String) {
         persistSettings(_settings.value.copy(proxyUrl = url))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateShowEpgProgramInfoOnSidebar(enabled: Boolean) {
@@ -513,7 +541,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _importSummary.value = repository.importTiviMate(contentResolver, uri, cacheDir)
         }
     }

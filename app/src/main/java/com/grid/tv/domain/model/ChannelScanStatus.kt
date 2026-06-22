@@ -14,13 +14,15 @@ enum class ChannelScanStatus {
 
 data class ChannelScanSnapshot(
     val status: ChannelScanStatus,
-    val lastCheckedAt: Long? = null
+    val lastCheckedAt: Long? = null,
+    val responseCode: Int? = null,
+    val latencyMs: Long? = null
 )
 
 data class ScannerSettings(
     val autoScanEnabled: Boolean = true,
     val scanIntervalMinutes: Int = 5,
-    val concurrentChecks: Int = 10,
+    val concurrentChecks: Int = 8,
     val scanOnMetered: Boolean = false
 )
 

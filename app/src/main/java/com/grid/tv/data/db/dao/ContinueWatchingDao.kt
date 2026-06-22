@@ -35,6 +35,18 @@ interface ContinueWatchingDao {
     @Query("SELECT * FROM continue_watching WHERE profileId = :profileId AND contentKey = :contentKey")
     suspend fun get(profileId: Long, contentKey: String): ContinueWatchingEntity?
 
+    @Query(
+        """
+        SELECT * FROM continue_watching
+        WHERE profileId = :profileId
+          AND contentType = 'SERIES'
+          AND seriesId = :seriesId
+        ORDER BY lastWatchedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun latestForSeries(profileId: Long, seriesId: Long): ContinueWatchingEntity?
+
     @Query("DELETE FROM continue_watching WHERE profileId = :profileId AND contentKey = :contentKey")
     suspend fun delete(profileId: Long, contentKey: String)
 

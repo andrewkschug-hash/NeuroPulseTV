@@ -1,38 +1,33 @@
 package com.grid.tv.player.multiview
 
 import android.content.Context
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.grid.tv.domain.model.Channel
-import com.grid.tv.player.PlayerFactory
-import com.grid.tv.util.MediaAttribution
+import com.grid.tv.player.MultiPanePlaybackPool
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** MultiView facade — delegates to shared [MultiPanePlaybackPool]. */
 @Singleton
 class MultiViewManager @Inject constructor(
-    private val playerFactory: PlayerFactory
+    private val multiPanePlaybackPool: MultiPanePlaybackPool
 ) {
-    private val players = mutableMapOf<Int, ExoPlayer>()
-    private var activeAudioPanelIndex: Int = 0
-
-    @UnstableApi
-    fun getOrCreatePlayer(context: Context, panelIndex: Int): ExoPlayer {
-        return players.getOrPut(panelIndex) {
-            val appContext = MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
-            playerFactory.create(appContext)
-        }
+    private companion object {
+        const val OWNER = "multiview"
     }
 
+    @UnstableApi
+    fun getOrCreatePlayer(context: Context, panelIndex: Int): ExoPlayer =
+        multiPanePlaybackPool.getOrCreatePlayer(context, panelIndex, OWNER)
+
     fun tunePanel(context: Context, panelIndex: Int, channel: Channel) {
-        val player = getOrCreatePlayer(context, panelIndex)
-        val url = channel.streamUrl
-        if (url.isBlank()) return
-        player.setMediaItem(MediaItem.fromUri(url))
-        player.prepare()
-        player.playWhenReady = true
-        applyAudioFocus(panelIndex)
+        tunePanel(context, panelIndex, channel.streamUrl)
+        setActiveAudioPanel(panelIndex)
+    }
+
+    private fun tunePanel(context: Context, panelIndex: Int, streamUrl: String) {
+        multiPanePlaybackPool.tunePane(context, panelIndex, streamUrl, OWNER)
     }
 
     fun replacePanel(context: Context, panelIndex: Int, channel: Channel) {
@@ -40,29 +35,20 @@ class MultiViewManager @Inject constructor(
     }
 
     fun setActiveAudioPanel(panelIndex: Int) {
-        activeAudioPanelIndex = panelIndex
-        players.forEach { (index, player) ->
-            player.volume = if (index == activeAudioPanelIndex) 1f else 0f
-        }
+        multiPanePlaybackPool.setActiveAudioPane(panelIndex)
     }
 
-    fun pauseAll() {
-        players.values.forEach { it.playWhenReady = false }
+    fun syncDecodePolicy(decodeOnlyAudioPane: Boolean, activeAudioPanelIndex: Int) {
+        multiPanePlaybackPool.syncDecodePolicy(decodeOnlyAudioPane, activeAudioPanelIndex)
     }
 
-    fun resumeAll() {
-        players.values.forEach { it.playWhenReady = true }
-    }
+    fun pauseAll() = multiPanePlaybackPool.pauseAll()
+
+    fun resumeAll() = multiPanePlaybackPool.resumeAll()
 
     fun releaseAll() {
-        players.values.forEach { it.release() }
-        players.clear()
-        activeAudioPanelIndex = 0
+        multiPanePlaybackPool.releaseAll()
     }
 
-    fun activePlayer(): ExoPlayer? = players[activeAudioPanelIndex]
-
-    private fun applyAudioFocus(panelIndex: Int) {
-        setActiveAudioPanel(panelIndex)
-    }
+    fun activePlayer(): ExoPlayer? = multiPanePlaybackPool.activePlayer()
 }

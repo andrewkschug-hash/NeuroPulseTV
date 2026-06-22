@@ -2,6 +2,7 @@ package com.grid.tv.data.db
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import com.grid.tv.data.db.dao.ContinueWatchingDao
 import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.ChannelScanDao
@@ -31,11 +32,17 @@ import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
 import com.grid.tv.data.db.dao.VodWatchEventDao
 import com.grid.tv.data.db.dao.SeriesFollowDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.FeaturedCurationDao
+import com.grid.tv.data.db.dao.VodCategoryDao
+import com.grid.tv.data.db.dao.VodStreamDao
+import com.grid.tv.data.db.dao.SeriesCategoryDao
+import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
+import com.grid.tv.data.db.dao.MovieDetailsDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.entity.ContinueWatchingEntity
 import com.grid.tv.data.db.entity.ActiveProfileEntity
@@ -43,6 +50,8 @@ import com.grid.tv.data.db.entity.ChannelEntity
 import com.grid.tv.data.db.entity.ChannelScanEntity
 import com.grid.tv.data.db.entity.FavoriteEntity
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
+import com.grid.tv.data.db.entity.FeaturedBannerStatsEntity
+import com.grid.tv.data.db.entity.ProfileGenreAffinityEntity
 import com.grid.tv.data.db.entity.PlaylistEntity
 import com.grid.tv.data.db.entity.ProfileFavoriteEntity
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
@@ -65,12 +74,17 @@ import com.grid.tv.data.db.entity.ProviderHealthAggregateEntity
 import com.grid.tv.data.db.entity.VodWatchEventEntity
 import com.grid.tv.data.db.entity.SeriesFollowEntity
 import com.grid.tv.data.db.entity.VodCatalogEpisodeEntity
+import com.grid.tv.data.db.entity.VodCategoryEntity
+import com.grid.tv.data.db.entity.VodStreamEntity
+import com.grid.tv.data.db.entity.SeriesCategoryEntity
+import com.grid.tv.data.db.entity.SeriesShowEntity
 import com.grid.tv.data.db.entity.VodUserNotificationEntity
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.ProfileTasteGenomeEntity
 import com.grid.tv.data.db.entity.SubtitleCacheEntity
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
+import com.grid.tv.data.db.entity.MovieDetailsEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
 import com.grid.tv.data.db.entity.WatchHistoryEntity
 
@@ -98,6 +112,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         ChannelScanEntity::class,
         ContinueWatchingEntity::class,
         TitleEnrichmentEntity::class,
+        MovieDetailsEntity::class,
         ProfileTasteGenomeEntity::class,
         SubtitleCacheEntity::class,
         CanonicalChannelEntity::class,
@@ -111,9 +126,15 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         VodWatchEventEntity::class,
         SeriesFollowEntity::class,
         VodCatalogEpisodeEntity::class,
-        VodUserNotificationEntity::class
+        VodUserNotificationEntity::class,
+        VodStreamEntity::class,
+        VodCategoryEntity::class,
+        SeriesShowEntity::class,
+        SeriesCategoryEntity::class,
+        ProfileGenreAffinityEntity::class,
+        FeaturedBannerStatsEntity::class
     ],
-    version = 26,
+    version = 31,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -129,6 +150,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileSettingsDao(): ProfileSettingsDao
     abstract fun profileTasteGenomeDao(): ProfileTasteGenomeDao
     abstract fun titleEnrichmentDao(): TitleEnrichmentDao
+    abstract fun movieDetailsDao(): MovieDetailsDao
     abstract fun subtitleCacheDao(): SubtitleCacheDao
     abstract fun streamHealthDao(): StreamHealthDao
     abstract fun streamFailoverStatsDao(): StreamFailoverStatsDao
@@ -152,4 +174,75 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun seriesFollowDao(): SeriesFollowDao
     abstract fun vodCatalogEpisodeDao(): VodCatalogEpisodeDao
     abstract fun vodUserNotificationDao(): VodUserNotificationDao
+    abstract fun vodStreamDao(): VodStreamDao
+    abstract fun vodCategoryDao(): VodCategoryDao
+    abstract fun seriesShowDao(): SeriesShowDao
+    abstract fun seriesCategoryDao(): SeriesCategoryDao
+    abstract fun featuredCurationDao(): FeaturedCurationDao
+
+    /** Single transaction for VOD playlist refresh — avoids per-batch WAL fsync churn. */
+    @Transaction
+    open suspend fun replaceVodStreamsForPlaylist(playlistId: Long, onInsert: suspend () -> Unit) {
+        vodStreamDao().clearByPlaylist(playlistId)
+        onInsert()
+    }
+
+    /** Single transaction for VOD category refresh. */
+    @Transaction
+    open suspend fun replaceVodCategoriesForPlaylist(
+        playlistId: Long,
+        categories: List<com.grid.tv.data.db.entity.VodCategoryEntity>
+    ) {
+        vodCategoryDao().clearByPlaylist(playlistId)
+        if (categories.isNotEmpty()) {
+            vodCategoryDao().insertAll(categories)
+        }
+    }
+
+    /** Single transaction for series playlist refresh. */
+    @Transaction
+    open suspend fun replaceSeriesShowsForPlaylist(playlistId: Long, onInsert: suspend () -> Unit) {
+        seriesShowDao().clearByPlaylist(playlistId)
+        onInsert()
+    }
+
+    /** Single transaction for series category refresh. */
+    @Transaction
+    open suspend fun replaceSeriesCategoriesForPlaylist(
+        playlistId: Long,
+        categories: List<com.grid.tv.data.db.entity.SeriesCategoryEntity>
+    ) {
+        seriesCategoryDao().clearByPlaylist(playlistId)
+        if (categories.isNotEmpty()) {
+            seriesCategoryDao().insertAll(categories)
+        }
+    }
+
+    /** Single transaction for EPG channel + programme bulk import per playlist. */
+    @Transaction
+    open suspend fun importEpgForPlaylist(
+        playlistId: Long,
+        sourceKey: String,
+        sourceChannels: List<EpgSourceChannelEntity>,
+        programs: List<ProgramEntity>,
+        playlist: PlaylistEntity,
+        refreshedAt: Long
+    ): Int {
+        var resetCount = 0
+        if (sourceChannels.isNotEmpty()) {
+            epgSourceChannelDao().clearBySource(sourceKey)
+            epgSourceChannelDao().insertAll(sourceChannels)
+        }
+        if (programs.isNotEmpty()) {
+            programs.chunked(EPG_PROGRAM_INSERT_CHUNK).forEach { batch ->
+                programDao().insertAll(batch)
+            }
+            playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))
+        }
+        return resetCount
+    }
+
+    private companion object {
+        const val EPG_PROGRAM_INSERT_CHUNK = 5_000
+    }
 }

@@ -1,6 +1,7 @@
 package com.grid.tv.player
 
 import android.content.Context
+import android.os.Looper
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -8,17 +9,28 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.grid.tv.data.catalog.CatalogHydrationGuard
+import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.BufferSize
+import com.grid.tv.data.network.toNetworkPlaybackConfig
 import com.grid.tv.domain.model.Channel
+import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.util.PerformanceAudit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,6 +41,7 @@ data class TimeshiftUiState(
     val behindLiveMs: Long = 0L,
     val isTimeshifting: Boolean = false,
     val atLiveEdge: Boolean = true,
+    val canTimeshift: Boolean = false,
     val canRewind: Boolean = false,
     val canFastForward: Boolean = false,
     val isPlaying: Boolean = false,
@@ -42,7 +55,11 @@ data class TimeshiftUiState(
 @Singleton
 class LivePlayerManager @Inject constructor(
     private val playerFactory: PlayerFactory,
-    private val streamFailover: StreamFailoverController
+    private val playbackHttpDataSourceFactory: PlaybackHttpDataSourceFactory,
+    private val streamFailover: StreamFailoverController,
+    private val channelScanner: ChannelScanner,
+    private val catalogHydrationGuard: CatalogHydrationGuard,
+    private val decoderPressureTracker: DecoderPressureTracker
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -57,46 +74,75 @@ class LivePlayerManager @Inject constructor(
     private var miniAudioEnabled: Boolean = false
     private var bufferSize: BufferSize = BufferSize.MEDIUM
     private var preferHardwareDecoding: Boolean = true
+    private var cachedNetworkSettings: AppSettings? = null
 
     private var hasDvrWindow: Boolean = false
     private var pendingJumpToLive: Boolean = false
 
     private val _activeChannelId = MutableStateFlow<Long?>(null)
-    val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
 
     private val _activeStreamUrl = MutableStateFlow<String?>(null)
-    val activeStreamUrlFlow: StateFlow<String?> = _activeStreamUrl.asStateFlow()
 
-    /** Bumped whenever the underlying ExoPlayer instance is replaced. */
+    /** Bumped only when the underlying ExoPlayer instance is destroyed and recreated. */
     private val _playerGeneration = MutableStateFlow(0)
     val playerGeneration: StateFlow<Int> = _playerGeneration.asStateFlow()
 
-    private val _canTimeshift = MutableStateFlow(false)
-    val canTimeshiftFlow: StateFlow<Boolean> = _canTimeshift.asStateFlow()
-
-    private val _atLiveEdge = MutableStateFlow(true)
-    val atLiveEdgeFlow: StateFlow<Boolean> = _atLiveEdge.asStateFlow()
+    private var pendingZapChannelId: Long? = null
+    private var playbackReadySeen = false
+    private var bufferStartupStartedAtMs = 0L
 
     private val _timeshiftState = MutableStateFlow(TimeshiftUiState())
-    val timeshiftStateFlow: StateFlow<TimeshiftUiState> = _timeshiftState.asStateFlow()
 
     private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val playbackMonitor = StreamPlaybackMonitor(monitorScope)
+
+    /** Combined UI snapshot — prefer this over collecting individual flows in Compose. */
+    val playbackUiState: StateFlow<LivePlaybackUiState> = combine(
+        playbackMonitor.status,
+        streamFailover.uiState,
+        _timeshiftState,
+        _activeChannelId,
+        _activeStreamUrl
+    ) { status, failover, timeshift, channelId, streamUrl ->
+        LivePlaybackUiState(
+            status = status,
+            failover = failover,
+            timeshift = timeshift,
+            activeChannelId = channelId,
+            activeStreamUrl = streamUrl
+        )
+    }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = monitorScope,
+            started = SharingStarted.Eagerly,
+            initialValue = LivePlaybackUiState()
+        )
+
+    /** @deprecated Prefer [playbackUiState] — kept for non-UI side-effect wiring. */
     val playbackStatus: StateFlow<StreamPlaybackStatus> = playbackMonitor.status
+
+    /** @deprecated Prefer [playbackUiState]. */
     val failoverUiState: StateFlow<StreamFailoverUiState> = streamFailover.uiState
+
+    /** @deprecated Prefer [playbackUiState]. */
+    val timeshiftStateFlow: StateFlow<TimeshiftUiState> = _timeshiftState.asStateFlow()
+
+    /** @deprecated Prefer [playbackUiState]. */
+    val activeChannelIdFlow: StateFlow<Long?> = _activeChannelId.asStateFlow()
+
+    /** @deprecated Prefer [playbackUiState]. */
+    val activeStreamUrlFlow: StateFlow<String?> = _activeStreamUrl.asStateFlow()
 
     private val failoverActions = object : StreamFailoverPlaybackActions {
         override fun reconnectSameStream() {
             val exo = player ?: return
             val url = currentStreamUrl ?: return
-            playbackMonitor.onTuneStarted(url)
-            exo.stop()
-            exo.clearMediaItems()
-            if (url.isNotBlank()) {
-                exo.setMediaItem(buildLiveMediaItem(url))
-                exo.prepare()
-            }
+            if (url.isBlank()) return
+            val resumeMs = exo.currentPosition.coerceAtLeast(0L)
+            exo.setMediaItem(buildLiveMediaItem(url), resumeMs)
+            exo.prepare()
             exo.playWhenReady = mode != Mode.IDLE
             applyVolume()
         }
@@ -115,11 +161,22 @@ class LivePlayerManager @Inject constructor(
 
     private var fullscreenSessions: Int = 0
     private var volumeFadeMultiplier: Float = 1f
+    private var streamTransitionJob: Job? = null
+    private var playerReleasedForBackground = false
+    private val tuneGuard = TunePipelineGuard()
 
     init {
-        playbackMonitor.status.onEach { status ->
-            streamFailover.onPlaybackStatus(status)
-        }.launchIn(monitorScope)
+        playbackMonitor.status
+            .onEach { status ->
+                PerformanceAudit.recordPlaybackStatusEmission(status)
+                streamFailover.onPlaybackStatus(status)
+            }
+            .launchIn(monitorScope)
+        monitorScope.launch {
+            playbackUiState.collect { ui ->
+                PerformanceAudit.recordPlaybackUiEmission(ui)
+            }
+        }
     }
 
     fun isFullscreenActive(): Boolean = fullscreenSessions > 0
@@ -131,7 +188,29 @@ class LivePlayerManager @Inject constructor(
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_READY) {
-                player?.let { refreshTimeshiftWindow(it) }
+                player?.let { exo ->
+                    refreshTimeshiftWindow(exo)
+                    if (bufferStartupStartedAtMs > 0L) {
+                        PerformanceAudit.logBufferStartupReady(
+                            elapsedMs = System.currentTimeMillis() - bufferStartupStartedAtMs,
+                            profileName = TimeshiftManager.activeProfileName,
+                            playerHash = System.identityHashCode(exo)
+                        )
+                        bufferStartupStartedAtMs = 0L
+                    }
+                    pendingZapChannelId?.let { channelId ->
+                        PerformanceAudit.completeZap(System.identityHashCode(exo), channelId)
+                        pendingZapChannelId = null
+                    }
+                    playbackReadySeen = true
+                }
+            } else if (playbackState == Player.STATE_BUFFERING && playbackReadySeen) {
+                player?.let { exo ->
+                    PerformanceAudit.logRebufferEvent(
+                        profileName = TimeshiftManager.activeProfileName,
+                        playerHash = System.identityHashCode(exo)
+                    )
+                }
             }
         }
 
@@ -151,16 +230,42 @@ class LivePlayerManager @Inject constructor(
     @UnstableApi
     fun getOrCreatePlayer(context: Context): ExoPlayer {
         if (player == null) {
-            TimeshiftManager.maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize)
+            val caps = context.devicePlaybackCapabilities()
+            val profile = IptvBufferProfiles.resolve(
+                bufferSize = bufferSize,
+                startupPriority = null,
+                isLowEndDevice = caps.isLowEndDevice
+            )
+            TimeshiftManager.syncBufferProfile(profile)
             player = playerFactory.create(
                 context.applicationContext,
                 bufferSize,
-                preferHardwareDecoding
+                preferHardwareDecoding,
+                networkSettings = cachedNetworkSettings,
+                decoderOwner = "live_guide"
             ).also { exo ->
                 exo.addListener(timeshiftListener)
+                PerformanceAudit.logPlayerLifecycle("CREATE", exo, _playerGeneration.value)
             }
         }
         return player!!
+    }
+
+    @UnstableApi
+    fun syncNetworkSettings(context: Context, settings: AppSettings) {
+        val previous = cachedNetworkSettings
+        cachedNetworkSettings = settings
+        val changed = previous == null ||
+            previous.useProxy != settings.useProxy ||
+            previous.proxyUrl != settings.proxyUrl ||
+            previous.connectionTimeoutSeconds != settings.connectionTimeoutSeconds
+        if (!changed) return
+        android.util.Log.i(
+            TAG,
+            "Network settings changed for playback — ${settings.toNetworkPlaybackConfig().toLogLine()}"
+        )
+        playbackHttpDataSourceFactory.syncNetworkSettings(settings)
+        rebuildPlayerPreservingTune(context.applicationContext)
     }
 
     @UnstableApi
@@ -174,33 +279,33 @@ class LivePlayerManager @Inject constructor(
         }
         this.bufferSize = bufferSize
         this.preferHardwareDecoding = preferHardwareDecoding
-        TimeshiftManager.maxBufferMs = TimeshiftManager.maxBufferMsFor(bufferSize)
-        if (fullscreenSessions > 0) {
-            return
-        }
-        if (player == null) {
-            return
-        }
+        val profile = IptvBufferProfiles.resolve(
+            bufferSize = bufferSize,
+            startupPriority = null,
+            isLowEndDevice = context.devicePlaybackCapabilities().isLowEndDevice
+        )
+        TimeshiftManager.syncBufferProfile(profile)
+        rebuildPlayerPreservingTune(context.applicationContext)
+    }
+
+    @UnstableApi
+    private fun rebuildPlayerPreservingTune(context: Context) {
+        if (fullscreenSessions > 0) return
+        if (player == null) return
         val channelId = currentChannelId
         val streamUrl = currentStreamUrl
         val days = catchupDays
         val channel = currentChannel
         val currentMode = mode
         val audio = miniAudioEnabled
-        playbackMonitor.detach()
-        streamFailover.detach()
-        player?.removeListener(timeshiftListener)
-        player?.release()
-        player = null
-        clearStreamCache(context)
+        destroyPlayerInstance(context, clearCache = true)
         resetTimeshiftState()
         if (channelId != null && !streamUrl.isNullOrBlank()) {
-            tuneChannel(context, channelId, streamUrl, days, channel)
+            tuneChannel(context, channelId, streamUrl, days, channel, bypassDedupe = true)
             mode = currentMode
             miniAudioEnabled = audio
             applyVolume()
         }
-        markPlayerReplaced()
     }
 
     private fun markPlayerReplaced() {
@@ -208,16 +313,101 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun setMiniAudioEnabled(enabled: Boolean) {
-        miniAudioEnabled = enabled
-        if (mode == Mode.MINI) applyVolume()
+        runOnPlayerThread {
+            miniAudioEnabled = enabled
+            if (mode == Mode.MINI) applyVolumeNow()
+        }
     }
 
     fun setAutoReconnectOnDrop(enabled: Boolean) {
         streamFailover.setAutoReconnectEnabled(enabled)
     }
 
-    fun tuneChannel(context: Context, channel: Channel) {
-        tuneChannel(context, channel.id, channel.streamUrl, channel.catchupDays, channel)
+    fun setStreamRetries(count: Int) {
+        streamFailover.setStreamRetries(count)
+    }
+
+    fun hasPlayerInstance(): Boolean = player != null
+
+    fun isPlaybackActive(): Boolean {
+        val exo = player ?: return false
+        if (!exo.playWhenReady) return false
+        return exo.playbackState == Player.STATE_READY || exo.playbackState == Player.STATE_BUFFERING
+    }
+
+    /**
+     * Keep decoders allocated for fullscreen playback or any stream that is actively playing.
+     */
+    fun shouldRetainPlayerInBackground(): Boolean {
+        val exo = player ?: return false
+        if (mode == Mode.FULLSCREEN && isPlaybackActive()) return true
+        if (mode == Mode.MINI && isPlaybackActive()) return true
+        return false
+    }
+
+    /**
+     * Releases the ExoPlayer instance and stream cache while preserving tune session metadata
+     * so [restoreSessionAfterBackgroundRelease] can rebuild quickly on return.
+     */
+    fun releasePlayerResources(context: Context, reason: String) {
+        if (player == null) return
+        PerformanceAudit.logPlayerMemoryRelease(
+            reason = reason,
+            phase = "before",
+            generation = _playerGeneration.value,
+            channelId = currentChannelId
+        )
+        streamTransitionJob?.cancel()
+        if (fullscreenSessions > 0) {
+            channelScanner.setPlaybackScanSuspended(false)
+        }
+        destroyPlayerInstance(context.applicationContext, clearCache = true)
+        playbackReadySeen = false
+        bufferStartupStartedAtMs = 0L
+        playerReleasedForBackground = true
+        syncCatalogHydrationGuard()
+        PerformanceAudit.logPlayerMemoryRelease(
+            reason = reason,
+            phase = "after",
+            generation = _playerGeneration.value,
+            channelId = currentChannelId
+        )
+        Log.i(TAG, "Released player resources ($reason); session preserved mode=$mode channelId=$currentChannelId")
+    }
+
+    fun restoreSessionAfterBackgroundRelease(context: Context) {
+        if (!playerReleasedForBackground) return
+        playerReleasedForBackground = false
+        val appContext = context.applicationContext
+        lastContext = appContext
+        val channel = currentChannel
+        val channelId = currentChannelId
+        val streamUrl = currentStreamUrl
+        if (channelId == null || streamUrl.isNullOrBlank()) return
+        when (mode) {
+            Mode.FULLSCREEN -> {
+                if (channel != null) {
+                    tuneChannel(appContext, channel, bypassDedupe = true)
+                } else {
+                    tuneChannel(appContext, channelId, streamUrl, catchupDays, null, bypassDedupe = true)
+                }
+                setMode(Mode.FULLSCREEN)
+            }
+            Mode.MINI -> {
+                if (channel != null) {
+                    tuneChannel(appContext, channel, bypassDedupe = true)
+                } else {
+                    tuneChannel(appContext, channelId, streamUrl, catchupDays, null, bypassDedupe = true)
+                }
+                resumeGuidePreview(appContext, withAudio = miniAudioEnabled)
+            }
+            Mode.IDLE -> Unit
+        }
+        Log.i(TAG, "Restored session after background release mode=$mode channelId=$channelId")
+    }
+
+    fun tuneChannel(context: Context, channel: Channel, bypassDedupe: Boolean = false) {
+        tuneChannel(context, channel.id, channel.streamUrl, channel.catchupDays, channel, bypassDedupe)
     }
 
     fun tuneChannel(
@@ -225,75 +415,94 @@ class LivePlayerManager @Inject constructor(
         channelId: Long,
         streamUrl: String,
         catchupDays: Int = 0,
-        channelSnapshot: Channel? = null
+        channelSnapshot: Channel? = null,
+        bypassDedupe: Boolean = false
     ) {
         lastContext = context.applicationContext
-        val exo = getOrCreatePlayer(context)
-        playbackMonitor.attach(exo)
-        streamFailover.attach(exo, failoverActions)
-        val failoverChannel = channelSnapshot
-            ?: currentChannel?.takeIf { it.id == channelId }
-            ?: Channel(
-                id = channelId,
-                number = 0,
-                name = "",
-                group = "",
-                logoUrl = null,
-                epgId = null,
-                streamUrl = streamUrl,
-                playlistId = 0,
-                isFavorite = false
-            )
-        streamFailover.configure(failoverChannel, streamUrl)
+        if (tryReuseActiveStream(context, channelId, streamUrl, channelSnapshot)) return
+        scheduleTunePipeline(
+            context = context,
+            channelId = channelId,
+            streamUrl = streamUrl,
+            catchupDays = catchupDays,
+            channelSnapshot = channelSnapshot,
+            bypassDedupe = bypassDedupe,
+            configureFailover = true,
+            trackZapMetrics = true,
+            playWhenReady = true
+        )
+    }
 
-        if (currentChannelId == channelId && currentStreamUrl == streamUrl && streamUrl.isNotBlank()) {
-            channelSnapshot?.let { currentChannel = it }
-            val state = exo.playbackState
-            if (state == Player.STATE_READY) {
-                exo.playWhenReady = true
-                applyVolume()
-                refreshTimeshiftWindow(exo)
-                playbackMonitor.onStreamContinued(exo)
-                return
-            }
+    /**
+     * Fast-path when the requested stream is already loaded and ready — avoids flush/prepare.
+     */
+    private fun tryReuseActiveStream(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        channelSnapshot: Channel?
+    ): Boolean {
+        if (currentChannelId != channelId || currentStreamUrl != streamUrl || streamUrl.isBlank()) {
+            return false
         }
-
-        playbackMonitor.onTuneStarted(streamUrl)
-        this.catchupDays = catchupDays
-
-        currentChannel?.takeIf { it.id != channelId }?.let { previous ->
-            _lastChannel.value = previous
-        }
-
-        TimeshiftManager.reset()
-        clearStreamCache(context)
-        resetTimeshiftState()
-        this.catchupDays = catchupDays
-
-        if (streamUrl.isBlank()) {
-            currentChannelId = channelId
-            setActiveStreamUrl(streamUrl)
-            channelSnapshot?.let { currentChannel = it }
-            _activeChannelId.value = channelId
-            _canTimeshift.value = false
-            exo.stop()
-            exo.clearMediaItems()
-            return
-        }
-
-        currentChannelId = channelId
-        setActiveStreamUrl(streamUrl)
+        val exo = player ?: getOrCreatePlayer(context)
         channelSnapshot?.let { currentChannel = it }
-        _activeChannelId.value = channelId
-        pendingJumpToLive = true
-        Log.i(TAG, "tuneChannel id=$channelId url=$streamUrl")
-        exo.stop()
-        exo.clearMediaItems()
-        exo.setMediaItem(buildLiveMediaItem(streamUrl))
-        exo.prepare()
+        if (exo.playbackState != Player.STATE_READY) {
+            return false
+        }
+        PerformanceAudit.logPlayerLifecycle("REUSE_SKIP_FLUSH", exo, _playerGeneration.value, channelId)
+        PerformanceAudit.logTuneReuseSkipFlush(channelId, streamUrl)
         exo.playWhenReady = true
         applyVolume()
-        streamFailover.onStreamSwitched(streamUrl)
+        refreshTimeshiftWindow(exo)
+        playbackMonitor.onStreamContinued(exo)
+        return true
+    }
+
+    private fun scheduleTunePipeline(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int,
+        channelSnapshot: Channel?,
+        bypassDedupe: Boolean,
+        configureFailover: Boolean,
+        trackZapMetrics: Boolean,
+        playWhenReady: Boolean
+    ) {
+        val key = TunePipelineGuard.TuneKey(channelId, streamUrl)
+        when (val admission = tuneGuard.evaluateAdmission(key, bypassDedupe)) {
+            is TunePipelineGuard.Admission.Suppressed -> {
+                PerformanceAudit.logTuneSuppressed(
+                    reason = admission.reason.name,
+                    channelId = channelId,
+                    streamUrl = streamUrl
+                )
+                Log.i(TAG, "Tune suppressed reason=${admission.reason} channelId=$channelId")
+                return
+            }
+            TunePipelineGuard.Admission.Accepted -> Unit
+        }
+
+        streamTransitionJob?.cancel()
+        streamTransitionJob = monitorScope.launch {
+            tuneGuard.runPipeline(key) {
+                PerformanceAudit.logTunePipelineStart(channelId, streamUrl, configureFailover)
+                resetPlayerForMediaSwap()
+                delay(AUDIO_PIPELINE_FLUSH_DELAY_MS)
+                loadStream(
+                    context = context,
+                    channelId = channelId,
+                    streamUrl = streamUrl,
+                    catchupDays = catchupDays,
+                    channelSnapshot = channelSnapshot,
+                    playWhenReady = playWhenReady,
+                    configureFailover = configureFailover,
+                    trackZapMetrics = trackZapMetrics
+                )
+                PerformanceAudit.logTunePipelineEnd(channelId, streamUrl)
+            }
+        }
     }
 
     fun switchToStreamUrl(
@@ -304,25 +513,136 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot: Channel? = null
     ) {
         lastContext = context.applicationContext
+        if (tryReuseActiveStream(context, channelId, streamUrl, channelSnapshot)) return
+        scheduleTunePipeline(
+            context = context,
+            channelId = channelId,
+            streamUrl = streamUrl,
+            catchupDays = catchupDays,
+            channelSnapshot = channelSnapshot,
+            bypassDedupe = true,
+            configureFailover = false,
+            trackZapMetrics = true,
+            playWhenReady = mode != Mode.IDLE
+        )
+    }
+
+    private suspend fun loadStream(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int,
+        channelSnapshot: Channel?,
+        playWhenReady: Boolean,
+        configureFailover: Boolean,
+        trackZapMetrics: Boolean
+    ) {
         val exo = getOrCreatePlayer(context)
         playbackMonitor.attach(exo)
         streamFailover.attach(exo, failoverActions)
+        if (configureFailover) {
+            val failoverChannel = channelSnapshot
+                ?: currentChannel?.takeIf { it.id == channelId }
+                ?: Channel(
+                    id = channelId,
+                    number = 0,
+                    name = "",
+                    group = "",
+                    logoUrl = null,
+                    epgId = null,
+                    streamUrl = streamUrl,
+                    playlistId = 0,
+                    isFavorite = false
+                )
+            streamFailover.configure(failoverChannel, streamUrl)
+        }
 
         playbackMonitor.onTuneStarted(streamUrl)
         this.catchupDays = catchupDays
-        currentChannelId = channelId
+
+        if (configureFailover) {
+            currentChannel?.takeIf { it.id != channelId }?.let { previous ->
+                _lastChannel.value = previous
+            }
+        }
+
+        TimeshiftManager.reset()
+        clearStreamCache(context)
+        resetTimeshiftState()
+        this.catchupDays = catchupDays
+
+        if (streamUrl.isBlank()) {
+            setActiveChannelId(channelId)
+            setActiveStreamUrl(streamUrl)
+            channelSnapshot?.let { currentChannel = it }
+            pendingZapChannelId = null
+            exo.stop()
+            exo.clearMediaItems()
+            syncCatalogHydrationGuard()
+            return
+        }
+
+        setActiveChannelId(channelId)
         setActiveStreamUrl(streamUrl)
         channelSnapshot?.let { currentChannel = it }
-        _activeChannelId.value = channelId
         pendingJumpToLive = true
-        Log.i(TAG, "switchToStreamUrl id=$channelId url=$streamUrl")
+        Log.i(TAG, "loadStream id=$channelId url=$streamUrl playWhenReady=$playWhenReady")
+        PerformanceAudit.logPlayerLifecycle("SWAP_MEDIA", exo, _playerGeneration.value, channelId)
+        if (trackZapMetrics) {
+            pendingZapChannelId = channelId
+            PerformanceAudit.beginZap(channelId, System.identityHashCode(exo))
+        }
+        playbackReadySeen = false
+        bufferStartupStartedAtMs = System.currentTimeMillis()
+        PerformanceAudit.logBufferTuneStarted(
+            channelId = channelId,
+            profileName = TimeshiftManager.activeProfileName
+        )
         exo.stop()
         exo.clearMediaItems()
         exo.setMediaItem(buildLiveMediaItem(streamUrl))
         exo.prepare()
-        exo.playWhenReady = mode != Mode.IDLE
+        exo.playWhenReady = playWhenReady
         applyVolume()
         streamFailover.onStreamSwitched(streamUrl)
+        syncCatalogHydrationGuard()
+    }
+
+    /**
+     * Stops current media on the existing player without releasing decoders or the instance.
+     * Used for normal channel / backup URL switches.
+     */
+    private fun resetPlayerForMediaSwap() {
+        val exo = player ?: return
+        PerformanceAudit.logPlayerLifecycle("SWAP_RESET", exo, _playerGeneration.value, currentChannelId)
+        streamFailover.detach()
+        exo.playWhenReady = false
+        exo.stop()
+        exo.clearMediaItems()
+    }
+
+    /**
+     * Fully destroys the ExoPlayer instance. Use only for settings-driven rebuilds,
+     * explicit [release], or other lifecycle teardown — not for channel zaps.
+     */
+    private fun destroyPlayerInstance(context: Context? = null, clearCache: Boolean = false) {
+        val exo = player ?: return
+        PerformanceAudit.logPlayerLifecycle("RELEASE", exo, _playerGeneration.value, currentChannelId)
+        playbackMonitor.detach()
+        streamFailover.detach()
+        exo.removeListener(timeshiftListener)
+        exo.playWhenReady = false
+        exo.stop()
+        exo.clearVideoSurface()
+        exo.clearMediaItems()
+        decoderPressureTracker.unregisterPlayer(exo)
+        exo.release()
+        player = null
+        pendingZapChannelId = null
+        markPlayerReplaced()
+        if (clearCache && context != null) {
+            clearStreamCache(context)
+        }
     }
 
     private fun buildLiveMediaItem(streamUrl: String): MediaItem =
@@ -330,6 +650,7 @@ class LivePlayerManager @Inject constructor(
 
     companion object {
         private const val TAG = "LivePlayerManager"
+        private const val AUDIO_PIPELINE_FLUSH_DELAY_MS = 75L
     }
 
     fun lastChannel(): Channel? = _lastChannel.value
@@ -407,10 +728,14 @@ class LivePlayerManager @Inject constructor(
         mode = newMode
         applyVolume()
         player?.playWhenReady = newMode != Mode.IDLE
+        syncCatalogHydrationGuard()
     }
 
     fun enterFullscreen() {
         fullscreenSessions++
+        if (fullscreenSessions == 1) {
+            channelScanner.setPlaybackScanSuspended(true)
+        }
         resetVolumeFade()
         setMode(Mode.FULLSCREEN)
     }
@@ -421,6 +746,7 @@ class LivePlayerManager @Inject constructor(
         }
         if (fullscreenSessions > 0) return
 
+        channelScanner.setPlaybackScanSuspended(false)
         TimeshiftManager.reset()
         resetVolumeFade()
         if (currentChannelId != null && !currentStreamUrl.isNullOrBlank()) {
@@ -439,16 +765,24 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun setVolumeFade(multiplier: Float) {
-        volumeFadeMultiplier = multiplier.coerceIn(0f, 1f)
-        applyVolume()
+        runOnPlayerThread {
+            volumeFadeMultiplier = multiplier.coerceIn(0f, 1f)
+            applyVolumeNow()
+        }
     }
 
     fun resetVolumeFade() {
-        volumeFadeMultiplier = 1f
-        applyVolume()
+        runOnPlayerThread {
+            volumeFadeMultiplier = 1f
+            applyVolumeNow()
+        }
     }
 
     private fun applyVolume() {
+        runOnPlayerThread { applyVolumeNow() }
+    }
+
+    private fun applyVolumeNow() {
         val exo = player ?: return
         val baseVolume = when (mode) {
             Mode.FULLSCREEN -> 1f
@@ -456,6 +790,14 @@ class LivePlayerManager @Inject constructor(
             Mode.IDLE -> 0f
         }
         exo.volume = baseVolume * volumeFadeMultiplier
+    }
+
+    private fun runOnPlayerThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            monitorScope.launch { block() }
+        }
     }
 
     fun activeChannelId(): Long? = currentChannelId
@@ -466,7 +808,16 @@ class LivePlayerManager @Inject constructor(
 
     private fun setActiveStreamUrl(url: String?) {
         currentStreamUrl = url
-        _activeStreamUrl.value = url
+        if (_activeStreamUrl.value != url) {
+            _activeStreamUrl.value = url
+        }
+    }
+
+    private fun setActiveChannelId(channelId: Long?) {
+        currentChannelId = channelId
+        if (_activeChannelId.value != channelId) {
+            _activeChannelId.value = channelId
+        }
     }
 
     fun activePlayer(): ExoPlayer? = player
@@ -486,6 +837,9 @@ class LivePlayerManager @Inject constructor(
         if (mode != Mode.FULLSCREEN) {
             setMode(Mode.FULLSCREEN)
         }
+        if (tryReuseActiveStream(context, channel.id, channel.streamUrl, channel)) {
+            return
+        }
         tuneChannel(context, channel)
         player?.playWhenReady = true
         applyVolume()
@@ -499,6 +853,7 @@ class LivePlayerManager @Inject constructor(
         player?.playWhenReady = false
         player?.pause()
         applyVolume()
+        syncCatalogHydrationGuard()
     }
 
     /** Resume guide preview after leaving fullscreen or returning to the EPG. */
@@ -522,7 +877,9 @@ class LivePlayerManager @Inject constructor(
             Player.STATE_IDLE, Player.STATE_ENDED -> {
                 if (exo.mediaItemCount > 0) {
                     exo.prepare()
-                } else {
+                } else if (currentChannel != null &&
+                    !tryReuseActiveStream(context, currentChannel!!.id, url, currentChannel)
+                ) {
                     currentChannel?.let { tuneChannel(context, it) }
                 }
             }
@@ -533,28 +890,44 @@ class LivePlayerManager @Inject constructor(
         } else {
             applyVolume()
         }
+        syncCatalogHydrationGuard()
+    }
+
+    private fun syncCatalogHydrationGuard() {
+        val suspendViewport = mode != Mode.IDLE && isPlaybackActive()
+        catalogHydrationGuard.setViewportEpgSuspended(suspendViewport)
     }
 
     fun release(context: Context? = null) {
-        playbackMonitor.detach()
-        streamFailover.detach()
-        player?.removeListener(timeshiftListener)
-        player?.release()
-        player = null
-        currentChannelId = null
+        streamTransitionJob?.cancel()
+        channelScanner.setPlaybackScanSuspended(false)
+        PerformanceAudit.logPlayerMemoryRelease(
+            reason = "app_exit",
+            phase = "before",
+            generation = _playerGeneration.value,
+            channelId = currentChannelId
+        )
+        destroyPlayerInstance(context, clearCache = true)
+        PerformanceAudit.logPlayerMemoryRelease(
+            reason = "app_exit",
+            phase = "after",
+            generation = _playerGeneration.value,
+            channelId = null
+        )
+        setActiveChannelId(null)
         setActiveStreamUrl(null)
         currentChannel = null
         lastContext = null
         _lastChannel.value = null
         catchupDays = 0
-        _activeChannelId.value = null
         TimeshiftManager.reset()
         resetTimeshiftState()
         mode = Mode.IDLE
         fullscreenSessions = 0
         volumeFadeMultiplier = 1f
-        markPlayerReplaced()
-        context?.let { clearStreamCache(it) }
+        playerReleasedForBackground = false
+        playbackReadySeen = false
+        bufferStartupStartedAtMs = 0L
     }
 
     private fun clearStreamCache(context: Context) {
@@ -574,32 +947,25 @@ class LivePlayerManager @Inject constructor(
         hasDvrWindow = false
         pendingJumpToLive = false
         TimeshiftManager.reset()
-        _canTimeshift.value = false
-        _atLiveEdge.value = true
-        _timeshiftState.value = TimeshiftUiState()
+        publishTimeshiftState(TimeshiftUiState())
+    }
+
+    private fun publishTimeshiftState(state: TimeshiftUiState) {
+        if (_timeshiftState.value == state) return
+        _timeshiftState.value = state
     }
 
     private fun refreshTimeshiftWindow(exo: ExoPlayer) {
         val timeline = exo.currentTimeline
         if (timeline.isEmpty) {
             hasDvrWindow = false
-            _canTimeshift.value = false
-            _atLiveEdge.value = true
-            _timeshiftState.value = TimeshiftUiState(isPlaying = exo.isPlaying)
+            publishTimeshiftState(TimeshiftUiState(isPlaying = exo.isPlaying))
             return
         }
 
         val window = Timeline.Window()
         timeline.getWindow(exo.currentMediaItemIndex, window)
         val durationMs = window.durationMs
-        Log.d(
-            "LIVE_DEBUG",
-            "pos=${exo.currentPosition} " +
-                "dur=${exo.duration} " +
-                "offset=${exo.currentLiveOffset} " +
-                "dynamic=${exo.isCurrentMediaItemDynamic} " +
-                "defaultPos=${window.defaultPositionMs}"
-        )
         hasDvrWindow = exo.isCurrentMediaItemDynamic &&
             durationMs > 0 &&
             durationMs != C.TIME_UNSET
@@ -624,32 +990,21 @@ class LivePlayerManager @Inject constructor(
         val atEdge = pendingJumpToLive || TimeshiftManager.isAtLiveEdge(exo)
         TimeshiftManager.syncFromPlayer(exo, treatAsLiveEdge = pendingJumpToLive)
         val behindMs = if (atEdge) 0L else TimeshiftManager.behindLiveMs(exo)
-        Log.d(
-            "TIMESHIFT_DEBUG",
-            """
-            atEdge=${TimeshiftManager.isAtLiveEdge(exo)}
-            behind=${TimeshiftManager.behindLiveMs(exo)}
-            offset=${exo.currentLiveOffset}
-            position=${exo.currentPosition}
-            duration=${exo.duration}
-            windowBehind=${window.defaultPositionMs - exo.currentPosition}
-            defaultPos=${window.defaultPositionMs}
-            """.trimIndent()
-        )
-        _canTimeshift.value = canTimeshift()
-        _atLiveEdge.value = atEdge
-        _timeshiftState.value = TimeshiftUiState(
-            bufferStartMs = TimeshiftManager.bufferStartMs,
-            liveEdgeMs = TimeshiftManager.liveEdgePositionMs,
-            currentPositionMs = exo.currentPosition,
-            behindLiveMs = behindMs,
-            isTimeshifting = TimeshiftManager.isTimeshifting,
-            atLiveEdge = atEdge,
-            canRewind = TimeshiftManager.canRewind(exo),
-            canFastForward = TimeshiftManager.canFastForward(exo),
-            isPlaying = exo.isPlaying,
-            playWhenReady = exo.playWhenReady,
-            playbackState = exo.playbackState
+        publishTimeshiftState(
+            TimeshiftUiState(
+                bufferStartMs = TimeshiftManager.bufferStartMs,
+                liveEdgeMs = TimeshiftManager.liveEdgePositionMs,
+                currentPositionMs = exo.currentPosition,
+                behindLiveMs = behindMs,
+                isTimeshifting = TimeshiftManager.isTimeshifting,
+                atLiveEdge = atEdge,
+                canTimeshift = canTimeshift(),
+                canRewind = TimeshiftManager.canRewind(exo),
+                canFastForward = TimeshiftManager.canFastForward(exo),
+                isPlaying = exo.isPlaying,
+                playWhenReady = exo.playWhenReady,
+                playbackState = exo.playbackState
+            )
         )
     }
 }

@@ -33,20 +33,32 @@ import com.grid.tv.data.db.dao.ChannelHealthAggregateDao
 import com.grid.tv.data.db.dao.ProviderHealthAggregateDao
 import com.grid.tv.data.db.dao.VodWatchEventDao
 import com.grid.tv.data.db.dao.SeriesFollowDao
+import com.grid.tv.data.db.dao.VodCategoryDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
+import com.grid.tv.data.db.dao.FeaturedCurationDao
+import com.grid.tv.data.db.dao.VodStreamDao
+import com.grid.tv.data.db.dao.SeriesCategoryDao
+import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.dao.SubtitleCacheDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
+import com.grid.tv.data.db.dao.MovieDetailsDao
 import com.grid.tv.data.sync.CloudSyncClient
 import com.grid.tv.data.sync.LocalOnlyCloudSyncClient
+import com.grid.tv.feature.scanner.ChannelScanGate
+import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.feature.scanner.HostFailureTracker
+import com.grid.tv.util.cache.AppCacheRegistry
 import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
 import com.grid.tv.data.repository.IptvRepositoryImpl
+import com.grid.tv.data.repository.MovieRepositoryImpl
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.domain.repository.MovieRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -129,6 +141,9 @@ object AppProvidesModule {
     fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
 
     @Provides
+    fun provideMovieDetailsDao(db: AppDatabase): MovieDetailsDao = db.movieDetailsDao()
+
+    @Provides
     fun provideSubtitleCacheDao(db: AppDatabase): SubtitleCacheDao = db.subtitleCacheDao()
 
     @Provides
@@ -190,6 +205,26 @@ object AppProvidesModule {
 
     @Provides
     fun provideVodUserNotificationDao(db: AppDatabase): VodUserNotificationDao = db.vodUserNotificationDao()
+
+    @Provides
+    fun provideVodStreamDao(db: AppDatabase): VodStreamDao = db.vodStreamDao()
+
+    @Provides
+    fun provideVodCategoryDao(db: AppDatabase): VodCategoryDao = db.vodCategoryDao()
+
+    @Provides
+    fun provideSeriesShowDao(db: AppDatabase): SeriesShowDao = db.seriesShowDao()
+
+    @Provides
+    fun provideSeriesCategoryDao(db: AppDatabase): SeriesCategoryDao = db.seriesCategoryDao()
+
+    @Provides
+    fun provideFeaturedCurationDao(db: AppDatabase): FeaturedCurationDao = db.featuredCurationDao()
+
+    @Provides
+    @Singleton
+    fun provideHostFailureTracker(registry: AppCacheRegistry): HostFailureTracker =
+        HostFailureTracker(registry = registry)
 }
 
 @Module
@@ -199,5 +234,13 @@ abstract class AppBindsModule {
     abstract fun bindRepository(impl: IptvRepositoryImpl): IptvRepository
 
     @Binds
+    @Singleton
+    abstract fun bindMovieRepository(impl: MovieRepositoryImpl): MovieRepository
+
+    @Binds
     abstract fun bindCloudSync(impl: LocalOnlyCloudSyncClient): CloudSyncClient
+
+    @Binds
+    @Singleton
+    abstract fun bindChannelScanGate(scanner: ChannelScanner): ChannelScanGate
 }

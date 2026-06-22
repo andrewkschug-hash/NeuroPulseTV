@@ -2,9 +2,22 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.android)
     alias(libs.plugins.ksp)
 }
+
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun readLocalProp(key: String, default: String = ""): String =
+    localProps.getProperty(key)?.trim()?.takeIf { it.isNotBlank() } ?: default
 
 fun readEnvValue(key: String, default: String = ""): String {
     val envFile = rootProject.file(".env")
@@ -33,8 +46,8 @@ android {
         buildConfigField("String", "TMDB_BASE_URL", "\"${readEnvValue("TMDB_BASE_URL", "https://api.themoviedb.org/3")}\"")
         buildConfigField("String", "TMDB_IMAGE_BASE_URL", "\"${readEnvValue("TMDB_IMAGE_BASE_URL", "https://image.tmdb.org/t/p/")}\"")
         buildConfigField("String", "OPENSUBTITLES_API_KEY", "\"${readEnvValue("OPENSUBTITLES_API_KEY")}\"")
-        buildConfigField("String", "SUPABASE_URL", "\"${readEnvValue("SUPABASE_URL")}\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readEnvValue("SUPABASE_ANON_KEY")}\"")
+        buildConfigField("String", "SUPABASE_URL", "\"${readLocalProp("SUPABASE_URL")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readLocalProp("SUPABASE_ANON_KEY")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${readEnvValue("GOOGLE_WEB_CLIENT_ID")}\"")
         buildConfigField("String", "GITHUB_OWNER", "\"${readEnvValue("GITHUB_OWNER", "gridtvsupport-wq")}\"")
         buildConfigField("String", "GITHUB_REPO", "\"${readEnvValue("GITHUB_REPO", "GRID")}\"")
@@ -58,19 +71,24 @@ android {
     }
 
     signingConfigs {
-        // CRITICAL: Back up keystore + passwords securely. Losing them blocks updates for existing installs.
         create("release") {
-            storeFile = file("keystore/release.jks")
-            storePassword = "TODO_STORE_PASSWORD"
-            keyAlias = "TODO_KEY_ALIAS"
-            keyPassword = "TODO_KEY_PASSWORD"
+            val keystorePath = readLocalProp("KEYSTORE_PATH")
+            if (keystorePath.isNotBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = readLocalProp("KEYSTORE_PASSWORD")
+                keyAlias = readLocalProp("KEY_ALIAS")
+                keyPassword = readLocalProp("KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = true
-            signingConfig = signingConfigs.getByName("release")
+            isShrinkResources = true
+            signingConfigs.getByName("release").storeFile?.let {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -104,9 +122,17 @@ android {
             useLegacyPackaging = false
         }
     }
+
+    configurations.configureEach {
+        exclude(group = "net.sf.kxml", module = "kxml2")
+    }
 }
 
 dependencies {
+    configurations.configureEach {
+        exclude(group = "net.sf.kxml", module = "kxml2")
+    }
+
     implementation(platform(libs.androidx.compose.bom))
 
     implementation(libs.androidx.core.ktx)
@@ -129,11 +155,16 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer.hls)
     implementation(libs.androidx.media3.exoplayer.rtsp)
     implementation(libs.androidx.media3.datasource.rtmp)
+    implementation(libs.androidx.media3.datasource.okhttp)
     implementation(libs.androidx.media3.ui)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.paging)
     ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -155,6 +186,7 @@ dependencies {
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.auth)
     implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.functions)
     implementation(libs.supabase.compose.auth)
     implementation(libs.ktor.client.android)
     implementation(libs.androidx.credentials)

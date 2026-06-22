@@ -2,6 +2,7 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -84,7 +86,11 @@ fun RecordedPlayerControlsOverlay(
         ) {
             transportLabels.forEachIndexed { index, label ->
                 val focused = focusZone == RecordedPlayerFocusZone.TRANSPORT && transportFocusIndex == index
-                PlayerControlChip(label = label, focused = focused)
+                PlayerControlChip(
+                    label = label,
+                    focused = focused,
+                    modifier = Modifier.focusProperties { canFocus = false }
+                )
             }
         }
 
@@ -183,7 +189,8 @@ private fun PlayerControlChip(
     label: String,
     focused: Boolean,
     selected: Boolean = false,
-    destructive: Boolean = false
+    destructive: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val borderColor = when {
         focused && destructive -> Color(0xFFE53935)
@@ -206,7 +213,7 @@ private fun PlayerControlChip(
         fontFamily = DmSansFamily,
         fontSize = 13.sp,
         fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
-        modifier = Modifier
+        modifier = modifier
             .background(bg, RoundedCornerShape(8.dp))
             .border(
                 width = if (focused || selected) 2.dp else 1.dp,

@@ -1,5 +1,6 @@
 package com.grid.tv.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.dao.ProfileDao
@@ -41,6 +42,12 @@ class DirectPlayerViewModel @Inject constructor(
     private val playerFactory: PlayerFactory
 ) : ViewModel() {
 
+    companion object {
+        private const val TAG = "DirectPlayer"
+        /** Navigation / intent extra key for staged resume position (ms). */
+        const val RESUME_POSITION_MS_KEY = "RESUME_POSITION"
+    }
+
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
@@ -67,7 +74,9 @@ class DirectPlayerViewModel @Inject constructor(
             context = context,
             bufferSize = settings.bufferSize,
             preferHardwareDecoding = settings.preferHardwareDecoding,
-            startupPriority = PlaybackStartupPriority.FAST
+            startupPriority = PlaybackStartupPriority.FAST,
+            networkSettings = settings,
+            decoderOwner = "vod_direct"
         )
     }
 
@@ -153,9 +162,32 @@ class DirectPlayerViewModel @Inject constructor(
         }
     }
 
-    suspend fun resumePositionMs(streamId: Long?, url: String, resume: Boolean): Long {
-        if (!resume) return 0L
-        val profileId = profileDao.activeProfile()?.profileId ?: return 0L
+    suspend fun resolveResumePositionMs(
+        streamId: Long?,
+        url: String,
+        resume: Boolean,
+        navigationResumeMs: Long = 0L,
+        stagedResumeMs: Long = 0L
+    ): Long {
+        if (!resume) {
+            Log.d(TAG, "$RESUME_POSITION_MS_KEY=0 (resume disabled)")
+            return 0L
+        }
+        when {
+            navigationResumeMs > 0L -> {
+                Log.d(TAG, "$RESUME_POSITION_MS_KEY=$navigationResumeMs (navigation extra)")
+                return navigationResumeMs
+            }
+            stagedResumeMs > 0L -> {
+                Log.d(TAG, "$RESUME_POSITION_MS_KEY=$stagedResumeMs (staged playback context)")
+                return stagedResumeMs
+            }
+        }
+        val profileId = profileDao.activeProfile()?.profileId
+        if (profileId == null) {
+            Log.w(TAG, "$RESUME_POSITION_MS_KEY missing — no active profile for DB lookup")
+            return 0L
+        }
         val meta = vodMeta
         if (meta.isSeries && meta.seriesId != null && meta.seasonNumber != null && meta.episodeNumber != null) {
             continueWatchingRepository.resumePositionForSeriesEpisode(
@@ -163,13 +195,28 @@ class DirectPlayerViewModel @Inject constructor(
                 seriesId = meta.seriesId,
                 seasonNumber = meta.seasonNumber,
                 episodeNumber = meta.episodeNumber
-            )?.let { return it }
+            )?.let { ms ->
+                Log.d(TAG, "$RESUME_POSITION_MS_KEY=$ms (database series episode)")
+                return ms
+            }
         }
         streamId?.let { id ->
-            continueWatchingRepository.resumePositionForStream(profileId, id)?.let { return it }
+            continueWatchingRepository.resumePositionForStream(profileId, id)?.let { ms ->
+                Log.d(TAG, "$RESUME_POSITION_MS_KEY=$ms (database streamId=$id)")
+                return ms
+            }
         }
+        Log.w(
+            TAG,
+            "$RESUME_POSITION_MS_KEY=0 fallback — no navigation, staged, or database value " +
+                "(streamId=$streamId url=$url)"
+        )
         return 0L
     }
+
+    /** @deprecated Prefer [resolveResumePositionMs] with explicit navigation/staged values. */
+    suspend fun resumePositionMs(streamId: Long?, url: String, resume: Boolean): Long =
+        resolveResumePositionMs(streamId = streamId, url = url, resume = resume)
 
     fun persistProgress(streamId: Long?, positionMs: Long, title: String, durationMs: Long, streamUrl: String) {
         val id = streamId ?: vodMeta.streamId ?: return

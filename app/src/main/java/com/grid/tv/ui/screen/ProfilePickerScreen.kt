@@ -86,6 +86,8 @@ private val AvatarBorderRest = Color(0xFF3B3B50)
 private val CardShape = RoundedCornerShape(14.dp)
 private val CardWidth = 148.dp
 private val CardHeight = 200.dp
+/** Matches profile card column; wide enough for "Continue as guest" without spanning the screen. */
+private val GuestButtonWidth = 180.dp
 
 val ProfileAvatarColors = listOf(
     Color(0xFF1C3A6B),
@@ -286,7 +288,8 @@ fun ProfilePickerScreen(
 
             GridOutlinedButton(
                 text = "Continue as guest",
-                onClick = { continueAsGuest() }
+                onClick = { continueAsGuest() },
+                modifier = Modifier.width(GuestButtonWidth)
             )
         }
 
@@ -302,6 +305,7 @@ fun ProfilePickerScreen(
         if (showAddProfile) {
             AddProfileDialog(
                 name = newProfileName,
+                restoreFocusRequester = firstProfileFocusRequester,
                 onNameChange = { newProfileName = it },
                 onConfirm = {
                     val color = ProfileAvatarColors[profiles.size % ProfileAvatarColors.size]
@@ -629,6 +633,7 @@ private fun PinNumberPad(
 @Composable
 private fun AddProfileDialog(
     name: String,
+    restoreFocusRequester: FocusRequester? = null,
     onNameChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
@@ -637,6 +642,7 @@ private fun AddProfileDialog(
         title = "Create Profile",
         subtitle = "Add a name for this household member",
         name = name,
+        restoreFocusRequester = restoreFocusRequester,
         onNameChange = onNameChange,
         confirmLabel = "Create",
         onConfirm = onConfirm,
@@ -649,6 +655,7 @@ private fun ProfileNameDialog(
     title: String,
     subtitle: String,
     name: String,
+    restoreFocusRequester: FocusRequester? = null,
     onNameChange: (String) -> Unit,
     confirmLabel: String,
     onConfirm: () -> Unit,
@@ -662,6 +669,7 @@ private fun ProfileNameDialog(
             value = name,
             placeholder = "Enter a name",
             confirmLabel = confirmLabel,
+            restoreFocusRequester = restoreFocusRequester,
             onConfirm = { entered ->
                 onNameChange(entered)
                 showInput = false

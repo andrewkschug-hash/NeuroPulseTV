@@ -45,10 +45,11 @@ fun Modifier.tvFocusBorder(
     focused: Boolean,
     shape: Shape,
     width: Dp = 2.dp,
+    unfocusedWidth: Dp = width,
     unfocusedColor: Color = EpgColors.BorderSubtle,
     focusedColor: Color = EpgColors.FocusBorder
 ): Modifier = border(
-    width = width,
+    width = if (focused) width else unfocusedWidth,
     color = if (focused) focusedColor else unfocusedColor,
     shape = shape
 )

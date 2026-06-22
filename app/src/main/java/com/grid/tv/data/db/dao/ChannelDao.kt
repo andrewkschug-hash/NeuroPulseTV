@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.data.db.model.ChannelScanProbeRow
 import com.grid.tv.data.db.model.GroupChannelCountRow
 import kotlinx.coroutines.flow.Flow
 
@@ -92,6 +93,52 @@ interface ChannelDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+          AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
+        """
+    )
+    suspend fun countChannelsFiltered(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        matchSports: Boolean,
+        sportsEpgIds: List<String>
+    ): Int
+
+    @Query(
+        """
+        SELECT c.* FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+          AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
+        ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun channelsPageFiltered(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        matchSports: Boolean,
+        sportsEpgIds: List<String>,
+        limit: Int,
+        offset: Int
+    ): List<ChannelEntity>
+
+    @Query(
+        """
         SELECT c.* FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
         WHERE (:groupName IS NULL OR c.groupName = :groupName)
@@ -134,11 +181,20 @@ interface ChannelDao {
         offset: Int
     ): List<ChannelEntity>
 
+    @Query("SELECT id, streamUrl FROM channels ORDER BY id LIMIT :limit OFFSET :offset")
+    suspend fun scanProbeBatch(limit: Int, offset: Int): List<ChannelScanProbeRow>
+
+    @Query("SELECT id, streamUrl FROM channels WHERE id IN (:ids)")
+    suspend fun scanProbeByIds(ids: List<Long>): List<ChannelScanProbeRow>
+
     @Query("SELECT * FROM channels ORDER BY number")
     suspend fun all(): List<ChannelEntity>
 
     @Query("SELECT COUNT(*) FROM channels")
     suspend fun countTotal(): Int
+
+    @Query("SELECT id FROM channels WHERE id IN (:ids)")
+    suspend fun filterExistingIds(ids: List<Long>): List<Long>
 
     @Query("SELECT COUNT(*) FROM channels WHERE epgResolutionStatus = :status")
     suspend fun countByStatus(status: String): Int
@@ -167,6 +223,18 @@ interface ChannelDao {
 
     @Query("UPDATE channels SET epgId = :epgId, epgResolutionStatus = :status, epgResolutionConfidence = :confidence, epgResolutionSource = :source, epgLastAttemptAt = :attemptAt WHERE id = :channelId")
     suspend fun applyResolution(channelId: Long, epgId: String?, status: String, confidence: Int, source: String?, attemptAt: Long)
+
+    @Query(
+        """
+        UPDATE channels
+        SET epgResolutionStatus = 'UNRESOLVED', epgResolutionConfidence = 0, epgLastAttemptAt = 0
+        WHERE playlistId = :playlistId
+          AND epgId IS NOT NULL AND TRIM(epgId) != ''
+          AND epgId NOT IN (SELECT epgId FROM epg_source_channels WHERE source = :sourceKey)
+          AND epgResolutionStatus NOT IN ('CONFIRMED', 'MANUAL')
+        """
+    )
+    suspend fun markUnlinkedEpgIdsUnresolved(playlistId: Long, sourceKey: String): Int
 
     @Query("SELECT * FROM channels WHERE epgId = :epgId AND playlistId = :playlistId LIMIT 1")
     suspend fun getByEpgIdAndPlaylist(epgId: String, playlistId: Long): ChannelEntity?

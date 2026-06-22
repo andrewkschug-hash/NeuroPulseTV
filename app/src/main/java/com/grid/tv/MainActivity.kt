@@ -23,6 +23,7 @@ import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import android.view.inputmethod.InputMethodManager
+import com.grid.tv.player.AppPlayerLifecycleCoordinator
 import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
@@ -30,12 +31,15 @@ import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
+    @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -45,14 +49,23 @@ class MainActivity : ComponentActivity() {
 
     private val pickM3u = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri ?: return@registerForActivityResult
-        when (pickerMode) {
-            PickerMode.M3U -> settingsViewModel.addPlaylistFromLocal(
-                name = "Local Playlist",
-                content = readText(uri),
-                epg = null,
-                refreshHours = 24
-            )
-            PickerMode.TIVIMATE -> settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
+        lifecycleScope.launch(Dispatchers.IO) {
+            when (pickerMode) {
+                PickerMode.M3U -> {
+                    val content = readText(uri)
+                    withContext(Dispatchers.Main) {
+                        settingsViewModel.addPlaylistFromLocal(
+                            name = "Local Playlist",
+                            content = content,
+                            epg = null,
+                            refreshHours = 24
+                        )
+                    }
+                }
+                PickerMode.TIVIMATE -> withContext(Dispatchers.Main) {
+                    settingsViewModel.importTiviMate(contentResolver, uri, cacheDir)
+                }
+            }
         }
     }
 
@@ -65,7 +78,7 @@ class MainActivity : ComponentActivity() {
         }
         setTitle(getString(R.string.app_name))
 
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             themeManager.loadFromSettings()
         }
 
@@ -133,12 +146,31 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        appPlayerLifecycle.onActivityStarted(this)
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            appPlayerLifecycle.onActivityStopped(this)
+        }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            appPlayerLifecycle.onActivityDestroyFinishing(applicationContext)
+        }
+        super.onDestroy()
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {
-                return super.dispatchKeyEvent(event)
+                return dispatchKeyEventSafely(event)
             }
             if (VoiceSearchKeys.isMicKey(event.keyCode)) {
                 micSearchTrigger.trigger()
@@ -150,7 +182,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        if (TvTextInputSession.shouldSuppressPostImeFocusSearch()) {
+            return true
+        }
+        return dispatchKeyEventSafely(event)
+    }
+
+    private fun dispatchKeyEventSafely(event: KeyEvent): Boolean {
+        return try {
+            super.dispatchKeyEvent(event)
+        } catch (error: IllegalStateException) {
+            if (error.message?.contains("ActiveParent must have a focusedChild") == true) {
+                TvTextInputSession.beginClosingGracePeriod()
+                true
+            } else {
+                throw error
+            }
+        }
     }
 
     private fun readText(uri: Uri): String {

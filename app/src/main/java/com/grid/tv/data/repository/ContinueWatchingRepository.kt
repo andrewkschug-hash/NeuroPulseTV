@@ -47,6 +47,9 @@ class ContinueWatchingRepository @Inject constructor(
         episodeNumber: Int
     ): Long? = resumePosition(profileId, seriesContentKey(seriesId, seasonNumber, episodeNumber))
 
+    suspend fun latestForSeries(profileId: Long, seriesId: Long): ContinueWatchingItem? =
+        dao.latestForSeries(profileId, seriesId)?.let(::toDomain)
+
     suspend fun hasResumeProgress(profileId: Long, streamId: Long): Boolean =
         resumePositionForStream(profileId, streamId)?.let { it > 5_000L } == true
 

@@ -31,7 +31,7 @@ object SupabaseModule {
     @Singleton
     fun provideSupabaseClient(provider: SupabaseClientProvider): SupabaseClient =
         provider.clientOrNull()
-            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to .env")
+            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to local.properties")
 }
 
 @Module

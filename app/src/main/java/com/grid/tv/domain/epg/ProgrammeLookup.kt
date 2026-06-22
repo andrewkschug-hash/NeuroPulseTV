@@ -11,9 +11,5 @@ fun Channel.programmeLookupKeys(): List<String> = buildList {
 }
 
 fun programmesForChannel(channel: Channel, programs: List<Program>): List<Program> {
-    val keys = channel.programmeLookupKeys()
-    if (keys.isEmpty()) return emptyList()
-    return programs
-        .filter { prog -> keys.any { key -> prog.channelEpgId.equals(key, ignoreCase = true) } }
-        .sortedBy { it.startTime }
+    return ProgrammeIndex.build(listOf(channel), programs).programsFor(channel.id)
 }

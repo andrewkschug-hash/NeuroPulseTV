@@ -11,16 +11,20 @@ import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistConnectResult
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.Recommendation
+import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.StreamHealth
 import com.grid.tv.domain.model.UserProfile
+import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
 import kotlinx.coroutines.flow.Flow
 import android.content.ContentResolver
 import android.net.Uri
+import androidx.paging.PagingData
 import java.io.File
 
 interface IptvRepository {
@@ -37,6 +41,20 @@ interface IptvRepository {
         limit: Int,
         offset: Int
     ): List<Channel>
+    fun channelsPaging(
+        group: String? = null,
+        search: String = "",
+        favoritesOnly: Boolean = false,
+        favoriteGroupId: Long? = null,
+        sportsEpgIds: Set<String>? = null
+    ): Flow<PagingData<Channel>>
+    suspend fun channelsFilteredCount(
+        group: String? = null,
+        search: String = "",
+        favoritesOnly: Boolean = false,
+        favoriteGroupId: Long? = null,
+        sportsEpgIds: Set<String>? = null
+    ): Int
     fun hasChannels(): Flow<Boolean>
     suspend fun searchChannels(query: String, limit: Int = 50): List<Channel>
     fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>>
@@ -52,6 +70,9 @@ interface IptvRepository {
     fun moviesStartingSoon(now: Long): Flow<List<Program>>
     suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program>
     suspend fun programsWindowForChannels(channels: List<Channel>, start: Long, end: Long): List<Program>
+    fun observeProgramsWindowForChannels(channels: List<Channel>, windowStart: Long, windowEnd: Long): Flow<List<Program>>
+    /** Fetches a short EPG window from the provider for visible channels and upserts into the DB. */
+    suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int
     suspend fun allDistinctEpgIds(): List<String>
 
     fun profiles(): Flow<List<UserProfile>>
@@ -92,17 +113,48 @@ interface IptvRepository {
     suspend fun refreshEpgNow(): EpgRefreshReport
     suspend fun refreshXtreamEpg(streamId: Long): List<Pair<Long, Long>>
     fun epgDataRevision(): Flow<Long>
+    suspend fun notifyEpgLinksUpdated()
 
     fun xtreamAccounts(): Flow<List<XtreamAccountInfo>>
-    fun vodStreams(): Flow<List<VodItem>>
+    fun vodCatalogRevision(): Flow<Long>
+    fun vodStreamCount(): Flow<Int>
+    fun seriesShowCount(): Flow<Int>
     fun vodCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
+    fun seriesCategories(): Flow<List<com.grid.tv.domain.model.VodCategory>>
     fun vodCatalogLoading(): Flow<Boolean>
     fun vodCatalogProgress(): Flow<com.grid.tv.domain.model.VodCatalogProgress>
     fun vodCatalogStatus(): Flow<com.grid.tv.domain.model.VodCatalogStatus>
-    fun seriesShows(): Flow<List<SeriesShow>>
+    suspend fun vodPage(
+        categoryId: String? = null,
+        search: String = "",
+        limit: Int,
+        offset: Int
+    ): List<VodItem>
+    fun vodMoviesPaging(categoryId: String? = null, search: String = ""): Flow<PagingData<VodItem>>
+    fun seriesShowsPaging(categoryIds: Set<String>? = null, search: String = ""): Flow<PagingData<SeriesShow>>
+    suspend fun vodFilteredCount(categoryId: String? = null, search: String = ""): Int
+    suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
+    suspend fun vodRecent(limit: Int): List<VodItem>
+    suspend fun vodSampleForRecommendations(sampleSize: Int = 500): List<VodItem>
+    suspend fun seriesRecentSample(limit: Int = 500): List<SeriesShow>
+    suspend fun discoverVodContentLanguages(maxTitlesPerSource: Int = 8000): List<String>
+    suspend fun loadMovieBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
+    suspend fun seriesPage(
+        category: String = "All",
+        search: String = "",
+        limit: Int,
+        offset: Int
+    ): List<SeriesShow>
+    suspend fun seriesFilteredCount(categoryIds: Set<String>? = null, search: String = ""): Int
+    suspend fun findSeriesShow(seriesId: Long): SeriesShow?
+    suspend fun loadSeriesBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
+    suspend fun searchVod(query: String, limit: Int = 40): List<VodItem>
+    suspend fun searchSeriesShows(query: String, limit: Int = 40): List<SeriesShow>
+    suspend fun distinctSeriesCategories(): List<String>
     suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
     fun vodWatchProgress(): Flow<Map<Long, Long>>
     suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason>
+    suspend fun loadSeriesDetail(seriesId: Long): SeriesDetail
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)
     fun isFavorite(channelId: Long): Flow<Boolean>
@@ -119,6 +171,7 @@ interface IptvRepository {
 
     suspend fun loadSettings(): AppSettings
     suspend fun saveSettings(settings: AppSettings)
+    suspend fun saveGuideChannelFilter(groups: Set<String>, configured: Boolean)
     suspend fun lastFullScanAt(): Long?
     suspend fun updateLastFullScanAt(timestamp: Long)
     suspend fun preferredSearchInput(): SearchInputMode
@@ -128,7 +181,15 @@ interface IptvRepository {
 
     suspend fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File): String
 
-    suspend fun refreshVodSeriesCatalog()
+    suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger)
+
+    /** Loads VOD rows from local DB and warms the first channel page — no network. */
+    suspend fun warmLocalUiCache()
+
+    suspend fun refreshVodSeriesCatalog(
+        trigger: VodRefreshTrigger = VodRefreshTrigger.UNKNOWN,
+        force: Boolean = false
+    )
 
     suspend fun shouldShowWhatsNew(currentVersion: String): Boolean
     suspend fun markVersionSeen(currentVersion: String)

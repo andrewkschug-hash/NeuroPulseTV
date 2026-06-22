@@ -11,7 +11,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Density
 import com.grid.tv.domain.epg.EpgProgramAction
-import com.grid.tv.domain.epg.programmesForChannel
+import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
@@ -20,6 +20,7 @@ import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.component.EpgLayout
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GridNavTabs
 import com.grid.tv.ui.component.TopBarProfileIndex
@@ -30,7 +31,11 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import com.grid.tv.ui.component.TvLazyFocusScrollDirection
+import com.grid.tv.ui.component.animateScrollEpgChannelIntoView
+import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.component.toggleCategoryExpansion
+import kotlinx.coroutines.Job
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
@@ -47,11 +52,10 @@ internal data class HomeEpgGuideDeps(
     val hScroll: ScrollState,
     val channels: List<Channel>,
     val displayChannels: List<Channel>,
-    val displayPrograms: List<Program>,
+    val programmeIndex: ProgrammeIndex,
     val viewModel: HomeEpgViewModel,
     val recordingViewModel: RecordingViewModel,
     val searchViewModel: SearchViewModel,
-    val now: Long,
     val windowStart: Long,
     val windowDurationMs: Long,
     val density: Density,
@@ -64,6 +68,7 @@ internal data class HomeEpgGuideDeps(
     val focusedChannel: Channel?,
     val focusedProgram: Program?,
     val previewProgram: Program?,
+    val previewNextProgram: Program?,
     val guideGroupCategories: List<GuideGroupCategory>,
     val guideFilter: GuideChannelFilter,
     val demoFavoriteIds: Set<Long>,
@@ -87,6 +92,7 @@ internal class HomeEpgGuideController(
     private val ui: HomeEpgUiState,
 ) {
     private lateinit var deps: HomeEpgGuideDeps
+    private var channelScrollJob: Job? = null
 
     fun bind(deps: HomeEpgGuideDeps) {
         this.deps = deps
@@ -106,8 +112,17 @@ internal class HomeEpgGuideController(
         deps.viewModel.previewChannel(deps.context, fullChannel)
     }
 
+    fun openPreviewForChannel(channel: Channel) {
+        if (deps.usePlaceholder || channel.streamUrl.isBlank()) return
+        selectChannelForPreview(channel)
+        ui.detailExpanded = true
+        ui.pendingPreviewFocus = true
+        focusEpgZone(EpgFocusZone.PREVIEW)
+    }
+
     fun liveScrollTarget(): Int {
-        val offsetDp = EpgLayout.offsetForTime(deps.now, deps.windowStart, deps.windowDurationMs)
+        val now = System.currentTimeMillis()
+        val offsetDp = EpgLayout.offsetForLocalNow(deps.windowStart, deps.windowDurationMs, now)
         val offsetPx = deps.density.run { offsetDp.toPx() }
         return (offsetPx - 400f).coerceAtLeast(0f).toInt()
     }
@@ -128,7 +143,7 @@ internal class HomeEpgGuideController(
 
     fun playProgram(channel: Channel, program: Program, instant: Boolean = false) {
         val full = deps.channels.find { it.id == channel.id } ?: channel
-        val replay = deps.viewModel.replayState(program, full, deps.now)
+        val replay = deps.viewModel.replayState(program, full, System.currentTimeMillis())
         when (replay.action) {
             EpgProgramAction.WATCH_REPLAY -> {
                 deps.scope.launch {
@@ -141,10 +156,7 @@ internal class HomeEpgGuideController(
                 if (instant) {
                     watchChannel(full)
                 } else {
-                    selectChannelForPreview(full)
-                    ui.focusZone = EpgFocusZone.PREVIEW
-                    ui.detailActionIndex = 0
-                    ui.detailExpanded = true
+                    openPreviewForChannel(full)
                 }
             }
         }
@@ -155,18 +167,17 @@ internal class HomeEpgGuideController(
         return deps.viewModel.replayState(
             program,
             deps.channels.find { it.id == channel.id } ?: channel,
-            deps.now
+            System.currentTimeMillis()
         ).action.label
     }
 
     fun openChannelFromTouch(channelIndex: Int, channel: Channel) {
         ui.focusChannelIndex = channelIndex
         ui.focusOnChannelColumn = true
-        deps.scope.launch { deps.listState.animateScrollToItem(channelIndex) }
-        selectChannelForPreview(channel)
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.detailActionIndex = 0
-        ui.detailExpanded = true
+        deps.scope.launch {
+            deps.listState.animateScrollToItemIfNeeded(channelIndex)
+        }
+        openPreviewForChannel(channel)
     }
 
     fun openProgramFromTouch(channelIndex: Int, programIndex: Int, program: Program) {
@@ -178,24 +189,49 @@ internal class HomeEpgGuideController(
         val replay = deps.viewModel.replayState(
             program,
             deps.channels.find { it.id == channel.id } ?: channel,
-            deps.now
+            System.currentTimeMillis()
         )
         if (replay.action == EpgProgramAction.WATCH_REPLAY) {
             playProgram(channel, program, instant = true)
             return
         }
-        selectChannelForPreview(channel)
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.detailActionIndex = 0
-        ui.detailExpanded = true
+        openPreviewForChannel(channel)
     }
 
     fun programsForChannel(channel: Channel): List<Program> =
-        programmesForChannel(channel, deps.displayPrograms)
+        deps.programmeIndex.programsFor(channel.id)
 
     fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
-        val progs = deps.displayChannels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
+        PerformanceAudit.logGridKeyFilter(
+            keyName = "clampProgramIndex",
+            channelIndex = channelIdx,
+            totalProgramCount = deps.programmeIndex.totalProgramCount
+        )
+        val channel = deps.displayChannels.getOrNull(channelIdx) ?: return 0
+        val startNs = if (PerformanceAudit.ENABLED) System.nanoTime() else 0L
+        val progs = programsForChannel(channel)
+        if (PerformanceAudit.ENABLED) {
+            PerformanceAudit.logProgrammeIndexLookup(
+                channelId = channel.id,
+                resultCount = progs.size,
+                elapsedNs = System.nanoTime() - startNs
+            )
+        }
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
+    }
+
+    private fun programsForChannelTimed(channel: Channel, keyName: String): List<Program> {
+        PerformanceAudit.logGridKeyFilter(keyName, ui.focusChannelIndex, deps.programmeIndex.totalProgramCount)
+        val startNs = if (PerformanceAudit.ENABLED) System.nanoTime() else 0L
+        val progs = programsForChannel(channel)
+        if (PerformanceAudit.ENABLED) {
+            PerformanceAudit.logProgrammeIndexLookup(
+                channelId = channel.id,
+                resultCount = progs.size,
+                elapsedNs = System.nanoTime() - startNs
+            )
+        }
+        return progs
     }
 
     fun scrollByTimeSlot(direction: Int) {
@@ -327,8 +363,8 @@ internal class HomeEpgGuideController(
             2 -> {
                 if (prog == null) {
                     deps.recordingViewModel.startImmediateRecording(deps.context, full, full.name)
-                } else if (prog.startTime <= deps.now) {
-                    val duration = (prog.endTime - deps.now).coerceAtLeast(10 * 60 * 1000)
+                } else if (prog.startTime <= System.currentTimeMillis()) {
+                    val duration = (prog.endTime - System.currentTimeMillis()).coerceAtLeast(10 * 60 * 1000)
                     deps.recordingViewModel.startImmediateRecording(deps.context, full, prog.title, duration)
                 } else {
                     deps.recordingViewModel.scheduleProgram(full, prog)
@@ -338,6 +374,7 @@ internal class HomeEpgGuideController(
     }
 
     fun requestEpgZoneFocus(zone: EpgFocusZone) {
+        if (ui.showSearchOverlay) return
         deps.scope.launch {
             when (zone) {
                 EpgFocusZone.TOP_BAR -> deps.topNavFocusRequester.requestFocusSafelyAfterLayout()
@@ -356,9 +393,19 @@ internal class HomeEpgGuideController(
     }
 
     fun focusEpgZone(zone: EpgFocusZone) {
-        ui.focusZone = zone
-        if (zone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
-        requestEpgZoneFocus(zone)
+        if (ui.showSearchOverlay) return
+        val resolvedZone = if (zone == EpgFocusZone.GRID_FILTER && ui.selectedTab == EpgNavTab.Favorites) {
+            when {
+                deps.showPreviewSection -> EpgFocusZone.PREVIEW
+                deps.hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
+                else -> EpgFocusZone.TOP_BAR
+            }
+        } else {
+            zone
+        }
+        ui.focusZone = resolvedZone
+        if (resolvedZone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
+        requestEpgZoneFocus(resolvedZone)
     }
 
     fun focusSearchTopBar() {
@@ -367,7 +414,15 @@ internal class HomeEpgGuideController(
     }
 
     fun focusGuideFilter() {
-        focusEpgZone(EpgFocusZone.GRID_FILTER)
+        if (ui.selectedTab == EpgNavTab.Favorites) {
+            when {
+                deps.showPreviewSection -> focusPreviewSection()
+                deps.hasContinueWatching -> focusEpgZone(EpgFocusZone.CONTINUE_WATCHING)
+                else -> focusEpgZone(EpgFocusZone.TOP_BAR)
+            }
+        } else {
+            focusEpgZone(EpgFocusZone.GRID_FILTER)
+        }
     }
 
     fun focusGuideChannels(targetIndex: Int = ui.focusChannelIndex) {
@@ -385,15 +440,17 @@ internal class HomeEpgGuideController(
     }
 
     fun moveGuideFocusVertical(from: EpgFocusZone, direction: Int) {
+        val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
         val target = if (direction < 0) {
-            epgZoneAbove(from, deps.showPreviewSection, deps.hasContinueWatching)
+            epgZoneAbove(from, deps.showPreviewSection, deps.hasContinueWatching, showGroupFilter)
         } else {
-            epgZoneBelow(from, deps.showPreviewSection, deps.hasContinueWatching)
+            epgZoneBelow(from, deps.showPreviewSection, deps.hasContinueWatching, showGroupFilter)
         }
         target?.let(::focusEpgZone)
     }
 
     fun openCategoryFilterMenu() {
+        if (ui.selectedTab == EpgNavTab.Favorites) return
         val expanded = expandedCategoriesForSelection(
             deps.guideGroupCategories,
             deps.guideFilter.selectedGroups
@@ -432,6 +489,7 @@ internal class HomeEpgGuideController(
 
     fun handleGridFilterKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu) return false
         return when {
@@ -461,6 +519,7 @@ internal class HomeEpgGuideController(
 
     fun handleTopBarKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu) return false
         if (ui.profileMenuOpen) {
@@ -505,6 +564,7 @@ internal class HomeEpgGuideController(
 
     fun handleContinueWatchingKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (deps.continueWatchingItems.isEmpty()) return false
         return when (event.key) {
@@ -543,6 +603,7 @@ internal class HomeEpgGuideController(
 
     fun handlePreviewKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
@@ -574,8 +635,21 @@ internal class HomeEpgGuideController(
         }
     }
 
+    private fun scrollFocusedChannelIntoView(direction: TvLazyFocusScrollDirection) {
+        channelScrollJob?.cancel()
+        channelScrollJob = deps.scope.launch {
+            val rowHeightPx = with(deps.density) { EpgLayout.RowHeight.roundToPx() }
+            deps.listState.animateScrollEpgChannelIntoView(
+                index = ui.focusChannelIndex,
+                direction = direction,
+                rowHeightPx = rowHeightPx
+            )
+        }
+    }
+
     fun handleGridKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (ui.showSearchOverlay) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
         if (deps.displayChannels.isEmpty()) {
@@ -595,7 +669,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.DOWN)
                 }
                 true
             }
@@ -605,7 +679,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
                     moveGuideFocusVertical(EpgFocusZone.GRID, direction = -1)
@@ -614,10 +688,12 @@ internal class HomeEpgGuideController(
             }
             Key.DirectionRight -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return false
-                val progs = programsForChannel(channel)
+                val progs = programsForChannelTimed(channel, "DirectionRight")
                 if (ui.focusOnChannelColumn) {
                     ui.focusOnChannelColumn = false
-                    val progsNow = progs.indexOfFirst { deps.now in it.startTime..it.endTime }
+                    val progsNow = progs.indexOfFirst {
+                        System.currentTimeMillis() in it.startTime..it.endTime
+                    }
                     ui.focusProgramIndex = if (progsNow >= 0) progsNow else clampProgramIndex(ui.focusChannelIndex, 0)
                     scrollToProgram(progs.getOrNull(ui.focusProgramIndex))
                 } else if (ui.focusProgramIndex < progs.lastIndex) {
@@ -635,7 +711,7 @@ internal class HomeEpgGuideController(
             }
             Key.DirectionLeft -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return false
-                val progs = programsForChannel(channel)
+                val progs = programsForChannelTimed(channel, "DirectionLeft")
                 if (!ui.focusOnChannelColumn && ui.focusProgramIndex > 0) {
                     ui.focusProgramIndex -= 1
                     scrollToProgram(progs[ui.focusProgramIndex])
@@ -658,7 +734,7 @@ internal class HomeEpgGuideController(
                 if (!ui.focusOnChannelColumn) {
                     ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                 }
-                deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.DOWN)
                 true
             }
             Key.PageUp -> {
@@ -666,22 +742,19 @@ internal class HomeEpgGuideController(
                 if (!ui.focusOnChannelColumn) {
                     ui.focusProgramIndex = clampProgramIndex(ui.focusChannelIndex, ui.focusProgramIndex)
                 }
-                deps.scope.launch { deps.listState.animateScrollToItem(ui.focusChannelIndex) }
+                scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return true
                 if (!ui.focusOnChannelColumn) {
-                    val prog = programsForChannel(channel).getOrNull(ui.focusProgramIndex)
+                    val prog = programsForChannelTimed(channel, "Enter").getOrNull(ui.focusProgramIndex)
                     if (prog != null) {
                         playProgram(channel, prog, instant = true)
                         return true
                     }
                 }
-                selectChannelForPreview(channel)
-                ui.focusZone = EpgFocusZone.PREVIEW
-                ui.detailActionIndex = 0
-                ui.detailExpanded = true
+                openPreviewForChannel(channel)
                 true
             }
             Key.Back, Key.Escape -> {
@@ -694,7 +767,7 @@ internal class HomeEpgGuideController(
                     if (!ui.focusOnChannelColumn) {
                         ui.focusProgramIndex = clampProgramIndex(0, ui.focusProgramIndex)
                     }
-                    deps.scope.launch { deps.listState.animateScrollToItem(0) }
+                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
                     focusGuideFilter()

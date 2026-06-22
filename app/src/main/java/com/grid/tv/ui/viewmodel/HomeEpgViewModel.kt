@@ -18,19 +18,21 @@ import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.Recommendation
-import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.UserProfile
-import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
+import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.domain.epg.EpgTime
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.player.LivePlayerManager
+import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.StreamPlaybackStatus
+import com.grid.tv.util.FocusNavigationMetrics
 import com.grid.tv.ui.component.ProgramTimeState
 import com.grid.tv.ui.component.programTimeState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -41,7 +43,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Job
@@ -64,10 +71,10 @@ class HomeEpgViewModel @Inject constructor(
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
+    private val playbackOrchestrator: PlaybackOrchestrator,
     private val channelScanner: ChannelScanner
 ) : ViewModel() {
 
-    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = channelScanner.statuses
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
 
     companion object {
@@ -78,13 +85,53 @@ class HomeEpgViewModel @Inject constructor(
         private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
         /** Visible guide rows to hydrate from cache before loading the rest of the page. */
         private const val PRIORITY_EPG_CHANNEL_COUNT = 50
+        private const val VIEWPORT_EPG_DEBOUNCE_MS = 300L
+        /** Cap viewport provider fetches so scrolling the guide cannot fan out dozens of HTTP calls. */
+        private const val VIEWPORT_EPG_MAX_CHANNEL_IDS = 10
+        private const val GUIDE_POSITION_SAVE_DEBOUNCE_MS = 400L
+        private const val FOCUS_SCANNER_PRIORITY_DEBOUNCE_MS = 150L
         private const val TAG = "EpgFlow"
+
+        internal fun viewportEpgFetchKey(channelIds: List<Long>): String =
+            channelIds.distinct().sorted().take(VIEWPORT_EPG_MAX_CHANNEL_IDS).joinToString(",")
     }
 
     private var guideBootstrapComplete = false
     private var epgLoadGeneration = 0
+    private var channelFilterGeneration = 0
 
     private var previewTuneJob: Job? = null
+    private var viewportEpgJob: Job? = null
+    private var viewportObserveJob: Job? = null
+    private var loadWindowJob: Job? = null
+    private var guidePositionSaveJob: Job? = null
+    private var focusScannerJob: Job? = null
+    private var lastViewportEpgFetchKey: String? = null
+    @Volatile
+    private var lastFocusedChannelId: Long? = null
+    @Volatile
+    private var lastScrollVisibleIds: List<Long> = emptyList()
+
+    private data class LoadWindowSnapshot(
+        val generation: Int,
+        val existingPrograms: List<Program>,
+        val channels: List<Channel>,
+        val start: Long,
+        val end: Long
+    )
+
+    private data class LoadWindowOutcome(
+        val generation: Int,
+        val programs: List<Program>,
+        val replayUrls: Map<Long, String>,
+        val coverage: ProgrammeCoverageStats? = null
+    )
+
+    private data class ProgrammeCoverageStats(
+        val programCount: Int,
+        val channelCount: Int,
+        val matchedChannelCount: Int
+    )
 
     private val _miniPlayerAudioEnabled = MutableStateFlow(false)
     val miniPlayerAudioEnabled = _miniPlayerAudioEnabled.asStateFlow()
@@ -171,6 +218,22 @@ class HomeEpgViewModel @Inject constructor(
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
     val channels: StateFlow<List<Channel>> = _channels.asStateFlow()
 
+    /** Only statuses for currently loaded guide rows — avoids recomposing on full 10k scan map updates. */
+    val channelScanStatuses: StateFlow<Map<Long, ChannelScanSnapshot>> = combine(
+        channelScanner.statuses,
+        channels
+    ) { allStatuses, visibleChannels ->
+        if (visibleChannels.isEmpty()) {
+            emptyMap()
+        } else {
+            buildMap {
+                visibleChannels.forEach { channel ->
+                    allStatuses[channel.id]?.let { put(channel.id, it) }
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _hasMoreChannels = MutableStateFlow(true)
     val hasMoreChannels: StateFlow<Boolean> = _hasMoreChannels.asStateFlow()
 
@@ -208,24 +271,8 @@ class HomeEpgViewModel @Inject constructor(
     val recentlyAdded: StateFlow<List<Channel>> = repository.recentlyAdded(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val vod: StateFlow<List<VodItem>> = repository.vodStreams()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val series: StateFlow<List<SeriesShow>> = repository.seriesShows()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-
-    val featuredMovies: StateFlow<List<VodItem>> = vod
-        .map { items ->
-            items.sortedByDescending { it.addedEpochSec ?: 0L }.take(20)
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val featuredSeries: StateFlow<List<SeriesShow>> = series
-        .map { items -> items.take(20) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val now = MutableStateFlow(System.currentTimeMillis())
 
@@ -270,36 +317,55 @@ class HomeEpgViewModel @Inject constructor(
         return url
     }
 
-    private fun recomputeReplayUrls(programs: List<Program>) {
-        val channelsByEpg = _channels.value.associateBy { it.epgId }
-        _replayUrlsByProgramId.value = programs.mapNotNull { program ->
-            val channel = channelsByEpg[program.channelEpgId] ?: return@mapNotNull null
-            CatchupUrlFormatter.build(program, channel)?.let { program.id to it }
-        }.toMap()
+    private fun computeReplayUrls(programs: List<Program>, channels: List<Channel>): Map<Long, String> {
+        if (programs.isEmpty() || channels.isEmpty()) return emptyMap()
+        val channelsByEpg = HashMap<String, Channel>(channels.size * 2)
+        for (channel in channels) {
+            channel.epgId?.trim()?.takeIf { it.isNotEmpty() }?.let { channelsByEpg.putIfAbsent(it, channel) }
+            channelsByEpg.putIfAbsent(channel.name, channel)
+        }
+        val out = HashMap<Long, String>(minOf(programs.size, 512))
+        for (program in programs) {
+            val channel = channelsByEpg[program.channelEpgId] ?: continue
+            CatchupUrlFormatter.build(program, channel)?.let { out[program.id] = it }
+        }
+        return out
     }
 
     private val _epgLoading = MutableStateFlow(false)
     val epgLoading = _epgLoading.asStateFlow()
 
-    private val _windowStart = MutableStateFlow(System.currentTimeMillis() - 90 * 60 * 1000)
+    private val _windowStart = MutableStateFlow(
+        EpgTime.anchoredWindowStart(
+            currentWindowStart = System.currentTimeMillis() - 90 * 60 * 1000,
+            windowDurationMs = 4 * 60 * 60 * 1000L
+        )
+    )
     val windowStart: StateFlow<Long> = _windowStart.asStateFlow()
 
     private val _windowDurationMs = MutableStateFlow(4 * 60 * 60 * 1000L)
     val windowDurationMs: StateFlow<Long> = _windowDurationMs.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _hasConnection.value = repository.hasActiveConnection()
             _activeProfile.value = repository.activeProfile()
             _isInitializing.value = false
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             bootstrapGuideFromSettings()
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             combine(_windowStart, _windowDurationMs, _guideSettingsLoaded) { _, _, loaded -> loaded }
                 .filter { it }
-                .collectLatest { loadWindow() }
+                .collectLatest { scheduleLoadWindow() }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _channels.collectLatest { channels ->
+                if (guideBootstrapComplete && channels.isNotEmpty()) {
+                    scheduleLoadWindow()
+                }
+            }
         }
         viewModelScope.launch {
             combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent) { _, _, _ -> }
@@ -308,9 +374,26 @@ class HomeEpgViewModel @Inject constructor(
                     reloadChannels()
                 }
         }
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             repository.epgDataRevision().collect {
-                if (it > 0L) loadWindow()
+                if (it > 0L && guideBootstrapComplete) {
+                    refreshCurrentWindowPrograms()
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(channelGroups, _guideFiltersConfigured) { groups, configured ->
+                groups to configured
+            }.collectLatest { (groups, configured) ->
+                if (!guideBootstrapComplete || !configured || groups.isEmpty()) return@collectLatest
+                val current = _guideFilter.value
+                if (!current.isActive) return@collectLatest
+                val valid = current.selectedGroups.intersect(groups.toSet())
+                if (valid == current.selectedGroups) return@collectLatest
+                val updated = GuideChannelFilter(valid)
+                _guideFilter.value = updated
+                persistGuideFilter(updated, configured = true)
+                reloadChannels()
             }
         }
         viewModelScope.launch {
@@ -321,7 +404,6 @@ class HomeEpgViewModel @Inject constructor(
                 if (list.isEmpty()) {
                     _demoFavoriteIds.value = emptySet()
                     _favoriteGroupFilter.value = null
-                    _guideFilter.value = GuideChannelFilter.All
                 }
             }
         }
@@ -331,17 +413,55 @@ class HomeEpgViewModel @Inject constructor(
         val settings = repository.loadSettings()
         _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
         _hideAdultContent.value = settings.hideAdultContent
-        _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+        val sanitizedFilter = sanitizeGuideFilter(
+            groups = settings.guideChannelGroups,
+            configured = settings.guideFiltersConfigured
+        )
+        _guideFilter.value = sanitizedFilter
         _guideFiltersConfigured.value = settings.guideFiltersConfigured
         _guideSettingsLoaded.value = true
-        livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
-        livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+        withContext(Dispatchers.Main.immediate) {
+            livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
+            livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+            livePlayerManager.setStreamRetries(settings.streamRetries)
+        }
         guideBootstrapComplete = true
-        reloadChannelsInternal()
+        reloadChannels()
+    }
+
+    /** Drop stale group names after playlist re-import so the SQL IN filter matches live groupName values. */
+    private suspend fun sanitizeGuideFilter(
+        groups: Set<String>,
+        configured: Boolean
+    ): GuideChannelFilter {
+        if (!configured || groups.isEmpty()) return GuideChannelFilter(groups)
+        val available = repository.groups().first()
+        if (available.isEmpty()) return GuideChannelFilter(groups)
+        val valid = groups.intersect(available.toSet())
+        if (valid == groups) return GuideChannelFilter(groups)
+        Log.w(
+            TAG,
+            "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
+                "(playlist groups may have changed since last save)"
+        )
+        val updated = GuideChannelFilter(valid)
+        if (configured) {
+            repository.saveGuideChannelFilter(valid, configured = true)
+        }
+        return updated
     }
 
     fun saveGuidePosition(position: EpgGuidePosition) {
         _guidePosition.value = position.copy(hasSavedPosition = true)
+    }
+
+    /** Debounced — D-pad focus must not persist position on every key repeat. */
+    fun saveGuidePositionDebounced(position: EpgGuidePosition) {
+        guidePositionSaveJob?.cancel()
+        guidePositionSaveJob = viewModelScope.launch {
+            delay(GUIDE_POSITION_SAVE_DEBOUNCE_MS)
+            saveGuidePosition(position)
+        }
     }
 
     fun setFavoriteGroupFilter(groupId: Long?) {
@@ -349,10 +469,13 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
+        val changed = _guideFilter.value != filter
         _guideFilter.value = filter
         if (markConfigured) {
             _guideFiltersConfigured.value = true
-            persistGuideFilter(filter, configured = true)
+        }
+        if (changed || markConfigured) {
+            persistGuideFilter(filter, configured = _guideFiltersConfigured.value)
         }
     }
 
@@ -366,25 +489,27 @@ class HomeEpgViewModel @Inject constructor(
     fun reloadGuideSettings() {
         viewModelScope.launch {
             val settings = repository.loadSettings()
-            _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
+            val nextFilter = sanitizeGuideFilter(
+                groups = settings.guideChannelGroups,
+                configured = settings.guideFiltersConfigured
+            )
+            val filterChanged = _guideFilter.value != nextFilter
+            _guideFilter.value = nextFilter
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
             _guideSettingsLoaded.value = true
+            if (filterChanged && guideBootstrapComplete) {
+                reloadChannels()
+            }
         }
     }
 
     fun clearGuideFilter() {
-        setGuideFilter(GuideChannelFilter.All)
+        setGuideFilter(GuideChannelFilter.All, markConfigured = true)
     }
 
     private fun persistGuideFilter(filter: GuideChannelFilter, configured: Boolean) {
         viewModelScope.launch {
-            val current = repository.loadSettings()
-            repository.saveSettings(
-                current.copy(
-                    guideChannelGroups = filter.selectedGroups,
-                    guideFiltersConfigured = configured
-                )
-            )
+            repository.saveGuideChannelFilter(filter.selectedGroups, configured)
         }
     }
 
@@ -393,7 +518,19 @@ class HomeEpgViewModel @Inject constructor(
         val current = _windowDurationMs.value
         if (current >= MAX_WINDOW_MS) return
         _windowDurationMs.value = (current + WINDOW_CHUNK_MS).coerceAtMost(MAX_WINDOW_MS)
-        viewModelScope.launch { loadWindow() }
+        viewModelScope.launch(Dispatchers.IO) { loadWindow() }
+    }
+
+    /** Re-anchor the EPG window to the device local clock so the live tracker stays accurate. */
+    fun syncTimelineWindowToLocalNow() {
+        val now = System.currentTimeMillis()
+        val adjusted = EpgTime.anchoredWindowStart(
+            currentWindowStart = _windowStart.value,
+            windowDurationMs = _windowDurationMs.value,
+            nowMs = now
+        )
+        if (adjusted == _windowStart.value) return
+        _windowStart.value = adjusted
     }
 
     /** Extend the visible timeline backward (into the past). Returns scroll adjustment in px. */
@@ -403,22 +540,35 @@ class HomeEpgViewModel @Inject constructor(
         if (_windowStart.value - shift < earliest) return 0
         _windowStart.value -= shift
         _windowDurationMs.value = (_windowDurationMs.value + shift).coerceAtMost(MAX_WINDOW_MS)
-        viewModelScope.launch { loadWindow() }
+        viewModelScope.launch(Dispatchers.IO) { loadWindow() }
         return (shift * EpgLayout.dpPerMs()).toInt()
     }
 
     fun toggleFavorite(channelId: Long, currentlyFavorite: Boolean) {
-        viewModelScope.launch {
-            if (channelId < 0) {
-                _demoFavoriteIds.value = if (currentlyFavorite) {
-                    _demoFavoriteIds.value - channelId
-                } else {
-                    _demoFavoriteIds.value + channelId
-                }
+        val newState = !currentlyFavorite
+        if (channelId < 0) {
+            _demoFavoriteIds.value = if (currentlyFavorite) {
+                _demoFavoriteIds.value - channelId
             } else {
-                repository.toggleFavorite(channelId, !currentlyFavorite)
+                _demoFavoriteIds.value + channelId
+            }
+        } else {
+            _channels.value = _channels.value.map { channel ->
+                if (channel.id == channelId) channel.copy(isFavorite = newState) else channel
             }
         }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (channelId >= 0) {
+                repository.toggleFavorite(channelId, newState)
+            }
+        }
+    }
+
+    fun observeChannelFavorite(channelId: Long): kotlinx.coroutines.flow.Flow<Boolean> {
+        if (channelId < 0) {
+            return _demoFavoriteIds.map { channelId in it }
+        }
+        return repository.isFavorite(channelId)
     }
 
     fun createFavoriteGroup(name: String) {
@@ -487,6 +637,8 @@ class HomeEpgViewModel @Inject constructor(
             _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+            livePlayerManager.setStreamRetries(settings.streamRetries)
+            livePlayerManager.syncNetworkSettings(context.applicationContext, settings)
             livePlayerManager.syncPlaybackSettings(
                 context.applicationContext,
                 settings.bufferSize,
@@ -523,8 +675,117 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
-    fun updateScannerViewport(channelIds: List<Long>) {
-        channelScanner.setPriorityChannelIds(channelIds)
+    /**
+     * Scroll viewport only — triggers debounced EPG network hydration when visible rows change.
+     * Must not be called on D-pad focus moves within the same visible window.
+     */
+    fun onGuideScrollViewportChanged(visibleChannelIds: List<Long>) {
+        lastScrollVisibleIds = visibleChannelIds.distinct()
+        syncScannerPriority()
+        if (visibleChannelIds.isEmpty()) return
+
+        val fetchKey = viewportEpgFetchKey(visibleChannelIds)
+        if (fetchKey == lastViewportEpgFetchKey) return
+
+        viewportEpgJob?.cancel()
+        viewportEpgJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(VIEWPORT_EPG_DEBOUNCE_MS)
+            val visible = visibleChannelIds.distinct().take(VIEWPORT_EPG_MAX_CHANNEL_IDS)
+            val keyAfterDebounce = viewportEpgFetchKey(visible)
+            if (keyAfterDebounce == lastViewportEpgFetchKey) return@launch
+            lastViewportEpgFetchKey = keyAfterDebounce
+            startViewportProgramObservation(visible)
+            repository.fetchCurrentEpgForChannels(visible.map { it.toString() })
+            val visibleChannels = _channels.value.filter { it.id in visible.toSet() }
+            if (visibleChannels.isNotEmpty()) {
+                appendProgramsForChannels(visibleChannels)
+            }
+        }
+    }
+
+    /**
+     * Focus-only — updates scanner priority for the highlighted row. No network or DB work.
+     */
+    fun onGuideFocusChannelChanged(channelId: Long?, channelIndex: Int) {
+        lastFocusedChannelId = channelId
+        FocusNavigationMetrics.onFocusUiOnly("guide_channel_focus", channelIndex = channelIndex)
+        focusScannerJob?.cancel()
+        focusScannerJob = viewModelScope.launch {
+            delay(FOCUS_SCANNER_PRIORITY_DEBOUNCE_MS)
+            syncScannerPriority()
+        }
+    }
+
+    private fun syncScannerPriority() {
+        val ids = (lastScrollVisibleIds + listOfNotNull(lastFocusedChannelId)).distinct()
+        if (ids.isNotEmpty()) {
+            channelScanner.setPriorityChannelIds(ids)
+        }
+    }
+
+    private fun startViewportProgramObservation(channelIds: List<Long>) {
+        viewportObserveJob?.cancel()
+        val channelIdSet = channelIds.toSet()
+        viewportObserveJob = viewModelScope.launch(Dispatchers.IO) {
+            combine(_channels, _windowStart, _windowDurationMs) { channels, start, duration ->
+                Triple(
+                    channels.filter { it.id in channelIdSet },
+                    start,
+                    start + duration
+                )
+            }
+                .distinctUntilChanged { old, new ->
+                    old.first.size == new.first.size &&
+                        old.first.map { it.id } == new.first.map { it.id } &&
+                        old.second == new.second &&
+                        old.third == new.third
+                }
+                .flatMapLatest { (visibleChannels, windowStart, windowEnd) ->
+                    if (visibleChannels.isEmpty()) {
+                        flowOf(emptyList())
+                    } else {
+                        repository.observeProgramsWindowForChannels(
+                            visibleChannels,
+                            windowStart,
+                            windowEnd
+                        )
+                    }
+                }
+                .collectLatest { programs ->
+                    if (programs.isEmpty()) return@collectLatest
+                    val existing = _epgPrograms.value
+                    val channels = _channels.value
+                    val merged = mergePrograms(existing, programs)
+                    val replayUrls = computeReplayUrls(merged, channels)
+                    withContext(Dispatchers.Main.immediate) {
+                        _epgPrograms.value = merged
+                        _replayUrlsByProgramId.value = replayUrls
+                    }
+                }
+        }
+    }
+
+    private suspend fun refreshCurrentWindowPrograms() {
+        val channels = _channels.value
+        if (channels.isEmpty()) return
+        val visible = channels.take(PRIORITY_EPG_CHANNEL_COUNT)
+        val start = _windowStart.value
+        val end = start + _windowDurationMs.value
+        val existing = _epgPrograms.value
+        val programs = repository.programsWindowForChannels(visible, start, end)
+        val merged = mergePrograms(existing, programs)
+        val replayUrls = computeReplayUrls(merged, channels)
+        withContext(Dispatchers.Main.immediate) {
+            _epgPrograms.value = merged
+            _replayUrlsByProgramId.value = replayUrls
+        }
+    }
+
+    private fun scheduleLoadWindow() {
+        loadWindowJob?.cancel()
+        loadWindowJob = viewModelScope.launch(Dispatchers.IO) {
+            loadWindow()
+        }
     }
 
     fun setScannerForeground(visible: Boolean) {
@@ -537,6 +798,7 @@ class HomeEpgViewModel @Inject constructor(
         previewTuneJob = viewModelScope.launch {
             delay(PREVIEW_TUNE_DEBOUNCE_MS)
             if (channel.streamUrl.isBlank()) return@launch
+            playbackOrchestrator.onGuidePreviewActive(context)
             livePlayerManager.tuneChannel(context, channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }
@@ -557,31 +819,41 @@ class HomeEpgViewModel @Inject constructor(
 
     fun loadMoreChannels() {
         if (loadingChannels || !_hasMoreChannels.value) return
-        viewModelScope.launch { loadMoreChannelsInternal() }
+        val generation = channelFilterGeneration
+        viewModelScope.launch { loadMoreChannelsInternal(expectedGeneration = generation) }
     }
 
     private fun reloadChannels() {
         channelLoadJob?.cancel()
-        channelLoadJob = viewModelScope.launch {
-            _isReloadingChannels.value = true
+        val generation = ++channelFilterGeneration
+        channelLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main.immediate) {
+                _isReloadingChannels.value = true
+            }
             _channels.value = emptyList()
             _epgPrograms.value = emptyList()
             channelDbOffset = 0
             _hasMoreChannels.value = true
-            reloadChannelsInternal()
-            _isReloadingChannels.value = false
+            loadMoreChannelsInternal(expectedGeneration = generation)
+            if (generation == channelFilterGeneration) {
+                withContext(Dispatchers.Main.immediate) {
+                    _isReloadingChannels.value = false
+                }
+            }
         }
     }
 
     private suspend fun reloadChannelsInternal() {
-        loadMoreChannelsInternal()
+        reloadChannels()
     }
 
-    private suspend fun loadMoreChannelsInternal() {
+    private suspend fun loadMoreChannelsInternal(expectedGeneration: Int = channelFilterGeneration) {
+        if (expectedGeneration != channelFilterGeneration) return
         if (!_hasMoreChannels.value) return
         loadingChannels = true
         try {
             val page = fetchFilteredChannelPage(channelDbOffset)
+            if (expectedGeneration != channelFilterGeneration) return
             channelDbOffset += page.size
             _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
             if (page.isEmpty()) return
@@ -611,7 +883,7 @@ class HomeEpgViewModel @Inject constructor(
             page.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         } else {
             page
-        }
+        }.filter { _guideFilter.value.appliesTo(it) }
     }
 
     private suspend fun appendProgramsForChannels(newChannels: List<Channel>) {
@@ -619,24 +891,78 @@ class HomeEpgViewModel @Inject constructor(
         val generation = ++epgLoadGeneration
         val start = _windowStart.value
         val end = start + _windowDurationMs.value
-        val newPrograms = withContext(Dispatchers.IO) {
-            repository.programsWindowForChannels(newChannels, start, end)
-        }
+        val existing = _epgPrograms.value
+        val channels = _channels.value
+        val newPrograms = repository.programsWindowForChannels(newChannels, start, end)
         if (generation != epgLoadGeneration) return
-        _epgPrograms.value = mergePrograms(_epgPrograms.value, newPrograms)
-        recomputeReplayUrls(_epgPrograms.value)
+        val merged = mergePrograms(existing, newPrograms)
+        val replayUrls = computeReplayUrls(merged, channels)
+        withContext(Dispatchers.Main.immediate) {
+            _epgPrograms.value = merged
+            _replayUrlsByProgramId.value = replayUrls
+        }
     }
 
-    private fun mergePrograms(existing: List<Program>, additional: List<Program>): List<Program> =
-        (existing + additional).distinctBy { it.id }.sortedBy { it.startTime }
+    private fun mergePrograms(existing: List<Program>, additional: List<Program>): List<Program> {
+        if (additional.isEmpty()) return existing
+        if (existing.isEmpty()) return additional.sortedBy { it.startTime }
+        val byId = LinkedHashMap<Long, Program>(existing.size + additional.size)
+        for (program in existing) {
+            byId[program.id] = program
+        }
+        for (program in additional) {
+            byId[program.id] = program
+        }
+        return byId.values.sortedBy { it.startTime }
+    }
 
     private suspend fun loadWindow() {
         if (!guideBootstrapComplete) return
-        val generation = ++epgLoadGeneration
-        _epgLoading.value = true
-        val channelsForLookup = _channels.value
-        val start = _windowStart.value
-        val end = start + _windowDurationMs.value
+        val snapshot = LoadWindowSnapshot(
+            generation = ++epgLoadGeneration,
+            existingPrograms = _epgPrograms.value,
+            channels = _channels.value,
+            start = _windowStart.value,
+            end = _windowStart.value + _windowDurationMs.value
+        )
+        withContext(Dispatchers.Main.immediate) {
+            _epgLoading.value = true
+        }
+
+        val outcome = computeLoadWindowOutcome(snapshot)
+        if (outcome == null || outcome.generation != epgLoadGeneration) {
+            withContext(Dispatchers.Main.immediate) {
+                _epgLoading.value = false
+            }
+            return
+        }
+
+        withContext(Dispatchers.Main.immediate) {
+            _epgPrograms.value = outcome.programs
+            _replayUrlsByProgramId.value = outcome.replayUrls
+            _epgLoading.value = false
+            outcome.coverage?.let { stats ->
+                EpgFlowLogger.guideLoaded(
+                    programCount = stats.programCount,
+                    channelCount = stats.channelCount,
+                    matchedChannelCount = stats.matchedChannelCount
+                )
+                Log.i(
+                    TAG,
+                    "loadWindow: ${stats.programCount} programme rows, " +
+                        "${stats.matchedChannelCount}/${stats.channelCount} " +
+                        "filtered channels have matching epgId in window"
+                )
+            }
+        }
+    }
+
+    private suspend fun computeLoadWindowOutcome(snapshot: LoadWindowSnapshot): LoadWindowOutcome? {
+        val channelsForLookup = snapshot.channels
+        val start = snapshot.start
+        val end = snapshot.end
+        val generation = snapshot.generation
+
         if (channelsForLookup.isEmpty()) {
             val priorityChannels = fetchFilteredChannelPage(offset = 0)
                 .take(PRIORITY_EPG_CHANNEL_COUNT)
@@ -646,23 +972,26 @@ class HomeEpgViewModel @Inject constructor(
                     "filter=${_guideFilter.value.label}"
             )
             if (priorityChannels.isEmpty()) {
-                _epgPrograms.value = emptyList()
-                _epgLoading.value = false
-                return
+                return LoadWindowOutcome(
+                    generation = generation,
+                    programs = emptyList(),
+                    replayUrls = emptyMap()
+                )
             }
-            val programs = withContext(Dispatchers.IO) {
-                repository.programsWindowForChannels(priorityChannels, start, end)
-            }
-            if (generation != epgLoadGeneration) return
+            val programs = repository.programsWindowForChannels(priorityChannels, start, end)
+            if (generation != epgLoadGeneration) return null
+            val merged = mergePrograms(snapshot.existingPrograms, programs)
             Log.i(
                 TAG,
                 "loadWindow priority (filtered cache): ${programs.size} programmes for " +
                     "${priorityChannels.size} channels, window [$start, $end]"
             )
-            _epgPrograms.value = programs
-            recomputeReplayUrls(programs)
-            _epgLoading.value = false
-            return
+            return LoadWindowOutcome(
+                generation = generation,
+                programs = merged,
+                replayUrls = computeReplayUrls(merged, priorityChannels),
+                coverage = programmeCoverageStats(priorityChannels, merged)
+            )
         }
 
         val priorityCount = minOf(PRIORITY_EPG_CHANNEL_COUNT, channelsForLookup.size)
@@ -674,38 +1003,45 @@ class HomeEpgViewModel @Inject constructor(
                 "window [$start, $end], withEpgId=${channelsForLookup.count { !it.epgId.isNullOrBlank() }}"
         )
 
-        val priorityPrograms = withContext(Dispatchers.IO) {
-            repository.programsWindowForChannels(priorityChannels, start, end)
-        }
-        if (generation != epgLoadGeneration) return
-        _epgPrograms.value = priorityPrograms
-        recomputeReplayUrls(priorityPrograms)
-        _epgLoading.value = false
+        val priorityPrograms = repository.programsWindowForChannels(priorityChannels, start, end)
+        if (generation != epgLoadGeneration) return null
+        var merged = mergePrograms(snapshot.existingPrograms, priorityPrograms)
 
-        if (remainingChannels.isEmpty()) {
-            logProgrammeCoverage(channelsForLookup, priorityPrograms)
-            return
+        // Defer programme load for channels beyond the first screen — avoids 200× resolver work at open.
+        if (remainingChannels.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "loadWindow: deferring programme fetch for ${remainingChannels.size} off-screen channel(s)"
+            )
         }
 
-        val restPrograms = withContext(Dispatchers.IO) {
-            repository.programsWindowForChannels(remainingChannels, start, end)
-        }
-        if (generation != epgLoadGeneration) return
-        val merged = mergePrograms(priorityPrograms, restPrograms)
-        _epgPrograms.value = merged
-        recomputeReplayUrls(merged)
-        logProgrammeCoverage(channelsForLookup, merged)
+        return LoadWindowOutcome(
+            generation = generation,
+            programs = merged,
+            replayUrls = computeReplayUrls(merged, channelsForLookup),
+            coverage = programmeCoverageStats(channelsForLookup, merged)
+        )
     }
 
-    private fun logProgrammeCoverage(channelsForLookup: List<Channel>, programs: List<Program>) {
-        val channelsWithPrograms = programs.map { it.channelEpgId }.toSet()
-        val matchedChannels = channelsForLookup.count { ch ->
-            ch.epgId != null && channelsWithPrograms.any { it.equals(ch.epgId, ignoreCase = true) }
+    private fun programmeCoverageStats(
+        channelsForLookup: List<Channel>,
+        programs: List<Program>
+    ): ProgrammeCoverageStats {
+        val channelsWithPrograms = HashSet<String>(programs.size)
+        for (program in programs) {
+            channelsWithPrograms.add(program.channelEpgId.lowercase())
         }
-        Log.i(
-            TAG,
-            "loadWindow: ${programs.size} programme rows, $matchedChannels/${channelsForLookup.size} " +
-                "filtered channels have matching epgId in window"
+        var matchedChannels = 0
+        for (channel in channelsForLookup) {
+            val epgId = channel.epgId ?: continue
+            if (channelsWithPrograms.contains(epgId.lowercase())) {
+                matchedChannels++
+            }
+        }
+        return ProgrammeCoverageStats(
+            programCount = programs.size,
+            channelCount = channelsForLookup.size,
+            matchedChannelCount = matchedChannels
         )
     }
 }

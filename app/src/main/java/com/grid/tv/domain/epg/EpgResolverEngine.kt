@@ -72,7 +72,7 @@ class EpgResolverEngine @Inject constructor(
 
     suspend fun resolveChannel(channel: Channel): EpgResolutionResult {
         canonicalSeeder.ensureSeeded()
-        val candidates = gatherCandidates(channel.name)
+        val candidates = gatherCandidates(channel)
         Log.d(
             TAG,
             "resolveChannel name=${channel.name} epgId=${channel.epgId} candidates=${candidates.size} " +
@@ -154,6 +154,12 @@ class EpgResolverEngine @Inject constructor(
                 )
                 suggestionDao.clearForChannel(proposal.channelId.toString())
                 analyticsTracker.recordAutoMatch(proposal.reason)
+                analyticsTracker.saveLearnedMapping(
+                    originalName = proposal.channelName,
+                    epgId = proposal.proposedEpgId,
+                    epgDisplayName = proposal.proposedEpgName,
+                    source = proposal.source
+                )
             } else {
                 channelDao.applyResolution(
                     channelId = proposal.channelId,
@@ -204,6 +210,12 @@ class EpgResolverEngine @Inject constructor(
                         )
                         suggestionDao.clearForChannel(entity.id.toString())
                         analyticsTracker.recordAutoMatch(result.reason)
+                        analyticsTracker.saveLearnedMapping(
+                            originalName = entity.name,
+                            epgId = result.epgId,
+                            epgDisplayName = result.epgName,
+                            source = result.source
+                        )
                         auto++
                     }
 
@@ -271,17 +283,17 @@ class EpgResolverEngine @Inject constructor(
         return allCandidates
     }
 
-    private suspend fun gatherCandidates(channelName: String): List<EpgSourceChannelEntity> {
+    private suspend fun gatherCandidates(channel: Channel): List<EpgSourceChannelEntity> {
         val pool = linkedMapOf<String, EpgSourceChannelEntity>()
+        sourceDao.bySource("xmltv:${channel.playlistId}").forEach { pool[it.epgId] = it }
         localCandidates().forEach { pool[it.epgId] = it }
 
-        val providerXmlTv = sourceDao.all().filter { it.source.startsWith("xmltv:") }
-        providerXmlTv.forEach { pool[it.epgId] = it }
+        sourceDao.all().filter { it.source.startsWith("xmltv:") }.forEach { pool[it.epgId] = it }
 
         refreshSourceIfStale("epg.best", "https://epg.best/epg.xml.gz")
         sourceDao.bySource("epg.best").forEach { pool[it.epgId] = it }
 
-        detectRegions(channelName).forEach { region ->
+        detectRegions(channel.name).forEach { region ->
             val source = "i.mjh.nz/$region"
             refreshSourceIfStale(source, "https://i.mjh.nz/$region/epg.xml.gz")
             sourceDao.bySource(source).forEach { pool[it.epgId] = it }

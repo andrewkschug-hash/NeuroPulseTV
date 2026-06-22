@@ -742,4 +742,164 @@ object DbMigrations {
             )
         }
     }
+
+    val MIGRATION_26_27 = object : Migration(26, 27) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_streams (
+                    rowId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    playlistId INTEGER NOT NULL,
+                    streamId INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    streamUrl TEXT NOT NULL,
+                    posterUrl TEXT,
+                    plot TEXT,
+                    cast TEXT,
+                    director TEXT,
+                    genre TEXT,
+                    rating TEXT,
+                    duration TEXT,
+                    categoryId TEXT,
+                    addedEpochSec INTEGER,
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_playlistId ON vod_streams(playlistId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_streamId ON vod_streams(streamId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_categoryId ON vod_streams(categoryId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_addedEpochSec ON vod_streams(addedEpochSec)")
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_vod_streams_playlistId_streamId ON vod_streams(playlistId, streamId)"
+            )
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS vod_categories (
+                    playlistId INTEGER NOT NULL,
+                    categoryId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    PRIMARY KEY(playlistId, categoryId),
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_categories_playlistId ON vod_categories(playlistId)")
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_shows (
+                    rowId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    playlistId INTEGER NOT NULL,
+                    seriesId INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    coverUrl TEXT,
+                    categoryId TEXT,
+                    genre TEXT,
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_series_shows_playlistId ON series_shows(playlistId)")
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_series_shows_playlistId_seriesId ON series_shows(playlistId, seriesId)"
+            )
+        }
+    }
+
+    val MIGRATION_27_28 = object : Migration(27, 28) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS profile_genre_affinity (
+                    profileId INTEGER NOT NULL,
+                    genre TEXT NOT NULL,
+                    score INTEGER NOT NULL DEFAULT 0,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(profileId, genre)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_profile_genre_affinity_profileId ON profile_genre_affinity(profileId)"
+            )
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS featured_banner_stats (
+                    profileId INTEGER NOT NULL,
+                    contentKey TEXT NOT NULL,
+                    impressionCount INTEGER NOT NULL DEFAULT 0,
+                    clickCount INTEGER NOT NULL DEFAULT 0,
+                    lastShownAt INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(profileId, contentKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_featured_banner_stats_profileId ON featured_banner_stats(profileId)"
+            )
+        }
+    }
+
+    val MIGRATION_28_29 = object : Migration(28, 29) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS series_categories (
+                    playlistId INTEGER NOT NULL,
+                    categoryId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    PRIMARY KEY(playlistId, categoryId),
+                    FOREIGN KEY(playlistId) REFERENCES playlists(id) ON DELETE CASCADE
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_series_categories_playlistId ON series_categories(playlistId)"
+            )
+        }
+    }
+
+    val MIGRATION_29_30 = object : Migration(29, 30) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO series_categories (playlistId, categoryId, name)
+                SELECT DISTINCT playlistId, categoryId, categoryId
+                FROM series_shows
+                WHERE categoryId IS NOT NULL AND TRIM(categoryId) != ''
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_30_31 = object : Migration(30, 31) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS movie_details (
+                    tmdbId INTEGER NOT NULL,
+                    title TEXT,
+                    overview TEXT,
+                    tagline TEXT,
+                    releaseDate TEXT,
+                    releaseYear INTEGER,
+                    runtimeMinutes INTEGER,
+                    voteAverage REAL,
+                    voteCount INTEGER,
+                    genres TEXT,
+                    posterUrl TEXT,
+                    backdropUrl TEXT,
+                    imdbId TEXT,
+                    status TEXT,
+                    originalLanguage TEXT,
+                    updatedAt INTEGER NOT NULL,
+                    PRIMARY KEY(tmdbId)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_movie_details_imdbId ON movie_details(imdbId)")
+        }
+    }
 }

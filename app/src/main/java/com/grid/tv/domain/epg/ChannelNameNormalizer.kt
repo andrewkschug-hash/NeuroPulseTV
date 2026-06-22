@@ -17,19 +17,49 @@ class ChannelNameNormalizer @Inject constructor() {
         s = s.replace(Regex("\\+[0-9]{1,2}\\b"), " ")
         s = s.replace(Regex("\\b(tv|channel|network|broadcasting)\\b"), " ")
         s = s.replace(Regex("[|\\[\\]()._:\\-+]"), " ")
+        s = s.replace(Regex("\\b0+(\\d+)\\b"), "$1")
         s = s.replace(Regex("\\s+"), " ")
         return s.trim()
     }
+
+    fun compact(name: String): String = normalize(name).replace(" ", "")
+
+    private fun tokens(name: String): List<String> =
+        normalize(name).split(" ").filter { it.isNotBlank() }
 
     fun calculateConfidence(channelName: String, epgName: String): Int {
         val c = normalize(channelName)
         val e = normalize(epgName)
         if (c.isBlank() || e.isBlank()) return 0
         if (c == e) return 100
-        if (c.contains(e) || e.contains(c)) return 90
-        val dist = levenshtein(c, e)
+
+        if (c.contains(e) || e.contains(c)) {
+            val shorter = if (c.length <= e.length) c else e
+            val longer = if (c.length <= e.length) e else c
+            if (Regex("\\b${Regex.escape(shorter)}\\b").containsMatchIn(longer)) return 90
+        }
+
+        val cCompact = compact(channelName)
+        val eCompact = compact(epgName)
+        if (cCompact.length >= 3 && eCompact.length >= 3) {
+            if (cCompact == eCompact) return 100
+            if (eCompact.contains(cCompact) || cCompact.contains(eCompact)) return 88
+        }
+
+        val cTokens = tokens(channelName)
+        val eTokenSet = tokens(epgName).toSet()
+        if (cTokens.isNotEmpty() && cTokens.all { token -> eTokenSet.contains(token) || e.contains(token) }) {
+            return 88
+        }
+
+        val dist = levenshtein(cCompact, eCompact)
         if (dist == 1) return 85
         if (dist == 2) return 75
+        val maxLen = maxOf(cCompact.length, eCompact.length)
+        if (maxLen >= 4) {
+            val similarity = 100 - ((dist * 100) / maxLen)
+            if (similarity >= 78) return similarity.coerceIn(70, 84)
+        }
 
         val cWords = c.split(" ").filter { it.isNotBlank() }
         val eWords = e.split(" ").filter { it.isNotBlank() }.toSet()
@@ -37,6 +67,23 @@ class ChannelNameNormalizer @Inject constructor() {
         if (cWords.isNotEmpty() && matchCount == cWords.size) return 70
         if (cWords.isNotEmpty() && matchCount * 2 > cWords.size) return 55
         return 0
+    }
+
+    fun bestFuzzyMatch(
+        channelName: String,
+        candidates: List<String>,
+        minConfidence: Int = 55
+    ): Pair<Int, Int>? {
+        var bestIndex = -1
+        var bestScore = 0
+        candidates.forEachIndexed { index, candidate ->
+            val score = calculateConfidence(channelName, candidate)
+            if (score >= minConfidence && score > bestScore) {
+                bestIndex = index
+                bestScore = score
+            }
+        }
+        return if (bestIndex >= 0) bestIndex to bestScore else null
     }
 
     fun levenshtein(a: String, b: String): Int {

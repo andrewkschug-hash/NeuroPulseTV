@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
@@ -37,6 +38,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.dp
@@ -170,6 +172,8 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val storageOptions by viewModel.storageOptions.collectAsStateWithLifecycle()
     val currentStorageLabel by viewModel.currentStorageLabel.collectAsStateWithLifecycle()
+    val usbStorageReady by viewModel.usbStorageReady.collectAsStateWithLifecycle()
+    val usbStorageStatusLine by viewModel.usbStorageStatusLine.collectAsStateWithLifecycle()
     val progress by viewModel.m3uProgress.collectAsStateWithLifecycle()
     val isConnecting by viewModel.isConnecting.collectAsStateWithLifecycle()
     val connectionDialog by viewModel.connectionDialog.collectAsStateWithLifecycle()
@@ -194,6 +198,7 @@ fun SettingsScreen(
     var showClearCacheConfirm by remember { mutableStateOf(false) }
     var showHideAdultPinDialog by remember { mutableStateOf(false) }
     var showChangePinDialog by remember { mutableStateOf(false) }
+    var showManageProfilesOverlay by remember { mutableStateOf(false) }
     var changePinStep by remember { mutableStateOf(ChangePinStep.VERIFY_CURRENT) }
     var pendingNewPin by remember { mutableStateOf("") }
     var pendingHideAdultValue by remember { mutableStateOf<Boolean?>(null) }
@@ -416,6 +421,7 @@ fun SettingsScreen(
             showSignOutConfirm -> showSignOutConfirm = false
             showClearCacheConfirm -> showClearCacheConfirm = false
             showGuideGroupPicker -> showGuideGroupPicker = false
+            showManageProfilesOverlay -> showManageProfilesOverlay = false
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
             focusPanel == SettingsFocusPanel.RIGHT -> {
@@ -530,9 +536,18 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(EpgColors.Background)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (showManageProfilesOverlay) {
+                        Modifier.focusProperties { canFocus = false }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
             EpgTopBar(
-                now = now,
                 selectedTab = EpgNavTab.Settings,
                 focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
                 navFocused = focusPanel == SettingsFocusPanel.TOP_BAR &&
@@ -664,7 +679,10 @@ fun SettingsScreen(
                             profiles = profiles,
                             settings = settings,
                             focus = contentFocus,
-                            onSwitchProfile = onSwitchProfile,
+                            onManageProfiles = {
+                                Log.d("SettingsScreen", "Manage profiles clicked — opening inline editor")
+                                showManageProfilesOverlay = true
+                            },
                             onSelectProfile = { profileViewModel.switchProfile(it) },
                             onToggleHideAdult = {
                                 val next = !settings.hideAdultContent
@@ -814,10 +832,13 @@ fun SettingsScreen(
                             onTheme = { viewModel.updateTheme(it) }
                         )
                         SettingsSection.Recordings -> RecordingsSettingsContent(
+                            usbStorageReady = usbStorageReady,
+                            usbStorageStatusLine = usbStorageStatusLine,
                             currentStorageLabel = currentStorageLabel,
                             storageOptions = storageOptions,
                             focus = contentFocus,
-                            onSelectStorage = { viewModel.setRecordingStorage(it) }
+                            onSelectStorage = { viewModel.setRecordingStorage(it) },
+                            onRefreshStorage = { viewModel.refreshStorageSettings() }
                         )
                         SettingsSection.About -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
@@ -939,6 +960,31 @@ fun SettingsScreen(
             )
         }
 
+        if (showManageProfilesOverlay) {
+            ManageProfilesOverlay(
+                profiles = profiles,
+                activeProfileId = activeProfile?.id,
+                onDismiss = { showManageProfilesOverlay = false },
+                onCreateProfile = { name ->
+                    val colorIndex = profiles.size % ProfileAvatarColors.size
+                    val color = ProfileAvatarColors[colorIndex]
+                    val hex = String.format(
+                        "#%02X%02X%02X",
+                        (color.red * 255).toInt(),
+                        (color.green * 255).toInt(),
+                        (color.blue * 255).toInt()
+                    )
+                    profileViewModel.createProfile(name, hex, pin = null, parental = false)
+                },
+                onRenameProfile = { profileId, name ->
+                    profileViewModel.updateProfileName(profileId, name)
+                },
+                onDeleteProfile = { profileId ->
+                    profileViewModel.deleteProfile(profileId)
+                }
+            )
+        }
+
         if (showChangePinDialog) {
             val profile = activeProfile
             if (profile != null) {
@@ -1023,7 +1069,7 @@ private fun ProfileSettingsContent(
     profiles: List<UserProfile>,
     settings: com.grid.tv.domain.model.AppSettings,
     focus: SettingsContentFocus,
-    onSwitchProfile: () -> Unit,
+    onManageProfiles: () -> Unit,
     onSelectProfile: (Long) -> Unit,
     onToggleHideAdult: () -> Unit,
     onToggleParentalPinLock: () -> Unit,
@@ -1068,7 +1114,7 @@ private fun ProfileSettingsContent(
             }
             SettingsFocusButton(
                 text = "Manage profiles",
-                onClick = onSwitchProfile,
+                onClick = onManageProfiles,
                 chainIndex = 0,
                 focus = focus
             )
@@ -1370,13 +1416,21 @@ private fun ConnectionFormPanel(
         focus = focus
     ) {
         val base = formStartIndex
+        val serverFieldIndex = base + 3
+        val serverFocusRequester = focus.chain.requesters.getOrNull(serverFieldIndex)
         SettingsFocusTextField(
             label = "Connection name",
             value = name,
             onValueChange = onNameChange,
             placeholder = "e.g. Home IPTV",
             chainIndex = base,
-            focus = focus
+            focus = focus,
+            imeAction = ImeAction.Next,
+            nextFocusRequester = serverFocusRequester,
+            onImeNext = {
+                focus.chain.moveTo(serverFieldIndex)
+                focus.chain.requestFocusAtCurrentIndex()
+            }
         )
         SettingsFocusPillGroup(
             labels = listOf("M3U", "Xtream"),
@@ -2033,23 +2087,45 @@ private fun InterfaceSettingsContent(
 
 @Composable
 private fun RecordingsSettingsContent(
+    usbStorageReady: Boolean,
+    usbStorageStatusLine: String?,
     currentStorageLabel: String?,
     storageOptions: List<com.grid.tv.feature.recording.StorageOption>,
     focus: SettingsContentFocus,
-    onSelectStorage: (String) -> Unit
+    onSelectStorage: (String) -> Unit,
+    onRefreshStorage: () -> Unit
 ) {
+    LaunchedEffect(Unit) {
+        onRefreshStorage()
+    }
+
     SettingsPanel(
         title = "Recording storage",
-        description = "Choose where completed recordings are saved.",
+        description = if (usbStorageReady) {
+            "Recordings are saved to your USB drive only. Internal storage is never used."
+        } else {
+            com.grid.tv.feature.recording.StorageUtils.USB_REQUIRED_MESSAGE
+        },
         cardIndex = 0,
         focus = focus
     ) {
-        Text(
-            text = currentStorageLabel ?: "Not configured",
-            color = EpgColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
+        if (usbStorageReady) {
+            Text(
+                text = usbStorageStatusLine ?: (currentStorageLabel ?: "USB Drive"),
+                color = EpgColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        } else {
+            Text(
+                text = com.grid.tv.feature.recording.StorageUtils.USB_REQUIRED_MESSAGE,
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         storageOptions.forEachIndexed { index, option ->
             SettingsListRow(
                 title = option.label,
@@ -2061,7 +2137,8 @@ private fun RecordingsSettingsContent(
                         text = "Use",
                         onClick = { onSelectStorage(option.id) },
                         chainIndex = index,
-                        focus = focus
+                        focus = focus,
+                        enabled = usbStorageReady
                     )
                 }
             )

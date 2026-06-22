@@ -5,7 +5,7 @@ import androidx.room.Index
 
 /**
  * On-device cache of TMDB metadata fetched lazily when the user browses a title.
- * Supabase is not used for title metadata — only local Room + on-demand TMDB calls.
+ * Movies load full metadata via Supabase `get-movie-details`; series use on-device TMDB search.
  */
 @Entity(
     tableName = "title_enrichment",
