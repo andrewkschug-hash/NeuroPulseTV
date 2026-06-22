@@ -118,6 +118,7 @@ import com.grid.tv.feature.recommendation.WatchStat
 import com.grid.tv.feature.tivimate.TiviMateImporter
 import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.scanner.EpgDownloadTracker
+import com.grid.tv.feature.vod.SeriesEpisodeTitleNormalizer
 import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -3225,7 +3226,9 @@ class IptvRepositoryImpl @Inject constructor(
         val show = seriesShowDao.findBySeriesIdGlobal(seriesId) ?: return@withContext SeriesDetail()
         val playlistId = show.playlistId
         val cacheKey = playlistId to seriesId
-        seriesSeasonsCache.get(cacheKey)?.let { return@withContext it }
+        seriesSeasonsCache.get(cacheKey)?.let { cached ->
+            return@withContext SeriesEpisodeTitleNormalizer.normalizeSeriesDetail(cached)
+        }
         val playlist = playlistDao.getById(playlistId) ?: return@withContext SeriesDetail()
         val server = playlist.xtreamServerUrl ?: return@withContext SeriesDetail()
         val user = playlist.xtreamUsername ?: return@withContext SeriesDetail()
@@ -3243,8 +3246,9 @@ class IptvRepositoryImpl @Inject constructor(
         ) {
             xtreamParser.parseSeriesInfo(raw, user, pass, server)
         }
-        seriesSeasonsCache.put(cacheKey, detail)
-        return@withContext detail
+        val normalized = SeriesEpisodeTitleNormalizer.normalizeSeriesDetail(detail)
+        seriesSeasonsCache.put(cacheKey, normalized)
+        return@withContext normalized
     }
 
     override suspend fun toggleFavorite(channelId: Long, enabled: Boolean) {

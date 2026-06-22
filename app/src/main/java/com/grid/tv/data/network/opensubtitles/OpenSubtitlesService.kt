@@ -6,6 +6,8 @@ import com.grid.tv.data.security.SecureCredentialStore
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -40,9 +42,9 @@ class OpenSubtitlesService @Inject constructor(
         return search("$BASE_URL/subtitles?query=$encodedQuery&languages=$language$yearParam")
     }
 
-    private suspend fun search(url: String): List<OpenSubtitleMatch> {
+    private suspend fun search(url: String): List<OpenSubtitleMatch> = withContext(Dispatchers.IO) {
         val apiKey = resolveApiKey()
-        if (apiKey.isBlank()) return emptyList()
+        if (apiKey.isBlank()) return@withContext emptyList()
         val request = Request.Builder()
             .url(url)
             .header("Api-Key", apiKey)
@@ -51,10 +53,10 @@ class OpenSubtitlesService @Inject constructor(
             .get()
             .build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return emptyList()
+            if (!response.isSuccessful) return@withContext emptyList()
             val body = response.body?.string().orEmpty()
-            val data = JSONObject(body).optJSONArray("data") ?: return emptyList()
-            return buildList {
+            val data = JSONObject(body).optJSONArray("data") ?: return@withContext emptyList()
+            buildList {
                 for (i in 0 until data.length()) {
                     val row = data.optJSONObject(i) ?: continue
                     val attrs = row.optJSONObject("attributes") ?: continue
@@ -73,9 +75,9 @@ class OpenSubtitlesService @Inject constructor(
         }
     }
 
-    suspend fun downloadSubtitleFile(subtitleId: String): ByteArray? {
+    suspend fun downloadSubtitleFile(subtitleId: String): ByteArray? = withContext(Dispatchers.IO) {
         val apiKey = resolveApiKey()
-        if (apiKey.isBlank()) return null
+        if (apiKey.isBlank()) return@withContext null
         val request = Request.Builder()
             .url("$BASE_URL/download")
             .header("Api-Key", apiKey)
@@ -87,11 +89,11 @@ class OpenSubtitlesService @Inject constructor(
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("OpenSubtitles download failed (${response.code})")
             val link = JSONObject(response.body?.string().orEmpty()).optString("link")
-            if (link.isBlank()) return null
+            if (link.isBlank()) return@withContext null
             val fileRequest = Request.Builder().url(link).get().build()
             client.newCall(fileRequest).execute().use { fileResponse ->
-                if (!fileResponse.isSuccessful) return null
-                return fileResponse.body?.bytes()
+                if (!fileResponse.isSuccessful) return@withContext null
+                fileResponse.body?.bytes()
             }
         }
     }

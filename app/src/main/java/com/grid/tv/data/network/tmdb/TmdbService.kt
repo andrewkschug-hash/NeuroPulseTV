@@ -8,8 +8,10 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -146,7 +148,7 @@ class TmdbService @Inject constructor(
         throw IOException("TMDB request failed after $MAX_RETRIES attempts")
     }
 
-    private suspend fun execute(path: String, query: Map<String, String>): String {
+    private suspend fun execute(path: String, query: Map<String, String>): String = withContext(Dispatchers.IO) {
         awaitRateLimitSlot()
         val urlBuilder = "${baseUrl.trimEnd('/')}/${path.trimStart('/')}".toHttpUrl().newBuilder()
         val apiKey = resolveApiKey()
@@ -160,11 +162,11 @@ class TmdbService @Inject constructor(
             val body = response.body?.string().orEmpty()
             when {
                 response.code == 401 -> throw IllegalStateException("TMDB API key is invalid or unauthorized")
-                response.code == 404 -> return "{}"
+                response.code == 404 -> return@withContext "{}"
                 response.code == 429 -> throw IOException("TMDB rate limit exceeded")
                 !response.isSuccessful -> throw IOException("TMDB request failed (${response.code})")
             }
-            return body
+            body
         }
     }
 

@@ -54,6 +54,12 @@ data class TimeshiftUiState(
         get() = playWhenReady && playbackState != Player.STATE_ENDED
 }
 
+/** Live ExoPlayer detached for reuse as multi-pane pane 0 without stopping playback. */
+data class MultiPanePlayerHandoff(
+    val player: ExoPlayer,
+    val streamUrl: String
+)
+
 @Singleton
 class LivePlayerManager @Inject constructor(
     private val playerFactory: PlayerFactory,
@@ -167,6 +173,8 @@ class LivePlayerManager @Inject constructor(
         private set
 
     private var fullscreenSessions: Int = 0
+    @Volatile
+    private var suppressExitFullscreenSideEffects = false
     private var volumeFadeMultiplier: Float = 1f
     private var streamTransitionJob: Job? = null
     private var watchDurationJob: Job? = null
@@ -800,11 +808,59 @@ class LivePlayerManager @Inject constructor(
         setMode(Mode.FULLSCREEN)
     }
 
+    /** Suppress guide-preview resume when transitioning into split/multiview. */
+    fun beginMultiPaneHandoff() {
+        suppressExitFullscreenSideEffects = true
+    }
+
+    /**
+     * Moves the live player into [MultiPanePlaybackPool] without stopping the stream.
+     * Session metadata (channel id / url) is preserved for return to fullscreen.
+     */
+    fun handoffPlayerToMultiPane(): MultiPanePlayerHandoff? {
+        val exo = player ?: return null
+        val streamUrl = currentStreamUrl?.takeIf { it.isNotBlank() } ?: return null
+        streamTransitionJob?.cancel()
+        exo.clearVideoSurface()
+        playbackMonitor.detach()
+        streamFailover.detach()
+        exo.removeListener(timeshiftListener)
+        decoderPressureTracker.unregisterPlayer(exo)
+        player = null
+        fullscreenSessions = 0
+        suppressExitFullscreenSideEffects = false
+        catalogHydrationGuard.setViewportEpgSuspended(true)
+        Log.i(TAG, "Handed off live player to multi-pane channelId=$currentChannelId")
+        return MultiPanePlayerHandoff(player = exo, streamUrl = streamUrl)
+    }
+
+    /** Returns pane 0 to live fullscreen when leaving split/multiview back to the player. */
+    fun reclaimPlayerFromMultiPane(exo: ExoPlayer): Boolean {
+        if (player != null) return false
+        player = exo
+        exo.addListener(timeshiftListener)
+        playbackMonitor.attach(exo)
+        decoderPressureTracker.registerPlayer("live_fullscreen", exo)
+        setMode(Mode.FULLSCREEN)
+        fullscreenSessions = 1
+        channelScanner.setPlaybackScanSuspended(true)
+        catalogHydrationGuard.setViewportEpgSuspended(true)
+        applyVolume()
+        Log.i(TAG, "Reclaimed live player from multi-pane channelId=$currentChannelId")
+        return true
+    }
+
     fun exitFullscreen(context: Context) {
         if (fullscreenSessions > 0) {
             fullscreenSessions--
         }
         if (fullscreenSessions > 0) return
+
+        if (suppressExitFullscreenSideEffects) {
+            suppressExitFullscreenSideEffects = false
+            channelScanner.setPlaybackScanSuspended(false)
+            return
+        }
 
         channelScanner.setPlaybackScanSuspended(false)
         TimeshiftManager.reset()

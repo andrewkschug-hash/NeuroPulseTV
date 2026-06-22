@@ -21,7 +21,8 @@ class MultiPanePlaybackPool @Inject constructor(
     private val playerFactory: PlayerFactory,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val streamFormatProber: IptvStreamFormatProber,
-    private val paneWatchdog: MultiPanePlaybackWatchdog
+    private val paneWatchdog: MultiPanePlaybackWatchdog,
+    private val decoderPressureTracker: DecoderPressureTracker
 ) {
     private val players = mutableMapOf<Int, ExoPlayer>()
     private var activeAudioPaneIndex: Int = 0
@@ -47,6 +48,20 @@ class MultiPanePlaybackPool @Inject constructor(
     }
 
     fun playerForPane(paneIndex: Int): ExoPlayer? = players[paneIndex]
+
+    /** Reuses an active live ExoPlayer as pane 0 — no media reload. */
+    fun adoptExistingPlayer(
+        paneIndex: Int,
+        player: ExoPlayer,
+        streamUrl: String,
+        owner: String
+    ) {
+        releasePane(paneIndex)
+        players[paneIndex] = player
+        decoderPressureTracker.registerPlayer("${owner}_pane_$paneIndex", player)
+        if (!player.playWhenReady) player.playWhenReady = true
+        paneWatchdog.attachPane(paneIndex, player, streamUrl)
+    }
 
     fun tunePane(context: Context, paneIndex: Int, streamUrl: String, owner: String) {
         if (streamUrl.isBlank()) return
@@ -123,13 +138,25 @@ class MultiPanePlaybackPool @Inject constructor(
     fun releasePane(paneIndex: Int) {
         paneWatchdog.detachPane(paneIndex)
         players.remove(paneIndex)?.let { player ->
+            decoderPressureTracker.unregisterPlayer(player)
             playerFactory.releasePlayer(player)
         }
+    }
+
+    /** Removes a pane slot without releasing an adopted live player. */
+    fun detachAdoptedPane(paneIndex: Int) {
+        paneWatchdog.detachPane(paneIndex)
+        players.remove(paneIndex)
+    }
+
+    fun releaseAllExcept(paneIndex: Int) {
+        (players.keys - paneIndex).toList().forEach(::releasePane)
     }
 
     fun releaseAll() {
         paneWatchdog.detachAll()
         players.values.toList().forEach { player ->
+            decoderPressureTracker.unregisterPlayer(player)
             playerFactory.releasePlayer(player)
         }
         players.clear()

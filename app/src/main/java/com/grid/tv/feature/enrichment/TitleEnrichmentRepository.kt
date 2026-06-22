@@ -17,6 +17,8 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Singleton
 class TitleEnrichmentRepository @Inject constructor(
@@ -170,11 +172,11 @@ class TitleEnrichmentRepository @Inject constructor(
         releaseYear: Int?,
         isTv: Boolean,
         imdbId: String?
-    ): TmdbEnrichment? {
+    ): TmdbEnrichment? = withContext(Dispatchers.IO) {
         if (!isTv && supabaseClientProvider.isConfigured) {
-            enrichMovieViaEdgeFunction(title, releaseYear, imdbId)?.let { return it }
+            enrichMovieViaEdgeFunction(title, releaseYear, imdbId)?.let { return@withContext it }
         }
-        return when {
+        when {
             !imdbId.isNullOrBlank() -> tmdbService.enrichByImdb(imdbId)
             isTv -> tmdbService.enrichTvFromTitle(title, releaseYear)
             else -> tmdbService.enrichMovieFromTitle(title, releaseYear)

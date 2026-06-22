@@ -417,7 +417,7 @@ class XtreamParser {
                 val id = item.optString("id").toLongOrNull() ?: continue
                 val info = item.optJSONObject("info")
                 val ext = item.optString("container_extension").ifBlank { "mp4" }
-                val title = item.optString("title").ifBlank { "Episode $id" }
+                val title = resolveEpisodeTitle(item, info)
                 val directSource = sanitizeDirectSource(item.optString("direct_source"))
                 val url = buildSeriesStreamUrl(
                     serverUrl = serverUrl,
@@ -444,6 +444,38 @@ class XtreamParser {
             seasons += SeriesSeason(number = seasonNo, episodes = episodeRows)
         }
         return SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
+    }
+
+    private fun resolveEpisodeTitle(item: JSONObject, info: JSONObject?): String {
+        sequenceOf(
+            item.optString("title_en"),
+            info?.optString("title_en"),
+            item.optJSONObject("titles")?.optString("en"),
+            item.optJSONObject("titles")?.optString("en-US"),
+            info?.optJSONObject("titles")?.optString("en"),
+            info?.optJSONObject("titles")?.optString("en-US"),
+        ).firstOrNull { !it.isNullOrBlank() }?.let { return it.trim() }
+
+        val candidates = buildList {
+            item.optString("title").trim().takeIf { it.isNotEmpty() }?.let(::add)
+            info?.optString("title")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+            item.optString("name").trim().takeIf { it.isNotEmpty() }?.let(::add)
+            info?.optString("name")?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+        }
+        if (candidates.isEmpty()) {
+            val id = item.optString("id").ifBlank { "?" }
+            return "Episode $id"
+        }
+        return candidates.minWith(compareBy({ titleEnglishPreferenceRank(it) }, { it.length }))
+    }
+
+    private fun titleEnglishPreferenceRank(title: String): Int {
+        val code = com.grid.tv.feature.vod.parseVodContentLanguageCode(title)?.uppercase()
+        return when (code) {
+            null -> 1
+            "EN", "US", "GB", "UK" -> 0
+            else -> 2
+        }
     }
 
     fun parseSimpleDataTable(raw: String): List<Pair<Long, Long>> {

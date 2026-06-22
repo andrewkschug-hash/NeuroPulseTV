@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Single orchestration layer for live guide, fullscreen, split, multiview, VOD, and preview.
- * Multi-pane modes release the shared [LivePlayerManager] before pane players start.
+ * Split/MultiView from live fullscreen reuses the active ExoPlayer as pane 0 when possible.
  *
  * Priority (highest first): LIVE_FULLSCREEN > VOD > SPLIT_VIEW / MULTIVIEW > PREVIEW > LIVE_GUIDE
  */
@@ -63,6 +63,9 @@ class PlaybackOrchestrator @Inject constructor(
         private set
 
     private var liveSuspendedForExclusiveMode = false
+
+    @Volatile
+    private var multiPaneTransitionFromLive = false
 
     private val _blockedMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val blockedMessages: SharedFlow<String> = _blockedMessages.asSharedFlow()
@@ -148,6 +151,14 @@ class PlaybackOrchestrator @Inject constructor(
         }
     }
 
+    /** Call immediately before navigating from live fullscreen into split/multiview. */
+    fun beginMultiPaneTransitionFromLive() {
+        multiPaneTransitionFromLive = true
+        livePlayerManager.beginMultiPaneHandoff()
+    }
+
+    fun isMultiPaneTransitionFromLive(): Boolean = multiPaneTransitionFromLive
+
     /** Background / process teardown — releases all pane players and live decode. */
     fun releaseAllPlayback(context: Context) {
         val appContext = context.applicationContext
@@ -167,7 +178,16 @@ class PlaybackOrchestrator @Inject constructor(
         restoreLive: Boolean
     ) {
         when (session) {
-            PlaybackSession.SPLIT_VIEW, PlaybackSession.MULTIVIEW -> multiPanePlaybackPool.releaseAll()
+            PlaybackSession.SPLIT_VIEW, PlaybackSession.MULTIVIEW -> {
+                val reclaimed = multiPanePlaybackPool.playerForPane(0)
+                    ?.let { livePlayerManager.reclaimPlayerFromMultiPane(it) } == true
+                if (reclaimed) {
+                    multiPanePlaybackPool.detachAdoptedPane(0)
+                    multiPanePlaybackPool.releaseAllExcept(0)
+                } else {
+                    multiPanePlaybackPool.releaseAll()
+                }
+            }
             PlaybackSession.VOD, PlaybackSession.PREVIEW, PlaybackSession.LIVE_GUIDE -> Unit
             PlaybackSession.LIVE_FULLSCREEN -> Unit
             PlaybackSession.NONE -> Unit
@@ -179,11 +199,44 @@ class PlaybackOrchestrator @Inject constructor(
 
     private fun applySessionEnter(session: PlaybackSession, appContext: Context) {
         when (session) {
-            PlaybackSession.SPLIT_VIEW, PlaybackSession.MULTIVIEW, PlaybackSession.VOD ->
+            PlaybackSession.SPLIT_VIEW, PlaybackSession.MULTIVIEW -> {
+                if (tryHandoffLivePlayerToMultiPane(appContext, session)) {
+                    multiPaneTransitionFromLive = false
+                    return
+                }
+                suspendLivePlayback(appContext, reason = session.name)
+                multiPaneTransitionFromLive = false
+            }
+            PlaybackSession.VOD ->
                 suspendLivePlayback(appContext, reason = session.name)
             PlaybackSession.PREVIEW, PlaybackSession.LIVE_GUIDE,
             PlaybackSession.LIVE_FULLSCREEN, PlaybackSession.NONE -> Unit
         }
+    }
+
+    private fun tryHandoffLivePlayerToMultiPane(
+        appContext: Context,
+        session: PlaybackSession
+    ): Boolean {
+        if (!multiPaneTransitionFromLive || !livePlayerManager.hasPlayerInstance()) return false
+        val handoff = livePlayerManager.handoffPlayerToMultiPane() ?: return false
+        val owner = when (session) {
+            PlaybackSession.SPLIT_VIEW -> "split_view"
+            PlaybackSession.MULTIVIEW -> "multiview"
+            else -> session.name.lowercase()
+        }
+        multiPanePlaybackPool.adoptExistingPlayer(
+            paneIndex = 0,
+            player = handoff.player,
+            streamUrl = handoff.streamUrl,
+            owner = owner
+        )
+        liveSuspendedForExclusiveMode = false
+        Log.i(
+            TAG,
+            "handoffLiveToMultiPane session=$session streamUrlHash=${handoff.streamUrl.hashCode()}"
+        )
+        return true
     }
 
     private fun suspendLivePlayback(context: Context, reason: String) {

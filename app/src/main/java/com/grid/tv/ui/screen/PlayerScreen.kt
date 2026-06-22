@@ -237,7 +237,10 @@ fun PlayerScreen(
                     )
                 }
             }
-            "split_view" -> onOpenSplit(channel?.id ?: channelId)
+            "split_view" -> {
+                playbackOrchestrator.beginMultiPaneTransitionFromLive()
+                onOpenSplit(channel?.id ?: channelId)
+            }
             "guide" -> onNavigateGuide()
             "settings" -> onNavigateSettings()
         }

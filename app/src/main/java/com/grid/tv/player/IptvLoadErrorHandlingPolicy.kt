@@ -2,7 +2,6 @@ package com.grid.tv.player
 
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import java.io.EOFException
@@ -25,6 +24,12 @@ class IptvLoadErrorHandlingPolicy(
 
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
         if (!isRecoverable(loadErrorInfo)) {
+            PlaybackHttpFailure.logLoadFailure(
+                exception = loadErrorInfo.exception,
+                streamUrl = loadErrorInfo.loadEventInfo.uri?.toString(),
+                dataType = loadErrorInfo.mediaLoadData.dataType,
+                errorCount = loadErrorInfo.errorCount
+            )
             logRetry(loadErrorInfo, accepted = false, delayMs = C.TIME_UNSET)
             return C.TIME_UNSET
         }
@@ -46,14 +51,9 @@ class IptvLoadErrorHandlingPolicy(
 
     private fun isRecoverable(info: LoadErrorHandlingPolicy.LoadErrorInfo): Boolean {
         val cause = info.exception
-        val httpCode = (cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        val httpCode = PlaybackHttpFailure.responseCode(cause)
         if (httpCode != null) {
-            return when (httpCode) {
-                404, 410, 401, 403 -> false
-                408, 429, 500, 502, 503, 520, 521, 522, 524 -> true
-                in 500..599 -> true
-                else -> false
-            }
+            return PlaybackHttpFailure.isRetriableHttpStatus(httpCode)
         }
         return cause is SocketTimeoutException ||
             cause is SSLException ||
@@ -68,7 +68,7 @@ class IptvLoadErrorHandlingPolicy(
         accepted: Boolean,
         delayMs: Long
     ) {
-        val httpCode = (info.exception as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        val httpCode = PlaybackHttpFailure.responseCode(info.exception)
         metrics?.logLoadRetry(
             dataType = info.mediaLoadData.dataType,
             errorCount = info.errorCount,

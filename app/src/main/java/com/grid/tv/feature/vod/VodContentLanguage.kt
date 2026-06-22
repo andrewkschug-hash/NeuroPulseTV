@@ -89,3 +89,17 @@ fun discoverLanguageCodesFromLabels(labels: Sequence<String>): List<String> =
         .distinctBy { it.uppercase() }
         .sortedBy { displayLanguageName(it).lowercase() }
         .toList()
+
+/** Strips IPTV language/resolution markers from stream titles (mapping layer — not UI). */
+fun stripVodLanguageMarkers(raw: String): String =
+    raw.trim()
+        .replace(VOD_TITLE_PREFIX_PATTERN, "")
+        .replace(VOD_BRACKET_PREFIX_PATTERN, "")
+        .replace(VOD_PAREN_PREFIX_PATTERN, "")
+        .replace(VOD_PIPE_WRAP_PREFIX_PATTERN, "")
+        .replace(VOD_LANG_PIPE_PREFIX_PATTERN, "")
+        .replace(Regex("""\s*\(\d{4}\)\s*"""), " ")
+        .replace(VOD_TRAILING_LANGUAGE_PATTERN, " ")
+        .replace(VOD_SUFFIX_LANGUAGE_PATTERN, " ")
+        .replace(Regex("""\s+"""), " ")
+        .trim()

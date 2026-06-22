@@ -30,3 +30,5 @@ fun PlaybackException.playbackErrorMessage(isEmulator: Boolean = false): String 
     return message?.takeIf { it.isNotBlank() }
         ?: "Playback failed. Check your connection and try again."
 }
+
+fun PlaybackException.isRetriablePlaybackError(): Boolean = PlaybackHttpFailure.isRetriablePlaybackError(this)

@@ -50,7 +50,9 @@ import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.devicePlaybackCapabilities
 import com.grid.tv.player.isCodecCapabilityError
+import com.grid.tv.player.isRetriablePlaybackError
 import com.grid.tv.player.playbackErrorMessage
+import com.grid.tv.player.PlaybackHttpFailure
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.di.PlayerEntryPoint
@@ -247,7 +249,13 @@ fun DirectPlayerScreen(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    PlaybackHttpFailure.logHttpFailure(error, url)
                     if (error.isCodecCapabilityError()) {
+                        playbackError = error.playbackErrorMessage(isEmulator)
+                        this@apply.playWhenReady = false
+                        return
+                    }
+                    if (!error.isRetriablePlaybackError()) {
                         playbackError = error.playbackErrorMessage(isEmulator)
                         this@apply.playWhenReady = false
                         return

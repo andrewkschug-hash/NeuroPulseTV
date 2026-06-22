@@ -120,6 +120,8 @@ class StreamFailoverController @Inject constructor(
                 message = error.message
             )
             if (!recoverable) {
+                PlaybackHttpFailure.logHttpFailure(error, activeUrl, LOG_TAG)
+                blockRecoveryForSession()
                 Log.w(
                     LOG_TAG,
                     "non-recoverable playback error code=${error.errorCode} url=$activeUrl",
@@ -419,6 +421,12 @@ class StreamFailoverController @Inject constructor(
         restoredHideJob?.cancel()
     }
 
+    private fun blockRecoveryForSession() {
+        recoveryBlockedUntilMs = Long.MAX_VALUE
+        cancelRecovery()
+        _uiState.value = StreamFailoverUiState()
+    }
+
     private fun cancelRecovery() {
         recoveryJob?.cancel()
         wasRecovering = false
@@ -496,18 +504,21 @@ private fun PlaybackException.failureCategory(): PlaybackFailureCategory = when 
 }
 
 /** Skip auto-reconnect for fatal URL/codec failures; retry network/transient HTTP issues. */
-private fun PlaybackException.isRecoverableForFailover(): Boolean = when (errorCode) {
-    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-    PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> false
-    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-        (cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)
-            ?.responseCode?.let { it == 404 || it == 410 || it == 401 || it == 403 } != true
+private fun PlaybackException.isRecoverableForFailover(): Boolean {
+    if (isCodecCapabilityError()) return false
+    when (errorCode) {
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return false
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+            val httpCode = PlaybackHttpFailure.responseCode(this)
+            return httpCode != null && PlaybackHttpFailure.isRetriableHttpStatus(httpCode)
+        }
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> return false
+        else -> return true
     }
-    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-    PlaybackException.ERROR_CODE_DECODING_FAILED,
-    PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
-    PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> false
-    else -> true
 }
