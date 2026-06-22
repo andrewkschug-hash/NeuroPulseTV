@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.grid.tv.ui.component.ConnectionLoadingOverlay
 import com.grid.tv.ui.component.GridWordmark
 import com.grid.tv.ui.component.TvScrollContainer
 import com.grid.tv.ui.component.TvBackButton
@@ -155,6 +156,11 @@ fun OnboardingScreen(
             }
         }
 
+        if (connectState == OnboardingConnectState.Connecting) {
+            ConnectionLoadingOverlay(
+                accentColor = OnboardingAccent
+            )
+        }
     }
 }
 

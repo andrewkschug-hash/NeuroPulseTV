@@ -134,7 +134,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         ProfileGenreAffinityEntity::class,
         FeaturedBannerStatsEntity::class
     ],
-    version = 31,
+    version = DbMigrations.SCHEMA_VERSION,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

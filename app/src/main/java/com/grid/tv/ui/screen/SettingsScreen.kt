@@ -70,6 +70,7 @@ import com.grid.tv.ui.component.ProfileAvatarBadge
 import com.grid.tv.ui.component.ProfileColorPicker
 import com.grid.tv.ui.screen.ProfileAvatarColors
 import com.grid.tv.ui.component.PinEntryDialog
+import com.grid.tv.ui.component.ConnectionLoadingOverlay
 import com.grid.tv.ui.component.ConnectionResultDialog
 import com.grid.tv.ui.component.DestructiveConfirmDialog
 import com.grid.tv.ui.component.FactoryResetConfirmDialog
@@ -875,6 +876,19 @@ fun SettingsScreen(
                 onGoToGuide = {
                     viewModel.dismissConnectionDialog()
                     onNavigateHome()
+                }
+            )
+        }
+
+        if (isConnecting &&
+            showConnectionForm &&
+            sections.getOrNull(selectedSection) == SettingsSection.Connections
+        ) {
+            ConnectionLoadingOverlay(
+                message = if (editingPlaylistId != null) {
+                    "Saving connection…"
+                } else {
+                    "Connecting to your provider…"
                 }
             )
         }

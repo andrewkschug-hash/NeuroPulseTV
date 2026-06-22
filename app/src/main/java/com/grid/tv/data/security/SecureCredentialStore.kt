@@ -3,22 +3,48 @@ package com.grid.tv.data.security
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Keystore-backed playlist credentials. Survives in-place APK updates on the same device.
+ * Does **not** survive cloud backup restore to a new device (Android Keystore keys are device-bound);
+ * [createPrefs] recreates an empty store in that case — user must re-enter connection passwords.
+ */
 @Singleton
 class SecureCredentialStore @Inject constructor(
     @ApplicationContext context: Context
 ) {
-    private val prefs: SharedPreferences = createPrefs(context)
+    private val prefs: SharedPreferences = createPrefs(context.applicationContext)
 
     private fun createPrefs(context: Context): SharedPreferences {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         }
+        return try {
+            openEncryptedPrefs(context)
+        } catch (error: Exception) {
+            Log.w(
+                TAG,
+                "Encrypted credential store unavailable — clearing stale prefs " +
+                    "(common after cloud restore to a new device). User must re-enter passwords.",
+                error
+            )
+            context.deleteSharedPreferences(PREFS_NAME)
+            try {
+                openEncryptedPrefs(context)
+            } catch (retryError: Exception) {
+                Log.e(TAG, "Falling back to non-encrypted credential prefs", retryError)
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            }
+        }
+    }
+
+    private fun openEncryptedPrefs(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -100,11 +126,12 @@ class SecureCredentialStore @Inject constructor(
     private fun stalkerMacKey(playlistId: Long) = "stalker_mac_$playlistId"
 
     companion object {
-        private const val PREFS_NAME = "grid_secure_credentials"
+        private const val TAG = "SecureCredentialStore"
+        /** Excluded from cloud backup — Keystore keys do not transfer to new devices. */
+        const val PREFS_NAME = "grid_secure_credentials"
         private const val KEY_TMDB_API = "tmdb_api_key"
         private const val KEY_OPENSUBTITLES_API = "opensubtitles_api_key"
         private const val KEY_OPENSUBTITLES_USER = "opensubtitles_username"
         private const val KEY_OPENSUBTITLES_PASS = "opensubtitles_password"
     }
 }
-

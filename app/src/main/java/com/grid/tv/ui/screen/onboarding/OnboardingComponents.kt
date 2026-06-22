@@ -293,7 +293,7 @@ internal fun ConnectButton(
 ) {
     Box(modifier = modifier.fillMaxWidth()) {
         GridPrimaryButton(
-            text = if (loading) "Connecting…" else "Connect",
+            text = if (loading) " " else "Connect",
             onClick = onClick,
             enabled = !loading,
             modifier = Modifier
@@ -311,14 +311,24 @@ internal fun ConnectButton(
             contentDescription = if (loading) "Connecting" else "Connect"
         )
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier
-                    .size(16.dp)
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp),
-                color = Color.White,
-                strokeWidth = 2.dp
-            )
+            Row(
+                modifier = Modifier.align(Alignment.Center),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = Color.White,
+                    strokeWidth = 2.5.dp
+                )
+                Text(
+                    text = "Connecting…",
+                    color = Color.White,
+                    fontFamily = DmSansFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }

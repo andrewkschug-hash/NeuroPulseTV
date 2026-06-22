@@ -29,6 +29,16 @@ fun readEnvValue(key: String, default: String = ""): String {
     return line.substringAfter("=")
 }
 
+/** Maps semver (e.g. 2.1.0) to a monotonic versionCode — keep in sync with AppVersion.semverToVersionCode. */
+fun semverToVersionCode(versionName: String): Int {
+    val normalized = versionName.trim().removePrefix("v").removePrefix("V")
+    val parts = normalized.split(".", "-", "_")
+    val major = parts.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+    val patch = parts.getOrNull(2)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 0
+    return major * 10_000 + minor * 100 + patch
+}
+
 android {
     namespace = "com.grid.tv"
     compileSdk = 35
@@ -37,8 +47,11 @@ android {
         applicationId = "com.grid.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        val appVersionName = readEnvValue("VERSION_NAME", "1.0")
+        versionName = appVersionName
+        versionCode = readEnvValue("VERSION_CODE")
+            .toIntOrNull()
+            ?: semverToVersionCode(appVersionName)
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
@@ -86,9 +99,15 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfigs.getByName("release").storeFile?.let {
-                signingConfig = signingConfigs.getByName("release")
+            val releaseSigning = signingConfigs.getByName("release")
+            val keystoreFile = releaseSigning.storeFile
+            if (keystoreFile == null || !keystoreFile.exists()) {
+                throw GradleException(
+                    "Release signing keystore missing. Set KEYSTORE_PATH (and passwords) in " +
+                        "local.properties or CI secrets — debug signing must not ship to users."
+                )
             }
+            signingConfig = releaseSigning
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

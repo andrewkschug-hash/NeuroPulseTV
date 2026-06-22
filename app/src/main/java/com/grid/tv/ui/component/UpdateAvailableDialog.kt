@@ -62,6 +62,15 @@ fun UpdateAvailableDialog(
             lineHeight = 22.sp,
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = "Install over the existing app to keep your playlists, favorites, profiles, and settings. Do not uninstall first.",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            modifier = Modifier.fillMaxWidth()
+        )
         update.releaseNotes?.let { notes ->
             Spacer(modifier = Modifier.height(10.dp))
             Text(

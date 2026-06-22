@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cloud/device backup for disaster recovery and device migration.
+  In-place APK updates always keep /data/data/com.grid.tv/ regardless of backup settings.
+
+  Keystore-backed credentials (grid_secure_credentials) are excluded — they cannot be
+  decrypted after restore to a new device; user re-enters playlist passwords instead.
+-->
+<full-backup-content>
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="." />
+    <exclude domain="sharedpref" path="grid_secure_credentials" />
+    <exclude domain="sharedpref" path="grid_secure_credentials.xml" />
+    <exclude domain="cache" path="." />
+    <exclude domain="no_backup" path="." />
+</full-backup-content>

@@ -29,36 +29,7 @@ internal object AppDatabaseHolder {
     private fun buildDatabase(context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "streamflow.db")
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .addMigrations(DbMigrations.MIGRATION_2_3)
-            .addMigrations(DbMigrations.MIGRATION_3_4)
-            .addMigrations(DbMigrations.MIGRATION_4_5)
-            .addMigrations(DbMigrations.MIGRATION_5_6)
-            .addMigrations(DbMigrations.MIGRATION_6_7)
-            .addMigrations(DbMigrations.MIGRATION_7_8)
-            .addMigrations(DbMigrations.MIGRATION_8_9)
-            .addMigrations(DbMigrations.MIGRATION_9_10)
-            .addMigrations(DbMigrations.MIGRATION_10_11)
-            .addMigrations(DbMigrations.MIGRATION_11_12)
-            .addMigrations(DbMigrations.MIGRATION_12_13)
-            .addMigrations(DbMigrations.MIGRATION_13_14)
-            .addMigrations(DbMigrations.MIGRATION_14_15)
-            .addMigrations(DbMigrations.MIGRATION_15_16)
-            .addMigrations(DbMigrations.MIGRATION_16_17)
-            .addMigrations(DbMigrations.MIGRATION_17_18)
-            .addMigrations(DbMigrations.MIGRATION_18_19)
-            .addMigrations(DbMigrations.MIGRATION_19_20)
-            .addMigrations(DbMigrations.MIGRATION_20_21)
-            .addMigrations(DbMigrations.MIGRATION_21_22)
-            .addMigrations(DbMigrations.MIGRATION_22_23)
-            .addMigrations(DbMigrations.MIGRATION_23_24)
-            .addMigrations(DbMigrations.MIGRATION_24_25)
-            .addMigrations(DbMigrations.MIGRATION_25_26)
-            .addMigrations(DbMigrations.MIGRATION_26_27)
-            .addMigrations(
-                DbMigrations.MIGRATION_27_28,
-                DbMigrations.MIGRATION_28_29,
-                DbMigrations.MIGRATION_29_30,
-                DbMigrations.MIGRATION_30_31
-            )
+            // Never use fallbackToDestructiveMigration* — wipes user data on missing/broken migration.
+            .addMigrations(*DbMigrations.ALL)
             .build()
 }

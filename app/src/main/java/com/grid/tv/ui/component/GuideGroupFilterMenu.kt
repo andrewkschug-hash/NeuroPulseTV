@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +42,27 @@ import androidx.tv.material3.Text
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+
+/** Single TV focus target per row: requester, scroll sync, and Enter/D-pad-center activate. */
+private fun Modifier.guideGroupRowTvFocus(
+    focusRequester: FocusRequester,
+    onFocused: () -> Unit,
+    onActivate: () -> Unit,
+    onFocusVisualChanged: (Boolean) -> Unit,
+): Modifier = this
+    .focusRequester(focusRequester)
+    .onFocusChanged { state ->
+        onFocusVisualChanged(state.isFocused)
+        if (state.isFocused) onFocused()
+    }
+    .onPreviewKeyEvent { event ->
+        if (isTvActivateKey(event)) {
+            onActivate()
+            true
+        } else {
+            false
+        }
+    }
 
 val GUIDE_GROUP_REGION_SEPARATORS = listOf(" ❖ ", " | ", " - ", " – ")
 
@@ -216,10 +238,9 @@ fun GuideGroupFilterMenu(
         }
     }
 
-    LaunchedEffect(visibleRows.size, expandedCategories) {
-        if (expanded && visibleRows.isNotEmpty()) {
-            val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
-            rowFocusRequesters[index].requestFocusSafelyAfterLayout()
+    LaunchedEffect(visibleRows.size) {
+        if (expanded && visibleRows.isNotEmpty() && focusedIndex > visibleRows.lastIndex) {
+            onFocusedIndexChange(visibleRows.lastIndex)
         }
     }
 
@@ -273,58 +294,47 @@ fun GuideGroupFilterMenu(
                             }
                         }
                     ) { index, row ->
-                        val rowModifier = Modifier
-                            .focusRequester(rowFocusRequesters[index])
-                            .onFocusChanged {
-                                if (it.isFocused) onFocusedIndexChange(index)
-                            }
                         when (row) {
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selectedGroups.isEmpty(),
-                                focused = false,
                                 onClick = { onToggle(index) },
-                                modifier = rowModifier,
-                                tvFocusable = true
+                                focusRequester = rowFocusRequesters[index],
+                                onFocused = { onFocusedIndexChange(index) }
                             )
                             is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
                                 displayName = row.displayName,
                                 channelCount = row.channelCount,
                                 subGroupCount = row.subGroupCount,
                                 expanded = row.expanded,
-                                focused = false,
                                 onClick = { onToggle(index) },
-                                modifier = rowModifier,
-                                tvFocusable = true
+                                focusRequester = rowFocusRequesters[index],
+                                onFocused = { onFocusedIndexChange(index) }
                             )
                             is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
                                 displayName = row.displayName,
                                 childCount = row.groupNames.size,
                                 checked = areAllGroupsSelected(row.groupNames, selectedGroups),
-                                focused = false,
                                 onClick = { onToggle(index) },
-                                modifier = rowModifier,
-                                tvFocusable = true
+                                focusRequester = rowFocusRequesters[index],
+                                onFocused = { onFocusedIndexChange(index) }
                             )
                             is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
                                 label = row.fullName,
                                 checked = row.fullName in selectedGroups,
-                                focused = false,
                                 onClick = { onToggle(index) },
-                                modifier = rowModifier,
-                                tvFocusable = true
+                                focusRequester = rowFocusRequesters[index],
+                                onFocused = { onFocusedIndexChange(index) }
                             )
                         }
                     }
                 }
 
                 GuideFilterDoneButton(
-                    focused = false,
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .focusRequester(doneFocusRequester),
-                    tvFocusable = true
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    focusRequester = doneFocusRequester
                 )
             }
         }
@@ -333,25 +343,28 @@ fun GuideGroupFilterMenu(
 
 @Composable
 private fun GuideFilterDoneButton(
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
 ) {
     var rowFocused by remember { mutableStateOf(false) }
-    val showFocus = focused || rowFocused
     val shape = RoundedCornerShape(8.dp)
-    val background = if (showFocus) Color(0xFF5AA3FF) else Color(0xFF3B8FFF)
+    val background = if (rowFocused) Color(0xFF5AA3FF) else Color(0xFF3B8FFF)
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .height(44.dp)
             .clip(shape)
             .then(
-                if (tvFocusable) {
-                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                if (focusRequester != null) {
+                    Modifier.guideGroupRowTvFocus(
+                        focusRequester = focusRequester,
+                        onFocused = {},
+                        onActivate = onClick,
+                        onFocusVisualChanged = { rowFocused = it }
+                    )
                 } else {
-                    Modifier
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
                 }
             ),
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -363,9 +376,10 @@ private fun GuideFilterDoneButton(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(
-                    if (showFocus) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
-                    else Modifier
+                .border(
+                    width = 2.dp,
+                    color = if (rowFocused) EpgColors.FocusBorder else Color.Transparent,
+                    shape = shape
                 ),
             contentAlignment = Alignment.Center
         ) {
@@ -383,19 +397,19 @@ private fun GuideFilterDoneButton(
 @Composable
 internal fun GuideGroupAllChannelsRow(
     checked: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
 ) {
     GuideGroupTreeRowShell(
         label = "All channels",
         checked = checked,
-        focused = focused,
         onClick = onClick,
         startPadding = 20.dp,
         modifier = modifier,
-        tvFocusable = tvFocusable
+        focusRequester = focusRequester,
+        onFocused = onFocused
     )
 }
 
@@ -405,18 +419,14 @@ internal fun GuideGroupCategoryRow(
     channelCount: Int,
     subGroupCount: Int,
     expanded: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
 ) {
     var rowFocused by remember { mutableStateOf(false) }
-    val showFocus = focused || rowFocused
-    val background = when {
-        showFocus -> EpgColors.ChannelRowFocusBg
-        else -> EpgColors.GridBg
-    }
-    val textColor = if (showFocus) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val background = if (rowFocused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
+    val textColor = if (rowFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
     val shape = RoundedCornerShape(6.dp)
     val countLabel = categoryCountLabel(channelCount, subGroupCount)
     GridFocusSurface(
@@ -425,10 +435,15 @@ internal fun GuideGroupCategoryRow(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
             .then(
-                if (tvFocusable) {
-                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                if (focusRequester != null) {
+                    Modifier.guideGroupRowTvFocus(
+                        focusRequester = focusRequester,
+                        onFocused = onFocused,
+                        onActivate = onClick,
+                        onFocusVisualChanged = { rowFocused = it }
+                    )
                 } else {
-                    Modifier
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
                 }
             ),
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -440,9 +455,10 @@ internal fun GuideGroupCategoryRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (showFocus) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
-                    else Modifier
+                .border(
+                    width = 2.dp,
+                    color = if (rowFocused) EpgColors.FocusBorder else Color.Transparent,
+                    shape = shape
                 )
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -453,12 +469,12 @@ internal fun GuideGroupCategoryRow(
                 color = textColor,
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
-                fontWeight = if (showFocus) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = if (rowFocused) FontWeight.SemiBold else FontWeight.Medium,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = if (expanded) "▼" else "▶",
-                color = if (showFocus) EpgColors.Accent else EpgColors.TextDimmed,
+                color = if (rowFocused) EpgColors.Accent else EpgColors.TextDimmed,
                 fontFamily = DmSansFamily,
                 fontSize = 12.sp
             )
@@ -471,20 +487,20 @@ internal fun GuideGroupSelectAllRow(
     displayName: String,
     childCount: Int,
     checked: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
 ) {
     GuideGroupTreeRowShell(
         label = "Select all $displayName ($childCount)",
         checked = checked,
-        focused = focused,
         onClick = onClick,
         startPadding = 28.dp,
         italic = true,
         modifier = modifier,
-        tvFocusable = tvFocusable
+        focusRequester = focusRequester,
+        onFocused = onFocused
     )
 }
 
@@ -492,19 +508,19 @@ internal fun GuideGroupSelectAllRow(
 internal fun GuideGroupChildRow(
     label: String,
     checked: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
 ) {
     GuideGroupTreeRowShell(
         label = label,
         checked = checked,
-        focused = focused,
         onClick = onClick,
         startPadding = 36.dp,
         modifier = modifier,
-        tvFocusable = tvFocusable
+        focusRequester = focusRequester,
+        onFocused = onFocused
     )
 }
 
@@ -512,22 +528,21 @@ internal fun GuideGroupChildRow(
 private fun GuideGroupTreeRowShell(
     label: String,
     checked: Boolean,
-    focused: Boolean,
     onClick: () -> Unit,
     startPadding: androidx.compose.ui.unit.Dp,
     italic: Boolean = false,
     modifier: Modifier = Modifier,
-    tvFocusable: Boolean = false
+    focusRequester: FocusRequester? = null,
+    onFocused: () -> Unit = {},
 ) {
     var rowFocused by remember { mutableStateOf(false) }
-    val showFocus = focused || rowFocused
     val background = when {
-        showFocus -> EpgColors.ChannelRowFocusBg
+        rowFocused -> EpgColors.ChannelRowFocusBg
         checked -> Color(0xFF16161E)
         else -> EpgColors.GridBg
     }
     val textColor = when {
-        showFocus -> EpgColors.TextPrimary
+        rowFocused -> EpgColors.TextPrimary
         checked -> EpgColors.TextDimmed
         else -> EpgColors.TextSecondary
     }
@@ -538,10 +553,15 @@ private fun GuideGroupTreeRowShell(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
             .then(
-                if (tvFocusable) {
-                    Modifier.onFocusChanged { rowFocused = it.isFocused }
+                if (focusRequester != null) {
+                    Modifier.guideGroupRowTvFocus(
+                        focusRequester = focusRequester,
+                        onFocused = onFocused,
+                        onActivate = onClick,
+                        onFocusVisualChanged = { rowFocused = it }
+                    )
                 } else {
-                    Modifier
+                    Modifier.onFocusChanged { rowFocused = it.isFocused }
                 }
             ),
         shape = ClickableSurfaceDefaults.shape(shape),
@@ -553,9 +573,10 @@ private fun GuideGroupTreeRowShell(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (showFocus) Modifier.border(2.dp, EpgColors.FocusBorder, shape)
-                    else Modifier
+                .border(
+                    width = 2.dp,
+                    color = if (rowFocused) EpgColors.FocusBorder else Color.Transparent,
+                    shape = shape
                 )
                 .padding(start = startPadding, end = 20.dp, top = 12.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -566,7 +587,7 @@ private fun GuideGroupTreeRowShell(
                 color = textColor,
                 fontFamily = DmSansFamily,
                 fontSize = if (italic) 13.sp else 14.sp,
-                fontWeight = if (showFocus) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (rowFocused) FontWeight.SemiBold else FontWeight.Normal,
                 fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -575,7 +596,7 @@ private fun GuideGroupTreeRowShell(
             if (checked) {
                 Text(
                     text = "✓",
-                    color = if (showFocus) EpgColors.Accent else EpgColors.TextDimmed,
+                    color = if (rowFocused) EpgColors.Accent else EpgColors.TextDimmed,
                     fontFamily = DmSansFamily,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
