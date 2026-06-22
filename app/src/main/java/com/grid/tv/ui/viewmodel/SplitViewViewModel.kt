@@ -5,7 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.repository.IptvRepository
-import com.grid.tv.player.PlayerFactory
+import com.grid.tv.player.MultiPanePlaybackPool
+import com.grid.tv.player.PlaybackOrchestrator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import android.content.Context
@@ -22,11 +23,13 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SplitViewViewModel @Inject constructor(
     private val repository: IptvRepository,
-    private val playerFactory: PlayerFactory
+    private val multiPanePlaybackPool: MultiPanePlaybackPool,
+    private val playbackOrchestrator: PlaybackOrchestrator
 ) : ViewModel() {
 
     companion object {
         const val MAX_PANES = 4
+        private const val PANE_OWNER = "split_view"
     }
 
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
@@ -96,8 +99,8 @@ class SplitViewViewModel @Inject constructor(
         }
     }
 
-    fun addPane(channelId: Long) {
-        if (_paneChannelIds.value.size >= MAX_PANES) return
+    fun addPane(channelId: Long, maxPanes: Int = MAX_PANES) {
+        if (_paneChannelIds.value.size >= maxPanes) return
         if (channelId in _paneChannelIds.value) return
         viewModelScope.launch {
             val channel = repository.channelById(channelId) ?: return@launch
@@ -139,9 +142,35 @@ class SplitViewViewModel @Inject constructor(
     }
 
     @UnstableApi
-    fun createPanePlayer(context: Context): ExoPlayer =
-        playerFactory.create(
-            context = context.applicationContext,
-            handleAudioFocus = false
+    fun playerForPane(context: Context, paneIndex: Int): ExoPlayer =
+        multiPanePlaybackPool.getOrCreatePlayer(context, paneIndex, PANE_OWNER)
+
+    fun syncPanePlayback(
+        context: Context,
+        channels: List<Channel?>,
+        audioPaneIndex: Int,
+        decodeOnlyAudio: Boolean
+    ) {
+        multiPanePlaybackPool.syncFromStreamUrls(
+            context = context,
+            streamUrlsByPane = channels.map { it?.streamUrl?.takeIf { url -> url.isNotBlank() } },
+            audioPaneIndex = audioPaneIndex,
+            decodeOnlyAudioPane = decodeOnlyAudio,
+            owner = PANE_OWNER
         )
+    }
+
+    fun requestSplitSession(context: Context): PlaybackOrchestrator.SessionRequestResult =
+        playbackOrchestrator.requestSession(
+            PlaybackOrchestrator.PlaybackSession.SPLIT_VIEW,
+            owner = "split_view_screen",
+            context = context
+        )
+
+    fun releaseSplitSession(context: Context) {
+        playbackOrchestrator.releaseSession(
+            PlaybackOrchestrator.PlaybackSession.SPLIT_VIEW,
+            context
+        )
+    }
 }

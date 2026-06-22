@@ -93,6 +93,52 @@ interface ChannelDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+          AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
+        """
+    )
+    suspend fun countChannelsFiltered(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        matchSports: Boolean,
+        sportsEpgIds: List<String>
+    ): Int
+
+    @Query(
+        """
+        SELECT c.* FROM channels c
+        LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
+        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+          AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
+          AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
+          AND c.name LIKE '%' || :search || '%'
+          AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
+        ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun channelsPageFiltered(
+        groupName: String?,
+        search: String,
+        onlyFavorites: Boolean,
+        profileId: Long,
+        favoriteGroupId: Long,
+        matchSports: Boolean,
+        sportsEpgIds: List<String>,
+        limit: Int,
+        offset: Int
+    ): List<ChannelEntity>
+
+    @Query(
+        """
         SELECT c.* FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
         WHERE (:groupName IS NULL OR c.groupName = :groupName)

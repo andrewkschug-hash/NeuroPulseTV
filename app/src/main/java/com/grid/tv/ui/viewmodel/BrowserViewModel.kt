@@ -2,19 +2,21 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.grid.tv.domain.model.Channel
+import androidx.paging.cachedIn
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.preview.PreviewPlayerManager
+import com.grid.tv.util.ChannelBrowserMetrics
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @HiltViewModel
 class BrowserViewModel @Inject constructor(
@@ -25,22 +27,68 @@ class BrowserViewModel @Inject constructor(
     private val selectedCategory = MutableStateFlow<String?>(null)
     private val favoritesOnly = MutableStateFlow(false)
     private val sportsOnly = MutableStateFlow(false)
+    private val searchQuery = MutableStateFlow("")
+    private val listRevision = MutableStateFlow(0)
+
+    private val _filteredTotalCount = MutableStateFlow(0)
+    val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
     val groups = repository.groups().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val channels: StateFlow<List<Channel>> = combine(selectedCategory, favoritesOnly, sportsOnly) { group, fav, sports -> Triple(group, fav, sports) }
-        .flatMapLatest { (group, fav, sports) ->
-            repository.channels(group, search = "", favoritesOnly = fav).let { flow ->
-                if (!sports) flow else kotlinx.coroutines.flow.combine(flow, repository.liveSportsNow()) { ch, pr ->
-                    val epgIds = pr.map { it.channelEpgId }.toSet()
-                    ch.filter { it.epgId in epgIds }
-                }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val sportsPrograms: StateFlow<List<Program>> = repository.liveSportsNow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val filterParams = combine(
+        selectedCategory,
+        favoritesOnly,
+        sportsOnly,
+        searchQuery,
+        sportsPrograms
+    ) { group, fav, sports, search, programs ->
+        buildFilterParams(
+            group = group,
+            favoritesOnly = fav,
+            sportsOnly = sports,
+            search = search,
+            programs = programs
+        )
+    }
+
+    val pagedChannels = combine(filterParams, listRevision) { params, _ -> params }
+        .flatMapLatest { params ->
+            repository.channelsPaging(
+                group = params.group,
+                search = params.search,
+                favoritesOnly = params.favoritesOnly,
+                sportsEpgIds = params.sportsEpgIds
+            )
+        }
+        .cachedIn(viewModelScope)
+
+    init {
+        viewModelScope.launch {
+            combine(filterParams, listRevision) { params, _ -> params }.collect { params ->
+                val total = repository.channelsFilteredCount(
+                    group = params.group,
+                    search = params.search,
+                    favoritesOnly = params.favoritesOnly,
+                    sportsEpgIds = params.sportsEpgIds
+                )
+                _filteredTotalCount.value = total
+                ChannelBrowserMetrics.logFilterApplied(
+                    group = params.group,
+                    favoritesOnly = params.favoritesOnly,
+                    matchSports = params.sportsEpgIds != null,
+                    search = params.search,
+                    totalCount = total
+                )
+            }
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        searchQuery.value = query
+    }
 
     fun selectAll() {
         selectedCategory.value = null
@@ -51,6 +99,7 @@ class BrowserViewModel @Inject constructor(
     fun selectFavorites() {
         favoritesOnly.value = true
         sportsOnly.value = false
+        selectedCategory.value = null
     }
 
     fun selectGroup(group: String) {
@@ -66,6 +115,37 @@ class BrowserViewModel @Inject constructor(
     }
 
     fun toggleFavorite(channelId: Long, enabled: Boolean) {
-        viewModelScope.launch { repository.toggleFavorite(channelId, enabled) }
+        viewModelScope.launch {
+            repository.toggleFavorite(channelId, enabled)
+            listRevision.value = listRevision.value + 1
+        }
     }
+
+    private fun buildFilterParams(
+        group: String?,
+        favoritesOnly: Boolean,
+        sportsOnly: Boolean,
+        search: String,
+        programs: List<Program>
+    ): ChannelBrowserFilterParams {
+        return ChannelBrowserFilterParams(
+            group = if (sportsOnly) null else group,
+            favoritesOnly = favoritesOnly,
+            sportsEpgIds = if (sportsOnly) {
+                programs.mapNotNull { program ->
+                    program.channelEpgId.takeIf { it.isNotBlank() }
+                }.toSet()
+            } else {
+                null
+            },
+            search = search
+        )
+    }
+
+    private data class ChannelBrowserFilterParams(
+        val group: String?,
+        val favoritesOnly: Boolean,
+        val sportsEpgIds: Set<String>?,
+        val search: String
+    )
 }

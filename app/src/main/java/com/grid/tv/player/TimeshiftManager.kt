@@ -11,7 +11,9 @@ object TimeshiftManager {
         private set
     var bufferStartMs: Long = 0L
         private set
-    var maxBufferMs: Long = 1_800_000L
+    var maxBufferMs: Long = 120_000L
+    var minBufferMs: Long = 10_000L
+    var activeProfileName: String = "BALANCED"
     var replayAnchorMs: Long = 0L
         private set
     var pausedAtPositionMs: Long? = null
@@ -223,9 +225,12 @@ object TimeshiftManager {
         }
     }
 
-    fun maxBufferMsFor(bufferSize: com.grid.tv.domain.model.BufferSize): Long = when (bufferSize) {
-        com.grid.tv.domain.model.BufferSize.LOW -> 600_000L
-        com.grid.tv.domain.model.BufferSize.MEDIUM -> 1_800_000L
-        com.grid.tv.domain.model.BufferSize.HIGH -> 3_600_000L
+    fun syncBufferProfile(profile: IptvBufferProfiles.Durations) {
+        minBufferMs = profile.minBufferMs.toLong()
+        maxBufferMs = profile.maxBufferMs.toLong()
+        activeProfileName = profile.profileName
     }
+
+    fun maxBufferMsFor(bufferSize: com.grid.tv.domain.model.BufferSize): Long =
+        IptvBufferProfiles.maxBufferMsFor(bufferSize)
 }

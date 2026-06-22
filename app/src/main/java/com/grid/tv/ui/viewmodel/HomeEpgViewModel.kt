@@ -30,7 +30,9 @@ import com.grid.tv.domain.epg.EpgTime
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.player.LivePlayerManager
+import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.StreamPlaybackStatus
+import com.grid.tv.util.FocusNavigationMetrics
 import com.grid.tv.ui.component.ProgramTimeState
 import com.grid.tv.ui.component.programTimeState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -69,6 +71,7 @@ class HomeEpgViewModel @Inject constructor(
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
+    private val playbackOrchestrator: PlaybackOrchestrator,
     private val channelScanner: ChannelScanner
 ) : ViewModel() {
 
@@ -85,7 +88,12 @@ class HomeEpgViewModel @Inject constructor(
         private const val VIEWPORT_EPG_DEBOUNCE_MS = 300L
         /** Cap viewport provider fetches so scrolling the guide cannot fan out dozens of HTTP calls. */
         private const val VIEWPORT_EPG_MAX_CHANNEL_IDS = 10
+        private const val GUIDE_POSITION_SAVE_DEBOUNCE_MS = 400L
+        private const val FOCUS_SCANNER_PRIORITY_DEBOUNCE_MS = 150L
         private const val TAG = "EpgFlow"
+
+        internal fun viewportEpgFetchKey(channelIds: List<Long>): String =
+            channelIds.distinct().sorted().take(VIEWPORT_EPG_MAX_CHANNEL_IDS).joinToString(",")
     }
 
     private var guideBootstrapComplete = false
@@ -96,6 +104,13 @@ class HomeEpgViewModel @Inject constructor(
     private var viewportEpgJob: Job? = null
     private var viewportObserveJob: Job? = null
     private var loadWindowJob: Job? = null
+    private var guidePositionSaveJob: Job? = null
+    private var focusScannerJob: Job? = null
+    private var lastViewportEpgFetchKey: String? = null
+    @Volatile
+    private var lastFocusedChannelId: Long? = null
+    @Volatile
+    private var lastScrollVisibleIds: List<Long> = emptyList()
 
     private data class LoadWindowSnapshot(
         val generation: Int,
@@ -408,6 +423,7 @@ class HomeEpgViewModel @Inject constructor(
         withContext(Dispatchers.Main.immediate) {
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+            livePlayerManager.setStreamRetries(settings.streamRetries)
         }
         guideBootstrapComplete = true
         reloadChannels()
@@ -437,6 +453,15 @@ class HomeEpgViewModel @Inject constructor(
 
     fun saveGuidePosition(position: EpgGuidePosition) {
         _guidePosition.value = position.copy(hasSavedPosition = true)
+    }
+
+    /** Debounced — D-pad focus must not persist position on every key repeat. */
+    fun saveGuidePositionDebounced(position: EpgGuidePosition) {
+        guidePositionSaveJob?.cancel()
+        guidePositionSaveJob = viewModelScope.launch {
+            delay(GUIDE_POSITION_SAVE_DEBOUNCE_MS)
+            saveGuidePosition(position)
+        }
     }
 
     fun setFavoriteGroupFilter(groupId: Long?) {
@@ -612,6 +637,8 @@ class HomeEpgViewModel @Inject constructor(
             _hideAdultContent.value = settings.hideAdultContent
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+            livePlayerManager.setStreamRetries(settings.streamRetries)
+            livePlayerManager.syncNetworkSettings(context.applicationContext, settings)
             livePlayerManager.syncPlaybackSettings(
                 context.applicationContext,
                 settings.bufferSize,
@@ -648,28 +675,51 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
-    fun updateScannerViewport(channelIds: List<Long>) {
-        channelScanner.setPriorityChannelIds(channelIds)
-    }
-
     /**
-     * Debounced viewport handler: prioritizes scanner probes, observes DB programmes for visible
-     * rows, and fast-tracks a short-window provider fetch so tiles populate before bulk XMLTV sync.
+     * Scroll viewport only — triggers debounced EPG network hydration when visible rows change.
+     * Must not be called on D-pad focus moves within the same visible window.
      */
-    fun onGuideViewportChanged(visibleChannelIds: List<Long>, focusNeighborIds: List<Long> = emptyList()) {
-        channelScanner.setPriorityChannelIds((visibleChannelIds + focusNeighborIds).distinct())
+    fun onGuideScrollViewportChanged(visibleChannelIds: List<Long>) {
+        lastScrollVisibleIds = visibleChannelIds.distinct()
+        syncScannerPriority()
         if (visibleChannelIds.isEmpty()) return
+
+        val fetchKey = viewportEpgFetchKey(visibleChannelIds)
+        if (fetchKey == lastViewportEpgFetchKey) return
 
         viewportEpgJob?.cancel()
         viewportEpgJob = viewModelScope.launch(Dispatchers.IO) {
             delay(VIEWPORT_EPG_DEBOUNCE_MS)
-            val visible = (visibleChannelIds + focusNeighborIds).distinct().take(VIEWPORT_EPG_MAX_CHANNEL_IDS)
+            val visible = visibleChannelIds.distinct().take(VIEWPORT_EPG_MAX_CHANNEL_IDS)
+            val keyAfterDebounce = viewportEpgFetchKey(visible)
+            if (keyAfterDebounce == lastViewportEpgFetchKey) return@launch
+            lastViewportEpgFetchKey = keyAfterDebounce
             startViewportProgramObservation(visible)
             repository.fetchCurrentEpgForChannels(visible.map { it.toString() })
             val visibleChannels = _channels.value.filter { it.id in visible.toSet() }
             if (visibleChannels.isNotEmpty()) {
                 appendProgramsForChannels(visibleChannels)
             }
+        }
+    }
+
+    /**
+     * Focus-only — updates scanner priority for the highlighted row. No network or DB work.
+     */
+    fun onGuideFocusChannelChanged(channelId: Long?, channelIndex: Int) {
+        lastFocusedChannelId = channelId
+        FocusNavigationMetrics.onFocusUiOnly("guide_channel_focus", channelIndex = channelIndex)
+        focusScannerJob?.cancel()
+        focusScannerJob = viewModelScope.launch {
+            delay(FOCUS_SCANNER_PRIORITY_DEBOUNCE_MS)
+            syncScannerPriority()
+        }
+    }
+
+    private fun syncScannerPriority() {
+        val ids = (lastScrollVisibleIds + listOfNotNull(lastFocusedChannelId)).distinct()
+        if (ids.isNotEmpty()) {
+            channelScanner.setPriorityChannelIds(ids)
         }
     }
 
@@ -748,6 +798,7 @@ class HomeEpgViewModel @Inject constructor(
         previewTuneJob = viewModelScope.launch {
             delay(PREVIEW_TUNE_DEBOUNCE_MS)
             if (channel.streamUrl.isBlank()) return@launch
+            playbackOrchestrator.onGuidePreviewActive(context)
             livePlayerManager.tuneChannel(context, channel)
             livePlayerManager.setMode(LivePlayerManager.Mode.MINI)
         }

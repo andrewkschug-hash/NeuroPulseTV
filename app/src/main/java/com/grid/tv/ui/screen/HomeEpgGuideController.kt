@@ -11,7 +11,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Density
 import com.grid.tv.domain.epg.EpgProgramAction
-import com.grid.tv.domain.epg.programmesForChannel
+import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
@@ -20,6 +20,7 @@ import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.component.EpgLayout
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GridNavTabs
 import com.grid.tv.ui.component.TopBarProfileIndex
@@ -51,7 +52,7 @@ internal data class HomeEpgGuideDeps(
     val hScroll: ScrollState,
     val channels: List<Channel>,
     val displayChannels: List<Channel>,
-    val displayPrograms: List<Program>,
+    val programmeIndex: ProgrammeIndex,
     val viewModel: HomeEpgViewModel,
     val recordingViewModel: RecordingViewModel,
     val searchViewModel: SearchViewModel,
@@ -198,11 +199,39 @@ internal class HomeEpgGuideController(
     }
 
     fun programsForChannel(channel: Channel): List<Program> =
-        programmesForChannel(channel, deps.displayPrograms)
+        deps.programmeIndex.programsFor(channel.id)
 
     fun clampProgramIndex(channelIdx: Int, programIdx: Int): Int {
-        val progs = deps.displayChannels.getOrNull(channelIdx)?.let { programsForChannel(it) } ?: emptyList()
+        PerformanceAudit.logGridKeyFilter(
+            keyName = "clampProgramIndex",
+            channelIndex = channelIdx,
+            totalProgramCount = deps.programmeIndex.totalProgramCount
+        )
+        val channel = deps.displayChannels.getOrNull(channelIdx) ?: return 0
+        val startNs = if (PerformanceAudit.ENABLED) System.nanoTime() else 0L
+        val progs = programsForChannel(channel)
+        if (PerformanceAudit.ENABLED) {
+            PerformanceAudit.logProgrammeIndexLookup(
+                channelId = channel.id,
+                resultCount = progs.size,
+                elapsedNs = System.nanoTime() - startNs
+            )
+        }
         return programIdx.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
+    }
+
+    private fun programsForChannelTimed(channel: Channel, keyName: String): List<Program> {
+        PerformanceAudit.logGridKeyFilter(keyName, ui.focusChannelIndex, deps.programmeIndex.totalProgramCount)
+        val startNs = if (PerformanceAudit.ENABLED) System.nanoTime() else 0L
+        val progs = programsForChannel(channel)
+        if (PerformanceAudit.ENABLED) {
+            PerformanceAudit.logProgrammeIndexLookup(
+                channelId = channel.id,
+                resultCount = progs.size,
+                elapsedNs = System.nanoTime() - startNs
+            )
+        }
+        return progs
     }
 
     fun scrollByTimeSlot(direction: Int) {
@@ -659,7 +688,7 @@ internal class HomeEpgGuideController(
             }
             Key.DirectionRight -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return false
-                val progs = programsForChannel(channel)
+                val progs = programsForChannelTimed(channel, "DirectionRight")
                 if (ui.focusOnChannelColumn) {
                     ui.focusOnChannelColumn = false
                     val progsNow = progs.indexOfFirst {
@@ -682,7 +711,7 @@ internal class HomeEpgGuideController(
             }
             Key.DirectionLeft -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return false
-                val progs = programsForChannel(channel)
+                val progs = programsForChannelTimed(channel, "DirectionLeft")
                 if (!ui.focusOnChannelColumn && ui.focusProgramIndex > 0) {
                     ui.focusProgramIndex -= 1
                     scrollToProgram(progs[ui.focusProgramIndex])
@@ -719,7 +748,7 @@ internal class HomeEpgGuideController(
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 val channel = deps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return true
                 if (!ui.focusOnChannelColumn) {
-                    val prog = programsForChannel(channel).getOrNull(ui.focusProgramIndex)
+                    val prog = programsForChannelTimed(channel, "Enter").getOrNull(ui.focusProgramIndex)
                     if (prog != null) {
                         playProgram(channel, prog, instant = true)
                         return true

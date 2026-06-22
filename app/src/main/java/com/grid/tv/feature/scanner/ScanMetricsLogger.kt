@@ -54,6 +54,32 @@ class ScanMetricsLogger @Inject constructor(
         Log.w(TAG, "HOST_BLACKLISTED host=$hostname failures=$failureCount")
     }
 
+    fun logPlaybackScanSuspend(
+        suspended: Boolean,
+        scanBatchOffset: Int,
+        probesSkippedDuringSession: Int,
+        suspendedDurationMs: Long = 0L
+    ) {
+        if (suspended) {
+            Log.i(
+                TAG,
+                "PLAYBACK_SCAN_SUSPEND scanBatchOffset=$scanBatchOffset " +
+                    "ACTIVE_REQUESTS=$activeRequests — channel probes paused for live playback"
+            )
+        } else {
+            Log.i(
+                TAG,
+                "PLAYBACK_SCAN_RESUME suspendedMs=$suspendedDurationMs " +
+                    "probesSkipped=$probesSkippedDuringSession scanBatchOffset=$scanBatchOffset " +
+                    "ACTIVE_REQUESTS=$activeRequests"
+            )
+        }
+    }
+
+    fun logProbeSkippedForPlayback(totalSkipped: Int) {
+        Log.d(TAG, "PROBE_SKIPPED_PLAYBACK totalSkipped=$totalSkipped ACTIVE_REQUESTS=$activeRequests")
+    }
+
     private fun logActiveRequests() {
         Log.d(TAG, "ACTIVE_REQUESTS=$activeRequests MEMORY_USAGE_MB=${memoryUsageMb()}")
     }

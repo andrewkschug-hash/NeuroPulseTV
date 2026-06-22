@@ -52,7 +52,10 @@ import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.devicePlaybackCapabilities
 import com.grid.tv.player.isCodecCapabilityError
 import com.grid.tv.player.playbackErrorMessage
-import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
+import com.grid.tv.player.PlaybackOrchestrator
+import com.grid.tv.player.PlaybackSurfaceInstrument
+import com.grid.tv.di.PlayerEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.component.PlaybackVideoFit
 import com.grid.tv.ui.component.toPlaybackVideoFit
@@ -72,6 +75,7 @@ import androidx.tv.material3.Text
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.media3.common.util.UnstableApi
+import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
 import kotlinx.coroutines.delay
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -164,6 +168,45 @@ fun DirectPlayerScreen(
     var playbackError by remember(url) { mutableStateOf<String?>(null) }
     val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
+    val decoderTracker = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            PlayerEntryPoint::class.java
+        ).decoderPressureTracker()
+    }
+    val playbackOrchestrator = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            PlayerEntryPoint::class.java
+        ).playbackOrchestrator()
+    }
+    var vodSessionReady by remember(url) { mutableStateOf<Boolean?>(null) }
+
+    DisposableEffect(url) {
+        val result = playbackOrchestrator.requestSession(
+            session = PlaybackOrchestrator.PlaybackSession.VOD,
+            owner = "direct_player",
+            context = context
+        )
+        vodSessionReady = result == PlaybackOrchestrator.SessionRequestResult.GRANTED ||
+            result == PlaybackOrchestrator.SessionRequestResult.GRANTED_EVICTED_LOWER
+        onDispose {
+            playbackOrchestrator.releaseSession(PlaybackOrchestrator.PlaybackSession.VOD, context)
+        }
+    }
+
+    LaunchedEffect(vodSessionReady) {
+        if (vodSessionReady == false) onBack()
+    }
+
+    if (vodSessionReady != true) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        )
+        return
+    }
 
     val player = remember(url, immediateResumeMs) {
         resumeSeekState.applied = immediateResumeMs > 0L
@@ -315,8 +358,11 @@ fun DirectPlayerScreen(
             } else {
                 viewModel.persistProgress(streamId, positionMs, title, durationMs, url)
             }
-            playerViewRef[0]?.player = null
+            playerViewRef[0]?.let { view ->
+                PlaybackSurfaceInstrument.releasePlayerView("vod_direct", player, view)
+            }
             player.clearVideoSurface()
+            decoderTracker.unregisterPlayer(player)
             player.release()
         }
     }
@@ -713,6 +759,8 @@ fun DirectPlayerScreen(
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     setBackgroundColor(android.graphics.Color.BLACK)
                     playerViewRef[0] = this
+                }.also { view ->
+                    PlaybackSurfaceInstrument.attach("vod_direct", player, view)
                 }
             },
             update = { view ->
@@ -720,6 +768,7 @@ fun DirectPlayerScreen(
                 if (view.player != player) view.player = player
             },
             onRelease = { view ->
+                PlaybackSurfaceInstrument.detach("vod_direct", player, view)
                 view.player = null
                 if (playerViewRef[0] === view) playerViewRef[0] = null
             }

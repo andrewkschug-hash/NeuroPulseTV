@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.multiview.MultiViewLayout
 import com.grid.tv.player.multiview.MultiViewManager
 import com.grid.tv.player.multiview.MultiViewState
@@ -20,7 +21,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class MultiViewViewModel @Inject constructor(
     private val repository: IptvRepository,
-    private val multiViewManager: MultiViewManager
+    private val multiViewManager: MultiViewManager,
+    private val playbackOrchestrator: PlaybackOrchestrator
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MultiViewState.initial(MultiViewLayout.FOUR, null))
@@ -59,18 +61,23 @@ class MultiViewViewModel @Inject constructor(
         }
     }
 
-    fun initialize(seedChannelId: Long) {
+    fun initialize(seedChannelId: Long, maxPanels: Int = 4) {
         viewModelScope.launch {
             val seed = if (seedChannelId > 0L) repository.channelById(seedChannelId) else null
-            _state.value = MultiViewState.initial(MultiViewLayout.FOUR, seed)
+            val layout = if (maxPanels >= 4) MultiViewLayout.FOUR else MultiViewLayout.TWO
+            _state.value = MultiViewState.initial(layout, seed)
         }
     }
 
-    fun setLayout(layout: MultiViewLayout) {
+    fun setLayout(layout: MultiViewLayout, maxPanels: Int = 4) {
+        val capped = when {
+            maxPanels < 4 && layout == MultiViewLayout.FOUR -> MultiViewLayout.TWO
+            else -> layout
+        }
         val seed = _state.value.panels.firstOrNull()?.channel
-        _state.value = MultiViewState.initial(layout, seed).copy(
-            activeAudioPanelIndex = _state.value.activeAudioPanelIndex.coerceIn(0, layout.panelCount - 1),
-            focusedPanelIndex = _state.value.focusedPanelIndex.coerceIn(0, layout.panelCount - 1)
+        _state.value = MultiViewState.initial(capped, seed).copy(
+            activeAudioPanelIndex = _state.value.activeAudioPanelIndex.coerceIn(0, capped.panelCount - 1),
+            focusedPanelIndex = _state.value.focusedPanelIndex.coerceIn(0, capped.panelCount - 1)
         )
     }
 
@@ -101,19 +108,47 @@ class MultiViewViewModel @Inject constructor(
         _state.value = _state.value.copy(replacingPanelIndex = null)
     }
 
-    fun replacePanel(context: android.content.Context, channel: Channel) {
+    fun replacePanel(
+        context: android.content.Context,
+        channel: Channel,
+        decodeOnlyAudioPane: Boolean = false
+    ) {
         val panelIndex = _state.value.replacingPanelIndex ?: _state.value.focusedPanelIndex
-        multiViewManager.replacePanel(context, panelIndex, channel)
         val panels = _state.value.panels.toMutableList()
         panels[panelIndex] = panels[panelIndex].copy(channel = channel)
         _state.value = _state.value.copy(panels = panels, replacingPanelIndex = null)
+        if (!decodeOnlyAudioPane || panelIndex == _state.value.activeAudioPanelIndex) {
+            multiViewManager.replacePanel(context, panelIndex, channel)
+        }
+        multiViewManager.syncDecodePolicy(decodeOnlyAudioPane, _state.value.activeAudioPanelIndex)
     }
 
-    fun tuneAllPanels(context: android.content.Context) {
+    fun tuneAllPanels(context: android.content.Context, decodeOnlyAudioPane: Boolean = false) {
+        val audioIndex = _state.value.activeAudioPanelIndex
         _state.value.panels.forEachIndexed { index, panel ->
+            if (decodeOnlyAudioPane && index != audioIndex) return@forEachIndexed
             panel.channel?.let { multiViewManager.tunePanel(context, index, it) }
         }
-        multiViewManager.setActiveAudioPanel(_state.value.activeAudioPanelIndex)
+        multiViewManager.setActiveAudioPanel(audioIndex)
+        multiViewManager.syncDecodePolicy(decodeOnlyAudioPane, audioIndex)
+    }
+
+    fun applyDecodePolicy(decodeOnlyAudioPane: Boolean) {
+        multiViewManager.syncDecodePolicy(decodeOnlyAudioPane, _state.value.activeAudioPanelIndex)
+    }
+
+    fun requestMultiviewSession(context: android.content.Context): PlaybackOrchestrator.SessionRequestResult =
+        playbackOrchestrator.requestSession(
+            PlaybackOrchestrator.PlaybackSession.MULTIVIEW,
+            owner = "multiview_screen",
+            context = context
+        )
+
+    fun releaseMultiviewSession(context: android.content.Context) {
+        playbackOrchestrator.releaseSession(
+            PlaybackOrchestrator.PlaybackSession.MULTIVIEW,
+            context
+        )
     }
 
     fun playerForPanel(context: android.content.Context, panelIndex: Int) =

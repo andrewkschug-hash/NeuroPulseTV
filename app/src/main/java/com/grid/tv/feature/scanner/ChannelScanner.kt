@@ -18,6 +18,7 @@ import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
+import com.grid.tv.util.cache.AppCacheRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -52,7 +53,8 @@ class ChannelScanner @Inject constructor(
     private val hostFailureTracker: HostFailureTracker,
     private val epgDownloadTracker: EpgDownloadTracker,
     private val playlistImportCoordinator: PlaylistImportCoordinator,
-    private val scanMetrics: ScanMetricsLogger
+    private val scanMetrics: ScanMetricsLogger,
+    appCacheRegistry: AppCacheRegistry
 ) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -61,7 +63,7 @@ class ChannelScanner @Inject constructor(
     }
     private val limiter = ScanConcurrencyLimiter(ScanConcurrencyLimiter.MAX_CONCURRENCY)
     private val stateMutex = Mutex()
-    private val statusCache = ChannelScanStatusCache()
+    private val statusCache = ChannelScanStatusCache(registry = appCacheRegistry)
 
     private val _statuses = MutableStateFlow<Map<Long, ChannelScanSnapshot>>(emptyMap())
     val statuses: StateFlow<Map<Long, ChannelScanSnapshot>> = _statuses.asStateFlow()
@@ -80,6 +82,13 @@ class ChannelScanner @Inject constructor(
 
     @Volatile
     private var appInForeground = true
+
+    @Volatile
+    private var scansSuspendedForPlayback = false
+
+    private var playbackSuspendStartedAtMs = 0L
+
+    private var probesSkippedDuringPlayback = 0
 
     @Volatile
     private var forceFullScan = false
@@ -135,6 +144,40 @@ class ChannelScanner @Inject constructor(
         appInForeground = visible
     }
 
+    /**
+     * Pauses background channel probes while fullscreen live playback is active.
+     * Scan progress ([scanBatchOffset], status cache) is preserved across suspend/resume.
+     */
+    fun setPlaybackScanSuspended(suspended: Boolean) {
+        if (scansSuspendedForPlayback == suspended) return
+        scansSuspendedForPlayback = suspended
+        if (suspended) {
+            playbackSuspendStartedAtMs = System.currentTimeMillis()
+            scanMetrics.logPlaybackScanSuspend(
+                suspended = true,
+                scanBatchOffset = scanBatchOffset,
+                probesSkippedDuringSession = probesSkippedDuringPlayback
+            )
+        } else {
+            val durationMs = if (playbackSuspendStartedAtMs > 0L) {
+                System.currentTimeMillis() - playbackSuspendStartedAtMs
+            } else {
+                0L
+            }
+            scanMetrics.logPlaybackScanSuspend(
+                suspended = false,
+                scanBatchOffset = scanBatchOffset,
+                probesSkippedDuringSession = probesSkippedDuringPlayback,
+                suspendedDurationMs = durationMs
+            )
+            playbackSuspendStartedAtMs = 0L
+            probesSkippedDuringPlayback = 0
+        }
+    }
+
+    val isPlaybackScanSuspended: Boolean
+        get() = scansSuspendedForPlayback
+
     fun setPriorityChannelIds(ids: Collection<Long>) {
         priorityChannelIds = ids.toSet()
     }
@@ -145,11 +188,19 @@ class ChannelScanner @Inject constructor(
     }
 
     fun scanNow() {
+        if (scansSuspendedForPlayback) {
+            android.util.Log.i(TAG, "scanNow ignored — live fullscreen playback active")
+            return
+        }
         unlockMaintenanceScan("manual scanNow")
         forceFullScan = true
     }
 
     override fun beginPostImportPriorityWorkflow() {
+        if (scansSuspendedForPlayback) {
+            android.util.Log.i(TAG, "Post-import validation deferred — live fullscreen playback active")
+            return
+        }
         unlockMaintenanceScan("post-import priority validation")
         scope.launch {
             runSafely("postImportPriority") {
@@ -225,6 +276,7 @@ class ChannelScanner @Inject constructor(
         try {
             val rows = channelDao.scanProbeByIds(priorityIds.toList())
             rows.chunked(SCAN_BATCH_SIZE).forEachIndexed { batchIndex, batch ->
+                if (scansSuspendedForPlayback) return@forEachIndexed
                 scanMetrics.logBatchStart(batchIndex, batch.size, rows.size - batchIndex * SCAN_BATCH_SIZE)
                 coroutineScope {
                     batch.map { row ->
@@ -295,17 +347,13 @@ class ChannelScanner @Inject constructor(
         var backoffMs = SCAN_TICK_MS
         while (true) {
             val ok = runSafely("scanScheduler") {
-                if (
-                    maintenanceScanUnlocked &&
-                    settings.autoScanEnabled &&
-                    appInForeground &&
-                    !priorityValidationRunning.get() &&
-                    !isMeteredBlocked() &&
-                    !isLowOnMemory() &&
-                    !epgDownloadTracker.isInProgress() &&
-                    !playlistImportCoordinator.isImportActive()
-                ) {
+                if (canRunBackgroundScans()) {
                     runScanCycle()
+                } else if (scansSuspendedForPlayback) {
+                    probesSkippedDuringPlayback++
+                    if (probesSkippedDuringPlayback % PLAYBACK_SKIP_LOG_EVERY == 0) {
+                        scanMetrics.logProbeSkippedForPlayback(probesSkippedDuringPlayback)
+                    }
                 }
             }
             val delayMs = if (ok) {
@@ -318,6 +366,17 @@ class ChannelScanner @Inject constructor(
             delaySafely(delayMs)
         }
     }
+
+    private fun canRunBackgroundScans(): Boolean =
+        maintenanceScanUnlocked &&
+            settings.autoScanEnabled &&
+            appInForeground &&
+            !scansSuspendedForPlayback &&
+            !priorityValidationRunning.get() &&
+            !isMeteredBlocked() &&
+            !isLowOnMemory() &&
+            !epgDownloadTracker.isInProgress() &&
+            !playlistImportCoordinator.isImportActive()
 
     private suspend fun runScanCycle() {
         val total = channelDao.countTotal()
@@ -380,6 +439,7 @@ class ChannelScanner @Inject constructor(
 
         val probeList = toProbe.toList()
         probeList.chunked(SCAN_BATCH_SIZE).forEachIndexed { batchIndex, batch ->
+            if (scansSuspendedForPlayback) return@forEachIndexed
             val remaining = (probeList.size - (batchIndex * SCAN_BATCH_SIZE)).coerceAtLeast(0)
             scanMetrics.logBatchStart(batchIndex, batch.size, remaining)
             coroutineScope {
@@ -400,6 +460,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
+        if (scansSuspendedForPlayback) return
         markChecking(channelId)
         val detail = probe.probe(streamUrl)
         val snapshot = ChannelScanSnapshot(
@@ -571,6 +632,7 @@ class ChannelScanner @Inject constructor(
         private const val ORPHAN_CHECK_BATCH = 500
         private const val BOOT_MAINTENANCE_MIN_DELAY_MS = 45_000L
         private const val MAINTENANCE_IDLE_POLL_MS = 5_000L
+        private const val PLAYBACK_SKIP_LOG_EVERY = 15
         /** Minimum time between stream probes once a channel has been verified. */
         private const val VERIFIED_TTL_MS = 12L * 60L * 60L * 1000L
     }

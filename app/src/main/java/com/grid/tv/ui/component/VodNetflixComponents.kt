@@ -931,8 +931,7 @@ fun VodContentFilterPanel(
     showGenrePanel: Boolean = false,
     genrePanelFocusRequester: FocusRequester? = null,
     contentGridFocusRequester: FocusRequester? = null,
-    entryFocusRequester: FocusRequester? = null,
-    onFocusedFilterChange: ((VodContentFilter) -> Unit)? = null
+    entryFocusRequester: FocusRequester? = null
 ) {
     val filters = VodContentFilter.entries
     val filterFocusRequesters = remember { List(filters.size) { FocusRequester() } }
@@ -993,11 +992,7 @@ fun VodContentFilterPanel(
                             else -> FocusRequester.Default
                         }
                     }
-                    .onFocusChanged { state ->
-                        if (state.isFocused) {
-                            onFocusedFilterChange?.invoke(filter)
-                        }
-                    }
+                    .onFocusChanged { /* UI-only — filter apply happens on Enter/click via onFilterSelected */ }
                     .then(
                         if (focused) {
                             Modifier.border(2.dp, VodNetflixColors.Accent, RoundedCornerShape(10.dp))

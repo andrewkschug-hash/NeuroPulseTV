@@ -28,6 +28,7 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.vodEmptyMessage
 import com.grid.tv.domain.model.vodEmptyTitle
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.netflixMovieBrowseRows
@@ -131,6 +132,9 @@ fun MoviesBrowserScreen(
             baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
             progress = catalogProgress,
             isMovies = true
+        )
+        VodCatalogRefreshWarningBanner(
+            message = catalogStatus.moviesRefreshWarning(catalogTotalCount)
         )
 
         when {

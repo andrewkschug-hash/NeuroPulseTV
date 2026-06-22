@@ -16,6 +16,7 @@ import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.feature.recommendation.FeaturedContentRanker
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
 import com.grid.tv.feature.vod.curation.FeaturedCurationRepository
+import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -207,7 +208,7 @@ class VodHubViewModel @Inject constructor(
 
     fun refreshCatalog() {
         viewModelScope.launch {
-            runCatching {
+            runVodPipelineCatching("VodHubViewModel.refreshCatalog") {
                 repository.refreshVodSeriesCatalog(
                     trigger = VodRefreshTrigger.MANUAL_RETRY,
                     force = true

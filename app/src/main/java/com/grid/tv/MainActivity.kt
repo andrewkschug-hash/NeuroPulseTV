@@ -23,6 +23,7 @@ import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import android.view.inputmethod.InputMethodManager
+import com.grid.tv.player.AppPlayerLifecycleCoordinator
 import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvRemoteKeyboard
 import com.grid.tv.util.TvTextInputSession
@@ -38,6 +39,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
+    @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -142,6 +144,25 @@ class MainActivity : ComponentActivity() {
         }
         intent.data = null
         setIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        appPlayerLifecycle.onActivityStarted(this)
+    }
+
+    override fun onStop() {
+        if (!isChangingConfigurations) {
+            appPlayerLifecycle.onActivityStopped(this)
+        }
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        if (isFinishing) {
+            appPlayerLifecycle.onActivityDestroyFinishing(applicationContext)
+        }
+        super.onDestroy()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

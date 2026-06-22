@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +24,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.grid.tv.ui.component.FocusCard
@@ -39,8 +41,15 @@ fun ChannelBrowserScreen(
     val context = LocalContext.current
     val previewManager = viewModel.previewManager
     val groups by viewModel.groups.collectAsStateWithLifecycle()
-    val channels by viewModel.channels.collectAsStateWithLifecycle()
+    val channelPagingItems = viewModel.pagedChannels.collectAsLazyPagingItems()
+    val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
+    var searchInput by remember { mutableStateOf("") }
     var focusedChannel by remember { mutableStateOf<Long?>(null) }
+
+    LaunchedEffect(searchInput) {
+        delay(250)
+        viewModel.setSearchQuery(searchInput)
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -53,11 +62,27 @@ fun ChannelBrowserScreen(
             GlowFocusButton(onClick = onMultiview) { Text("Multiview") }
         }
 
-        Text("Total channels: ${channels.size}")
+        OutlinedTextField(
+            value = searchInput,
+            onValueChange = { searchInput = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Search channels") },
+            singleLine = true
+        )
 
-        LazyVerticalGrid(columns = GridCells.Fixed(4), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(channels) { channel ->
-                LaunchedEffect(focusedChannel) {
+        Text("Total channels: $filteredTotalCount (loaded ${channelPagingItems.itemCount})")
+
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(
+                count = channelPagingItems.itemCount,
+                key = channelPagingItems.itemKey { it.id }
+            ) { index ->
+                val channel = channelPagingItems[index] ?: return@items
+                LaunchedEffect(focusedChannel, channel.id) {
                     if (focusedChannel == channel.id) {
                         delay(2000)
                         if (focusedChannel == channel.id) {
@@ -68,7 +93,9 @@ fun ChannelBrowserScreen(
 
                 FocusCard(onClick = { onPlayChannel(channel.id) }, onFocusChanged = { isFocused ->
                     focusedChannel = if (isFocused) channel.id else null
-                    if (!isFocused && previewManager.activeChannelId() == channel.id) previewManager.stopPreview()
+                    if (!isFocused && previewManager.activeChannelId() == channel.id) {
+                        previewManager.stopPreview(context)
+                    }
                 }) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (previewManager.activeChannelId() == channel.id && previewManager.activePlayer() != null) {

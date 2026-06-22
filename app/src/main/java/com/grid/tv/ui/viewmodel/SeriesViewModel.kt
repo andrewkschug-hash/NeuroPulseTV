@@ -24,6 +24,7 @@ import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
+import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import androidx.paging.filter
@@ -221,7 +222,7 @@ class SeriesViewModel @Inject constructor(
 
     fun refreshCatalog() {
         viewModelScope.launch {
-            runCatching {
+            runVodPipelineCatching("SeriesViewModel.refreshCatalog") {
                 repository.refreshVodSeriesCatalog(
                     trigger = VodRefreshTrigger.MANUAL_RETRY,
                     force = true
@@ -247,7 +248,9 @@ class SeriesViewModel @Inject constructor(
                     _selectedShow.value = show
                 }
                 val detail = withContext(Dispatchers.IO) {
-                    runCatching { repository.loadSeriesDetail(showId) }
+                    runVodPipelineCatching("SeriesViewModel.loadSeriesDetail showId=$showId") {
+                        repository.loadSeriesDetail(showId)
+                    }
                         .onFailure { error ->
                             _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
                         }

@@ -16,6 +16,7 @@ import com.grid.tv.feature.vod.matchesLanguageFilter
 import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.parseVodDurationMs
 import com.grid.tv.ui.component.toGridCardModel
+import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import androidx.paging.filter
@@ -147,7 +148,7 @@ class MoviesViewModel @Inject constructor(
 
     fun refreshCatalog() {
         viewModelScope.launch {
-            runCatching {
+            runVodPipelineCatching("MoviesViewModel.refreshCatalog") {
                 repository.refreshVodSeriesCatalog(
                     trigger = VodRefreshTrigger.MANUAL_RETRY,
                     force = true

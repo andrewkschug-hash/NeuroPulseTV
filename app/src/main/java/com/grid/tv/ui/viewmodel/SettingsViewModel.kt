@@ -29,6 +29,8 @@ import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -59,7 +61,8 @@ class SettingsViewModel @Inject constructor(
     private val epgScheduler: EpgScheduler,
     private val themeManager: ThemeManager,
     private val pipController: PictureInPictureController,
-    private val livePlayerManager: LivePlayerManager
+    private val livePlayerManager: LivePlayerManager,
+    @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
     val scannerRuntime = channelScanner.runtime
@@ -378,6 +381,7 @@ class SettingsViewModel @Inject constructor(
             val updated = _settings.value.copy(streamRetries = value)
             _settings.value = updated
             repository.saveSettings(updated)
+            livePlayerManager.setStreamRetries(value)
         }
     }
 
@@ -408,14 +412,23 @@ class SettingsViewModel @Inject constructor(
 
     fun updateConnectionTimeout(seconds: Int) {
         persistSettings(_settings.value.copy(connectionTimeoutSeconds = seconds))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateUseProxy(enabled: Boolean) {
         persistSettings(_settings.value.copy(useProxy = enabled))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateProxyUrl(url: String) {
         persistSettings(_settings.value.copy(proxyUrl = url))
+        viewModelScope.launch {
+            livePlayerManager.syncNetworkSettings(appContext, _settings.value)
+        }
     }
 
     fun updateShowEpgProgramInfoOnSidebar(enabled: Boolean) {

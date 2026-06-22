@@ -187,11 +187,35 @@ abstract class AppDatabase : RoomDatabase() {
         onInsert()
     }
 
+    /** Single transaction for VOD category refresh. */
+    @Transaction
+    open suspend fun replaceVodCategoriesForPlaylist(
+        playlistId: Long,
+        categories: List<com.grid.tv.data.db.entity.VodCategoryEntity>
+    ) {
+        vodCategoryDao().clearByPlaylist(playlistId)
+        if (categories.isNotEmpty()) {
+            vodCategoryDao().insertAll(categories)
+        }
+    }
+
     /** Single transaction for series playlist refresh. */
     @Transaction
     open suspend fun replaceSeriesShowsForPlaylist(playlistId: Long, onInsert: suspend () -> Unit) {
         seriesShowDao().clearByPlaylist(playlistId)
         onInsert()
+    }
+
+    /** Single transaction for series category refresh. */
+    @Transaction
+    open suspend fun replaceSeriesCategoriesForPlaylist(
+        playlistId: Long,
+        categories: List<com.grid.tv.data.db.entity.SeriesCategoryEntity>
+    ) {
+        seriesCategoryDao().clearByPlaylist(playlistId)
+        if (categories.isNotEmpty()) {
+            seriesCategoryDao().insertAll(categories)
+        }
     }
 
     /** Single transaction for EPG channel + programme bulk import per playlist. */

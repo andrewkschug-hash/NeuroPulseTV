@@ -1,6 +1,8 @@
 package com.grid.tv.ui.navigation
 
+import android.widget.Toast
 import com.grid.tv.BuildConfig
+import com.grid.tv.di.PlayerEntryPoint
 import com.grid.tv.ui.component.GlowFocusButton
 import com.grid.tv.ui.component.UpdateAvailableDialog
 import androidx.compose.foundation.background
@@ -17,7 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import dagger.hilt.android.EntryPointAccessors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -42,6 +46,17 @@ fun MainContentGate(
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val pendingUpdate by updateViewModel.pendingUpdate.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val playbackOrchestrator = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
+            .playbackOrchestrator()
+    }
+
+    LaunchedEffect(playbackOrchestrator) {
+        playbackOrchestrator.blockedMessages.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(Unit) {
         updateViewModel.checkForUpdate()

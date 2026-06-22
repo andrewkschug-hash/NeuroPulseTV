@@ -33,11 +33,18 @@ class AppHttpClient @Inject constructor() {
     @Volatile
     private var probeClient: OkHttpClient = buildProbeClient(AppSettings())
 
+    /** Long-lived reads for live/VOD ExoPlayer streams — shares proxy, DNS, and connect timeout with AppHttpClient. */
+    @Volatile
+    private var playbackClient: OkHttpClient = buildPlaybackClient(AppSettings())
+
     fun client(): OkHttpClient = client
 
     fun probeClient(): OkHttpClient = probeClient
 
     fun epgClient(): OkHttpClient = epgClient
+
+    /** ExoPlayer stream segments — honors proxy, [IptvDns], and connection timeout from settings. */
+    fun playbackClient(): OkHttpClient = playbackClient
 
     /** Large Xtream VOD/series catalog JSON can be tens of MB — use extended timeouts. */
     fun vodClient(): OkHttpClient = vodClient
@@ -51,6 +58,7 @@ class AppHttpClient @Inject constructor() {
         epgClient = buildEpgClient(settings)
         vodClient = buildVodClient(settings)
         shortEpgClient = buildShortEpgClient(settings)
+        playbackClient = buildPlaybackClient(settings)
     }
 
     private fun buildProbeClient(settings: AppSettings): OkHttpClient {
@@ -100,6 +108,17 @@ class AppHttpClient @Inject constructor() {
             .retryOnConnectionFailure(false)
             .build()
 
+    /**
+     * Live/VOD playback: same proxy + DNS stack as EPG/scanner; infinite read timeout for streaming.
+     */
+    private fun buildPlaybackClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .writeTimeout(PLAYBACK_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+
     private fun baseBuilder(
         settings: AppSettings,
         connectTimeoutSeconds: Int = settings.connectionTimeoutSeconds
@@ -132,6 +151,7 @@ class AppHttpClient @Inject constructor() {
         const val SHORT_EPG_WRITE_TIMEOUT_SECONDS = 8L
         const val PROBE_MAX_REQUESTS = 8
         const val PROBE_MAX_REQUESTS_PER_HOST = 4
+        const val PLAYBACK_WRITE_TIMEOUT_SECONDS = 30L
     }
 
     private fun parseProxy(raw: String): Proxy? = runCatching {

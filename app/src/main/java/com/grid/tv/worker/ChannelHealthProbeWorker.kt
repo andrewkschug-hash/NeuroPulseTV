@@ -13,6 +13,7 @@ import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.grid.tv.data.network.AppHttpClient
+import com.grid.tv.feature.scanner.ChannelScanner
 import okhttp3.Request
 
 @HiltWorker
@@ -21,12 +22,17 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val channelDao: ChannelDao,
     private val streamHealthDao: StreamHealthDao,
-    private val appHttpClient: AppHttpClient
+    private val appHttpClient: AppHttpClient,
+    private val channelScanner: ChannelScanner
 ) : CoroutineWorker(appContext, params) {
 
     private val healthEngine = StreamHealthEngine()
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (channelScanner.isPlaybackScanSuspended) {
+            android.util.Log.i("ChannelHealthProbe", "Skipped — live fullscreen playback active")
+            return@withContext Result.success()
+        }
         val channels = channelDao.all().take(40)
         channels.forEach { channel ->
             val started = System.currentTimeMillis()

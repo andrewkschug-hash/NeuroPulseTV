@@ -63,8 +63,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.di.PlayerEntryPoint
+import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.feature.recording.RecordingStatus
 import com.grid.tv.player.LivePlayerManager
+import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.player.SeekThumbnailProvider
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.userLabel
@@ -112,6 +114,7 @@ fun PlayerScreen(
         EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
     }
     val livePlayerManager = remember { entryPoint.livePlayerManager() }
+    val playbackOrchestrator = remember { entryPoint.playbackOrchestrator() }
     val chromecastController = remember { entryPoint.chromecastController() }
     val isMobilePlayer = !LocalDeviceFormFactor.current.isTelevision
     val lastChannel by livePlayerManager.lastChannelFlow.collectAsStateWithLifecycle()
@@ -477,9 +480,20 @@ fun PlayerScreen(
 
     var playbackSettingsSynced by remember { mutableStateOf(false) }
 
-    LaunchedEffect(settings.bufferSize, settings.preferHardwareDecoding, settings.autoReconnectOnDrop, settingsReady) {
+    LaunchedEffect(
+        settings.bufferSize,
+        settings.preferHardwareDecoding,
+        settings.autoReconnectOnDrop,
+        settings.streamRetries,
+        settings.useProxy,
+        settings.proxyUrl,
+        settings.connectionTimeoutSeconds,
+        settingsReady
+    ) {
         if (!settingsReady) return@LaunchedEffect
         livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
+        livePlayerManager.setStreamRetries(settings.streamRetries)
+        livePlayerManager.syncNetworkSettings(context, settings)
         livePlayerManager.syncPlaybackSettings(
             context,
             settings.bufferSize,
@@ -501,11 +515,12 @@ fun PlayerScreen(
     val player = remember(playerGeneration, context) {
         livePlayerManager.getOrCreatePlayer(context)
     }
-    val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
-    val failoverUiState by livePlayerManager.failoverUiState.collectAsStateWithLifecycle()
-    val activeStreamUrl by livePlayerManager.activeStreamUrlFlow.collectAsStateWithLifecycle()
-    val canTimeshift by livePlayerManager.canTimeshiftFlow.collectAsStateWithLifecycle()
-    val timeshiftState by livePlayerManager.timeshiftStateFlow.collectAsStateWithLifecycle()
+    val playbackUi by livePlayerManager.playbackUiState.collectAsStateWithLifecycle()
+    val playbackStatus = playbackUi.status
+    val failoverUiState = playbackUi.failover
+    val activeStreamUrl = playbackUi.activeStreamUrl
+    val timeshiftState = playbackUi.timeshift
+    val canTimeshift = timeshiftState.canTimeshift
 
     LaunchedEffect(settings.pictureInPictureEnabled) {
         viewModel.pipController.pictureInPictureEnabled = settings.pictureInPictureEnabled
@@ -520,6 +535,11 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(Unit) {
+        playbackOrchestrator.requestSession(
+            PlaybackOrchestrator.PlaybackSession.LIVE_FULLSCREEN,
+            owner = "player_screen",
+            context = context
+        )
         livePlayerManager.enterFullscreen()
         viewModel.pipController.setPlaybackActive(true)
     }
@@ -580,6 +600,10 @@ fun PlayerScreen(
             sleepTimer.onExpired = null
             livePlayerManager.resetVolumeFade()
             livePlayerManager.exitFullscreen(context)
+            playbackOrchestrator.releaseSession(
+                PlaybackOrchestrator.PlaybackSession.LIVE_FULLSCREEN,
+                context
+            )
             viewModel.pipController.setPlaybackActive(false)
             livePlayerManager.activePlayer()?.let { exo ->
                 viewModel.savePosition(exo.currentPosition)
@@ -592,11 +616,6 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = state == Player.STATE_BUFFERING
                 videoQuality = videoQualityLabel(player)
-
-                if (state == Player.STATE_READY) {
-                    val loadMs = (System.currentTimeMillis() - player.currentPosition).coerceAtLeast(1)
-                    scope.launch { viewModel.reportStreamHealth(loadMs, bufferEvents = 0, success = true) }
-                }
             }
 
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
@@ -692,6 +711,8 @@ fun PlayerScreen(
                     isFocusable = true
                     this.player = player
                     playerViewRef[0] = this
+                }.also { view ->
+                    PlaybackSurfaceInstrument.attach("live_fullscreen", player, view)
                 }
             },
             update = { view ->
@@ -700,6 +721,7 @@ fun PlayerScreen(
                 if (view.player != player) view.player = player
             },
             onRelease = { view ->
+                PlaybackSurfaceInstrument.detach("live_fullscreen", player, view)
                 view.player = null
                 if (playerViewRef[0] === view) playerViewRef[0] = null
             }

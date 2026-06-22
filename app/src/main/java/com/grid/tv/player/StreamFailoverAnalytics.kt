@@ -1,5 +1,6 @@
 package com.grid.tv.player
 
+import android.util.Log
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
 import javax.inject.Inject
@@ -29,7 +30,7 @@ class StreamFailoverAnalytics @Inject constructor(
         }
     }
 
-    fun recordSuccessfulRecovery(channelId: Long) {
+    fun recordSuccessfulRecovery(channelId: Long, attemptsUsed: Int = 1) {
         scope.launch {
             val now = System.currentTimeMillis()
             val existing = dao.get(channelId)
@@ -40,8 +41,66 @@ class StreamFailoverAnalytics @Inject constructor(
                 )
             )
         }
+        Log.i(
+            TAG,
+            "RECOVERY_SUCCESS channelId=$channelId attemptsUsed=$attemptsUsed"
+        )
+    }
+
+    fun recordFinalFailure(channelId: Long, attemptsUsed: Int) {
+        Log.w(
+            TAG,
+            "RECOVERY_FINAL_FAILURE channelId=$channelId attemptsUsed=$attemptsUsed"
+        )
+    }
+
+    fun logRetryAttempt(
+        channelId: Long?,
+        trigger: String,
+        category: String,
+        attempt: Int,
+        maxAttempts: Int,
+        step: String
+    ) {
+        Log.i(
+            TAG,
+            "RETRY_ATTEMPT channelId=$channelId trigger=$trigger category=$category " +
+                "attempt=$attempt/$maxAttempts step=${step.take(120)}"
+        )
+    }
+
+    fun logRecoverySuccess(
+        channelId: Long?,
+        trigger: String,
+        category: String,
+        attemptsUsed: Int,
+        maxAttempts: Int
+    ) {
+        Log.i(
+            TAG,
+            "RETRY_SUCCESS channelId=$channelId trigger=$trigger category=$category " +
+                "attemptsUsed=$attemptsUsed maxAttempts=$maxAttempts"
+        )
+    }
+
+    fun logFinalFailure(
+        channelId: Long?,
+        trigger: String,
+        category: String,
+        attemptsUsed: Int,
+        maxAttempts: Int
+    ) {
+        Log.w(
+            TAG,
+            "RETRY_FINAL_FAILURE channelId=$channelId trigger=$trigger category=$category " +
+                "attemptsUsed=$attemptsUsed maxAttempts=$maxAttempts"
+        )
     }
 
     fun problematicChannels(limit: Int = 20): Flow<List<StreamFailoverStatsEntity>> =
         dao.problematicChannels(limit)
+
+    companion object {
+        private const val TAG = "StreamFailover"
+    }
 }

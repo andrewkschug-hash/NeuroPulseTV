@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -32,8 +33,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grid.tv.di.PlayerEntryPoint
 import com.grid.tv.di.SearchEntryPoint
-import com.grid.tv.domain.epg.programmesForChannel
+import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.ContinueWatchingItem
+import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.ui.component.EpgLayout
@@ -47,6 +49,7 @@ import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
+import kotlinx.coroutines.flow.distinctUntilChanged
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.delay
 
@@ -238,6 +241,13 @@ fun HomeEpgScreen(
             else -> epgWindow
         }
     }
+    val programmeIndex = remember(displayChannels, displayPrograms) {
+        ProgrammeIndex.build(displayChannels, displayPrograms)
+    }
+
+    SideEffect {
+        PerformanceAudit.logEpgRecomposition("HomeEpgScreen")
+    }
 
     LaunchedEffect(favoriteSavedMessage) {
         if (favoriteSavedMessage != null) {
@@ -246,8 +256,9 @@ fun HomeEpgScreen(
         }
     }
 
-    val liveChannelId by livePlayerManager.activeChannelIdFlow.collectAsStateWithLifecycle()
-    val playbackStatus by livePlayerManager.playbackStatus.collectAsStateWithLifecycle()
+    val playbackUi by livePlayerManager.playbackUiState.collectAsStateWithLifecycle()
+    val liveChannelId = playbackUi.activeChannelId
+    val playbackStatus = playbackUi.status
 
     LaunchedEffect(liveChannelId, channels) {
         val id = liveChannelId ?: return@LaunchedEffect
@@ -351,21 +362,28 @@ fun HomeEpgScreen(
 
     val controller = remember(ui) { HomeEpgGuideController(ui) }
 
-    LaunchedEffect(listState, displayChannels, ui.focusChannelIndex) {
+    LaunchedEffect(listState, displayChannels) {
         if (displayChannels.isEmpty()) return@LaunchedEffect
         snapshotFlow {
             listState.layoutInfo.visibleItemsInfo.mapNotNull { info ->
                 displayChannels.getOrNull(info.index)?.id
-            } to ui.focusChannelIndex
-        }.collect { (visibleIds, focusIdx) ->
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            if (lastVisible >= displayChannels.size - 20) {
-                viewModel.loadMoreChannels()
             }
-            val focusWindow = (focusIdx - 3..focusIdx + 3)
-                .mapNotNull { displayChannels.getOrNull(it)?.id }
-            viewModel.onGuideViewportChanged(visibleIds, focusWindow)
         }
+            .distinctUntilChanged()
+            .collect { visibleIds ->
+                val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                if (lastVisible >= displayChannels.size - 20) {
+                    viewModel.loadMoreChannels()
+                }
+                viewModel.onGuideScrollViewportChanged(visibleIds)
+            }
+    }
+
+    LaunchedEffect(ui.focusChannelIndex, displayChannels) {
+        viewModel.onGuideFocusChannelChanged(
+            channelId = displayChannels.getOrNull(ui.focusChannelIndex)?.id,
+            channelIndex = ui.focusChannelIndex
+        )
     }
 
     LaunchedEffect(guidePosition, displayChannels.size, liveChannelId) {
@@ -414,7 +432,7 @@ fun HomeEpgScreen(
         ui.didRestoreGuide
     ) {
         if (!ui.didRestoreGuide || displayChannels.isEmpty()) return@LaunchedEffect
-        viewModel.saveGuidePosition(
+        viewModel.saveGuidePositionDebounced(
             EpgGuidePosition(
                 focusChannelIndex = ui.focusChannelIndex.coerceIn(0, displayChannels.lastIndex),
                 focusProgramIndex = ui.focusProgramIndex,
@@ -439,8 +457,8 @@ fun HomeEpgScreen(
     }
 
     val focusedChannel = displayChannels.getOrNull(ui.focusChannelIndex)
-    val channelPrograms = remember(focusedChannel, displayPrograms) {
-        focusedChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
+    val channelPrograms = remember(focusedChannel, programmeIndex) {
+        focusedChannel?.let { programmeIndex.programsFor(it.id) } ?: emptyList()
     }
     val focusedProgram = if (ui.focusOnChannelColumn) {
         val nowMs = System.currentTimeMillis()
@@ -453,8 +471,8 @@ fun HomeEpgScreen(
     val previewChannel = previewChannelId?.let { channelId ->
         channels.find { it.id == channelId } ?: displayChannels.find { it.id == channelId }
     }
-    val previewChannelPrograms = remember(previewChannel, displayPrograms) {
-        previewChannel?.let { programmesForChannel(it, displayPrograms) } ?: emptyList()
+    val previewChannelPrograms = remember(previewChannel, programmeIndex) {
+        previewChannel?.let { programmeIndex.programsFor(it.id) } ?: emptyList()
     }
     val previewProgram = remember(
         previewChannel,
@@ -500,7 +518,7 @@ fun HomeEpgScreen(
             !ui.initialGuidePickerDismissed
     }
 
-    LaunchedEffect(displayChannels.size, isReloadingChannels, displayPrograms) {
+    LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex) {
         if (isReloadingChannels) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
             ui.focusChannelIndex = 0
@@ -509,7 +527,7 @@ fun HomeEpgScreen(
         } else if (ui.focusChannelIndex > displayChannels.lastIndex) {
             ui.focusChannelIndex = displayChannels.lastIndex
             val progs = displayChannels.getOrNull(ui.focusChannelIndex)
-                ?.let { programmesForChannel(it, displayPrograms) }
+                ?.let { programmeIndex.programsFor(it.id) }
                 ?: emptyList()
             ui.focusProgramIndex = ui.focusProgramIndex.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
         }
@@ -541,7 +559,7 @@ fun HomeEpgScreen(
         hScroll = hScroll,
         channels = channels,
         displayChannels = displayChannels,
-        displayPrograms = displayPrograms,
+        programmeIndex = programmeIndex,
         viewModel = viewModel,
         recordingViewModel = recordingViewModel,
         searchViewModel = searchViewModel,

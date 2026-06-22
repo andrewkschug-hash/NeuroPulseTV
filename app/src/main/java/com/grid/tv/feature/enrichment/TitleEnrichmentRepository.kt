@@ -10,6 +10,9 @@ import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.domain.repository.MovieRepository
+import com.grid.tv.util.cache.AppCacheRegistry
+import com.grid.tv.util.cache.BoundedMemoryCache
+import com.grid.tv.util.cache.CacheSizeEstimators
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -20,13 +23,23 @@ class TitleEnrichmentRepository @Inject constructor(
     private val dao: TitleEnrichmentDao,
     private val tmdbService: TmdbService,
     private val movieRepository: MovieRepository,
-    private val supabaseClientProvider: SupabaseClientProvider
+    private val supabaseClientProvider: SupabaseClientProvider,
+    appCacheRegistry: AppCacheRegistry
 ) {
-    private val sessionCache = ConcurrentHashMap<String, TitleEnrichmentEntity>()
+    private val sessionCache = BoundedMemoryCache<String, TitleEnrichmentEntity>(
+        name = "title_enrichment_session",
+        maxEntries = MAX_SESSION_ENTRIES,
+        maxBytes = MAX_SESSION_BYTES,
+        valueSizeEstimator = CacheSizeEstimators::titleEnrichment,
+        registry = appCacheRegistry
+    )
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<TitleEnrichmentEntity?>>()
 
     companion object {
         const val CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000
+        const val MAX_SESSION_ENTRIES = 400
+        const val MAX_SESSION_BYTES = 2L * 1024L * 1024L
+        const val MAX_IN_FLIGHT = 64
 
         fun xtreamVodKey(playlistId: Long, streamId: Long): String =
             "xtream:vod:$playlistId:$streamId"
@@ -46,19 +59,19 @@ class TitleEnrichmentRepository @Inject constructor(
     fun observe(providerKey: String) = dao.observe(providerKey)
 
     suspend fun getCached(providerKey: String): TitleEnrichmentEntity? {
-        sessionCache[providerKey]?.takeIf { isFresh(it) }?.let { return it }
+        sessionCache.get(providerKey)?.takeIf { isFresh(it) }?.let { return it }
         val cached = dao.get(providerKey) ?: return null
-        return cached.takeIf { isFresh(cached) }?.also { sessionCache[providerKey] = it }
+        return cached.takeIf { isFresh(cached) }?.also { sessionCache.put(providerKey, it) }
     }
 
     suspend fun getCachedBatch(providerKeys: List<String>): Map<String, TitleEnrichmentEntity> {
         if (providerKeys.isEmpty()) return emptyMap()
         val now = System.currentTimeMillis()
         return providerKeys.mapNotNull { key ->
-            sessionCache[key]?.takeIf { isFresh(it) }
+            sessionCache.get(key)?.takeIf { isFresh(it) }
                 ?: dao.get(key)?.takeIf { now - it.updatedAt < CACHE_TTL_MS }
         }.associateBy { it.providerKey }
-            .also { batch -> sessionCache.putAll(batch) }
+            .also { batch -> batch.forEach { (key, entity) -> sessionCache.put(key, entity) } }
     }
 
     suspend fun enrichOnDemand(
@@ -68,17 +81,18 @@ class TitleEnrichmentRepository @Inject constructor(
         isTv: Boolean = false,
         imdbId: String? = null
     ): TitleEnrichmentEntity? {
-        sessionCache[providerKey]?.takeIf { isFresh(it) && it.tmdbId != null }?.let { return it }
+        sessionCache.get(providerKey)?.takeIf { isFresh(it) && it.tmdbId != null }?.let { return it }
 
         val existing = dao.get(providerKey)
         if (existing != null && isFresh(existing) && existing.tmdbId != null) {
-            sessionCache[providerKey] = existing
+            sessionCache.put(providerKey, existing)
             return existing
         }
 
         inFlight[providerKey]?.let { return it.await() }
 
         val deferred = CompletableDeferred<TitleEnrichmentEntity?>()
+        trimInFlightIfNeeded()
         inFlight[providerKey] = deferred
         return try {
             val entity = fetchAndPersist(
@@ -90,7 +104,7 @@ class TitleEnrichmentRepository @Inject constructor(
                 prior = existing
             )
             deferred.complete(entity)
-            entity?.let { sessionCache[providerKey] = it }
+            entity?.let { sessionCache.put(providerKey, it) }
             entity
         } catch (_: Throwable) {
             deferred.complete(existing)
@@ -119,6 +133,14 @@ class TitleEnrichmentRepository @Inject constructor(
             releaseYear = parseYear(item.title),
             isTv = item.contentType == ContinueWatchingContentType.SERIES
         )
+
+    private fun trimInFlightIfNeeded() {
+        if (inFlight.size < MAX_IN_FLIGHT) return
+        inFlight.entries.removeIf { it.value.isCompleted }
+        if (inFlight.size >= MAX_IN_FLIGHT) {
+            inFlight.keys.firstOrNull()?.let { inFlight.remove(it) }
+        }
+    }
 
     private suspend fun fetchAndPersist(
         providerKey: String,
@@ -159,10 +181,6 @@ class TitleEnrichmentRepository @Inject constructor(
         }
     }
 
-    /**
-     * Resolves a TMDB movie id from title/year (or IMDb), then loads full metadata via the
-     * Supabase `get-movie-details` edge function.
-     */
     private suspend fun enrichMovieViaEdgeFunction(
         title: String,
         releaseYear: Int?,

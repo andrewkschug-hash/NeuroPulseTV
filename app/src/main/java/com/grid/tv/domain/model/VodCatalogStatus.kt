@@ -21,6 +21,12 @@ data class VodCatalogStatus(
     val seriesParsedCount: Int = 0,
     val hasXtreamPlaylist: Boolean = true
 ) {
+    fun moviesRefreshWarning(catalogTotal: Int): String? =
+        moviesError?.takeIf { catalogTotal > 0 && progress.moviesPhaseFinished }
+
+    fun seriesRefreshWarning(catalogTotal: Int): String? =
+        seriesError?.takeIf { catalogTotal > 0 && progress.seriesPhaseFinished }
+
     fun moviesEmptyReason(filteredCount: Int, catalogTotal: Int, categoryId: String?, searchQuery: String): VodCatalogEmptyReason {
         if (progress.isLoading && !progress.moviesPhaseFinished) return VodCatalogEmptyReason.LOADING
         if (!hasXtreamPlaylist) return VodCatalogEmptyReason.NO_XTREAM_PLAYLIST

@@ -40,6 +40,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.Program
+import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.isHealthy
 import com.grid.tv.player.userLabel
@@ -143,7 +144,10 @@ private fun EpgPreviewPlayerPane(
 ) {
     var playbackState by remember { mutableIntStateOf(Player.STATE_IDLE) }
 
-    DisposableEffect(player) {
+    DisposableEffect(player, streamStatus) {
+        if (streamStatus != null) {
+            return@DisposableEffect onDispose { }
+        }
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
                 playbackState = state
@@ -157,8 +161,13 @@ private fun EpgPreviewPlayerPane(
     val showVideo = attachSurface &&
         player != null &&
         player.mediaItemCount > 0 &&
-        playbackState != Player.STATE_IDLE &&
-        playbackState != Player.STATE_ENDED
+        when (streamStatus) {
+            null -> playbackState != Player.STATE_IDLE && playbackState != Player.STATE_ENDED
+            StreamPlaybackStatus.IDLE,
+            StreamPlaybackStatus.ERROR,
+            StreamPlaybackStatus.UNAVAILABLE -> false
+            else -> true
+        }
     val shape = RoundedCornerShape(10.dp)
 
     Box(
@@ -178,6 +187,8 @@ private fun EpgPreviewPlayerPane(
                             this.player = player
                             isFocusable = false
                             isFocusableInTouchMode = false
+                        }.also { view ->
+                            PlaybackSurfaceInstrument.attach("epg_preview", player, view)
                         }
                     },
                     update = { view ->
@@ -185,7 +196,10 @@ private fun EpgPreviewPlayerPane(
                         view.isFocusable = false
                         view.isFocusableInTouchMode = false
                     },
-                    onRelease = { view -> view.player = null },
+                    onRelease = { view ->
+                        PlaybackSurfaceInstrument.detach("epg_preview", player, view)
+                        view.player = null
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .focusProperties { canFocus = false }

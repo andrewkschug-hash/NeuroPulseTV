@@ -74,7 +74,9 @@ class DirectPlayerViewModel @Inject constructor(
             context = context,
             bufferSize = settings.bufferSize,
             preferHardwareDecoding = settings.preferHardwareDecoding,
-            startupPriority = PlaybackStartupPriority.FAST
+            startupPriority = PlaybackStartupPriority.FAST,
+            networkSettings = settings,
+            decoderOwner = "vod_direct"
         )
     }
 

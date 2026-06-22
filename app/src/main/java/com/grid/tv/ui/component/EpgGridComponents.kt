@@ -373,6 +373,7 @@ fun EpgChannelCell(
     val nameColor = if (isFocused || isRowActive) EpgColors.TextPrimary else EpgColors.TextSecondary
     val showAccentBar = isFocused || isRowActive
     val initials = channel.name.take(2).uppercase()
+    val logoModel = remember(channel.id, channel.logoUrl) { channel.logoUrl }
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
     } else {
@@ -415,9 +416,9 @@ fun EpgChannelCell(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (channel.logoUrl != null) {
+                if (logoModel != null) {
                     AsyncImage(
-                        model = channel.logoUrl,
+                        model = logoModel,
                         contentDescription = channel.name,
                         modifier = Modifier
                             .size(EpgLayout.ChannelLogoSize)

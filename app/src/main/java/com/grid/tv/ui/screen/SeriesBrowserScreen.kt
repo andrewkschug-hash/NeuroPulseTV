@@ -86,6 +86,7 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
@@ -295,6 +296,9 @@ fun SeriesBrowserScreen(
                 baseMessage = "Fetching your provider's series catalog. Large libraries can take a minute.",
                 progress = catalogProgress,
                 isMovies = false
+            )
+            VodCatalogRefreshWarningBanner(
+                message = catalogStatus.seriesRefreshWarning(catalogTotalCount)
             )
         }
 

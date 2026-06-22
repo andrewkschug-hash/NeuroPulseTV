@@ -21,11 +21,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateMap
+import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +47,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -61,7 +59,9 @@ import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.SplitViewViewModel
-import com.grid.tv.util.MediaAttribution
+import com.grid.tv.player.MultiPanePlaybackPolicy
+import com.grid.tv.player.PlaybackOrchestrator
+import com.grid.tv.player.PlaybackSurfaceInstrument
 import kotlinx.coroutines.delay
 
 private enum class SplitPaneMenuAction(val label: String) {
@@ -90,25 +90,26 @@ fun SplitViewScreen(
     var showPaneMenu by remember { mutableStateOf(false) }
     var menuPaneIndex by remember { mutableIntStateOf(0) }
 
-    val playbackContext = remember {
-        MediaAttribution.appContext(context, MediaAttribution.MEDIA_PLAYBACK)
-    }
-    val channelPlayers = remember { mutableStateMapOf<Long, ExoPlayer>() }
-
-    fun releaseChannelPlayer(channelId: Long) {
-        channelPlayers.remove(channelId)?.release()
-    }
+    val maxPanes = remember(context) { MultiPanePlaybackPolicy.maxPaneCount(context) }
+    val decodeOnlyAudio = remember(context) { MultiPanePlaybackPolicy.decodeOnlyActiveAudioPane(context) }
 
     var showControls by remember { mutableStateOf(true) }
     var controlsInteractionToken by remember { mutableIntStateOf(0) }
     var paneIndex by remember { mutableIntStateOf(0) }
     val rootFocusRequester = remember { FocusRequester() }
+    var sessionGranted by remember { mutableStateOf<Boolean?>(null) }
 
     DisposableEffect(Unit) {
+        val result = viewModel.requestSplitSession(context)
+        sessionGranted = result == PlaybackOrchestrator.SessionRequestResult.GRANTED ||
+            result == PlaybackOrchestrator.SessionRequestResult.GRANTED_EVICTED_LOWER
         onDispose {
-            channelPlayers.values.forEach { player -> player.release() }
-            channelPlayers.clear()
+            viewModel.releaseSplitSession(context)
         }
+    }
+
+    LaunchedEffect(sessionGranted) {
+        if (sessionGranted == false) onBack()
     }
 
     LaunchedEffect(primaryChannelId) {
@@ -119,39 +120,8 @@ fun SplitViewScreen(
         if (loadFailed) onBack()
     }
 
-    LaunchedEffect(paneChannels.mapNotNull { it?.id }) {
-        val activeIds = paneChannels.mapNotNull { it?.id }.toSet()
-        activeIds.forEach { channelId ->
-            if (channelId !in channelPlayers) {
-                channelPlayers[channelId] = viewModel.createPanePlayer(playbackContext)
-            }
-        }
-        (channelPlayers.keys - activeIds).forEach(::releaseChannelPlayer)
-    }
-
-    LaunchedEffect(paneChannels.map { it?.id to it?.streamUrl }) {
-        paneChannels.forEach { channel ->
-            val ch = channel ?: return@forEach
-            val player = channelPlayers[ch.id] ?: return@forEach
-            val url = ch.streamUrl
-            if (url.isBlank()) return@forEach
-            val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-            if (currentUri == url) {
-                if (!player.playWhenReady) player.playWhenReady = true
-                return@forEach
-            }
-            player.setMediaItem(MediaItem.fromUri(url))
-            player.prepare()
-            player.playWhenReady = true
-        }
-    }
-
-    LaunchedEffect(audioPaneIndex, paneChannels.mapNotNull { it?.id }) {
-        paneChannels.forEachIndexed { index, channel ->
-            val player = channel?.id?.let { channelPlayers[it] } ?: return@forEachIndexed
-            player.volume = if (index == audioPaneIndex) 1f else 0f
-            if (!player.playWhenReady) player.playWhenReady = true
-        }
+    LaunchedEffect(paneChannels, audioPaneIndex, decodeOnlyAudio) {
+        viewModel.syncPanePlayback(context, paneChannels, audioPaneIndex, decodeOnlyAudio)
     }
 
     LaunchedEffect(paneChannels.size) {
@@ -178,7 +148,7 @@ fun SplitViewScreen(
         if (index != 0) add(SplitPaneMenuAction.MAKE_PRIMARY)
         add(SplitPaneMenuAction.AUDIO_ON)
         if (paneChannels.size > 1) add(SplitPaneMenuAction.REMOVE_SCREEN)
-        if (paneChannels.size < SplitViewViewModel.MAX_PANES) add(SplitPaneMenuAction.ADD_SCREEN)
+        if (paneChannels.size < maxPanes) add(SplitPaneMenuAction.ADD_SCREEN)
     }
 
     fun openPaneMenu(index: Int) {
@@ -292,9 +262,11 @@ fun SplitViewScreen(
     ) {
         SplitPaneGrid(
             paneChannels = paneChannels,
-            channelPlayers = channelPlayers,
+            viewModel = viewModel,
+            context = context,
             paneIndex = paneIndex,
-            audioPaneIndex = audioPaneIndex
+            audioPaneIndex = audioPaneIndex,
+            decodeOnlyAudio = decodeOnlyAudio
         )
 
         AnimatedVisibility(
@@ -334,7 +306,7 @@ fun SplitViewScreen(
                         fontSize = 12.sp
                     )
                     Text(
-                        text = "${paneChannels.size} of ${SplitViewViewModel.MAX_PANES} streams",
+                        text = "${paneChannels.size} of $maxPanes streams",
                         color = EpgColors.TextSecondary,
                         fontFamily = DmSansFamily,
                         fontSize = 11.sp
@@ -362,9 +334,9 @@ fun SplitViewScreen(
             excludeChannelIds = paneChannels.mapNotNull { it?.id }.toSet(),
             onSelect = { channel ->
                 val newPaneIndex = paneChannels.size
-                viewModel.addPane(channel.id)
+                viewModel.addPane(channel.id, maxPanes)
                 showPicker = false
-                paneIndex = newPaneIndex.coerceAtMost(SplitViewViewModel.MAX_PANES - 1)
+                paneIndex = newPaneIndex.coerceAtMost(maxPanes - 1)
             },
             onDismiss = { showPicker = false },
             onNearEnd = { viewModel.loadMoreChannels() }
@@ -436,9 +408,11 @@ private fun SplitPaneActionMenu(
 @Composable
 private fun SplitPaneGrid(
     paneChannels: List<Channel?>,
-    channelPlayers: SnapshotStateMap<Long, ExoPlayer>,
+    viewModel: SplitViewViewModel,
+    context: Context,
     paneIndex: Int,
-    audioPaneIndex: Int
+    audioPaneIndex: Int,
+    decodeOnlyAudio: Boolean
 ) {
     when {
         paneChannels.isEmpty() -> Box(
@@ -460,9 +434,11 @@ private fun SplitPaneGrid(
                 SplitPaneSlot(
                     paneIndex = 0,
                     channel = paneChannels.getOrNull(0),
-                    channelPlayers = channelPlayers,
+                    viewModel = viewModel,
+                    context = context,
                     focused = paneIndex == 0,
                     activeAudio = audioPaneIndex == 0,
+                    decodeOnlyAudio = decodeOnlyAudio,
                     modifier = if (paneChannels.size == 1) {
                         Modifier.fillMaxSize()
                     } else {
@@ -475,9 +451,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 1,
                         activeAudio = audioPaneIndex == 1,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -497,9 +475,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 0,
                         channel = paneChannels.getOrNull(0),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 0,
                         activeAudio = audioPaneIndex == 0,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -507,9 +487,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 1,
                         activeAudio = audioPaneIndex == 1,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -518,9 +500,11 @@ private fun SplitPaneGrid(
                 SplitPaneSlot(
                     paneIndex = 2,
                     channel = paneChannels.getOrNull(2),
-                    channelPlayers = channelPlayers,
+                    viewModel = viewModel,
+                    context = context,
                     focused = paneIndex == 2,
                     activeAudio = audioPaneIndex == 2,
+                    decodeOnlyAudio = decodeOnlyAudio,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -541,9 +525,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 0,
                         channel = paneChannels.getOrNull(0),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 0,
                         activeAudio = audioPaneIndex == 0,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -551,9 +537,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 1,
                         activeAudio = audioPaneIndex == 1,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -568,9 +556,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 2,
                         channel = paneChannels.getOrNull(2),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 2,
                         activeAudio = audioPaneIndex == 2,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -578,9 +568,11 @@ private fun SplitPaneGrid(
                     SplitPaneSlot(
                         paneIndex = 3,
                         channel = paneChannels.getOrNull(3),
-                        channelPlayers = channelPlayers,
+                        viewModel = viewModel,
+                    context = context,
                         focused = paneIndex == 3,
                         activeAudio = audioPaneIndex == 3,
+                        decodeOnlyAudio = decodeOnlyAudio,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -594,17 +586,70 @@ private fun SplitPaneGrid(
 private fun SplitPaneSlot(
     paneIndex: Int,
     channel: Channel?,
-    channelPlayers: SnapshotStateMap<Long, ExoPlayer>,
+    viewModel: SplitViewViewModel,
+    context: Context,
+    focused: Boolean,
+    activeAudio: Boolean,
+    decodeOnlyAudio: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val ch = channel ?: return
+    val showVideo = !decodeOnlyAudio || activeAudio
+    if (showVideo) {
+        SplitPaneVideoSlot(
+            paneIndex = paneIndex,
+            label = ch.name,
+            viewModel = viewModel,
+            context = context,
+            focused = focused,
+            activeAudio = activeAudio,
+            modifier = modifier
+        )
+    } else {
+        SplitPanePlaceholderSlot(
+            label = ch.name,
+            focused = focused,
+            activeAudio = activeAudio,
+            modifier = modifier
+        )
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun SplitPaneVideoSlot(
+    paneIndex: Int,
+    label: String,
+    viewModel: SplitViewViewModel,
+    context: Context,
     focused: Boolean,
     activeAudio: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val ch = channel ?: return
-    val player = channelPlayers[ch.id] ?: return
+    val player = remember(paneIndex) { viewModel.playerForPane(context, paneIndex) }
     SplitPane(
         paneIndex = paneIndex,
-        label = ch.name,
+        label = label,
         player = player,
+        showVideo = true,
+        focused = focused,
+        activeAudio = activeAudio,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SplitPanePlaceholderSlot(
+    label: String,
+    focused: Boolean,
+    activeAudio: Boolean,
+    modifier: Modifier = Modifier
+) {
+    SplitPane(
+        paneIndex = -1,
+        label = label,
+        player = null,
+        showVideo = false,
         focused = focused,
         activeAudio = activeAudio,
         modifier = modifier
@@ -616,7 +661,8 @@ private fun SplitPaneSlot(
 private fun SplitPane(
     paneIndex: Int,
     label: String,
-    player: ExoPlayer,
+    player: ExoPlayer?,
+    showVideo: Boolean,
     focused: Boolean,
     activeAudio: Boolean,
     modifier: Modifier = Modifier
@@ -647,18 +693,34 @@ private fun SplitPane(
             )
             .background(Color.Black)
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { playerView },
-            update = { view ->
-                if (view.player !== player) {
-                    view.player = player
+        if (showVideo && player != null) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { playerView.also { PlaybackSurfaceInstrument.attach("split_view_pane_$paneIndex", player, it) } },
+                update = { view ->
+                    if (view.player !== player) {
+                        view.player = player
+                    }
+                },
+                onRelease = { view ->
+                    PlaybackSurfaceInstrument.detach("split_view_pane_$paneIndex", player, view)
+                    view.player = null
                 }
-            },
-            onRelease = { view ->
-                view.player = null
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    maxLines = 3
+                )
             }
-        )
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)

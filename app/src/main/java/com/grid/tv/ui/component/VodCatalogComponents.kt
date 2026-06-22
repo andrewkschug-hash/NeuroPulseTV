@@ -893,6 +893,22 @@ fun VodCatalogLoadingBanner(
 }
 
 @Composable
+fun VodCatalogRefreshWarningBanner(
+    message: String?,
+    modifier: Modifier = Modifier
+) {
+    if (message.isNullOrBlank()) return
+    Text(
+        text = message,
+        color = VodNetflixColors.TextSecondary,
+        fontFamily = DmSansFamily,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
+        modifier = modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+    )
+}
+
+@Composable
 fun VodEmptyState(
     title: String,
     message: String,

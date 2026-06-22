@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -762,56 +763,28 @@ internal fun HomeEpgChannelList(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             items(displayChannels.size, key = { index -> displayChannels[index].id }) { index ->
-                                val channel = displayChannels[index]
-                                val programs = programsForChannel(channel)
-                                val isActiveRow = gridFocused && index == focusChannelIndex
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = EpgLayout.RowHeight)
-                                        .height(EpgLayout.RowHeight)
-                                        .focusProperties { canFocus = false }
-                                ) {
-                                    EpgChannelCell(
-                                        channel = channel,
-                                        isFocused = isActiveRow && focusOnChannelColumn,
-                                        isRowActive = isActiveRow,
-                                        showBottomSeparator = index < displayChannels.lastIndex,
-                                        scanStatus = channelScanStatuses[channel.id]?.status,
-                                        lastCheckedLabel = formatLastChecked(
-                                            channelScanStatuses[channel.id]?.lastCheckedAt
-                                        ),
-                                        onClick = if (touchGesturesEnabled) {
-                                            { onChannelClick(index, channel) }
-                                        } else {
-                                            null
-                                        },
-                                        modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
-                                    )
-                                    EpgChannelTimelineRow(
-                                        channel = channel,
-                                        programs = programs,
-                                        windowStart = windowStart,
-                                        windowDurationMs = windowDurationMs,
-                                        now = gridNow,
-                                        channelIndex = index,
-                                        focusChannelIndex = focusChannelIndex,
-                                        focusProgramIndex = focusProgramIndex,
-                                        focusOnChannelColumn = focusOnChannelColumn,
-                                        gridFocused = gridFocused,
-                                        isRowFocused = gridFocused && index == focusChannelIndex,
-                                        confirmedProgramId = confirmedProgramId,
-                                        scheduled = scheduled,
-                                        hScrollModifier = Modifier.horizontalScroll(
-                                            hScroll,
-                                            enabled = touchGesturesEnabled
-                                        ),
-                                        timelineWidth = timelineWidth,
-                                        touchGesturesEnabled = touchGesturesEnabled,
-                                        onProgramClick = onProgramClick,
-                                        replayStateFor = replayStateFor
-                                    )
-                                }
+                                EpgGuideChannelRow(
+                                    channel = displayChannels[index],
+                                    index = index,
+                                    programs = programsForChannel(displayChannels[index]),
+                                    gridFocused = gridFocused,
+                                    focusChannelIndex = focusChannelIndex,
+                                    focusProgramIndex = focusProgramIndex,
+                                    focusOnChannelColumn = focusOnChannelColumn,
+                                    windowStart = windowStart,
+                                    windowDurationMs = windowDurationMs,
+                                    gridNow = gridNow,
+                                    channelScanStatuses = channelScanStatuses,
+                                    displayChannelsLastIndex = displayChannels.lastIndex,
+                                    confirmedProgramId = confirmedProgramId,
+                                    scheduled = scheduled,
+                                    hScroll = hScroll,
+                                    touchGesturesEnabled = touchGesturesEnabled,
+                                    timelineWidth = timelineWidth,
+                                    onChannelClick = onChannelClick,
+                                    onProgramClick = onProgramClick,
+                                    replayStateFor = replayStateFor
+                                )
                             }
                         }
 
@@ -852,6 +825,85 @@ internal fun HomeEpgChannelList(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+private fun EpgGuideChannelRow(
+    channel: Channel,
+    index: Int,
+    programs: List<Program>,
+    gridFocused: Boolean,
+    focusChannelIndex: Int,
+    focusProgramIndex: Int,
+    focusOnChannelColumn: Boolean,
+    windowStart: Long,
+    windowDurationMs: Long,
+    gridNow: Long,
+    channelScanStatuses: Map<Long, ChannelScanSnapshot>,
+    displayChannelsLastIndex: Int,
+    confirmedProgramId: Long?,
+    scheduled: List<ScheduledRecordingEntity>,
+    hScroll: ScrollState,
+    touchGesturesEnabled: Boolean,
+    timelineWidth: Dp,
+    onChannelClick: (Int, Channel) -> Unit,
+    onProgramClick: (Int, Int, Program) -> Unit,
+    replayStateFor: (Channel, Program) -> EpgProgramReplayState
+) {
+    val isActiveRow by remember {
+        derivedStateOf { gridFocused && index == focusChannelIndex }
+    }
+    val isChannelCellFocused by remember {
+        derivedStateOf { isActiveRow && focusOnChannelColumn }
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = EpgLayout.RowHeight)
+            .height(EpgLayout.RowHeight)
+            .focusProperties { canFocus = false }
+    ) {
+        EpgChannelCell(
+            channel = channel,
+            isFocused = isChannelCellFocused,
+            isRowActive = isActiveRow,
+            showBottomSeparator = index < displayChannelsLastIndex,
+            scanStatus = channelScanStatuses[channel.id]?.status,
+            lastCheckedLabel = formatLastChecked(
+                channelScanStatuses[channel.id]?.lastCheckedAt
+            ),
+            onClick = if (touchGesturesEnabled) {
+                { onChannelClick(index, channel) }
+            } else {
+                null
+            },
+            modifier = Modifier.width(EpgLayout.ChannelColumnWidth)
+        )
+        EpgChannelTimelineRow(
+            channel = channel,
+            programs = programs,
+            windowStart = windowStart,
+            windowDurationMs = windowDurationMs,
+            now = gridNow,
+            channelIndex = index,
+            focusChannelIndex = focusChannelIndex,
+            focusProgramIndex = focusProgramIndex,
+            focusOnChannelColumn = focusOnChannelColumn,
+            gridFocused = gridFocused,
+            isRowFocused = isActiveRow,
+            confirmedProgramId = confirmedProgramId,
+            scheduled = scheduled,
+            hScrollModifier = Modifier.horizontalScroll(
+                hScroll,
+                enabled = touchGesturesEnabled
+            ),
+            timelineWidth = timelineWidth,
+            touchGesturesEnabled = touchGesturesEnabled,
+            onProgramClick = onProgramClick,
+            replayStateFor = replayStateFor
+        )
     }
 }
 

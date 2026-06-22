@@ -41,6 +41,20 @@ interface IptvRepository {
         limit: Int,
         offset: Int
     ): List<Channel>
+    fun channelsPaging(
+        group: String? = null,
+        search: String = "",
+        favoritesOnly: Boolean = false,
+        favoriteGroupId: Long? = null,
+        sportsEpgIds: Set<String>? = null
+    ): Flow<PagingData<Channel>>
+    suspend fun channelsFilteredCount(
+        group: String? = null,
+        search: String = "",
+        favoritesOnly: Boolean = false,
+        favoriteGroupId: Long? = null,
+        sportsEpgIds: Set<String>? = null
+    ): Int
     fun hasChannels(): Flow<Boolean>
     suspend fun searchChannels(query: String, limit: Int = 50): List<Channel>
     fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>>

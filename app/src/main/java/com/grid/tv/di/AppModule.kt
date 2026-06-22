@@ -51,6 +51,7 @@ import com.grid.tv.data.sync.LocalOnlyCloudSyncClient
 import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.feature.scanner.HostFailureTracker
+import com.grid.tv.util.cache.AppCacheRegistry
 import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
 import com.grid.tv.data.network.parser.XmlTvParser
@@ -222,7 +223,8 @@ object AppProvidesModule {
 
     @Provides
     @Singleton
-    fun provideHostFailureTracker(): HostFailureTracker = HostFailureTracker()
+    fun provideHostFailureTracker(registry: AppCacheRegistry): HostFailureTracker =
+        HostFailureTracker(registry = registry)
 }
 
 @Module
