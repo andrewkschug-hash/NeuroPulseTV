@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.content.ContentResolver
 import android.net.Uri
+import com.grid.tv.BuildConfig
 import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.AspectRatioSetting
@@ -64,7 +65,7 @@ class SettingsViewModel @Inject constructor(
     val scannerRuntime = channelScanner.runtime
 
     companion object {
-        const val APP_VERSION = "2.1.0"
+        val APP_VERSION: String get() = BuildConfig.VERSION_NAME
     }
 
     val playlists: StateFlow<List<Playlist>> = repository.playlists()

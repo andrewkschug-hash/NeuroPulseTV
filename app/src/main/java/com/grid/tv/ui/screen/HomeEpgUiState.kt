@@ -24,7 +24,6 @@ internal class HomeEpgUiState {
     var showCreateGroup by mutableStateOf(false)
     var newGroupName by mutableStateOf("")
     var showGuideGroupPicker by mutableStateOf(false)
-    var initialGuidePickerDismissed by mutableStateOf(false)
     var showCategoryFilterMenu by mutableStateOf(false)
     var categoryMenuFocusIndex by mutableIntStateOf(0)
     var categoryMenuExpandedCategories by mutableStateOf(setOf<Int>())

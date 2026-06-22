@@ -3,6 +3,7 @@ package com.grid.tv.ui.component
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +31,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +45,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import kotlinx.coroutines.launch
 
 @Composable
 fun GuideGroupPickerDialog(
@@ -47,6 +55,7 @@ fun GuideGroupPickerDialog(
     title: String = "Choose your channels",
     subtitle: String = "Pick the groups you want in the live guide. You can change this later in Settings.",
     confirmLabel: String = "Save",
+    allowDismiss: Boolean = true,
     onDismiss: () -> Unit,
     onConfirm: (Set<String>) -> Unit
 ) {
@@ -78,11 +87,35 @@ fun GuideGroupPickerDialog(
     val saveFocusRequester = remember { FocusRequester() }
 
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    fun activateRow(row: GuideGroupVisibleRow) {
+        when (row) {
+            GuideGroupVisibleRow.AllChannels -> selection = emptySet()
+            is GuideGroupVisibleRow.Category -> {
+                expandedCategories = toggleCategoryExpansion(expandedCategories, row.categoryIndex)
+            }
+            is GuideGroupVisibleRow.SelectAll -> {
+                selection = toggleSelectAllGroups(row.groupNames, selection)
+            }
+            is GuideGroupVisibleRow.Group -> {
+                selection = toggleGuideGroupSelection(selection, row.fullName)
+            }
+        }
+    }
+
+    fun focusRow(index: Int) {
+        if (visibleRows.isEmpty()) return
+        val clamped = index.coerceIn(0, visibleRows.lastIndex)
+        focusedRowIndex = clamped
+        scope.launch {
+            rowFocusRequesters[clamped].requestFocusSafelyAfterLayout()
+        }
+    }
+
+    LaunchedEffect(visibleRows.size, expandedCategories, channelGroups) {
         if (visibleRows.isNotEmpty()) {
-            val index = focusedRowIndex.coerceIn(0, visibleRows.lastIndex)
-            rowFocusRequesters[index].requestFocusSafelyAfterLayout()
+            focusRow(focusedRowIndex.coerceIn(0, visibleRows.lastIndex))
         }
     }
 
@@ -99,20 +132,40 @@ fun GuideGroupPickerDialog(
         }
     }
 
-    BackHandler(onBack = onDismiss)
+    if (allowDismiss) {
+        BackHandler(onBack = onDismiss)
+    }
 
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (allowDismiss) onDismiss() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
+            dismissOnBackPress = allowDismiss,
             dismissOnClickOutside = false
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(EpgColors.Background.copy(alpha = 0.92f)),
+                .background(EpgColors.Background.copy(alpha = 0.92f))
+                .onPreviewKeyEvent { event ->
+                    if (visibleRows.isEmpty() || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionDown -> {
+                            focusRow(focusedRowIndex + 1)
+                            true
+                        }
+                        Key.DirectionUp -> {
+                            focusRow(focusedRowIndex - 1)
+                            true
+                        }
+                        Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                            visibleRows.getOrNull(focusedRowIndex)?.let(::activateRow)
+                            true
+                        }
+                        else -> false
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -156,6 +209,7 @@ fun GuideGroupPickerDialog(
                         }
                     ) { index, row ->
                         val rowModifier = Modifier
+                            .focusable()
                             .focusRequester(rowFocusRequesters[index])
                             .onFocusChanged {
                                 if (it.isFocused) focusedRowIndex = index
@@ -164,7 +218,7 @@ fun GuideGroupPickerDialog(
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selection.isEmpty(),
                                 focused = false,
-                                onClick = { selection = emptySet() },
+                                onClick = { activateRow(row) },
                                 modifier = rowModifier,
                                 tvFocusable = true
                             )
@@ -174,12 +228,7 @@ fun GuideGroupPickerDialog(
                                 subGroupCount = row.subGroupCount,
                                 expanded = row.expanded,
                                 focused = false,
-                                onClick = {
-                                    expandedCategories = toggleCategoryExpansion(
-                                        expandedCategories,
-                                        row.categoryIndex
-                                    )
-                                },
+                                onClick = { activateRow(row) },
                                 modifier = rowModifier,
                                 tvFocusable = true
                             )
@@ -188,9 +237,7 @@ fun GuideGroupPickerDialog(
                                 childCount = row.groupNames.size,
                                 checked = areAllGroupsSelected(row.groupNames, selection),
                                 focused = false,
-                                onClick = {
-                                    selection = toggleSelectAllGroups(row.groupNames, selection)
-                                },
+                                onClick = { activateRow(row) },
                                 modifier = rowModifier,
                                 tvFocusable = true
                             )
@@ -198,9 +245,7 @@ fun GuideGroupPickerDialog(
                                 label = row.fullName,
                                 checked = row.fullName in selection,
                                 focused = false,
-                                onClick = {
-                                    selection = toggleGuideGroupSelection(selection, row.fullName)
-                                },
+                                onClick = { activateRow(row) },
                                 modifier = rowModifier,
                                 tvFocusable = true
                             )
@@ -214,20 +259,26 @@ fun GuideGroupPickerDialog(
                         .padding(top = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
                 ) {
-                    GuidePickerActionButton(
-                        text = "Cancel",
-                        focused = false,
-                        primary = false,
-                        onClick = onDismiss,
-                        modifier = Modifier.focusRequester(cancelFocusRequester),
-                        tvFocusable = true
-                    )
+                    if (allowDismiss) {
+                        GuidePickerActionButton(
+                            text = "Cancel",
+                            focused = false,
+                            primary = false,
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .focusable()
+                                .focusRequester(cancelFocusRequester),
+                            tvFocusable = true
+                        )
+                    }
                     GuidePickerActionButton(
                         text = confirmLabel,
                         focused = false,
                         primary = true,
                         onClick = { onConfirm(selection) },
-                        modifier = Modifier.focusRequester(saveFocusRequester),
+                        modifier = Modifier
+                            .focusable()
+                            .focusRequester(saveFocusRequester),
                         tvFocusable = true
                     )
                 }

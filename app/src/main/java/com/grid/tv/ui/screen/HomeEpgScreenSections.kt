@@ -396,23 +396,17 @@ internal fun HomeEpgScreenOverlays(
         )
 
         if (ui.showGuideGroupPicker && channelGroups.isNotEmpty()) {
-            BackHandler {
-                ui.showGuideGroupPicker = false
-                ui.initialGuidePickerDismissed = true
-            }
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = deps.guideFilter.selectedGroups,
                 groupChannelCounts = groupChannelCounts,
-                onDismiss = {
-                    ui.showGuideGroupPicker = false
-                    ui.initialGuidePickerDismissed = true
-                },
+                allowDismiss = false,
+                subtitle = "Pick the groups you want in the live guide. Save to continue.",
+                onDismiss = {},
                 onConfirm = { groups ->
-                    ui.showGuideGroupPicker = false
-                    ui.initialGuidePickerDismissed = true
                     deps.viewModel.saveGuideChannelGroups(groups, markConfigured = true)
                     ui.focusChannelIndex = 0
+                    ui.hasRequestedInitialGridFocus = false
                 }
             )
         }

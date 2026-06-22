@@ -488,9 +488,20 @@ fun HomeEpgScreen(
             ui.showGuideGroupPicker = false
             return@LaunchedEffect
         }
-        ui.showGuideGroupPicker = hasCatalogChannels &&
-            channelGroups.isNotEmpty() &&
-            !ui.initialGuidePickerDismissed
+        ui.showGuideGroupPicker = hasCatalogChannels && channelGroups.isNotEmpty()
+    }
+
+    LaunchedEffect(isInitializing, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
+        if (ui.showGuideGroupPicker) return@LaunchedEffect
+        if (
+            !isInitializing &&
+            displayChannels.isNotEmpty() &&
+            !ui.hasRequestedInitialGridFocus &&
+            ui.focusZone == EpgFocusZone.GRID
+        ) {
+            ui.hasRequestedInitialGridFocus = true
+            controller.requestEpgZoneFocus(EpgFocusZone.GRID)
+        }
     }
 
     LaunchedEffect(displayChannels.size, isReloadingChannels, displayPrograms) {
@@ -574,20 +585,9 @@ fun HomeEpgScreen(
     val scrolledAwayFromLive = kotlin.math.abs(hScroll.value - liveScrollTargetPx) > 80
 
     LaunchedEffect(displayChannels.isEmpty()) {
+        if (ui.showGuideGroupPicker) return@LaunchedEffect
         if (displayChannels.isEmpty() && ui.focusZone == EpgFocusZone.GRID) {
             controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
-        }
-    }
-
-    LaunchedEffect(isInitializing, displayChannels.isNotEmpty()) {
-        if (
-            !isInitializing &&
-            displayChannels.isNotEmpty() &&
-            !ui.hasRequestedInitialGridFocus &&
-            ui.focusZone == EpgFocusZone.GRID
-        ) {
-            ui.hasRequestedInitialGridFocus = true
-            controller.requestEpgZoneFocus(EpgFocusZone.GRID)
         }
     }
 

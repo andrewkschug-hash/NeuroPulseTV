@@ -24,8 +24,8 @@ android {
         applicationId = "com.grid.tv"
         minSdk = 23
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.1.0"
+        versionCode = 1
+        versionName = "1.0"
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
@@ -36,6 +36,8 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${readEnvValue("SUPABASE_URL")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${readEnvValue("SUPABASE_ANON_KEY")}\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${readEnvValue("GOOGLE_WEB_CLIENT_ID")}\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"${readEnvValue("GITHUB_OWNER", "gridtvsupport-wq")}\"")
+        buildConfigField("String", "GITHUB_REPO", "\"${readEnvValue("GITHUB_REPO", "GRID")}\"")
         manifestPlaceholders["supabaseAuthRedirectScheme"] = "com.grid.tv"
     }
 
