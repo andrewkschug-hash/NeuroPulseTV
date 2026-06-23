@@ -404,19 +404,6 @@ fun HomeEpgScreen(
         ui.showGuideGroupPicker = hasCatalogChannels && channelGroups.isNotEmpty()
     }
 
-    LaunchedEffect(isInitializing, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
-        if (ui.showGuideGroupPicker) return@LaunchedEffect
-        if (
-            !isInitializing &&
-            displayChannels.isNotEmpty() &&
-            !ui.hasRequestedInitialGridFocus &&
-            ui.focusZone == EpgFocusZone.GRID
-        ) {
-            ui.hasRequestedInitialGridFocus = true
-            controller.requestEpgZoneFocus(EpgFocusZone.GRID)
-        }
-    }
-
     LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex) {
         if (isReloadingChannels) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
@@ -493,6 +480,19 @@ fun HomeEpgScreen(
         onResumeContinueWatching = onResumeContinueWatching,
     )
     controller.bind(deps)
+
+    LaunchedEffect(isInitializing, guideSettingsLoaded, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
+        if (ui.showGuideGroupPicker) return@LaunchedEffect
+        if (isInitializing || !guideSettingsLoaded) return@LaunchedEffect
+        if (
+            displayChannels.isNotEmpty() &&
+            !ui.hasRequestedInitialGridFocus &&
+            ui.focusZone == EpgFocusZone.GRID
+        ) {
+            ui.hasRequestedInitialGridFocus = true
+            controller.requestEpgZoneFocus(EpgFocusZone.GRID)
+        }
+    }
 
     val liveScrollTargetPx = controller.liveScrollTarget()
     val scrolledAwayFromLive = kotlin.math.abs(hScroll.value - liveScrollTargetPx) > 80
