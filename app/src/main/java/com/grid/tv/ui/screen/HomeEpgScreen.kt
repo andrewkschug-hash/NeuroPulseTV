@@ -516,9 +516,9 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(showPreviewSection, previewChannelId, ui.focusZone) {
-        if (!showPreviewSection || ui.focusZone != EpgFocusZone.PREVIEW) return@LaunchedEffect
-        controller.requestEpgZoneFocus(EpgFocusZone.PREVIEW)
+    LaunchedEffect(showPreviewSection, previewChannelId, ui.pendingPreviewFocus) {
+        if (!showPreviewSection || !ui.pendingPreviewFocus) return@LaunchedEffect
+        controller.focusEpgZone(EpgFocusZone.PREVIEW)
         ui.pendingPreviewFocus = false
     }
 

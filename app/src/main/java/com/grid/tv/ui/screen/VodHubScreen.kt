@@ -73,7 +73,9 @@ import com.grid.tv.ui.component.VodInlineSearchContent
 import com.grid.tv.ui.component.movieMetaSubtitle
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.toGridCardModel
-import com.grid.tv.ui.viewmodel.HomeEpgViewModel
+import com.grid.tv.di.PlayerEntryPoint
+import dagger.hilt.android.EntryPointAccessors
+import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SeriesViewModel
@@ -140,11 +142,14 @@ fun VodHubScreen(
     var showLanguageDialog by remember { mutableStateOf(false) }
 
     val recordingViewModel: RecordingViewModel = hiltViewModel()
-    val homeViewModel: HomeEpgViewModel = hiltViewModel()
+    val context = LocalContext.current
+    val livePlayerManager = remember(context) {
+        EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
+            .livePlayerManager()
+    }
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val continueWatchingItems by hubViewModel.continueWatchingItems.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val imeTypingActive = TvTextInputSession.isActiveState.value
     val heroMovie by hubViewModel.heroMovie.collectAsStateWithLifecycle()
     val heroEnrichment by hubViewModel.heroEnrichment.collectAsStateWithLifecycle()
@@ -303,7 +308,7 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(Unit) {
-        homeViewModel.livePlayerManager.setMode(com.grid.tv.player.LivePlayerManager.Mode.IDLE)
+        livePlayerManager.setMode(com.grid.tv.player.LivePlayerManager.Mode.IDLE)
     }
 
     val wallRows = remember(
@@ -333,17 +338,15 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(wallRows.size, heroMovie, searchQuery) {
-        if (searchQuery.isBlank() && wallRows.isEmpty() && heroMovie == null &&
-            focusZone == VodFocusZone.CONTENT
-        ) {
-            focusZone = VodFocusZone.FILTER_PANEL
+        if (searchQuery.isBlank() && wallRows.isEmpty() && focusZone == VodFocusZone.CONTENT) {
+            focusZone = if (heroMovie != null) VodFocusZone.HERO else VodFocusZone.FILTER_PANEL
         }
     }
 
-    LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery) {
+    LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery, wallRows.size) {
         if (focusZone == VodFocusZone.CONTENT && searchQuery.isBlank() && !showBrowseGrid) {
             val heroOffset = if (heroMovie != null) 1 else 0
-            columnListState.animateScrollToItem((contentRowIndex + heroOffset).coerceAtLeast(0))
+            columnListState.animateScrollToItemIfNeeded((contentRowIndex + heroOffset).coerceAtLeast(0))
         }
     }
 
@@ -512,7 +515,7 @@ fun VodHubScreen(
             EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
             EpgNavTab.Search -> activateInlineSearch()
             EpgNavTab.Vod, EpgNavTab.Movies -> onNavigateVod(0)
-            EpgNavTab.Series -> onNavigateVod(2)
+            EpgNavTab.Series -> onNavigateVod(1)
             EpgNavTab.Recordings -> onNavigateRecordings()
             EpgNavTab.Favorites -> onOpenFavorites()
             EpgNavTab.Settings -> onNavigateSettings()

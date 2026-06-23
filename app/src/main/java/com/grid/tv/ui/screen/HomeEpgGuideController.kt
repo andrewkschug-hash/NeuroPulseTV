@@ -107,6 +107,7 @@ internal class HomeEpgGuideController(
         val full = deps.channels.find { it.id == ch.id } ?: ch
         deps.viewModel.setLastPlayedChannel(full)
         deps.viewModel.enableGuidePreview(full.id)
+        deps.viewModel.livePlayerManager.prepareFullscreenHandoff()
         deps.onWatchChannel(full.id)
     }
 
@@ -122,7 +123,9 @@ internal class HomeEpgGuideController(
         selectChannelForPreview(channel)
         ui.detailExpanded = true
         ui.pendingPreviewFocus = true
-        focusEpgZone(EpgFocusZone.PREVIEW)
+        if (deps.showPreviewSection) {
+            focusEpgZone(EpgFocusZone.PREVIEW)
+        }
     }
 
     fun liveScrollTarget(): Int {
@@ -537,6 +540,7 @@ internal class HomeEpgGuideController(
                 true
             }
             isTvActivateKey(event) -> {
+                if (ui.pendingPreviewFocus) return false
                 openCategoryFilterMenu()
                 true
             }

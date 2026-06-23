@@ -146,6 +146,7 @@ fun PlayerScreen(
     var overlayInteractionToken by remember { mutableIntStateOf(0) }
     var showStillWatching by remember { mutableStateOf(false) }
     var showStopRecordingDialog by remember { mutableStateOf(false) }
+    var fullscreenSurfaceReady by remember { mutableStateOf(false) }
     var seekThumb by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
     var showSeekThumb by remember { mutableStateOf(false) }
     val sleepTimer = remember { entryPoint.sleepTimerController() }
@@ -547,7 +548,7 @@ fun PlayerScreen(
         livePlayerManager.stopGuidePreview()
         livePlayerManager.detachFromSurface()
         livePlayerManager.enterFullscreen()
-        LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+        fullscreenSurfaceReady = true
         viewModel.pipController.setPlaybackActive(true)
     }
 
@@ -695,40 +696,48 @@ fun PlayerScreen(
                 showSideMenu && handleSideMenuKey(it.key)
             }
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    setKeepContentOnPlayerReset(true)
-                    controllerHideOnTouch = true
-                    isFocusable = true
-                    this.player = player
-                    playerViewRef[0] = this
-                }.also { view ->
-                    LiveFullscreenLogger.surfaceCreated("live_fullscreen", player)
-                    PlaybackSurfaceInstrument.attach("live_fullscreen", player, view)
-                    LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
-                }
-            },
-            update = { view ->
-                view.isFocusable = !showSideMenu
-                view.isFocusableInTouchMode = !showSideMenu
-                if (view.player !== player) {
+        if (fullscreenSurfaceReady) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        setKeepContentOnPlayerReset(true)
+                        controllerHideOnTouch = true
+                        isFocusable = true
+                        this.player = player
+                        playerViewRef[0] = this
+                    }.also { view ->
+                        LiveFullscreenLogger.surfaceCreated("live_fullscreen", player)
+                        PlaybackSurfaceInstrument.attach("live_fullscreen", player, view)
+                        LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+                    }
+                },
+                update = { view ->
+                    view.isFocusable = !showSideMenu
+                    view.isFocusableInTouchMode = !showSideMenu
+                    if (view.player !== player) {
+                        view.player = null
+                        view.player = player
+                        LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+                    }
+                },
+                onRelease = { view ->
+                    LiveFullscreenLogger.surfaceDestroyed("live_fullscreen", player)
+                    PlaybackSurfaceInstrument.detach("live_fullscreen", player, view)
+                    LiveFullscreenLogger.detachPlayerFromFullscreen(player, "live_fullscreen")
                     view.player = null
-                    view.player = player
-                    LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+                    if (playerViewRef[0] === view) playerViewRef[0] = null
                 }
-            },
-            onRelease = { view ->
-                LiveFullscreenLogger.surfaceDestroyed("live_fullscreen", player)
-                PlaybackSurfaceInstrument.detach("live_fullscreen", player, view)
-                LiveFullscreenLogger.detachPlayerFromFullscreen(player, "live_fullscreen")
-                view.player = null
-                if (playerViewRef[0] === view) playerViewRef[0] = null
-            }
-        )
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+            )
+        }
 
         if (dimAlpha > 0f) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))

@@ -289,8 +289,10 @@ internal fun HomeEpgScreenMainColumn(
             showPreviewSection = deps.showPreviewSection,
             hasContinueWatching = deps.hasContinueWatching,
             onOpenCategoryFilter = {
-                controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
-                controller.openCategoryFilterMenu()
+                if (!ui.pendingPreviewFocus) {
+                    controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
+                    controller.openCategoryFilterMenu()
+                }
             },
             onGridFilterKey = controller::handleGridFilterKey,
             onGridFocused = { ui.focusZone = EpgFocusZone.GRID },

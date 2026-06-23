@@ -946,6 +946,12 @@ class LivePlayerManager @Inject constructor(
         LiveFullscreenLogger.enterFullscreen(player)
     }
 
+    /** EPG → PlayerScreen: detach preview surface early without incrementing fullscreen session count. */
+    fun prepareFullscreenHandoff() {
+        _fullscreenActive.value = true
+        player?.clearVideoSurface()
+    }
+
     /** Suppress guide-preview resume when transitioning into split/multiview. */
     fun beginMultiPaneHandoff() {
         suppressExitFullscreenSideEffects = true
