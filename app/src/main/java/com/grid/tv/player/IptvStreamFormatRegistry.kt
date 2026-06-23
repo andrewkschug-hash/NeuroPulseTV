@@ -30,6 +30,11 @@ class IptvStreamFormatRegistry @Inject constructor() {
         byUrl[normalize(url)] = Entry(format = format, source = source)
     }
 
+    fun remove(url: String) {
+        if (url.isBlank()) return
+        byUrl.remove(normalize(url))
+    }
+
     fun putContentType(url: String, contentType: String?) {
         val format = StreamTypeDetector.classify(url, contentType, firstBytes = null).format
         if (format != IptvStreamFormat.UNKNOWN) {

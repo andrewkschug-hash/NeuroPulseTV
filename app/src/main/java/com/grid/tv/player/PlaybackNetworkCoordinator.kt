@@ -13,7 +13,8 @@ import javax.inject.Singleton
 class PlaybackNetworkCoordinator @Inject constructor(
     private val appHttpClient: AppHttpClient,
     private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
-    private val vodPlaybackNetworkGuard: VodPlaybackNetworkGuard
+    private val vodPlaybackNetworkGuard: VodPlaybackNetworkGuard,
+    private val streamFormatRegistry: IptvStreamFormatRegistry
 ) {
     enum class SessionKind {
         LIVE,
@@ -67,6 +68,7 @@ class PlaybackNetworkCoordinator @Inject constructor(
     fun beginVodSession(streamUrl: String) {
         val trimmed = streamUrl.trim()
         if (trimmed.isEmpty()) return
+        streamFormatRegistry.remove(trimmed)
         val generation = openTuneSession(SessionKind.VOD, trimmed, tuneGeneration = 0)
         val cancelledProbe = appHttpClient.cancelInFlightProbeRequests()
         val cancelledPlayback = appHttpClient.cancelInFlightPlaybackRequests()

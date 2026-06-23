@@ -36,7 +36,12 @@ class PlaybackNetworkCoordinatorTest {
         }
         liveExclusivity = PlaybackNetworkExclusivity(scannerIsolation)
         vodGuard = VodPlaybackNetworkGuard(liveExclusivity, scannerIsolation)
-        coordinator = PlaybackNetworkCoordinator(appHttpClient, liveExclusivity, vodGuard)
+        coordinator = PlaybackNetworkCoordinator(
+            appHttpClient,
+            liveExclusivity,
+            vodGuard,
+            IptvStreamFormatRegistry()
+        )
     }
 
     @After

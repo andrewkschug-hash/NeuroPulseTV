@@ -55,7 +55,6 @@ import com.grid.tv.player.PlaybackHttpFailure
 import com.grid.tv.player.PlaybackNetworkCoordinator
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.PlaybackSurfaceInstrument
-import com.grid.tv.player.StreamTypeDetector
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.GlowFocusButton
@@ -213,23 +212,21 @@ fun DirectPlayerScreen(
         )
     }
 
-    var detectedStreamFormat by remember(url) {
-        mutableStateOf<com.grid.tv.player.IptvStreamFormat?>(
-            if (isRecordedPlayback || isCatchupPlayback) com.grid.tv.player.IptvStreamFormat.PROGRESSIVE else null
-        )
+    var resolvedVodStream by remember(url, onDemandContentKind) {
+        mutableStateOf<com.grid.tv.player.ResolvedVodStream?>(null)
     }
-    var streamPreflightFailed by remember(url) { mutableStateOf(false) }
+    var vodResolutionFailed by remember(url) { mutableStateOf(false) }
 
-    LaunchedEffect(url, isRecordedPlayback, isCatchupPlayback) {
-        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
-        streamPreflightFailed = false
-        detectedStreamFormat = viewModel.runStreamPreflight(url)
-        if (detectedStreamFormat == null) {
-            streamPreflightFailed = true
+    LaunchedEffect(url, onDemandContentKind) {
+        vodResolutionFailed = false
+        resolvedVodStream = null
+        resolvedVodStream = viewModel.resolveVodStream(url, onDemandContentKind)
+        if (resolvedVodStream == null) {
+            vodResolutionFailed = true
         }
     }
 
-    if (streamPreflightFailed) {
+    if (vodResolutionFailed) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -247,7 +244,7 @@ fun DirectPlayerScreen(
         return
     }
 
-    if (detectedStreamFormat == null) {
+    if (resolvedVodStream == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -256,10 +253,9 @@ fun DirectPlayerScreen(
         return
     }
 
-    val resolvedStreamFormat = detectedStreamFormat!!
-    var hlsParserFallbackUsed by remember(url) { mutableStateOf(false) }
+    val resolvedVod = resolvedVodStream!!
 
-    val player = remember(url, immediateResumeMs, onDemandContentKind, resolvedStreamFormat) {
+    val player = remember(url, immediateResumeMs, onDemandContentKind, resolvedVod) {
         resumeSeekState.applied = immediateResumeMs > 0L
         resumeSeekState.pendingMs = immediateResumeMs
         playbackNetworkCoordinator.beginVodSession(url)
@@ -267,7 +263,7 @@ fun DirectPlayerScreen(
             val mediaItem = viewModel.buildOnDemandMediaItem(
                 url,
                 onDemandContentKind,
-                formatOverride = resolvedStreamFormat
+                resolvedStream = resolvedVod
             )
             if (immediateResumeMs > 0L) {
                 setMediaItem(mediaItem, immediateResumeMs)
@@ -304,27 +300,6 @@ fun DirectPlayerScreen(
 
                 override fun onPlayerError(error: PlaybackException) {
                     PlaybackHttpFailure.logHttpFailure(error, url)
-                    if (
-                        !hlsParserFallbackUsed &&
-                        StreamTypeDetector.isHlsParserFailure(error) &&
-                        resolvedStreamFormat.isHls() &&
-                        !StreamTypeDetector.isTsUrl(url)
-                    ) {
-                        hlsParserFallbackUsed = true
-                        viewModel.registerStreamFormat(url, com.grid.tv.player.IptvStreamFormat.PROGRESSIVE)
-                        val progressiveItem = viewModel.buildOnDemandMediaItem(
-                            url,
-                            onDemandContentKind,
-                            formatOverride = com.grid.tv.player.IptvStreamFormat.PROGRESSIVE
-                        )
-                        stop()
-                        clearMediaItems()
-                        setMediaItem(progressiveItem)
-                        playbackNetworkCoordinator.markSingleRequestAllowed(url)
-                        prepare()
-                        playWhenReady = true
-                        return
-                    }
                     playbackError = error.playbackErrorMessage(isEmulator)
                     playWhenReady = false
                     stop()

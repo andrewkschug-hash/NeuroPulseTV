@@ -18,7 +18,10 @@ import com.grid.tv.player.IptvStreamFormat
 import com.grid.tv.player.IptvStreamFormatRegistry
 import com.grid.tv.player.PlaybackStartupPriority
 import com.grid.tv.player.PlayerFactory
+import com.grid.tv.player.ResolvedVodStream
+import com.grid.tv.player.StreamTypeDetector
 import com.grid.tv.player.StreamTypePreflightSniffer
+import com.grid.tv.player.VodStreamResolver
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
@@ -106,30 +109,44 @@ class DirectPlayerViewModel @Inject constructor(
     fun buildOnDemandMediaItem(
         url: String,
         contentKind: IptvOnDemandContentKind,
-        formatOverride: IptvStreamFormat? = null
+        resolvedStream: ResolvedVodStream
     ): MediaItem = IptvOnDemandMediaItem.build(
         url = url,
         contentKind = contentKind,
         registry = streamFormatRegistry,
-        formatOverride = formatOverride
+        formatOverride = resolvedStream.toStreamFormat()
     )
 
-    fun registerStreamFormat(url: String, format: IptvStreamFormat) {
-        streamFormatRegistry.put(url, format, IptvStreamFormatRegistry.Source.URL_PATTERN)
-    }
+    /**
+     * Single VOD entry-point: sniff → resolve final media type → register before ExoPlayer.
+     */
+    suspend fun resolveVodStream(
+        url: String,
+        contentKind: IptvOnDemandContentKind
+    ): ResolvedVodStream? {
+        streamFormatRegistry.remove(url)
 
-    suspend fun runStreamPreflight(url: String): IptvStreamFormat? {
-        val detection = streamTypePreflightSniffer.detect(url)
-        if (detection.format == IptvStreamFormat.UNKNOWN) {
-            Log.e(TAG, "Stream preflight UNKNOWN url=$url reason=${detection.reason}")
+        val detection = when (contentKind) {
+            IptvOnDemandContentKind.RECORDING,
+            IptvOnDemandContentKind.LOCAL_FILE -> StreamTypeDetector.Detection(
+                format = IptvStreamFormat.PROGRESSIVE,
+                reason = "local_playback"
+            )
+            else -> streamTypePreflightSniffer.detectForVod(url)
+        }
+
+        val resolved = VodStreamResolver.resolve(url, detection) ?: run {
+            Log.e(TAG, "VOD resolution blocked url=$url reason=${detection.reason}")
             return null
         }
+
+        resolved.logFinal()
         streamFormatRegistry.put(
             url,
-            detection.format,
+            resolved.toStreamFormat(),
             IptvStreamFormatRegistry.Source.MANIFEST_SNIFF
         )
-        return detection.format
+        return resolved
     }
 
     fun releasePlayer(player: ExoPlayer) {

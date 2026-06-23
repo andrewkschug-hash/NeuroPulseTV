@@ -23,6 +23,14 @@ object StreamTypeDetector {
 
     private val TS_URL_SUFFIXES = listOf(".ts", ".ts?")
 
+    private val VOD_PROGRESSIVE_CONTENT_TYPES = setOf(
+        "video/x-matroska",
+        "video/mp4",
+        "application/octet-stream"
+    )
+
+    private val VOD_PROGRESSIVE_URL_MARKERS = listOf(".mkv", ".mp4", ".mov")
+
     data class Detection(
         val format: IptvStreamFormat,
         val contentType: String? = null,
@@ -85,6 +93,60 @@ object StreamTypeDetector {
             firstBytesSignature = signature,
             reason = reason
         ).also(::logDetection)
+    }
+
+    fun isVodProgressiveUrl(url: String): Boolean {
+        val lower = url.trim().lowercase()
+        return VOD_PROGRESSIVE_URL_MARKERS.any { lower.contains(it) }
+    }
+
+    fun isVodProgressiveContentType(contentType: String?): Boolean {
+        val base = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        if (base.isBlank()) return false
+        return base in VOD_PROGRESSIVE_CONTENT_TYPES
+    }
+
+    fun isHtmlBlockedResponse(contentType: String?, firstBytes: String): Boolean {
+        val base = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        if (base.contains("text/html")) return true
+        val trimmed = firstBytes.trimStart().lowercase()
+        return trimmed.startsWith("<!doctype html") ||
+            trimmed.startsWith("<html") ||
+            (trimmed.contains("<head>") && trimmed.contains("</html>"))
+    }
+
+    fun isFatalVodPreflightBlock(
+        httpCode: Int,
+        contentType: String?,
+        firstBytes: String?
+    ): Boolean {
+        if (httpCode in 400..599) return true
+        if (firstBytes.isNullOrEmpty()) return true
+        return isHtmlBlockedResponse(contentType, firstBytes)
+    }
+
+    fun isFatalVodPreflightReason(reason: String): Boolean =
+        reason == "blank_url" ||
+            reason.startsWith("http_") ||
+            reason == "empty_body" ||
+            reason == "html_blocked"
+
+    /**
+     * VOD-only: UNKNOWN is never fatal unless [isFatalVodPreflightReason] already matched.
+     * Maps ambiguous on-demand streams to progressive playback.
+     * @deprecated Prefer [VodStreamResolver.resolve] in the VOD entry point.
+     */
+    fun applyVodOverride(detection: Detection): Detection {
+        if (detection.format != IptvStreamFormat.UNKNOWN) return detection
+        logVodOverride("unknown_but_allowed")
+        return detection.copy(
+            format = IptvStreamFormat.PROGRESSIVE,
+            reason = "vod_unknown_progressive_fallback"
+        ).also(::logDetection)
+    }
+
+    fun logVodOverride(reason: String) {
+        Log.i(TAG, "STREAM_TYPE_VOD_OVERRIDE applied=true reason=$reason")
     }
 
     fun isTsUrl(url: String): Boolean {
