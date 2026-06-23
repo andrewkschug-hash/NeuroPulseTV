@@ -12,6 +12,4 @@
     <include domain="file" path="." />
     <exclude domain="sharedpref" path="grid_secure_credentials" />
     <exclude domain="sharedpref" path="grid_secure_credentials.xml" />
-    <exclude domain="cache" path="." />
-    <exclude domain="no_backup" path="." />
 </full-backup-content>
