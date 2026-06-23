@@ -60,17 +60,10 @@ class VodHubViewModel @Inject constructor(
     private val _availableVodLanguages = MutableStateFlow<List<String>>(emptyList())
     val availableVodLanguages: StateFlow<List<String>> = _availableVodLanguages.asStateFlow()
 
+    // Resume history is profile-scoped; do not apply VOD language filters here.
     val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> =
-        combine(
-            continueWatchingRepository.observeItems(limit = 20),
-            preferredVodLanguages
-        ) { items, languages ->
-            if (languages.isEmpty()) {
-                items
-            } else {
-                items.filter { it.matchesLanguageFilter(languages) }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        continueWatchingRepository.observeItems(limit = 20)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val recommendationSample: StateFlow<List<VodItem>> =
         repository.vodCatalogRevision()

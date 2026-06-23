@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -76,6 +77,7 @@ import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.animateScrollToItemIfNeeded
+import com.grid.tv.ui.component.TvLazyFocusScrollDirection
 import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SeriesViewModel
@@ -132,6 +134,7 @@ fun VodHubScreen(
     var filterFocusIndex by remember { mutableIntStateOf(0) }
     var contentRowIndex by rememberSaveable { mutableIntStateOf(0) }
     var contentColIndex by rememberSaveable { mutableIntStateOf(0) }
+    var contentScrollDirection by remember { mutableStateOf(TvLazyFocusScrollDirection.NEUTRAL) }
     var vodSearchFocused by remember { mutableStateOf(false) }
     var selectedMovie by remember { mutableStateOf<VodItem?>(null) }
     var genreFocusIndex by remember { mutableIntStateOf(0) }
@@ -344,9 +347,19 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery, wallRows.size) {
-        if (focusZone == VodFocusZone.CONTENT && searchQuery.isBlank() && !showBrowseGrid) {
-            val heroOffset = if (heroMovie != null) 1 else 0
-            columnListState.animateScrollToItemIfNeeded((contentRowIndex + heroOffset).coerceAtLeast(0))
+        if (searchQuery.isNotBlank() || showBrowseGrid) return@LaunchedEffect
+        when (focusZone) {
+            VodFocusZone.HERO -> {
+                columnListState.animateScrollToItemIfNeeded(0, TvLazyFocusScrollDirection.UP)
+            }
+            VodFocusZone.CONTENT -> {
+                val heroOffset = if (heroMovie != null) 1 else 0
+                columnListState.animateScrollToItemIfNeeded(
+                    index = (contentRowIndex + heroOffset).coerceAtLeast(0),
+                    direction = contentScrollDirection
+                )
+            }
+            else -> Unit
         }
     }
 
@@ -698,10 +711,12 @@ fun VodHubScreen(
                     when {
                         showGenrePanel -> focusGenrePanelFromFilter()
                         showBrowseGrid -> focusBrowseGridFromSidebar()
+                        heroMovie != null && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
                         wallRows.isNotEmpty() -> {
                             focusZone = VodFocusZone.CONTENT
                             contentRowIndex = 0
                             contentColIndex = 0
+                            contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                         }
                     }
                 }
@@ -711,12 +726,13 @@ fun VodHubScreen(
                 when {
                     showGenrePanel -> focusGenrePanelFromFilter()
                     showBrowseGrid -> focusBrowseGridFromSidebar()
+                    heroMovie != null && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
                     wallRows.isNotEmpty() -> {
                         focusZone = VodFocusZone.CONTENT
                         contentRowIndex = 0
                         contentColIndex = 0
+                        contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                     }
-                    heroMovie != null && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
                 }
                 true
             }
@@ -787,6 +803,7 @@ fun VodHubScreen(
                 focusZone = VodFocusZone.CONTENT
                 contentRowIndex = 0
                 contentColIndex = 0
+                contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                 true
             }
             Key.DirectionUp -> {
@@ -867,13 +884,14 @@ fun VodHubScreen(
             }
             Key.DirectionUp -> {
                 if (contentRowIndex > 0) {
+                    contentScrollDirection = TvLazyFocusScrollDirection.UP
                     contentRowIndex -= 1
                     val maxCol = wallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
-                } else if (tabBarVisible()) {
-                    focusZone = VodFocusZone.FILTER_PANEL
                 } else if (heroMovie != null && searchQuery.isBlank()) {
                     focusZone = VodFocusZone.HERO
+                } else if (tabBarVisible()) {
+                    focusZone = VodFocusZone.FILTER_PANEL
                 } else {
                     focusZone = VodFocusZone.TOP_BAR
                 }
@@ -881,6 +899,7 @@ fun VodHubScreen(
             }
             Key.DirectionDown -> {
                 if (contentRowIndex < wallRows.lastIndex) {
+                    contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                     contentRowIndex += 1
                     val maxCol = wallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
@@ -1267,6 +1286,7 @@ fun VodHubScreen(
                                     }
                                 }
                                 itemsIndexed(wallRows, key = { _, row -> row.id }) { index, row ->
+                                    val rowListState = remember(row.id) { LazyListState() }
                                     NetflixContentWallRow(
                                         row = row,
                                         rowIndex = index,
@@ -1276,7 +1296,7 @@ fun VodHubScreen(
                                             -1
                                         },
                                         rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index,
-                                        listState = rememberLazyListState(),
+                                        listState = rowListState,
                                         progressByStreamId = vodProgress,
                                         posterUrlForMovie = ::posterFor,
                                         ratingForMovie = ::ratingFor,
