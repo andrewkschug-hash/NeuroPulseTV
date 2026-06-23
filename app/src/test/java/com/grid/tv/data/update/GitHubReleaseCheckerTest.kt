@@ -18,4 +18,12 @@ class GitHubReleaseCheckerTest {
         assertFalse(GitHubReleaseChecker.isNewerVersion("2.0.0", "2.1.0"))
         assertFalse(GitHubReleaseChecker.isNewerVersion("v2.1.0", "2.1.0"))
     }
+
+    @Test
+    fun isNewerVersion_githubReleaseTagScheme() {
+        assertTrue(GitHubReleaseChecker.isNewerVersion("V1.03", "1.02"))
+        assertTrue(GitHubReleaseChecker.isNewerVersion("V1.03", "V1.02"))
+        assertFalse(GitHubReleaseChecker.isNewerVersion("V1.03", "1.03"))
+        assertFalse(GitHubReleaseChecker.isNewerVersion("V1.03", "2.1.0"))
+    }
 }

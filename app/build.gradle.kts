@@ -36,10 +36,15 @@ val versionProps = Properties().apply {
     }
 }
 
+/** Single source for versionName — must stay aligned with GitHub release tags (e.g. tag V1.03 → 1.03). */
 fun resolveVersionName(): String =
-    readEnvValue("VERSION_NAME").takeIf { it.isNotBlank() }
+    (project.findProperty("VERSION_NAME") as String?)?.trim()?.takeIf { it.isNotBlank() }
+        ?: readEnvValue("VERSION_NAME").takeIf { it.isNotBlank() }
         ?: versionProps.getProperty("VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
-        ?: "1.0"
+        ?: error(
+            "VERSION_NAME not configured. Set version.properties, .env VERSION_NAME=, " +
+                "or pass -PVERSION_NAME=1.04 to Gradle."
+        )
 
 fun resolveVersionCode(versionName: String): Int =
     readEnvValue("VERSION_CODE").toIntOrNull()

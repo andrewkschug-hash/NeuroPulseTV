@@ -1,0 +1,39 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "V*"
+      - "[0-9]*.[0-9]*"
+
+jobs:
+  assemble-google-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Resolve VERSION_NAME from Git tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          VERSION="${VERSION#V}"
+          echo "Resolved VERSION_NAME=$VERSION from tag $TAG"
+          echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Assemble Google release
+        run: ./gradlew :app:assembleGoogleRelease -PVERSION_NAME="${{ env.VERSION_NAME }}"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-release-${{ env.VERSION_NAME }}
+          path: app/build/outputs/apk/google/release/*.apk
+          if-no-files-found: error

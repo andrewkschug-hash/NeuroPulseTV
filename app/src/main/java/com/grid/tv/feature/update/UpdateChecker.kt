@@ -3,6 +3,7 @@ package com.grid.tv.feature.update
 import android.util.Log
 import com.grid.tv.BuildConfig
 import com.grid.tv.data.network.AppHttpClient
+import com.grid.tv.data.update.ReleaseDownloadAssets
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -172,8 +173,8 @@ class UpdateChecker @Inject constructor(
             val asset = assets.optJSONObject(i) ?: continue
             val name = asset.optString("name")
             val url = asset.optString("browser_download_url")
-            if (name.endsWith(".apk", ignoreCase = true) && url.isNotBlank()) {
-                Log.d(TAG, "checkForUpdate: found APK asset $name")
+            if (ReleaseDownloadAssets.isInstallableAsset(name) && url.isNotBlank()) {
+                Log.d(TAG, "checkForUpdate: found install asset $name")
                 return url
             }
         }

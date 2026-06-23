@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate GRID Netflix-style launcher icons and Android TV banner PNGs."""
+"""Generate GRID launcher icons and Android TV banner PNGs (blue accent theme)."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 RES = ROOT / "app" / "src" / "main" / "res"
 
-BG_BLACK = (11, 11, 15)
-BG_BLACK_END = (28, 6, 8)
-ACCENT_RED = (229, 9, 20)
-GLOW_RED = (255, 42, 42)
+BG_BLACK = (10, 10, 15)
+BG_BLACK_END = (8, 18, 40)
+ACCENT = (59, 143, 255)
+GLOW = (96, 176, 255)
 WHITE = (255, 255, 255)
 
 MIPMAP_SIZES = {
@@ -93,7 +93,7 @@ def render_launcher_foreground(size: int) -> Image.Image:
     cx, cy = size // 2, int(size * 0.52)
     glow_draw.ellipse(
         (cx - glow_radius, cy - glow_radius, cx + glow_radius, cy + glow_radius),
-        fill=(*GLOW_RED, 52),
+        fill=(*GLOW, 52),
     )
     glow = glow.filter(ImageFilter.GaussianBlur(radius=max(size // 16, 2)))
     base = Image.alpha_composite(base, glow)
@@ -123,7 +123,7 @@ def render_launcher_foreground(size: int) -> Image.Image:
             int(size * 0.66) + bar_h,
         ),
         radius=bar_h,
-        fill=(*ACCENT_RED, 220),
+        fill=(*ACCENT, 220),
     )
     return Image.alpha_composite(base, accent)
 
@@ -172,7 +172,7 @@ def render_tv_banner(width: int, height: int) -> Image.Image:
         y0 = int(height * by)
         x1 = int(width * (bx + bw))
         y1 = int(height * (by + bh))
-        rd.rounded_rectangle((x0, y0, x1, y1), radius=int(height * 0.02), fill=(*ACCENT_RED, alpha))
+        rd.rounded_rectangle((x0, y0, x1, y1), radius=int(height * 0.02), fill=(*ACCENT, alpha))
     right = right.filter(ImageFilter.GaussianBlur(radius=max(width // 128, 3)))
     base = Image.alpha_composite(base.convert("RGBA"), right).convert("RGB")
 
@@ -198,7 +198,7 @@ def render_tv_banner(width: int, height: int) -> Image.Image:
         font=title_font,
         y_center=height * 0.38,
         tracking=tracking,
-        fill=(*GLOW_RED, 80),
+        fill=(*GLOW, 80),
     )
     glow = glow.filter(ImageFilter.GaussianBlur(radius=max(width // 80, 4)))
     canvas = Image.alpha_composite(canvas, glow)
@@ -227,7 +227,7 @@ def render_tv_banner(width: int, height: int) -> Image.Image:
     accent_draw.rounded_rectangle(
         (int(width * 0.08), int(height * 0.72), int(width * 0.08) + int(width * 0.12), int(height * 0.725)),
         radius=2,
-        fill=(*ACCENT_RED, 255),
+        fill=(*ACCENT, 255),
     )
 
     return canvas.convert("RGB")

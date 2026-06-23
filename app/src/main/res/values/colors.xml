@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- GRID Netflix-style brand palette -->
-    <color name="grid_bg_black">#0B0B0F</color>
-    <color name="grid_accent_red">#E50914</color>
-    <color name="grid_glow_red">#FF2A2A</color>
+    <!-- GRID brand palette (matches default EpgColors accent #3B8FFF) -->
+    <color name="grid_bg_black">#0A0A0F</color>
+    <color name="grid_accent">#3B8FFF</color>
+    <color name="grid_glow">#60B0FF</color>
     <color name="grid_text_white">#FFFFFF</color>
-    <color name="ic_launcher_background">#0B0B0F</color>
+    <color name="ic_launcher_background">#0A0A0F</color>
 </resources>
