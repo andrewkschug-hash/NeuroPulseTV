@@ -74,6 +74,8 @@ class StreamFailoverController @Inject constructor(
     private var recoveryGeneration: Int = 0
     private var sessionFailoverCount: Int = 0
     private val blockedUrlUntilMs = mutableMapOf<String, Long>()
+    private var tuneSettleUntilMs: Long = 0L
+    private var fatalErrorNotified = false
 
     fun setAutoReconnectEnabled(enabled: Boolean) {
         autoReconnectEnabled = enabled
@@ -117,6 +119,7 @@ class StreamFailoverController @Inject constructor(
             if (!recoverable) {
                 PlaybackHttpFailure.logHttpFailure(error, activeUrl, LOG_TAG)
                 blockRecoveryForSession()
+                notifyFatalPlaybackError(error)
                 Log.w(
                     LOG_TAG,
                     "non-recoverable playback error code=${error.errorCode} url=$activeUrl",
@@ -152,6 +155,8 @@ class StreamFailoverController @Inject constructor(
         recoveryBlockedUntilMs = 0L
         sessionFailoverCount = 0
         blockedUrlUntilMs.clear()
+        tuneSettleUntilMs = 0L
+        fatalErrorNotified = false
         cancelRecovery()
         clearRestoredBanner()
         _uiState.value = StreamFailoverUiState()
@@ -219,6 +224,18 @@ class StreamFailoverController @Inject constructor(
         tuneStartedAtMs = System.currentTimeMillis()
         unhealthySinceMs = 0L
         recoveryBlockedUntilMs = 0L
+        onStreamTuneStarted()
+    }
+
+    /** Called when a new stream load begins — suppresses failover until playback settles. */
+    fun onStreamTuneStarted() {
+        tuneSettleUntilMs = System.currentTimeMillis() + TUNE_SETTLE_MS
+        fatalErrorNotified = false
+        cancelRecovery()
+    }
+
+    fun cancelRecoveryAndBlockSession() {
+        blockRecoveryForSession()
     }
 
     /**
@@ -234,6 +251,7 @@ class StreamFailoverController @Inject constructor(
         tuneStartedAtMs = System.currentTimeMillis()
         unhealthySinceMs = 0L
         recoveryBlockedUntilMs = 0L
+        onStreamTuneStarted()
         playbackTelemetry.onStreamSwitch(channel?.sourceIdForUrl(url) ?: url)
         Log.i(LOG_TAG, "failover state refreshed active=$url blocked=${blockedUrlUntilMs.keys}")
     }
@@ -307,6 +325,7 @@ class StreamFailoverController @Inject constructor(
         if (channel == null || streamUrls.isEmpty()) return
         if (intentionalIdle) return
         if (System.currentTimeMillis() < recoveryBlockedUntilMs) return
+        if (System.currentTimeMillis() < tuneSettleUntilMs) return
 
         val maxAttempts = maxStreamRetries
         if (maxAttempts <= 0) return
@@ -422,6 +441,15 @@ class StreamFailoverController @Inject constructor(
         _uiState.value = StreamFailoverUiState()
     }
 
+    private fun notifyFatalPlaybackError(error: PlaybackException) {
+        if (fatalErrorNotified) return
+        fatalErrorNotified = true
+        val exo = player ?: return
+        exo.playWhenReady = false
+        exo.stop()
+        exo.clearMediaItems()
+    }
+
     private fun cancelRecovery() {
         recoveryJob?.cancel()
         wasRecovering = false
@@ -462,11 +490,12 @@ class StreamFailoverController @Inject constructor(
         const val RECOVERING_MESSAGE = "Recovering stream..."
         const val RESTORED_MESSAGE = "Stream restored"
 
-        const val DEFAULT_STREAM_RETRIES = 3
+        const val DEFAULT_STREAM_RETRIES = 1
         const val MIN_STREAM_RETRIES = 0
         const val MAX_STREAM_RETRIES = 10
 
         private const val TUNE_TIMEOUT_MS = 30_000L
+        private const val TUNE_SETTLE_MS = 8_000L
         private const val UNHEALTHY_GRACE_MS = 4_000L
         private const val STEP_TIMEOUT_MS = 8_000L
         private const val STEP_GAP_MS = 1_200L

@@ -151,6 +151,21 @@ object EpgLayout {
         return (safeWindow * dpPerMs()).coerceAtLeast(1f).dp
     }
 
+    /** Inverse of [offsetForTime] for mapping horizontal scroll position to epoch millis. */
+    fun timeForScrollOffsetPx(
+        scrollPx: Float,
+        viewportCenterOffsetPx: Float,
+        windowStart: Long,
+        windowDurationMs: Long,
+        density: Float
+    ): Long {
+        val centerPx = scrollPx + viewportCenterOffsetPx
+        val offsetDp = centerPx / density
+        val offsetMs = (offsetDp / dpPerMs()).toLong()
+        val windowCap = sanitizeWindowDurationMs(windowDurationMs)
+        return windowStart + offsetMs.coerceIn(0L, windowCap)
+    }
+
     fun safeCellWidth(width: Dp, windowDurationMs: Long): Dp {
         val maxWidth = timelineWidthMs(windowDurationMs)
         return width.coerceIn(1.dp, maxWidth)
@@ -162,6 +177,15 @@ fun formatEpgTime(epochMs: Long): String = EpgTime.formatWallClock(epochMs)
 fun formatEpgClock(epochMs: Long): String = EpgTime.formatWallClock(epochMs)
 
 fun formatEpgDay(epochMs: Long): String = EpgTime.formatWallClockDay(epochMs)
+
+/** Best program index for [timeMs]: containing slot, else nearest earlier start. */
+fun programIndexForTime(progs: List<Program>, timeMs: Long): Int {
+    if (progs.isEmpty()) return 0
+    progs.indexOfFirst { timeMs in it.startTime until it.endTime }.takeIf { it >= 0 }?.let { return it }
+    progs.indexOfFirst { timeMs == it.endTime }.takeIf { it >= 0 }?.let { return it }
+    val byStart = progs.indexOfLast { it.startTime <= timeMs }
+    return if (byStart >= 0) byStart else 0
+}
 
 fun programDurationMinutes(program: Program): Int =
     ((program.endTime - program.startTime) / 60_000).toInt()

@@ -34,7 +34,7 @@ class IptvLoadErrorHandlingPolicy(
             return C.TIME_UNSET
         }
         val attemptIndex = (loadErrorInfo.errorCount - 1).coerceAtLeast(0)
-        if (attemptIndex >= RETRY_BACKOFF_MS.size) {
+        if (attemptIndex >= MAX_RECOVERABLE_ATTEMPTS || attemptIndex >= RETRY_BACKOFF_MS.size) {
             logRetry(loadErrorInfo, accepted = false, delayMs = C.TIME_UNSET)
             return C.TIME_UNSET
         }
@@ -80,11 +80,13 @@ class IptvLoadErrorHandlingPolicy(
     }
 
     companion object {
-        /** Retry 1 → 1s, retry 2 → 3s, retry 3 → 8s. */
-        val RETRY_BACKOFF_MS = longArrayOf(1_000L, 3_000L, 8_000L)
+        /** Single delayed retry for transient CDN/server failures. */
+        val RETRY_BACKOFF_MS = longArrayOf(1_000L)
 
-        /** Aligned with [RETRY_BACKOFF_MS] slots — policy stops after 3 delayed retries. */
-        const val MANIFEST_MIN_RETRIES = 3
-        const val SEGMENT_MIN_RETRIES = 3
+        const val MAX_RECOVERABLE_ATTEMPTS = 1
+
+        /** At most one retry beyond the initial load attempt. */
+        const val MANIFEST_MIN_RETRIES = 1
+        const val SEGMENT_MIN_RETRIES = 1
     }
 }

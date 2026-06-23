@@ -22,9 +22,11 @@ class MultiPanePlaybackPool @Inject constructor(
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val streamFormatProber: IptvStreamFormatProber,
     private val paneWatchdog: MultiPanePlaybackWatchdog,
-    private val decoderPressureTracker: DecoderPressureTracker
+    private val decoderPressureTracker: DecoderPressureTracker,
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity
 ) {
     private val players = mutableMapOf<Int, ExoPlayer>()
+    private val paneStreamUrls = mutableMapOf<Int, String>()
     private var activeAudioPaneIndex: Int = 0
     private val tuneScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -58,34 +60,50 @@ class MultiPanePlaybackPool @Inject constructor(
     ) {
         releasePane(paneIndex)
         players[paneIndex] = player
+        paneStreamUrls[paneIndex] = streamUrl
+        playbackNetworkExclusivity.registerStream(streamUrl)
         decoderPressureTracker.registerPlayer("${owner}_pane_$paneIndex", player)
         if (!player.playWhenReady) player.playWhenReady = true
         paneWatchdog.attachPane(paneIndex, player, streamUrl)
     }
 
-    fun tunePane(context: Context, paneIndex: Int, streamUrl: String, owner: String) {
+    fun tunePane(
+        context: Context,
+        paneIndex: Int,
+        streamUrl: String,
+        owner: String,
+        forceRetune: Boolean = false
+    ) {
         if (streamUrl.isBlank()) return
         val player = getOrCreatePlayer(context, paneIndex, owner)
         val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-        if (currentUri == streamUrl) {
+        if (!forceRetune && currentUri == streamUrl) {
             if (!player.playWhenReady) player.playWhenReady = true
             paneWatchdog.attachPane(paneIndex, player, streamUrl)
             return
         }
         tuneScope.launch {
-            withContext(Dispatchers.IO) {
-                streamFormatProber.probeAndRegister(streamUrl)
+            val previousUrl = paneStreamUrls[paneIndex]?.takeIf { it != streamUrl }
+            previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
+            playbackNetworkExclusivity.registerStream(streamUrl)
+            if (!playbackNetworkExclusivity.shouldSkipPreflightProbe(streamUrl)) {
+                withContext(Dispatchers.IO) {
+                    streamFormatProber.probeAndRegister(streamUrl)
+                }
             }
             val player = getOrCreatePlayer(context, paneIndex, owner)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-            if (currentUri == streamUrl) {
+            if (!forceRetune && currentUri == streamUrl) {
                 if (!player.playWhenReady) player.playWhenReady = true
                 paneWatchdog.attachPane(paneIndex, player, streamUrl)
                 return@launch
             }
+            player.stop()
+            player.clearMediaItems()
             player.setMediaItem(IptvLiveMediaItem.build(streamUrl, registry = streamFormatRegistry))
             player.prepare()
             player.playWhenReady = true
+            paneStreamUrls[paneIndex] = streamUrl
             paneWatchdog.attachPane(paneIndex, player, streamUrl)
         }
     }
@@ -99,7 +117,8 @@ class MultiPanePlaybackPool @Inject constructor(
         streamUrlsByPane: List<String?>,
         audioPaneIndex: Int,
         decodeOnlyAudioPane: Boolean,
-        owner: String
+        owner: String,
+        forceRetune: Boolean = false
     ) {
         activeAudioPaneIndex = audioPaneIndex.coerceAtLeast(0)
         val paneCount = streamUrlsByPane.size
@@ -110,7 +129,7 @@ class MultiPanePlaybackPool @Inject constructor(
                 players[index]?.let(::pauseAndClear)
                 return@forEachIndexed
             }
-            url?.let { tunePane(context, index, it, owner) }
+            url?.let { tunePane(context, index, it, owner, forceRetune) }
         }
         applyAudioVolumes(decodeOnlyAudioPane)
     }
@@ -137,6 +156,7 @@ class MultiPanePlaybackPool @Inject constructor(
 
     fun releasePane(paneIndex: Int) {
         paneWatchdog.detachPane(paneIndex)
+        paneStreamUrls.remove(paneIndex)?.let { playbackNetworkExclusivity.unregisterStream(it) }
         players.remove(paneIndex)?.let { player ->
             decoderPressureTracker.unregisterPlayer(player)
             playerFactory.releasePlayer(player)
@@ -147,6 +167,7 @@ class MultiPanePlaybackPool @Inject constructor(
     fun detachAdoptedPane(paneIndex: Int) {
         paneWatchdog.detachPane(paneIndex)
         players.remove(paneIndex)
+        paneStreamUrls.remove(paneIndex)
     }
 
     fun releaseAllExcept(paneIndex: Int) {
@@ -155,6 +176,8 @@ class MultiPanePlaybackPool @Inject constructor(
 
     fun releaseAll() {
         paneWatchdog.detachAll()
+        paneStreamUrls.values.toList().forEach { playbackNetworkExclusivity.unregisterStream(it) }
+        paneStreamUrls.clear()
         players.values.toList().forEach { player ->
             decoderPressureTracker.unregisterPlayer(player)
             playerFactory.releasePlayer(player)

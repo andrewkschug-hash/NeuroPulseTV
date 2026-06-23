@@ -12,7 +12,7 @@ class StreamFailoverControllerTest {
     }
 
     @Test
-    fun defaultStreamRetries_matchesAppSettingsDefault() {
-        assertEquals(3, StreamFailoverController.DEFAULT_STREAM_RETRIES)
+    fun defaultStreamRetries_isSingleRetry() {
+        assertEquals(1, StreamFailoverController.DEFAULT_STREAM_RETRIES)
     }
 }

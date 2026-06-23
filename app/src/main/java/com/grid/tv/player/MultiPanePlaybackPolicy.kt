@@ -15,8 +15,8 @@ object MultiPanePlaybackPolicy {
     }
 
     fun decodeOnlyActiveAudioPane(context: Context): Boolean {
-        val profile = DeviceDecoderLimits.profile()
-        val lowEnd = LowEndDeviceMode.profile(context)
-        return profile.isChromecastGoogleTv || lowEnd.decodeOnlyMultiPaneAudio || lowEnd.active
+        // Chromecast GTV hardware cannot reliably decode multiple HD live streams.
+        // Other devices decode every pane and mute non-audio panes instead of showing blanks.
+        return DeviceDecoderLimits.profile().isChromecastGoogleTv
     }
 }

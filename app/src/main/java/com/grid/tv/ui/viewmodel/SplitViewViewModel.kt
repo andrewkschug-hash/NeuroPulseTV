@@ -82,6 +82,9 @@ class SplitViewViewModel @Inject constructor(
     private val _audioPaneIndex = MutableStateFlow(0)
     val audioPaneIndex: StateFlow<Int> = _audioPaneIndex.asStateFlow()
 
+    private val _paneLayoutRevision = MutableStateFlow(0)
+    val paneLayoutRevision: StateFlow<Int> = _paneLayoutRevision.asStateFlow()
+
     private val _loadFailed = MutableStateFlow(false)
     val loadFailed: StateFlow<Boolean> = _loadFailed.asStateFlow()
 
@@ -119,6 +122,7 @@ class SplitViewViewModel @Inject constructor(
             removedAudioIndex > index -> removedAudioIndex - 1
             else -> removedAudioIndex
         }.coerceIn(0, _paneChannelIds.value.lastIndex)
+        _paneLayoutRevision.value++
     }
 
     fun makePrimary(index: Int) {
@@ -133,6 +137,7 @@ class SplitViewViewModel @Inject constructor(
             in 1 until index -> audioIndex - 1
             else -> audioIndex
         }.coerceIn(0, ids.lastIndex)
+        _paneLayoutRevision.value++
     }
 
     fun setAudioPane(index: Int) {
@@ -149,14 +154,16 @@ class SplitViewViewModel @Inject constructor(
         context: Context,
         channels: List<Channel?>,
         audioPaneIndex: Int,
-        decodeOnlyAudio: Boolean
+        decodeOnlyAudio: Boolean,
+        forceRetune: Boolean = false
     ) {
         multiPanePlaybackPool.syncFromStreamUrls(
             context = context,
             streamUrlsByPane = channels.map { it?.streamUrl?.takeIf { url -> url.isNotBlank() } },
             audioPaneIndex = audioPaneIndex,
             decodeOnlyAudioPane = decodeOnlyAudio,
-            owner = PANE_OWNER
+            owner = PANE_OWNER,
+            forceRetune = forceRetune
         )
     }
 

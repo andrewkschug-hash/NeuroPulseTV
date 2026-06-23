@@ -16,7 +16,9 @@ import okhttp3.Request
 @Singleton
 class IptvStreamFormatProber @Inject constructor(
     private val appHttpClient: AppHttpClient,
-    private val registry: IptvStreamFormatRegistry
+    private val registry: IptvStreamFormatRegistry,
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
+    private val vodPlaybackNetworkGuard: VodPlaybackNetworkGuard
 ) {
     private val client by lazy {
         appHttpClient.probeClient().newBuilder()
@@ -38,6 +40,13 @@ class IptvStreamFormatProber @Inject constructor(
         val patternGuess = IptvStreamFormatDetector.detect(url, registry = registry)
         if (cached != null && patternGuess != IptvStreamFormat.UNKNOWN) {
             return@withContext IptvStreamFormatDetector.resolveForPlayback(url, registry = registry)
+        }
+        if (shouldSkipPreflightProbe(url)) {
+            val resolved = IptvStreamFormatDetector.resolveForPlayback(url, registry = registry)
+            if (resolved != IptvStreamFormat.UNKNOWN) {
+                registry.put(url, resolved, IptvStreamFormatRegistry.Source.URL_PATTERN)
+            }
+            return@withContext resolved
         }
         if (!needsRuntimeProbe(url, patternGuess)) {
             val resolved = IptvStreamFormatDetector.resolveForPlayback(url, registry = registry)
@@ -76,7 +85,12 @@ class IptvStreamFormatProber @Inject constructor(
             IptvStreamFormatDetector.looksLikeLiveIptvUrl(url)
     }
 
+    private fun shouldSkipPreflightProbe(url: String): Boolean =
+        playbackNetworkExclusivity.shouldSkipPreflightProbe(url) ||
+            vodPlaybackNetworkGuard.shouldSkipPreflightProbe(url)
+
     private fun headContentType(url: String): String? {
+        if (shouldSkipPreflightProbe(url)) return null
         val request = Request.Builder().url(url).head().build()
         client.newCall(request).execute().use { response ->
             return response.header("Content-Type")
@@ -84,6 +98,7 @@ class IptvStreamFormatProber @Inject constructor(
     }
 
     private fun sniffManifest(url: String): String? {
+        if (shouldSkipPreflightProbe(url)) return null
         val request = Request.Builder().url(url).get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return null

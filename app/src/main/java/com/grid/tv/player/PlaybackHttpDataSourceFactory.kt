@@ -36,6 +36,9 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
     private var stack: PlaybackSourceStack? = null
 
     @Volatile
+    private var vodStack: PlaybackSourceStack? = null
+
+    @Volatile
     private var lastConfig: NetworkPlaybackConfig? = null
 
     private val lock = Any()
@@ -55,6 +58,11 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
     fun mediaSourceFactory(settings: AppSettings? = null): MediaSource.Factory =
         ensureStack(settings).mediaSourceFactory
 
+    /** VOD-only factory stack with zero HTTP retries and no live failover policy. */
+    @UnstableApi
+    fun mediaSourceFactoryForOnDemand(settings: AppSettings? = null): MediaSource.Factory =
+        ensureVodStack(settings).mediaSourceFactory
+
     /**
      * Aligns the playback OkHttp client and invalidates cached factories when network settings change.
      */
@@ -65,6 +73,7 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
             lastConfig = config
             appHttpClient.applySettings(settings)
             invalidateStackLocked(reason = "network_settings")
+            invalidateVodStackLocked()
             Log.i(TAG, "PLAYBACK_NETWORK ${config.toLogLine()}")
         }
     }
@@ -113,6 +122,36 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
         PerformanceAudit.logPlaybackFactoryInvalidated(reason)
     }
 
+    private fun invalidateVodStackLocked() {
+        vodStack = null
+    }
+
+    @UnstableApi
+    private fun ensureVodStack(settings: AppSettings?): PlaybackSourceStack {
+        settings?.toNetworkPlaybackConfig()?.let { config ->
+            synchronized(lock) {
+                if (lastConfig == null) {
+                    lastConfig = config
+                }
+            }
+        }
+        val client = appHttpClient.playbackClient()
+        val clientId = System.identityHashCode(client)
+        vodStack?.let { existing ->
+            if (existing.okHttpClientId == clientId) {
+                return existing
+            }
+        }
+        synchronized(lock) {
+            vodStack?.let { existing ->
+                if (existing.okHttpClientId == clientId) {
+                    return existing
+                }
+            }
+            return buildVodStackLocked(client)
+        }
+    }
+
     @UnstableApi
     private fun buildStackLocked(client: OkHttpClient, reason: String): PlaybackSourceStack {
         val generation = (stack?.generation ?: 0) + 1
@@ -145,6 +184,33 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
         if (lastConfig == null) {
             Log.i(TAG, "PLAYBACK_NETWORK stack=AppHttpClient.playbackClient dns=IptvDns")
         }
+        return newStack
+    }
+
+    @UnstableApi
+    private fun buildVodStackLocked(client: OkHttpClient): PlaybackSourceStack {
+        val generation = (vodStack?.generation ?: 0) + 1
+        val clientId = System.identityHashCode(client)
+        val dataSourceFactory = OkHttpDataSource.Factory(client)
+            .setUserAgent(STREAM_USER_AGENT)
+        val loadErrorPolicy = VodLoadErrorHandlingPolicy(playbackMetricsLogger)
+        val hlsFactory = HlsMediaSource.Factory(dataSourceFactory)
+            .setAllowChunklessPreparation(true)
+            .setLoadErrorHandlingPolicy(loadErrorPolicy)
+        val mediaSourceFactory = IptvMediaSourceFactory(
+            dataSourceFactory = dataSourceFactory,
+            hlsFactory = hlsFactory,
+            streamFormatRegistry = streamFormatRegistry
+        )
+            .also { it.setLoadErrorHandlingPolicy(loadErrorPolicy) }
+        val newStack = PlaybackSourceStack(
+            generation = generation,
+            okHttpClientId = clientId,
+            dataSourceFactory = dataSourceFactory,
+            mediaSourceFactory = mediaSourceFactory
+        )
+        vodStack = newStack
+        Log.i(TAG, "PLAYBACK_NETWORK vodStack generation=$generation")
         return newStack
     }
 

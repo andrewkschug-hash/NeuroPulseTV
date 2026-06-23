@@ -102,6 +102,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.grid.tv.feature.epg.EpgBlockCache
+import com.grid.tv.feature.epg.EpgProgramTextDecoder
 import com.grid.tv.util.cache.AppCacheRegistry
 import com.grid.tv.util.cache.BoundedMemoryCache
 import com.grid.tv.util.cache.CacheSizeEstimators
@@ -688,34 +689,12 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>> =
         programDao.observeGrid(epgIds, fromTime).map { rows ->
-            rows.map {
-                Program(
-                    id = it.id,
-                    channelEpgId = it.channelEpgId,
-                    title = it.title,
-                    description = it.description,
-                    startTime = it.startTime,
-                    endTime = it.endTime,
-                    genre = runCatching { ProgramGenre.valueOf(it.genre) }.getOrDefault(ProgramGenre.GENERAL),
-                    catchupUrl = it.catchupUrl
-                )
-            }
+            rows.map(::programFromEntity)
         }
 
     override fun searchPrograms(query: String): Flow<List<Program>> =
         programDao.observeSearch(query).map { rows ->
-            rows.map {
-                Program(
-                    id = it.id,
-                    channelEpgId = it.channelEpgId,
-                    title = it.title,
-                    description = it.description,
-                    startTime = it.startTime,
-                    endTime = it.endTime,
-                    genre = runCatching { ProgramGenre.valueOf(it.genre) }.getOrDefault(ProgramGenre.GENERAL),
-                    catchupUrl = it.catchupUrl
-                )
-            }
+            rows.map(::programFromEntity)
         }
 
     override fun recordings(): Flow<List<String>> = recordingDao.observeAll().map { rows ->
@@ -1089,8 +1068,8 @@ class IptvRepositoryImpl @Inject constructor(
         Program(
             id = row.id,
             channelEpgId = row.channelEpgId,
-            title = row.title,
-            description = row.description,
+            title = EpgProgramTextDecoder.decode(row.title),
+            description = EpgProgramTextDecoder.decode(row.description),
             startTime = row.startTime,
             endTime = row.endTime,
             genre = runCatching { ProgramGenre.valueOf(row.genre) }.getOrDefault(ProgramGenre.GENERAL),

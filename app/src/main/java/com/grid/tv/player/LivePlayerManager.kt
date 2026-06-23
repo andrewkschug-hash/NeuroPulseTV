@@ -16,7 +16,6 @@ import com.grid.tv.data.network.toNetworkPlaybackConfig
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.sourceIdForUrl
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
-import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.util.PerformanceAudit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,14 +64,14 @@ class LivePlayerManager @Inject constructor(
     private val playerFactory: PlayerFactory,
     private val playbackHttpDataSourceFactory: PlaybackHttpDataSourceFactory,
     private val streamFailover: StreamFailoverController,
-    private val channelScanner: ChannelScanner,
     private val catalogHydrationGuard: CatalogHydrationGuard,
     private val decoderPressureTracker: DecoderPressureTracker,
     private val playbackMetrics: PlaybackMetricsLogger,
     private val playbackTelemetry: PlaybackTelemetryCollector,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val playbackHealthMonitor: PlaybackHealthMonitor,
-    private val streamFormatProber: IptvStreamFormatProber
+    private val streamFormatProber: IptvStreamFormatProber,
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -269,6 +268,9 @@ class LivePlayerManager @Inject constructor(
                 message = error.message
             )
             playbackTelemetry.onPlaybackError()
+            if (!error.isRecoverableForPlayback()) {
+                handleFatalPlaybackError(error)
+            }
         }
     }
 
@@ -409,7 +411,7 @@ class LivePlayerManager @Inject constructor(
         )
         streamTransitionJob?.cancel()
         if (fullscreenSessions > 0) {
-            channelScanner.setPlaybackScanSuspended(false)
+            playbackNetworkExclusivity.unregisterStream(currentStreamUrl)
         }
         destroyPlayerInstance(context.applicationContext, clearCache = true)
         playbackReadySeen = false
@@ -538,6 +540,7 @@ class LivePlayerManager @Inject constructor(
         streamTransitionJob = monitorScope.launch {
             tuneGuard.runPipeline(key) {
                 PerformanceAudit.logTunePipelineStart(channelId, streamUrl, configureFailover)
+                streamFailover.onStreamTuneStarted()
                 resetPlayerForMediaSwap()
                 delay(AUDIO_PIPELINE_FLUSH_DELAY_MS)
                 loadStream(
@@ -607,7 +610,10 @@ class LivePlayerManager @Inject constructor(
             streamFailover.configureWithHealthRanking(failoverChannel, streamUrl)
         }
 
-        streamFormatProber.probeAndRegister(streamUrl)
+        val previousUrl = currentStreamUrl?.takeIf { it.isNotBlank() && it != streamUrl }
+        previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
+        playbackNetworkExclusivity.registerStream(streamUrl)
+        resolvePlaybackFormat(streamUrl)
 
         playbackMonitor.onTuneStarted(streamUrl)
         playbackMetrics.onTuneStarted(channelId, streamUrl)
@@ -688,6 +694,26 @@ class LivePlayerManager @Inject constructor(
         bufferStartupStartedAtMs = 0L
     }
 
+    private suspend fun resolvePlaybackFormat(streamUrl: String) {
+        if (playbackNetworkExclusivity.shouldSkipPreflightProbe(streamUrl)) {
+            val resolved = IptvStreamFormatDetector.resolveForPlayback(streamUrl, registry = streamFormatRegistry)
+            if (resolved != IptvStreamFormat.UNKNOWN) {
+                streamFormatRegistry.put(streamUrl, resolved, IptvStreamFormatRegistry.Source.URL_PATTERN)
+            }
+            return
+        }
+        streamFormatProber.probeAndRegister(streamUrl)
+    }
+
+    private fun handleFatalPlaybackError(error: androidx.media3.common.PlaybackException) {
+        PlaybackHttpFailure.logHttpFailure(error, currentStreamUrl)
+        streamFailover.cancelRecoveryAndBlockSession()
+        val exo = player ?: return
+        exo.playWhenReady = false
+        exo.stop()
+        exo.clearMediaItems()
+    }
+
     /**
      * Fully destroys the ExoPlayer instance. Use only for settings-driven rebuilds,
      * explicit [release], or other lifecycle teardown — not for channel zaps.
@@ -708,6 +734,7 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.unregisterPlayer(exo)
         exo.release()
         player = null
+        playbackNetworkExclusivity.unregisterStream(currentStreamUrl)
         pendingZapChannelId = null
         markPlayerReplaced()
         if (clearCache && context != null) {
@@ -804,9 +831,6 @@ class LivePlayerManager @Inject constructor(
 
     fun enterFullscreen() {
         fullscreenSessions++
-        if (fullscreenSessions == 1) {
-            channelScanner.setPlaybackScanSuspended(true)
-        }
         resetVolumeFade()
         setMode(Mode.FULLSCREEN)
     }
@@ -857,10 +881,10 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.registerPlayer("live_fullscreen", exo)
         setMode(Mode.FULLSCREEN)
         fullscreenSessions = 1
-        channelScanner.setPlaybackScanSuspended(true)
-        catalogHydrationGuard.setViewportEpgSuspended(true)
         markPlayerReplaced()
         applyVolume()
+        catalogHydrationGuard.setViewportEpgSuspended(true)
+        currentStreamUrl?.let { playbackNetworkExclusivity.registerStream(it) }
         Log.i(TAG, "Reclaimed live player from multi-pane channelId=$currentChannelId")
         return true
     }
@@ -872,17 +896,14 @@ class LivePlayerManager @Inject constructor(
         if (fullscreenSessions > 0) return
 
         if (multiPaneHandoffInProgress) {
-            channelScanner.setPlaybackScanSuspended(false)
             return
         }
 
         if (suppressExitFullscreenSideEffects) {
             suppressExitFullscreenSideEffects = false
-            channelScanner.setPlaybackScanSuspended(false)
             return
         }
 
-        channelScanner.setPlaybackScanSuspended(false)
         TimeshiftManager.reset()
         resetVolumeFade()
         if (currentChannelId != null && !currentStreamUrl.isNullOrBlank()) {
@@ -989,6 +1010,7 @@ class LivePlayerManager @Inject constructor(
         player?.playWhenReady = false
         player?.pause()
         applyVolume()
+        playbackNetworkExclusivity.unregisterStream(currentStreamUrl)
         syncCatalogHydrationGuard()
     }
 
@@ -1008,6 +1030,7 @@ class LivePlayerManager @Inject constructor(
         }
         playbackMonitor.onPreviewResumed()
         streamFailover.onPlaybackResumed()
+        currentStreamUrl?.let { playbackNetworkExclusivity.registerStream(it) }
         exo.playWhenReady = true
         when (exo.playbackState) {
             Player.STATE_IDLE, Player.STATE_ENDED -> {
@@ -1036,7 +1059,7 @@ class LivePlayerManager @Inject constructor(
 
     fun release(context: Context? = null) {
         streamTransitionJob?.cancel()
-        channelScanner.setPlaybackScanSuspended(false)
+        playbackNetworkExclusivity.clearAll()
         PerformanceAudit.logPlayerMemoryRelease(
             reason = "app_exit",
             phase = "before",

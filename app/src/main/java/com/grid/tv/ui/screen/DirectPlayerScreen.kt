@@ -50,12 +50,11 @@ import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.devicePlaybackCapabilities
-import com.grid.tv.player.isCodecCapabilityError
-import com.grid.tv.player.isRetriablePlaybackError
 import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.player.PlaybackHttpFailure
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.PlaybackSurfaceInstrument
+import com.grid.tv.player.VodPlaybackNetworkGuard
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.GlowFocusButton
@@ -125,12 +124,6 @@ fun DirectPlayerScreen(
         }
     }
 
-    LaunchedEffect(vodEnrichmentKey) {
-        if (!isRecordedPlayback && !isCatchupPlayback) {
-            viewModel.setVodMetadata(pendingVodMeta)
-        }
-    }
-
     LaunchedEffect(resume, immediateResumeMs, resumePositionMs, pendingVodMeta, streamId, url) {
         if (!resume || isRecordedPlayback || isCatchupPlayback) {
             resumeSeekState.pendingMs = 0L
@@ -171,16 +164,17 @@ fun DirectPlayerScreen(
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume, url) { mutableStateOf(false) }
-    var playbackRetryCount = remember(url) { intArrayOf(0) }
     var playbackError by remember(url) { mutableStateOf<String?>(null) }
     val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
-    val playbackOrchestrator = remember(context) {
+    val playerEntryPoint = remember(context) {
         EntryPointAccessors.fromApplication(
             context.applicationContext,
             PlayerEntryPoint::class.java
-        ).playbackOrchestrator()
+        )
     }
+    val playbackOrchestrator = remember { playerEntryPoint.playbackOrchestrator() }
+    val vodPlaybackNetworkGuard = remember { playerEntryPoint.vodPlaybackNetworkGuard() }
     var vodSessionReady by remember(url) { mutableStateOf<Boolean?>(null) }
 
     DisposableEffect(url) {
@@ -193,6 +187,7 @@ fun DirectPlayerScreen(
             result == PlaybackOrchestrator.SessionRequestResult.GRANTED_EVICTED_LOWER
         onDispose {
             playbackOrchestrator.releaseSession(PlaybackOrchestrator.PlaybackSession.VOD, context)
+            vodPlaybackNetworkGuard.endSession()
         }
     }
 
@@ -220,6 +215,7 @@ fun DirectPlayerScreen(
     val player = remember(url, immediateResumeMs, onDemandContentKind) {
         resumeSeekState.applied = immediateResumeMs > 0L
         resumeSeekState.pendingMs = immediateResumeMs
+        vodPlaybackNetworkGuard.beginSession(url)
         viewModel.createPlayer(context).apply {
             val mediaItem = viewModel.buildOnDemandMediaItem(url, onDemandContentKind)
             if (immediateResumeMs > 0L) {
@@ -256,34 +252,19 @@ fun DirectPlayerScreen(
 
                 override fun onPlayerError(error: PlaybackException) {
                     PlaybackHttpFailure.logHttpFailure(error, url)
-                    if (error.isCodecCapabilityError()) {
-                        playbackError = error.playbackErrorMessage(isEmulator)
-                        this@apply.playWhenReady = false
-                        return
-                    }
-                    if (!error.isRetriablePlaybackError()) {
-                        playbackError = error.playbackErrorMessage(isEmulator)
-                        this@apply.playWhenReady = false
-                        return
-                    }
-                    if (playbackRetryCount[0] < 2) {
-                        playbackRetryCount[0] += 1
-                        val resumePos = currentPosition.coerceAtLeast(0L)
-                        stop()
-                        clearMediaItems()
-                        setMediaItem(
-                            viewModel.buildOnDemandMediaItem(url, onDemandContentKind),
-                            resumePos
-                        )
-                        prepare()
-                        playWhenReady = true
-                    } else {
-                        playbackError = error.playbackErrorMessage(isEmulator)
-                        this@apply.playWhenReady = false
-                    }
+                    playbackError = error.playbackErrorMessage(isEmulator)
+                    playWhenReady = false
+                    stop()
+                    clearMediaItems()
                 }
             })
         }
+    }
+
+    LaunchedEffect(vodEnrichmentKey, player.playbackState) {
+        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
+        if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
+        viewModel.setVodMetadata(pendingVodMeta)
     }
 
     LaunchedEffect(player.playbackState, url, isRecordedPlayback, isCatchupPlayback, subtitlesAttached) {

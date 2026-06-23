@@ -1,5 +1,6 @@
 package com.grid.tv.feature.scanner
 
+import com.grid.tv.player.PlaybackActivityGate
 import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
@@ -81,6 +82,7 @@ class ScanMetricsLogger @Inject constructor(
     }
 
     private fun logActiveRequests() {
+        if (PlaybackActivityGate.suppressScannerMetrics) return
         Log.d(TAG, "ACTIVE_REQUESTS=$activeRequests MEMORY_USAGE_MB=${memoryUsageMb()}")
     }
 

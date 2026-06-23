@@ -30,7 +30,8 @@ class PlayerFactory @Inject constructor(
         handleAudioFocus: Boolean = true,
         networkSettings: AppSettings? = null,
         decoderOwner: String = "playback",
-        preferLiveStability: Boolean = false
+        preferLiveStability: Boolean = false,
+        onDemandPlayback: Boolean = false
     ): ExoPlayer {
         val caps = context.devicePlaybackCapabilities()
         val profile = IptvBufferProfiles.resolve(
@@ -94,7 +95,11 @@ class PlayerFactory @Inject constructor(
             }
         }
 
-        val mediaSourceFactory = playbackHttpDataSourceFactory.mediaSourceFactory(networkSettings)
+        val mediaSourceFactory = if (onDemandPlayback) {
+            playbackHttpDataSourceFactory.mediaSourceFactoryForOnDemand(networkSettings)
+        } else {
+            playbackHttpDataSourceFactory.mediaSourceFactory(networkSettings)
+        }
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)

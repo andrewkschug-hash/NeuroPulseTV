@@ -89,6 +89,9 @@ class ChannelScanner @Inject constructor(
     @Volatile
     private var scansSuspendedForPlayback = false
 
+    @Volatile
+    private var playbackSuspendGeneration = 0
+
     private var playbackSuspendStartedAtMs = 0L
 
     private var probesSkippedDuringPlayback = 0
@@ -155,6 +158,7 @@ class ChannelScanner @Inject constructor(
         if (scansSuspendedForPlayback == suspended) return
         scansSuspendedForPlayback = suspended
         if (suspended) {
+            playbackSuspendGeneration++
             playbackSuspendStartedAtMs = System.currentTimeMillis()
             scanMetrics.logPlaybackScanSuspend(
                 suspended = true,
@@ -470,8 +474,10 @@ class ChannelScanner @Inject constructor(
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
         if (scansSuspendedForPlayback) return
+        val suspendGenerationAtStart = playbackSuspendGeneration
         markChecking(channelId)
         val detail = probe.probe(streamUrl)
+        if (scansSuspendedForPlayback || suspendGenerationAtStart != playbackSuspendGeneration) return
         val snapshot = ChannelScanSnapshot(
             status = when (detail.result) {
                 ProbeResult.LIVE -> ChannelScanStatus.LIVE

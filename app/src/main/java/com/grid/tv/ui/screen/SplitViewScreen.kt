@@ -84,6 +84,7 @@ fun SplitViewScreen(
     val recentChannels by viewModel.recentChannels.collectAsStateWithLifecycle()
     val paneChannels by viewModel.paneChannels.collectAsStateWithLifecycle()
     val audioPaneIndex by viewModel.audioPaneIndex.collectAsStateWithLifecycle()
+    val paneLayoutRevision by viewModel.paneLayoutRevision.collectAsStateWithLifecycle()
     val loadFailed by viewModel.loadFailed.collectAsStateWithLifecycle()
 
     var showPicker by remember { mutableStateOf(false) }
@@ -128,6 +129,17 @@ fun SplitViewScreen(
 
     LaunchedEffect(paneChannels, audioPaneIndex, decodeOnlyAudio) {
         viewModel.syncPanePlayback(context, paneChannels, audioPaneIndex, decodeOnlyAudio)
+    }
+
+    LaunchedEffect(paneLayoutRevision) {
+        if (paneLayoutRevision == 0) return@LaunchedEffect
+        viewModel.syncPanePlayback(
+            context = context,
+            channels = paneChannels,
+            audioPaneIndex = audioPaneIndex,
+            decodeOnlyAudio = decodeOnlyAudio,
+            forceRetune = true
+        )
     }
 
     LaunchedEffect(paneChannels.size) {
@@ -436,7 +448,7 @@ private fun SplitPaneGrid(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            key(0) {
+            key(paneChannels.getOrNull(0)?.id ?: 0L) {
                 SplitPaneSlot(
                     paneIndex = 0,
                     channel = paneChannels.getOrNull(0),
@@ -453,7 +465,7 @@ private fun SplitPaneGrid(
                 )
             }
             if (paneChannels.size >= 2) {
-                key(1) {
+                key(paneChannels.getOrNull(1)?.id ?: 1L) {
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
@@ -477,7 +489,7 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                key(0) {
+                key(paneChannels.getOrNull(0)?.id ?: 0L) {
                     SplitPaneSlot(
                         paneIndex = 0,
                         channel = paneChannels.getOrNull(0),
@@ -489,7 +501,7 @@ private fun SplitPaneGrid(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                key(1) {
+                key(paneChannels.getOrNull(1)?.id ?: 1L) {
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
@@ -502,7 +514,7 @@ private fun SplitPaneGrid(
                     )
                 }
             }
-            key(2) {
+            key(paneChannels.getOrNull(2)?.id ?: 2L) {
                 SplitPaneSlot(
                     paneIndex = 2,
                     channel = paneChannels.getOrNull(2),
@@ -527,7 +539,7 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                key(0) {
+                key(paneChannels.getOrNull(0)?.id ?: 0L) {
                     SplitPaneSlot(
                         paneIndex = 0,
                         channel = paneChannels.getOrNull(0),
@@ -539,7 +551,7 @@ private fun SplitPaneGrid(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                key(1) {
+                key(paneChannels.getOrNull(1)?.id ?: 1L) {
                     SplitPaneSlot(
                         paneIndex = 1,
                         channel = paneChannels.getOrNull(1),
@@ -558,7 +570,7 @@ private fun SplitPaneGrid(
                     .weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                key(2) {
+                key(paneChannels.getOrNull(2)?.id ?: 2L) {
                     SplitPaneSlot(
                         paneIndex = 2,
                         channel = paneChannels.getOrNull(2),
@@ -570,7 +582,7 @@ private fun SplitPaneGrid(
                         modifier = Modifier.weight(1f)
                     )
                 }
-                key(3) {
+                key(paneChannels.getOrNull(3)?.id ?: 3L) {
                     SplitPaneSlot(
                         paneIndex = 3,
                         channel = paneChannels.getOrNull(3),
@@ -632,7 +644,7 @@ private fun SplitPaneVideoSlot(
     activeAudio: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val player = remember(paneIndex) { viewModel.playerForPane(context, paneIndex) }
+    val player = remember(paneIndex, label) { viewModel.playerForPane(context, paneIndex) }
     SplitPane(
         paneIndex = paneIndex,
         label = label,
@@ -674,7 +686,7 @@ private fun SplitPane(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val playerView = remember(paneIndex) {
+    val playerView = remember(paneIndex, label) {
         PlayerView(context).apply {
             useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)

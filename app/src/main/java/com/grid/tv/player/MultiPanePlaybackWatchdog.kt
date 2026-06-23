@@ -22,7 +22,8 @@ import kotlinx.coroutines.launch
 @Singleton
 class MultiPanePlaybackWatchdog @Inject constructor(
     private val streamFormatRegistry: IptvStreamFormatRegistry,
-    private val streamFormatProber: IptvStreamFormatProber
+    private val streamFormatProber: IptvStreamFormatProber,
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val panes = ConcurrentHashMap<Int, PaneWatchState>()
@@ -151,7 +152,9 @@ class MultiPanePlaybackWatchdog @Inject constructor(
 
         scope.launch(Dispatchers.Main.immediate) {
             runCatching {
-                streamFormatProber.probeAndRegister(state.streamUrl)
+                if (!playbackNetworkExclusivity.shouldSkipPreflightProbe(state.streamUrl)) {
+                    streamFormatProber.probeAndRegister(state.streamUrl)
+                }
                 state.player.stop()
                 state.player.clearMediaItems()
                 state.player.setMediaItem(

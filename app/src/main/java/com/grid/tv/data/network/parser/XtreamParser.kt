@@ -8,6 +8,7 @@ import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.feature.epg.EpgProgramTextDecoder
 import java.net.URI
 import java.net.URLEncoder
 import org.json.JSONArray
@@ -514,10 +515,10 @@ class XtreamParser {
             val startMs = if (startSec > 1_000_000_000_000L) startSec else startSec * 1000L
             val endMs = if (endSec > 1_000_000_000_000L) endSec else endSec * 1000L
             if (endMs <= windowStart || startMs >= windowEnd) continue
-            val title = row.optString("title").ifBlank { "Untitled" }
-            val description = row.optString("description").ifBlank {
-                row.optString("desc")
-            }.trim()
+            val title = EpgProgramTextDecoder.decode(row.optString("title")).ifBlank { "Untitled" }
+            val description = EpgProgramTextDecoder.decode(
+                row.optString("description").ifBlank { row.optString("desc") }
+            ).trim()
             val genre = normalizeShortEpgGenre(row.optString("category"))
             out += ProgramEntity(
                 id = XmlTvParser.stableProgramId(channelEpgId, startMs),

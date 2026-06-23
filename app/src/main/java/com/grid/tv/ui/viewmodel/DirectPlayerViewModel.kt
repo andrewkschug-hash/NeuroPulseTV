@@ -95,7 +95,8 @@ class DirectPlayerViewModel @Inject constructor(
             startupPriority = PlaybackStartupPriority.FAST,
             networkSettings = settings,
             decoderOwner = "vod_direct",
-            preferLiveStability = false
+            preferLiveStability = false,
+            onDemandPlayback = true
         )
     }
 
