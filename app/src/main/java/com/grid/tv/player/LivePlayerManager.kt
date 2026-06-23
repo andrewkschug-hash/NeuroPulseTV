@@ -71,7 +71,9 @@ class LivePlayerManager @Inject constructor(
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val playbackHealthMonitor: PlaybackHealthMonitor,
     private val streamFormatProber: IptvStreamFormatProber,
-    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
+    private val playbackNetworkCoordinator: PlaybackNetworkCoordinator,
+    private val streamTypePreflightSniffer: StreamTypePreflightSniffer
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -178,6 +180,11 @@ class LivePlayerManager @Inject constructor(
     private var multiPaneHandoffInProgress = false
     private var volumeFadeMultiplier: Float = 1f
     private var streamTransitionJob: Job? = null
+
+    @Volatile
+    private var tuneGeneration: Int = 0
+
+    private var hlsToProgressiveFallbackUsed: Boolean = false
     private var watchDurationJob: Job? = null
     private var playerReleasedForBackground = false
     private val tuneGuard = TunePipelineGuard()
@@ -268,6 +275,7 @@ class LivePlayerManager @Inject constructor(
                 message = error.message
             )
             playbackTelemetry.onPlaybackError()
+            if (tryProgressiveFallbackAfterHlsParserError(error)) return
             if (!error.isRecoverableForPlayback()) {
                 handleFatalPlaybackError(error)
             }
@@ -537,12 +545,14 @@ class LivePlayerManager @Inject constructor(
         }
 
         streamTransitionJob?.cancel()
+        val generation = ++tuneGeneration
         streamTransitionJob = monitorScope.launch {
             tuneGuard.runPipeline(key) {
+                if (generation != tuneGeneration) return@runPipeline
                 PerformanceAudit.logTunePipelineStart(channelId, streamUrl, configureFailover)
                 streamFailover.onStreamTuneStarted()
                 resetPlayerForMediaSwap()
-                delay(AUDIO_PIPELINE_FLUSH_DELAY_MS)
+                if (generation != tuneGeneration) return@runPipeline
                 loadStream(
                     context = context,
                     channelId = channelId,
@@ -551,7 +561,8 @@ class LivePlayerManager @Inject constructor(
                     channelSnapshot = channelSnapshot,
                     playWhenReady = playWhenReady,
                     configureFailover = configureFailover,
-                    trackZapMetrics = trackZapMetrics
+                    trackZapMetrics = trackZapMetrics,
+                    tuneGeneration = generation
                 )
                 PerformanceAudit.logTunePipelineEnd(channelId, streamUrl)
             }
@@ -588,13 +599,14 @@ class LivePlayerManager @Inject constructor(
         channelSnapshot: Channel?,
         playWhenReady: Boolean,
         configureFailover: Boolean,
-        trackZapMetrics: Boolean
+        trackZapMetrics: Boolean,
+        tuneGeneration: Int
     ) {
+        if (tuneGeneration != this.tuneGeneration) return
+
         val exo = getOrCreatePlayer(context)
-        playbackMonitor.attach(exo)
-        streamFailover.attach(exo, failoverActions)
-            if (configureFailover) {
-                val failoverChannel = channelSnapshot
+        val failoverChannel = if (configureFailover) {
+            channelSnapshot
                 ?: currentChannel?.takeIf { it.id == channelId }
                 ?: Channel(
                     id = channelId,
@@ -607,35 +619,18 @@ class LivePlayerManager @Inject constructor(
                     playlistId = 0,
                     isFavorite = false
                 )
-            streamFailover.configureWithHealthRanking(failoverChannel, streamUrl)
+        } else {
+            null
         }
 
         val previousUrl = currentStreamUrl?.takeIf { it.isNotBlank() && it != streamUrl }
-        previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
-        playbackNetworkExclusivity.registerStream(streamUrl)
-
-        playbackMonitor.onTuneStarted(streamUrl)
-        playbackMetrics.onTuneStarted(channelId, streamUrl)
-        playbackHealthMonitor.reset()
-        playbackTelemetry.beginSession(
-            channelId = channelId,
-            providerId = channelSnapshot?.playlistId ?: 0L,
-            streamId = channelSnapshot?.sourceIdForUrl(streamUrl) ?: streamUrl
-        )
-        startWatchDurationTicker()
-        this.catchupDays = catchupDays
-
-        if (configureFailover) {
-            currentChannel?.takeIf { it.id != channelId }?.let { previous ->
-                _lastChannel.value = previous
-            }
-        }
-
-        TimeshiftManager.reset()
-        resetTimeshiftState()
-        this.catchupDays = catchupDays
 
         if (streamUrl.isBlank()) {
+            playbackNetworkCoordinator.beginLiveTune(
+                streamUrl = streamUrl,
+                tuneGeneration = tuneGeneration,
+                previousUrl = previousUrl
+            )
             setActiveChannelId(channelId)
             setActiveStreamUrl(streamUrl)
             channelSnapshot?.let { currentChannel = it }
@@ -646,10 +641,43 @@ class LivePlayerManager @Inject constructor(
             return
         }
 
+        if (tuneGeneration != this.tuneGeneration) return
+
+        hlsToProgressiveFallbackUsed = false
+        val streamDetection = streamTypePreflightSniffer.detect(streamUrl)
+        if (streamDetection.format == IptvStreamFormat.UNKNOWN) {
+            Log.e(
+                TAG,
+                "Stream type UNKNOWN — refusing HLS pipeline url=$streamUrl reason=${streamDetection.reason}"
+            )
+            exo.stop()
+            exo.clearMediaItems()
+            return
+        }
+        streamFormatRegistry.put(
+            streamUrl,
+            streamDetection.format,
+            IptvStreamFormatRegistry.Source.MANIFEST_SNIFF
+        )
+
+        playbackNetworkCoordinator.beginLiveTune(
+            streamUrl = streamUrl,
+            tuneGeneration = tuneGeneration,
+            previousUrl = previousUrl
+        )
+
         setActiveChannelId(channelId)
         setActiveStreamUrl(streamUrl)
         channelSnapshot?.let { currentChannel = it }
         pendingJumpToLive = true
+        this.catchupDays = catchupDays
+
+        if (configureFailover) {
+            currentChannel?.takeIf { it.id != channelId }?.let { previous ->
+                _lastChannel.value = previous
+            }
+        }
+
         Log.i(TAG, "loadStream id=$channelId url=$streamUrl playWhenReady=$playWhenReady")
         PerformanceAudit.logPlayerLifecycle("SWAP_MEDIA", exo, _playerGeneration.value, channelId)
         if (trackZapMetrics) {
@@ -662,13 +690,54 @@ class LivePlayerManager @Inject constructor(
             channelId = channelId,
             profileName = TimeshiftManager.activeProfileName
         )
-        exo.stop()
-        exo.clearMediaItems()
-        exo.setMediaItem(buildLiveMediaItem(streamUrl))
+
+        if (tuneGeneration != this.tuneGeneration) return
+
+        playbackMonitor.attach(exo)
+        streamFailover.attach(exo, failoverActions)
+        failoverChannel?.let { streamFailover.configure(it, streamUrl) }
+
+        playbackNetworkCoordinator.markSingleRequestAllowed(streamUrl, tuneGeneration)
+        exo.setMediaItem(
+            buildLiveMediaItem(streamUrl, formatOverride = streamDetection.format)
+        )
         exo.prepare()
         exo.playWhenReady = playWhenReady
         applyVolume()
-        ioScope.launch { resolvePlaybackFormat(streamUrl) }
+
+        playbackMonitor.onTuneStarted(streamUrl)
+        playbackMetrics.onTuneStarted(channelId, streamUrl)
+        playbackHealthMonitor.reset()
+        ioScope.launch {
+            runCatching {
+                playbackTelemetry.beginSession(
+                    channelId = channelId,
+                    providerId = channelSnapshot?.playlistId ?: 0L,
+                    streamId = channelSnapshot?.sourceIdForUrl(streamUrl) ?: streamUrl
+                )
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to begin playback telemetry", error)
+            }
+        }
+        startWatchDurationTicker()
+        TimeshiftManager.reset()
+        resetTimeshiftState()
+
+        ioScope.launch {
+            if (configureFailover && failoverChannel != null) {
+                runCatching {
+                    streamFailover.configureWithHealthRanking(failoverChannel, streamUrl)
+                }.onFailure { error ->
+                    Log.w(TAG, "Deferred health-ranked failover configure failed", error)
+                }
+            }
+        }
+        ioScope.launch {
+            if (!playbackNetworkCoordinator.isProbeBlocked(streamUrl)) {
+                resolvePlaybackFormat(streamUrl)
+            }
+        }
+
         if (configureFailover) {
             streamFailover.onStreamSwitched(streamUrl)
         } else {
@@ -676,6 +745,36 @@ class LivePlayerManager @Inject constructor(
         }
         syncCatalogHydrationGuard()
     }
+
+    private fun tryProgressiveFallbackAfterHlsParserError(
+        error: androidx.media3.common.PlaybackException
+    ): Boolean {
+        if (hlsToProgressiveFallbackUsed) return false
+        if (!StreamTypeDetector.isHlsParserFailure(error)) return false
+        val exo = player ?: return false
+        val url = currentStreamUrl?.trim().orEmpty()
+        if (url.isEmpty() || StreamTypeDetector.isTsUrl(url)) return false
+
+        hlsToProgressiveFallbackUsed = true
+        streamFormatRegistry.put(url, IptvStreamFormat.PROGRESSIVE, IptvStreamFormatRegistry.Source.URL_PATTERN)
+        Log.w(TAG, "HLS parser failure — retrying once with ProgressiveMediaSource url=$url")
+        StreamTypeDetector.logMediaSourceSelected(IptvStreamFormat.PROGRESSIVE, url)
+        exo.stop()
+        exo.clearMediaItems()
+        exo.setMediaItem(buildLiveMediaItem(url, formatOverride = IptvStreamFormat.PROGRESSIVE))
+        exo.prepare()
+        exo.playWhenReady = mode != Mode.IDLE
+        return true
+    }
+
+    private fun buildLiveMediaItem(
+        streamUrl: String,
+        formatOverride: IptvStreamFormat? = null
+    ): MediaItem = IptvLiveMediaItem.build(
+        streamUrl,
+        registry = streamFormatRegistry,
+        formatOverride = formatOverride
+    )
 
     /**
      * Stops current media on the existing player without releasing decoders or the instance.
@@ -742,12 +841,9 @@ class LivePlayerManager @Inject constructor(
         }
     }
 
-    private fun buildLiveMediaItem(streamUrl: String): MediaItem =
-        IptvLiveMediaItem.build(streamUrl, registry = streamFormatRegistry)
 
     companion object {
         private const val TAG = "LivePlayerManager"
-        private const val AUDIO_PIPELINE_FLUSH_DELAY_MS = 75L
         private const val WATCH_DURATION_TICK_MS = 5_000L
     }
 

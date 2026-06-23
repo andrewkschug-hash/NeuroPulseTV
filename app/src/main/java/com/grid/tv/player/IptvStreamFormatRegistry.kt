@@ -31,14 +31,16 @@ class IptvStreamFormatRegistry @Inject constructor() {
     }
 
     fun putContentType(url: String, contentType: String?) {
-        IptvStreamFormatDetector.formatFromContentType(contentType)?.let { format ->
+        val format = StreamTypeDetector.classify(url, contentType, firstBytes = null).format
+        if (format != IptvStreamFormat.UNKNOWN) {
             put(url, format, Source.CONTENT_TYPE)
         }
     }
 
     fun putManifestSnippet(url: String, snippet: String) {
-        if (IptvStreamFormatDetector.isHlsManifestSnippet(snippet)) {
-            put(url, IptvStreamFormat.HLS, Source.MANIFEST_SNIFF)
+        val format = StreamTypeDetector.classify(url, contentType = null, firstBytes = snippet).format
+        if (format != IptvStreamFormat.UNKNOWN) {
+            put(url, format, Source.MANIFEST_SNIFF)
         }
     }
 

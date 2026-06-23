@@ -11,7 +11,7 @@ enum class IptvStreamFormat {
     HLS,
     /** Progressive TS/MP4 and other non-HLS sources. */
     PROGRESSIVE,
-    /** Unknown — fall back to IPTV heuristics (live URLs default to HLS). */
+    /** Unknown — requires preflight sniff before playback; never route to HLS by default. */
     UNKNOWN;
 
     fun isHls(): Boolean = this == HLS
@@ -72,27 +72,27 @@ object IptvStreamFormatDetector {
 
         registry?.get(url)?.let { return it }
 
-        if (matchesIptvHlsPattern(url)) return IptvStreamFormat.HLS
+        if (matchesIptvHlsPattern(url)) return IptvStreamFormat.UNKNOWN
 
         if (PROGRESSIVE_EXTENSIONS.any { url.contains(it, ignoreCase = true) }) {
             return IptvStreamFormat.PROGRESSIVE
         }
 
-        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.HLS
+        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.UNKNOWN
 
         return IptvStreamFormat.UNKNOWN
     }
 
-    /** Live IPTV URLs without a clear progressive signal are treated as HLS. */
+    /** Live IPTV URLs without a confirmed manifest remain UNKNOWN until preflight sniff. */
     fun resolveForPlayback(
         url: String,
         mediaItem: MediaItem? = null,
         registry: IptvStreamFormatRegistry? = null
     ): IptvStreamFormat {
+        registry?.get(url)?.let { return it }
+        readMetadataHint(mediaItem)?.let { return it }
         return when (val detected = detect(url, mediaItem, registry)) {
-            IptvStreamFormat.UNKNOWN -> {
-                if (looksLikeLiveIptvUrl(url)) IptvStreamFormat.HLS else IptvStreamFormat.PROGRESSIVE
-            }
+            IptvStreamFormat.UNKNOWN -> StreamTypeDetector.classifyUrlPath(url)
             else -> detected
         }
     }
@@ -128,7 +128,8 @@ object IptvStreamFormatDetector {
             (url.contains("start=", ignoreCase = true) && url.contains("duration=", ignoreCase = true))
 
     private fun resolveVodFormat(url: String): IptvStreamFormat {
-        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.HLS
+        if (StreamTypeDetector.isTsUrl(url)) return IptvStreamFormat.PROGRESSIVE
+        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.UNKNOWN
         if (PROGRESSIVE_EXTENSIONS.any { url.contains(it, ignoreCase = true) }) {
             return IptvStreamFormat.PROGRESSIVE
         }
@@ -137,14 +138,12 @@ object IptvStreamFormatDetector {
     }
 
     private fun resolveCatchupFormat(url: String): IptvStreamFormat {
-        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.HLS
-        if (looksLikeCatchupArchiveUrl(url) || matchesIptvHlsPattern(url) || looksLikeLiveIptvUrl(url)) {
-            return IptvStreamFormat.HLS
-        }
+        if (StreamTypeDetector.isTsUrl(url)) return IptvStreamFormat.PROGRESSIVE
+        if (url.contains(".m3u8", ignoreCase = true)) return IptvStreamFormat.UNKNOWN
         if (PROGRESSIVE_EXTENSIONS.any { url.contains(it, ignoreCase = true) }) {
             return IptvStreamFormat.PROGRESSIVE
         }
-        return IptvStreamFormat.HLS
+        return IptvStreamFormat.UNKNOWN
     }
 
     private fun resolveLocalFormat(url: String): IptvStreamFormat {
@@ -170,6 +169,7 @@ object IptvStreamFormatDetector {
         if (base.isBlank()) return null
         return when {
             base in HLS_CONTENT_TYPES || base == MimeTypes.APPLICATION_M3U8 -> IptvStreamFormat.HLS
+            base == "video/mp2t" -> IptvStreamFormat.PROGRESSIVE
             base.startsWith("video/") || base == "application/octet-stream" -> null
             else -> null
         }

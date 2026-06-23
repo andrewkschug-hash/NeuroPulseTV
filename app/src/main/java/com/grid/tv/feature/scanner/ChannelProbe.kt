@@ -93,7 +93,7 @@ class ChannelProbe(
 
     private fun shouldRunHlsManifestCheck(url: String): Boolean {
         streamFormatRegistry?.get(url)?.let { return it == IptvStreamFormat.HLS }
-        return IptvStreamFormatDetector.resolveForPlayback(url, registry = streamFormatRegistry) == IptvStreamFormat.HLS
+        return url.contains(".m3u8", ignoreCase = true)
     }
 
     private inline fun executeWithRetry(

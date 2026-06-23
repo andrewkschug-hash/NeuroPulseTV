@@ -20,6 +20,7 @@ import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.player.IptvStreamFormatRegistry
 import com.grid.tv.player.LowEndDeviceMode
+import com.grid.tv.player.PlaybackActivityGate
 import com.grid.tv.util.cache.AppCacheRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
@@ -473,11 +474,12 @@ class ChannelScanner @Inject constructor(
     }
 
     private suspend fun checkChannel(channelId: Long, streamUrl: String) {
-        if (scansSuspendedForPlayback) return
+        if (scansSuspendedForPlayback || PlaybackActivityGate.isNetworkTuneLocked()) return
         val suspendGenerationAtStart = playbackSuspendGeneration
         markChecking(channelId)
         val detail = probe.probe(streamUrl)
         if (scansSuspendedForPlayback || suspendGenerationAtStart != playbackSuspendGeneration) return
+        if (PlaybackActivityGate.isNetworkTuneLocked()) return
         val snapshot = ChannelScanSnapshot(
             status = when (detail.result) {
                 ProbeResult.LIVE -> ChannelScanStatus.LIVE

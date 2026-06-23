@@ -3,13 +3,31 @@ package com.grid.tv.player
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import org.junit.After
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class PlaybackHttpDataSourceFactoryTest {
+
+    @Before
+    fun setUp() {
+        mockkStatic(android.util.Log::class)
+        every { android.util.Log.i(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.w(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.d(any<String>(), any<String>()) } returns 0
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic(android.util.Log::class)
+    }
 
     private fun metricsLogger(): PlaybackMetricsLogger =
         PlaybackMetricsLogger(mockk<PlaybackTelemetryCollector>(relaxed = true))
@@ -53,6 +71,7 @@ class PlaybackHttpDataSourceFactoryTest {
     @Test
     fun syncNetworkSettings_noOpWhenConfigUnchanged() {
         val factory = factory()
+        factory.syncNetworkSettings(AppSettings())
         factory.mediaSourceFactory()
         val generation = factory.stackGeneration()
         factory.syncNetworkSettings(AppSettings())

@@ -48,7 +48,8 @@ class StreamFailoverController @Inject constructor(
     private val analytics: StreamFailoverAnalytics,
     private val playbackMetrics: PlaybackMetricsLogger,
     private val playbackTelemetry: PlaybackTelemetryCollector,
-    private val healthAggregator: com.grid.tv.feature.health.intelligence.StreamHealthAggregator
+    private val healthAggregator: com.grid.tv.feature.health.intelligence.StreamHealthAggregator,
+    private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -326,6 +327,7 @@ class StreamFailoverController @Inject constructor(
         if (intentionalIdle) return
         if (System.currentTimeMillis() < recoveryBlockedUntilMs) return
         if (System.currentTimeMillis() < tuneSettleUntilMs) return
+        if (playbackNetworkCoordinator.isFailoverBlocked()) return
 
         val maxAttempts = maxStreamRetries
         if (maxAttempts <= 0) return

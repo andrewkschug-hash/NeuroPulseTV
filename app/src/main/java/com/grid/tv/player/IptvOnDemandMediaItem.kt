@@ -15,13 +15,16 @@ object IptvOnDemandMediaItem {
     fun build(
         url: String,
         contentKind: IptvOnDemandContentKind,
-        registry: IptvStreamFormatRegistry? = null
+        registry: IptvStreamFormatRegistry? = null,
+        formatOverride: IptvStreamFormat? = null
     ): MediaItem {
-        val format = IptvStreamFormatDetector.resolveForOnDemandPlayback(
-            url = url,
-            contentKind = contentKind,
-            registry = registry
-        )
+        val format = formatOverride
+            ?: registry?.get(url)
+            ?: IptvStreamFormatDetector.resolveForOnDemandPlayback(
+                url = url,
+                contentKind = contentKind,
+                registry = registry
+            )
         val extras = Bundle().apply {
             putString(IptvStreamFormatDetector.METADATA_KEY_PLAYBACK_SCOPE, IptvPlaybackScope.ON_DEMAND.name)
             putString(IptvStreamFormatDetector.METADATA_KEY_CONTENT_KIND, contentKind.name)

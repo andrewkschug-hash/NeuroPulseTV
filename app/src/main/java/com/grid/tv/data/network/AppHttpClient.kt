@@ -53,6 +53,20 @@ class AppHttpClient @Inject constructor() {
     /** Viewport get_short_epg — fail fast so Cloudflare 522s do not stall the guide. */
     fun shortEpgClient(): OkHttpClient = shortEpgClient
 
+    /** Cancel in-flight playback HTTP so a new tune does not overlap with the previous stream. */
+    fun cancelInFlightPlaybackRequests(): Int {
+        val inFlight = playbackClient.dispatcher.runningCallsCount()
+        playbackClient.dispatcher.cancelAll()
+        return inFlight
+    }
+
+    /** Cancel in-flight channel HEAD/range probes during playback tune. */
+    fun cancelInFlightProbeRequests(): Int {
+        val inFlight = probeClient.dispatcher.runningCallsCount()
+        probeClient.dispatcher.cancelAll()
+        return inFlight
+    }
+
     fun applySettings(settings: AppSettings) {
         client = buildClient(settings)
         probeClient = buildProbeClient(settings)

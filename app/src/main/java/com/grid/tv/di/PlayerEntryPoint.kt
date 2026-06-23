@@ -6,6 +6,7 @@ import com.grid.tv.player.DecoderPressureTracker
 import com.grid.tv.player.LivePlayerManager
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.PlayerFactory
+import com.grid.tv.player.PlaybackNetworkCoordinator
 import com.grid.tv.player.VodPlaybackNetworkGuard
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -21,4 +22,5 @@ interface PlayerEntryPoint {
     fun playerFactory(): PlayerFactory
     fun playbackOrchestrator(): PlaybackOrchestrator
     fun vodPlaybackNetworkGuard(): VodPlaybackNetworkGuard
+    fun playbackNetworkCoordinator(): PlaybackNetworkCoordinator
 }

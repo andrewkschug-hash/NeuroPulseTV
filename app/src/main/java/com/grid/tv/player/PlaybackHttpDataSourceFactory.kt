@@ -231,7 +231,29 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
 
         override fun createMediaSource(mediaItem: MediaItem): MediaSource {
             val uri = mediaItem.localConfiguration?.uri?.toString().orEmpty()
-            val format = when (IptvOnDemandMediaItem.readPlaybackScope(mediaItem)) {
+            val format = resolveFormat(uri, mediaItem)
+            if (format == IptvStreamFormat.UNKNOWN) {
+                Log.w(TAG, "MEDIA_SOURCE_SELECTED source=none urlHash=${uri.hashCode()} format=UNKNOWN")
+            } else {
+                StreamTypeDetector.logMediaSourceSelected(format, uri)
+            }
+            if (StreamTypeDetector.isTsUrl(uri)) {
+                return defaultFactory.createMediaSource(stripHlsMimeType(mediaItem))
+            }
+            return if (format.isHls()) {
+                hlsFactory.createMediaSource(ensureHlsMimeType(mediaItem))
+            } else {
+                defaultFactory.createMediaSource(stripHlsMimeType(mediaItem))
+            }
+        }
+
+        private fun resolveFormat(uri: String, mediaItem: MediaItem): IptvStreamFormat {
+            if (StreamTypeDetector.isTsUrl(uri)) {
+                return IptvStreamFormat.PROGRESSIVE
+            }
+            readMetadataFormat(mediaItem)?.let { return it }
+            streamFormatRegistry.get(uri)?.let { return it }
+            return when (IptvOnDemandMediaItem.readPlaybackScope(mediaItem)) {
                 IptvPlaybackScope.ON_DEMAND -> {
                     val contentKind = IptvOnDemandMediaItem.readContentKind(mediaItem)
                         ?: IptvOnDemandContentKind.VOD_MOVIE
@@ -242,17 +264,24 @@ class PlaybackHttpDataSourceFactory @Inject constructor(
                         registry = streamFormatRegistry
                     )
                 }
-                IptvPlaybackScope.LIVE -> IptvStreamFormatDetector.resolveForPlayback(
-                    url = uri,
-                    mediaItem = mediaItem,
-                    registry = streamFormatRegistry
-                )
+                IptvPlaybackScope.LIVE -> StreamTypeDetector.classifyUrlPath(uri)
             }
-            return if (format.isHls()) {
-                hlsFactory.createMediaSource(ensureHlsMimeType(mediaItem))
-            } else {
-                defaultFactory.createMediaSource(mediaItem)
+        }
+
+        private fun readMetadataFormat(mediaItem: MediaItem): IptvStreamFormat? {
+            val extras = mediaItem.mediaMetadata?.extras ?: return null
+            return when (extras.getString(IptvStreamFormatDetector.METADATA_KEY_STREAM_FORMAT)?.lowercase()) {
+                "hls" -> IptvStreamFormat.HLS
+                "progressive" -> IptvStreamFormat.PROGRESSIVE
+                "unknown" -> IptvStreamFormat.UNKNOWN
+                else -> null
             }
+        }
+
+        private fun stripHlsMimeType(mediaItem: MediaItem): MediaItem {
+            val mime = mediaItem.localConfiguration?.mimeType ?: return mediaItem
+            if (mime != androidx.media3.common.MimeTypes.APPLICATION_M3U8) return mediaItem
+            return mediaItem.buildUpon().setMimeType(null).build()
         }
 
         private fun ensureHlsMimeType(mediaItem: MediaItem): MediaItem {

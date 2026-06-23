@@ -14,9 +14,11 @@ import com.grid.tv.feature.subtitles.SubtitleRequest
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.IptvOnDemandContentKind
 import com.grid.tv.player.IptvOnDemandMediaItem
+import com.grid.tv.player.IptvStreamFormat
 import com.grid.tv.player.IptvStreamFormatRegistry
 import com.grid.tv.player.PlaybackStartupPriority
 import com.grid.tv.player.PlayerFactory
+import com.grid.tv.player.StreamTypePreflightSniffer
 import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
@@ -44,7 +46,8 @@ class DirectPlayerViewModel @Inject constructor(
     private val subtitleManager: SubtitleManager,
     val pipController: PictureInPictureController,
     private val playerFactory: PlayerFactory,
-    private val streamFormatRegistry: IptvStreamFormatRegistry
+    private val streamFormatRegistry: IptvStreamFormatRegistry,
+    private val streamTypePreflightSniffer: StreamTypePreflightSniffer
 ) : ViewModel() {
 
     companion object {
@@ -100,8 +103,34 @@ class DirectPlayerViewModel @Inject constructor(
         )
     }
 
-    fun buildOnDemandMediaItem(url: String, contentKind: IptvOnDemandContentKind): MediaItem =
-        IptvOnDemandMediaItem.build(url, contentKind, streamFormatRegistry)
+    fun buildOnDemandMediaItem(
+        url: String,
+        contentKind: IptvOnDemandContentKind,
+        formatOverride: IptvStreamFormat? = null
+    ): MediaItem = IptvOnDemandMediaItem.build(
+        url = url,
+        contentKind = contentKind,
+        registry = streamFormatRegistry,
+        formatOverride = formatOverride
+    )
+
+    fun registerStreamFormat(url: String, format: IptvStreamFormat) {
+        streamFormatRegistry.put(url, format, IptvStreamFormatRegistry.Source.URL_PATTERN)
+    }
+
+    suspend fun runStreamPreflight(url: String): IptvStreamFormat? {
+        val detection = streamTypePreflightSniffer.detect(url)
+        if (detection.format == IptvStreamFormat.UNKNOWN) {
+            Log.e(TAG, "Stream preflight UNKNOWN url=$url reason=${detection.reason}")
+            return null
+        }
+        streamFormatRegistry.put(
+            url,
+            detection.format,
+            IptvStreamFormatRegistry.Source.MANIFEST_SNIFF
+        )
+        return detection.format
+    }
 
     fun releasePlayer(player: ExoPlayer) {
         playerFactory.releasePlayer(player)

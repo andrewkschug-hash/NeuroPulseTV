@@ -33,9 +33,9 @@ class IptvOnDemandFormatDetectorTest {
     }
 
     @Test
-    fun catchupWithUtcQuery_isHls() {
+    fun catchupWithUtcQuery_tsUrl_isProgressive() {
         assertEquals(
-            IptvStreamFormat.HLS,
+            IptvStreamFormat.PROGRESSIVE,
             IptvStreamFormatDetector.resolveForOnDemandPlayback(
                 url = "http://host/live/user/pass/1.ts?utc=1700000000&lutc=1700003600",
                 contentKind = IptvOnDemandContentKind.CATCHUP
@@ -44,9 +44,9 @@ class IptvOnDemandFormatDetectorTest {
     }
 
     @Test
-    fun vodMovie_m3u8_isHls() {
+    fun vodMovie_m3u8_requiresPreflight_isUnknownFromDetectorAlone() {
         assertEquals(
-            IptvStreamFormat.HLS,
+            IptvStreamFormat.UNKNOWN,
             IptvStreamFormatDetector.resolveForOnDemandPlayback(
                 url = "http://host/movie/u/p/1.m3u8",
                 contentKind = IptvOnDemandContentKind.VOD_MOVIE

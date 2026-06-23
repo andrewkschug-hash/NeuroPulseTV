@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.grid.tv.player.PlaybackNetworkCoordinator
+import android.util.Log
 import com.grid.tv.util.MediaAttribution
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,9 +23,11 @@ class MultiPanePlaybackPool @Inject constructor(
     private val playerFactory: PlayerFactory,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val streamFormatProber: IptvStreamFormatProber,
+    private val streamTypePreflightSniffer: StreamTypePreflightSniffer,
     private val paneWatchdog: MultiPanePlaybackWatchdog,
     private val decoderPressureTracker: DecoderPressureTracker,
-    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity
+    private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
+    private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
     private val players = mutableMapOf<Int, ExoPlayer>()
     private val paneStreamUrls = mutableMapOf<Int, String>()
@@ -84,8 +88,27 @@ class MultiPanePlaybackPool @Inject constructor(
         }
         tuneScope.launch {
             val previousUrl = paneStreamUrls[paneIndex]?.takeIf { it != streamUrl }
-            previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
-            playbackNetworkExclusivity.registerStream(streamUrl)
+            val streamDetection = withContext(Dispatchers.IO) {
+                streamTypePreflightSniffer.detect(streamUrl)
+            }
+            if (streamDetection.format == IptvStreamFormat.UNKNOWN) {
+                Log.e(
+                    TAG,
+                    "Stream type UNKNOWN — refusing multi-pane playback url=$streamUrl reason=${streamDetection.reason}"
+                )
+                return@launch
+            }
+            streamFormatRegistry.put(
+                streamUrl,
+                streamDetection.format,
+                IptvStreamFormatRegistry.Source.MANIFEST_SNIFF
+            )
+            playbackNetworkCoordinator.beginLiveTune(
+                streamUrl = streamUrl,
+                tuneGeneration = paneIndex + 1,
+                previousUrl = previousUrl,
+                sessionKind = PlaybackNetworkCoordinator.SessionKind.MULTI_PANE
+            )
             val player = getOrCreatePlayer(context, paneIndex, owner)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
             if (!forceRetune && currentUri == streamUrl) {
@@ -96,17 +119,28 @@ class MultiPanePlaybackPool @Inject constructor(
             }
             player.stop()
             player.clearMediaItems()
-            player.setMediaItem(IptvLiveMediaItem.build(streamUrl, registry = streamFormatRegistry))
+            playbackNetworkCoordinator.markSingleRequestAllowed(streamUrl)
+            player.setMediaItem(
+                IptvLiveMediaItem.build(
+                    streamUrl,
+                    registry = streamFormatRegistry,
+                    formatOverride = streamDetection.format
+                )
+            )
             player.prepare()
             player.playWhenReady = true
             paneStreamUrls[paneIndex] = streamUrl
             paneWatchdog.attachPane(paneIndex, player, streamUrl)
-            if (!playbackNetworkExclusivity.shouldSkipPreflightProbe(streamUrl)) {
+            if (!playbackNetworkCoordinator.isProbeBlocked(streamUrl)) {
                 withContext(Dispatchers.IO) {
                     streamFormatProber.probeAndRegister(streamUrl)
                 }
             }
         }
+    }
+
+    companion object {
+        private const val TAG = "MultiPanePlayback"
     }
 
     /**
