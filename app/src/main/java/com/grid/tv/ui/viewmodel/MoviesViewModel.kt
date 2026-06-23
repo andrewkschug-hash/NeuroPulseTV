@@ -92,6 +92,14 @@ class MoviesViewModel @Inject constructor(
                 refreshFilteredCount(query, categoryId)
             }
         }
+        viewModelScope.launch {
+            combine(catalogTotalCount, _filteredTotalCount) { dbTotal, filtered ->
+                dbTotal to filtered
+            }.collect { (dbTotal, filtered) ->
+                com.grid.tv.util.VodCatalogLogger.moviesReceived(dbTotal)
+                com.grid.tv.util.VodCatalogLogger.uiItemsRendered("MoviesBrowser", filtered)
+            }
+        }
     }
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(

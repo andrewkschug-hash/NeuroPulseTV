@@ -101,6 +101,9 @@ class LivePlayerManager @Inject constructor(
     private val _playerGeneration = MutableStateFlow(0)
     val playerGeneration: StateFlow<Int> = _playerGeneration.asStateFlow()
 
+    private val _fullscreenActive = MutableStateFlow(false)
+    val fullscreenActive: StateFlow<Boolean> = _fullscreenActive.asStateFlow()
+
     private var pendingZapChannelId: Long? = null
     private var playbackReadySeen = false
     private var bufferStartupStartedAtMs = 0L
@@ -206,7 +209,11 @@ class LivePlayerManager @Inject constructor(
         }
     }
 
-    fun isFullscreenActive(): Boolean = fullscreenSessions > 0
+    fun isFullscreenActive(): Boolean = _fullscreenActive.value
+
+    private fun syncFullscreenActive() {
+        _fullscreenActive.value = fullscreenSessions > 0
+    }
 
     private val timeshiftListener = object : Player.Listener {
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -643,6 +650,8 @@ class LivePlayerManager @Inject constructor(
 
         if (tuneGeneration != this.tuneGeneration) return
 
+        TuneLatencyTracker.beginTune(channelId)
+
         hlsToProgressiveFallbackUsed = false
         val streamDetection = streamTypePreflightSniffer.detect(streamUrl)
         if (streamDetection.format == IptvStreamFormat.UNKNOWN) {
@@ -698,10 +707,13 @@ class LivePlayerManager @Inject constructor(
         failoverChannel?.let { streamFailover.configure(it, streamUrl) }
 
         playbackNetworkCoordinator.markSingleRequestAllowed(streamUrl, tuneGeneration)
+        TuneLatencyTracker.logEvent("MEDIA_SOURCE_CREATED", "format=${streamDetection.format}")
         exo.setMediaItem(
             buildLiveMediaItem(streamUrl, formatOverride = streamDetection.format)
         )
+        TuneLatencyTracker.logEvent("PLAYER_PREPARE_START")
         exo.prepare()
+        TuneLatencyTracker.logEvent("PLAYER_PREPARE_END")
         exo.playWhenReady = playWhenReady
         applyVolume()
 
@@ -927,8 +939,11 @@ class LivePlayerManager @Inject constructor(
 
     fun enterFullscreen() {
         fullscreenSessions++
+        syncFullscreenActive()
         resetVolumeFade()
+        player?.clearVideoSurface()
         setMode(Mode.FULLSCREEN)
+        LiveFullscreenLogger.enterFullscreen(player)
     }
 
     /** Suppress guide-preview resume when transitioning into split/multiview. */
@@ -962,6 +977,7 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.unregisterPlayer(exo)
         player = null
         fullscreenSessions = 0
+        syncFullscreenActive()
         markPlayerReplaced()
         catalogHydrationGuard.setViewportEpgSuspended(true)
         Log.i(TAG, "Handed off live player to multi-pane channelId=$currentChannelId")
@@ -977,6 +993,7 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.registerPlayer("live_fullscreen", exo)
         setMode(Mode.FULLSCREEN)
         fullscreenSessions = 1
+        syncFullscreenActive()
         markPlayerReplaced()
         applyVolume()
         catalogHydrationGuard.setViewportEpgSuspended(true)
@@ -989,6 +1006,8 @@ class LivePlayerManager @Inject constructor(
         if (fullscreenSessions > 0) {
             fullscreenSessions--
         }
+        syncFullscreenActive()
+        LiveFullscreenLogger.exitFullscreen(player)
         if (fullscreenSessions > 0) return
 
         if (multiPaneHandoffInProgress) {
@@ -1077,6 +1096,7 @@ class LivePlayerManager @Inject constructor(
 
     /** Clears the video surface. Call only after every [PlayerView] has set `player = null`. */
     fun detachFromSurface() {
+        LiveFullscreenLogger.detachPlayerFromFullscreen(player, "surface_clear")
         player?.clearVideoSurface()
     }
 
@@ -1105,6 +1125,7 @@ class LivePlayerManager @Inject constructor(
         streamFailover.onPlaybackPaused()
         player?.playWhenReady = false
         player?.pause()
+        player?.clearVideoSurface()
         applyVolume()
         playbackNetworkExclusivity.unregisterStream(currentStreamUrl)
         syncCatalogHydrationGuard()

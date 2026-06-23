@@ -37,6 +37,7 @@ internal fun HomeEpgLivePlaybackSideEffects(
     }
     LaunchedEffect(guidePreviewEnabled, previewChannelId, livePlayerManager) {
         livePlayerManager.playbackUiState.collect { ui ->
+            if (livePlayerManager.isFullscreenActive()) return@collect
             if (!guidePreviewEnabled) return@collect
             val previewId = previewChannelId ?: return@collect
             if (ui.activeChannelId != previewId) return@collect

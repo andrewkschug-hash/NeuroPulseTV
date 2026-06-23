@@ -434,8 +434,10 @@ fun AppNavHost(
                     url = android.net.Uri.decode(it.arguments?.getString("url") ?: ""),
                     onBack = { navController.popBackStack() },
                     onJumpToLive = { channelId ->
-                        navController.popBackStack()
-                        navController.navigate(Routes.Player.build(channelId))
+                        navController.navigate(Routes.Player.build(channelId)) {
+                            popUpTo(Routes.Home.route) { saveState = true }
+                            launchSingleTop = true
+                        }
                     }
                 )
             }

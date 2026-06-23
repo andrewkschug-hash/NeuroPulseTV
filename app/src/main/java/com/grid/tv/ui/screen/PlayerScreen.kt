@@ -65,6 +65,7 @@ import com.grid.tv.domain.model.Channel
 import com.grid.tv.di.PlayerEntryPoint
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.feature.recording.RecordingStatus
+import com.grid.tv.player.LiveFullscreenLogger
 import com.grid.tv.player.LivePlayerManager
 import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.player.SeekThumbnailProvider
@@ -543,7 +544,10 @@ fun PlayerScreen(
             owner = "player_screen",
             context = context
         )
+        livePlayerManager.stopGuidePreview()
+        livePlayerManager.detachFromSurface()
         livePlayerManager.enterFullscreen()
+        LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
         viewModel.pipController.setPlaybackActive(true)
     }
 
@@ -581,6 +585,8 @@ fun PlayerScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            LiveFullscreenLogger.detachPlayerFromFullscreen(player, "live_fullscreen")
+            LiveFullscreenLogger.exitFullscreen(player)
             playerViewRef[0]?.player = null
             sleepTimer.cancel()
             sleepTimer.onVolumeFade = null
@@ -701,16 +707,24 @@ fun PlayerScreen(
                     this.player = player
                     playerViewRef[0] = this
                 }.also { view ->
+                    LiveFullscreenLogger.surfaceCreated("live_fullscreen", player)
                     PlaybackSurfaceInstrument.attach("live_fullscreen", player, view)
+                    LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
                 }
             },
             update = { view ->
                 view.isFocusable = !showSideMenu
                 view.isFocusableInTouchMode = !showSideMenu
-                if (view.player != player) view.player = player
+                if (view.player !== player) {
+                    view.player = null
+                    view.player = player
+                    LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+                }
             },
             onRelease = { view ->
+                LiveFullscreenLogger.surfaceDestroyed("live_fullscreen", player)
                 PlaybackSurfaceInstrument.detach("live_fullscreen", player, view)
+                LiveFullscreenLogger.detachPlayerFromFullscreen(player, "live_fullscreen")
                 view.player = null
                 if (playerViewRef[0] === view) playerViewRef[0] = null
             }

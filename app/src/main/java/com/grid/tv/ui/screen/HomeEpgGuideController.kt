@@ -21,6 +21,7 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.programIndexForTime
+import com.grid.tv.util.GuideNavigationLogger
 import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GridNavTabs
@@ -659,8 +660,15 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.Back, Key.Escape -> {
-                ui.focusZone = EpgFocusZone.GRID
+                GuideNavigationLogger.backPressed(
+                    zone = ui.focusZone.name,
+                    channelIndex = ui.focusChannelIndex,
+                    onChannelColumn = ui.focusOnChannelColumn,
+                    detailExpanded = ui.detailExpanded,
+                    branch = "preview_to_grid"
+                )
                 ui.detailExpanded = false
+                focusEpgZone(EpgFocusZone.GRID)
                 true
             }
             else -> false
@@ -805,19 +813,70 @@ internal class HomeEpgGuideController(
             }
             Key.Back, Key.Escape -> {
                 if (ui.detailExpanded) {
+                    GuideNavigationLogger.backPressed(
+                        zone = ui.focusZone.name,
+                        channelIndex = ui.focusChannelIndex,
+                        onChannelColumn = ui.focusOnChannelColumn,
+                        detailExpanded = true,
+                        branch = "collapse_detail"
+                    )
                     ui.detailExpanded = false
-                    ui.focusZone = EpgFocusZone.GRID
-                    true
-                } else if (ui.focusChannelIndex > 0) {
-                    ui.focusChannelIndex = 0
-                    if (!ui.focusOnChannelColumn) {
-                        ui.focusProgramIndex = clampProgramIndex(0, ui.focusProgramIndex)
-                    }
-                    scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
+                    focusEpgZone(EpgFocusZone.GRID)
                     true
                 } else {
-                    focusGuideFilter()
-                    true
+                    val playingChannelId = deps.viewModel.lastPlayedChannel.value?.id
+                        ?: deps.viewModel.livePlayerManager.playbackUiState.value.activeChannelId
+                    val playingIndex = playingChannelId?.let { id ->
+                        deps.displayChannels.indexOfFirst { it.id == id }.takeIf { it >= 0 }
+                    }
+                    when {
+                        playingIndex != null && ui.focusChannelIndex != playingIndex -> {
+                            GuideNavigationLogger.backPressed(
+                                zone = ui.focusZone.name,
+                                channelIndex = ui.focusChannelIndex,
+                                onChannelColumn = ui.focusOnChannelColumn,
+                                detailExpanded = false,
+                                branch = "restore_current_channel"
+                            )
+                            GuideNavigationLogger.focusRestoreCurrent(playingIndex)
+                            GuideNavigationLogger.currentChannelIndex(playingIndex)
+                            ui.focusChannelIndex = playingIndex
+                            if (!ui.focusOnChannelColumn) {
+                                ui.focusProgramIndex = clampProgramIndex(playingIndex, ui.focusProgramIndex)
+                            }
+                            scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.NEUTRAL)
+                            true
+                        }
+                        ui.focusChannelIndex > 0 -> {
+                            GuideNavigationLogger.backPressed(
+                                zone = ui.focusZone.name,
+                                channelIndex = ui.focusChannelIndex,
+                                onChannelColumn = ui.focusOnChannelColumn,
+                                detailExpanded = false,
+                                branch = "restore_top_channel"
+                            )
+                            GuideNavigationLogger.focusRestoreTop()
+                            GuideNavigationLogger.scrollToTop(0)
+                            ui.focusChannelIndex = 0
+                            if (!ui.focusOnChannelColumn) {
+                                ui.focusProgramIndex = clampProgramIndex(0, ui.focusProgramIndex)
+                            }
+                            scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
+                            true
+                        }
+                        else -> {
+                            GuideNavigationLogger.backPressed(
+                                zone = ui.focusZone.name,
+                                channelIndex = ui.focusChannelIndex,
+                                onChannelColumn = ui.focusOnChannelColumn,
+                                detailExpanded = false,
+                                branch = "restore_top_filter"
+                            )
+                            GuideNavigationLogger.focusRestoreTop()
+                            focusGuideFilter()
+                            true
+                        }
+                    }
                 }
             }
             else -> false

@@ -2040,6 +2040,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger) {
+        com.grid.tv.util.VodCatalogLogger.vodLoadStart(trigger.name)
         warmLocalUiCache()
         refreshSeriesCategoriesIfMissing(trigger)
         repairStoredCategoryNames()
@@ -2470,6 +2471,9 @@ class IptvRepositoryImpl @Inject constructor(
             "VOD catalog counts trigger=$trigger movies=$moviesCount series=$seriesCount " +
                 "(lazy paging — rows are not loaded into memory)"
         )
+        com.grid.tv.util.VodCatalogLogger.vodLoadComplete(trigger.name, moviesCount, seriesCount)
+        com.grid.tv.util.VodCatalogLogger.moviesReceived(moviesCount)
+        com.grid.tv.util.VodCatalogLogger.seriesReceived(seriesCount)
     }
 
     private suspend fun executeVodSeriesNetworkRefresh(trigger: VodRefreshTrigger, force: Boolean) {
@@ -2601,10 +2605,33 @@ class IptvRepositoryImpl @Inject constructor(
     private suspend fun resolveVodFetchCredentials(
         playlist: PlaylistEntity
     ): Triple<String, String, String>? {
-        val user = playlist.xtreamUsername?.takeIf { it.isNotBlank() } ?: return null
-        val pass = resolveXtreamPassword(playlist)?.takeIf { it.isNotBlank() } ?: return null
+        val hasSecurePassword = secureCredentialStore.getXtreamPassword(playlist.id)?.isNotBlank() == true
+        val hasDbPassword = playlist.xtreamPassword?.isNotBlank() == true
+        val user = playlist.xtreamUsername?.takeIf { it.isNotBlank() }
+        val pass = resolveXtreamPassword(playlist)?.takeIf { it.isNotBlank() }
+        com.grid.tv.util.VodCatalogLogger.providerConnected(
+            playlistId = playlist.id,
+            hasCredentials = user != null && pass != null,
+            hasSecurePassword = hasSecurePassword,
+            hasDbPassword = hasDbPassword
+        )
+        if (user == null || pass == null) {
+            com.grid.tv.util.VodCatalogLogger.catalogStageFailure(
+                stage = "credentials",
+                reason = if (user == null) "missing_username" else "missing_password",
+                dbMovies = vodStreamDao.countTotal(),
+                dbSeries = seriesShowDao.countTotal()
+            )
+            return null
+        }
         val storedServer = runCatching { resolvePlaylistServerUrl(playlist) }.getOrElse {
             Log.w(VOD_FLOW_TAG, "VOD playlist ${playlist.id}: ${it.message}")
+            com.grid.tv.util.VodCatalogLogger.catalogStageFailure(
+                stage = "credentials",
+                reason = "missing_server_url",
+                dbMovies = vodStreamDao.countTotal(),
+                dbSeries = seriesShowDao.countTotal()
+            )
             return null
         }
         return runCatching {

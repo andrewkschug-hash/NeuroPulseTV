@@ -170,6 +170,36 @@ fun VodHubScreen(
     val trendingNow by hubViewModel.trendingNow.collectAsStateWithLifecycle()
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
+
+    LaunchedEffect(
+        catalogTotalCount,
+        moviePagingItems.itemCount,
+        seriesPagingItems.itemCount,
+        movieBrowseRows.size,
+        seriesBrowseRows.size,
+        preferredVodLanguages
+    ) {
+        com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubMoviesPaging", moviePagingItems.itemCount)
+        com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubSeriesPaging", seriesPagingItems.itemCount)
+        com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubMovieBrowseRows", movieBrowseRows.size)
+        com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubSeriesBrowseRows", seriesBrowseRows.size)
+        if (catalogTotalCount > 0 &&
+            moviePagingItems.itemCount == 0 &&
+            movieBrowseRows.isEmpty()
+        ) {
+            com.grid.tv.util.VodCatalogLogger.catalogStageFailure(
+                stage = if (preferredVodLanguages.isNotEmpty()) "filter" else "ui",
+                reason = if (preferredVodLanguages.isNotEmpty()) {
+                    "language_filter=${preferredVodLanguages.joinToString(",")}"
+                } else {
+                    "paging_and_browse_empty"
+                },
+                dbMovies = catalogTotalCount,
+                filtered = moviePagingItems.itemCount
+            )
+        }
+    }
+
     val hasBrowseResults = when (contentFilter) {
         VodContentFilter.MOVIES -> moviePagingItems.itemCount > 0
         VodContentFilter.SERIES -> seriesPagingItems.itemCount > 0

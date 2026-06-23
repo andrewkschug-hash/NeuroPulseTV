@@ -133,6 +133,14 @@ class VodHubViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            recommendationSample.collect { catalog ->
+                com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubRecommendations", catalog.size)
+                if (catalog.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
+                    prefetchEnrichmentForCatalog(catalog.take(40))
+                }
+            }
+        }
+        viewModelScope.launch {
             playlistImportCoordinator.importActive.collect { importing ->
                 if (!importing) {
                     repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
@@ -143,13 +151,6 @@ class VodHubViewModel @Inject constructor(
             continueWatchingItems.collect { items ->
                 if (!playlistImportCoordinator.isImportActive()) {
                     prefetchEnrichmentForContinueWatching(items)
-                }
-            }
-        }
-        viewModelScope.launch {
-            recommendationSample.collect { catalog ->
-                if (catalog.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
-                    prefetchEnrichmentForCatalog(catalog.take(40))
                 }
             }
         }

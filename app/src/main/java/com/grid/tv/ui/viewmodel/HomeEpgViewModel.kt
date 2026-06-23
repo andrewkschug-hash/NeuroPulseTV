@@ -187,6 +187,7 @@ class HomeEpgViewModel @Inject constructor(
 
     fun resumeGuidePreviewIfEnabled(context: android.content.Context) {
         if (!_guidePreviewEnabled.value) return
+        if (livePlayerManager.isFullscreenActive()) return
         livePlayerManager.resumeGuidePreview(context)
     }
 

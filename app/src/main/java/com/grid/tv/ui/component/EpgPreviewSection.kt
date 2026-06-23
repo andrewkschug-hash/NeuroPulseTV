@@ -40,6 +40,7 @@ import androidx.media3.ui.PlayerView
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.Program
+import com.grid.tv.player.LiveFullscreenLogger
 import com.grid.tv.player.PlaybackSurfaceInstrument
 import com.grid.tv.player.StreamPlaybackStatus
 import com.grid.tv.player.isHealthy
@@ -188,16 +189,23 @@ private fun EpgPreviewPlayerPane(
                             isFocusable = false
                             isFocusableInTouchMode = false
                         }.also { view ->
+                            LiveFullscreenLogger.surfaceCreated("epg_preview", player)
                             PlaybackSurfaceInstrument.attach("epg_preview", player, view)
+                            LiveFullscreenLogger.attachPlayerToFullscreen(player, "epg_preview")
                         }
                     },
                     update = { view ->
-                        if (view.player != player) view.player = player
+                        if (view.player != player) {
+                            view.player = player
+                            LiveFullscreenLogger.attachPlayerToFullscreen(player, "epg_preview")
+                        }
                         view.isFocusable = false
                         view.isFocusableInTouchMode = false
                     },
                     onRelease = { view ->
+                        LiveFullscreenLogger.surfaceDestroyed("epg_preview", player)
                         PlaybackSurfaceInstrument.detach("epg_preview", player, view)
+                        LiveFullscreenLogger.detachPlayerFromFullscreen(player, "epg_preview")
                         view.player = null
                     },
                     modifier = Modifier

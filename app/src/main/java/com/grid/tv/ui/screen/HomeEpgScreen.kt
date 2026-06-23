@@ -142,6 +142,7 @@ fun HomeEpgScreen(
     val vodProgress = chrome.vodProgress
     val profileAccessMessage = viewModel.profileAccessMessage()
     val livePlayerManager = viewModel.livePlayerManager
+    val fullscreenActive by livePlayerManager.fullscreenActive.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.reloadPlaybackSettings(context)
@@ -161,7 +162,7 @@ fun HomeEpgScreen(
                     viewModel.reloadPlaybackSettings(context)
                     viewModel.reloadGuideSettings()
                     viewModel.setScannerForeground(true)
-                    if (guidePreviewEnabledState.value) {
+                    if (guidePreviewEnabledState.value && !livePlayerManager.isFullscreenActive()) {
                         viewModel.resumeGuidePreviewIfEnabled(context)
                     }
                 }
@@ -540,7 +541,7 @@ fun HomeEpgScreen(
             onNavigateProfile = onNavigateProfile,
             onNavigateSettings = onNavigateSettings,
             livePlayerManager = livePlayerManager,
-            previewSurfaceAttached = previewSurfaceAttached,
+            previewSurfaceAttached = previewSurfaceAttached && !fullscreenActive,
             channelGroups = channelGroups,
             viewModel = viewModel,
             timelineWidth = timelineWidth,
