@@ -32,24 +32,6 @@ class UpdateChecker @Inject constructor(
     private val httpClient: AppHttpClient,
     private val preferences: UpdatePreferences
 ) {
-    /** Settings → About label; uses 24h cached GitHub [tag_name] when available. */
-    suspend fun resolveAboutVersionLabel(): String = withContext(Dispatchers.IO) {
-        val localFallback = BuildConfig.VERSION_NAME
-        val nowMs = System.currentTimeMillis()
-        preferences.cachedReleaseTag()?.let { cached ->
-            if (preferences.isReleaseCacheFresh(cached.fetchedAtMs, nowMs)) {
-                return@withContext formatGitHubReleaseLabel(cached.tag)
-            }
-        }
-        when (val tag = fetchLatestReleaseTag()) {
-            null -> localFallback
-            else -> {
-                preferences.saveCachedReleaseTag(tag, nowMs)
-                formatGitHubReleaseLabel(tag)
-            }
-        }
-    }
-
     suspend fun checkForUpdate(): UpdateCheckResult = withContext(Dispatchers.IO) {
         val localVersion = BuildConfig.VERSION_NAME
         Log.d(
@@ -124,9 +106,6 @@ class UpdateChecker @Inject constructor(
         }
     }
 
-    private fun fetchLatestReleaseTag(): String? =
-        fetchLatestReleaseJson()?.let(::readReleaseTag)?.takeIf { it.isNotBlank() }
-
     private fun fetchLatestReleaseJson(): JSONObject? {
         val url = latestReleaseApiUrl()
         Log.d(TAG, "fetchLatestRelease: GET $url")
@@ -163,9 +142,6 @@ class UpdateChecker @Inject constructor(
 
     private fun readReleaseTag(json: JSONObject): String =
         json.optString("tag_name").ifBlank { json.optString("name") }.trim()
-
-    private fun formatGitHubReleaseLabel(tagName: String): String =
-        "${VersionCompare.normalize(tagName)} (GitHub Release)"
 
     private fun pickDownloadUrl(release: JSONObject): String? {
         val assets = release.optJSONArray("assets") ?: JSONArray()

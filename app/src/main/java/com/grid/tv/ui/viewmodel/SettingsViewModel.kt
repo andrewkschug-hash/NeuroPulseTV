@@ -28,7 +28,6 @@ import com.grid.tv.feature.recording.RecordingStorageManager
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.scanner.ChannelScanner
-import com.grid.tv.feature.update.UpdateChecker
 import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -73,7 +72,6 @@ class SettingsViewModel @Inject constructor(
     private val pipController: PictureInPictureController,
     private val livePlayerManager: LivePlayerManager,
     private val streamHealthAnalytics: com.grid.tv.feature.health.intelligence.StreamHealthAnalyticsService,
-    private val updateChecker: UpdateChecker,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -81,9 +79,6 @@ class SettingsViewModel @Inject constructor(
 
     val appVersion: String
         get() = AppVersion.installedVersionName(appContext)
-
-    private val _aboutVersionLabel = MutableStateFlow(AppVersion.installedVersionName(appContext))
-    val aboutVersionLabel: StateFlow<String> = _aboutVersionLabel.asStateFlow()
 
     val playlists: StateFlow<List<Playlist>> = repository.playlists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -184,12 +179,6 @@ class SettingsViewModel @Inject constructor(
 
     fun markWhatsNewSeen() {
         viewModelScope.launch { repository.markVersionSeen(appVersion) }
-    }
-
-    fun refreshAboutVersionLabel() {
-        viewModelScope.launch {
-            _aboutVersionLabel.value = updateChecker.resolveAboutVersionLabel()
-        }
     }
 
     fun exportBackup(cacheDir: File) {

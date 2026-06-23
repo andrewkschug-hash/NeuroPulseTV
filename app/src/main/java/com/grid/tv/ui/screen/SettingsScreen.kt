@@ -845,16 +845,12 @@ fun SettingsScreen(
                         )
                         SettingsSection.About -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
-                            val aboutVersionLabel by viewModel.aboutVersionLabel.collectAsStateWithLifecycle()
-                            LaunchedEffect(Unit) {
-                                viewModel.refreshAboutVersionLabel()
-                            }
                             val supabaseClient = EntryPointAccessors.fromApplication(
                                 context.applicationContext,
                                 SupabaseEntryPoint::class.java
                             ).supabaseClientProvider().clientOrNull()
                             AboutSettingsContent(
-                                appVersion = aboutVersionLabel,
+                                appVersion = viewModel.appVersion,
                                 lowEndDeviceModeActive = LowEndDeviceMode.isActive(context),
                                 lowEndDeviceSummary = LowEndDeviceMode.profile(context).let { profile ->
                                     if (!profile.active) null
