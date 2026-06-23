@@ -63,7 +63,7 @@ class VodHubViewModel @Inject constructor(
     // Resume history is profile-scoped; do not apply VOD language filters here.
     val continueWatchingItems: StateFlow<List<ContinueWatchingItem>> =
         continueWatchingRepository.observeItems(limit = 20)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val recommendationSample: StateFlow<List<VodItem>> =
         repository.vodCatalogRevision()

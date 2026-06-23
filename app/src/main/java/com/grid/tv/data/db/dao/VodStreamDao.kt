@@ -62,6 +62,9 @@ interface VodStreamDao {
     )
     suspend fun findByStreamId(playlistId: Long, streamId: Long): VodStreamEntity?
 
+    @Query("SELECT * FROM vod_streams WHERE streamId = :streamId LIMIT 1")
+    suspend fun findAnyByStreamId(streamId: Long): VodStreamEntity?
+
     @Query(
         """
         SELECT * FROM vod_streams

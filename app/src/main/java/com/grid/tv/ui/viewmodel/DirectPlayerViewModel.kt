@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class DirectPlayerViewModel @Inject constructor(
@@ -295,7 +297,7 @@ class DirectPlayerViewModel @Inject constructor(
         val id = streamId ?: vodMeta.streamId ?: return
         if (positionMs <= 0L) return
         viewModelScope.launch {
-            val profileId = profileDao.activeProfile()?.profileId ?: return@launch
+            val profileId = withContext(Dispatchers.IO) { repository.activeProfileId() }
             val meta = vodMeta
             if (meta.isSeries && meta.seriesId != null && meta.seasonNumber != null && meta.episodeNumber != null) {
                 continueWatchingRepository.saveSeriesEpisode(

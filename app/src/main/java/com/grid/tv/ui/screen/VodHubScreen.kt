@@ -77,6 +77,8 @@ import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.animateScrollToItemIfNeeded
+import com.grid.tv.ui.component.animateScrollVodWallRowIntoView
+import com.grid.tv.ui.component.scrollVodWallToTop
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
 import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
@@ -350,14 +352,17 @@ fun VodHubScreen(
         if (searchQuery.isNotBlank() || showBrowseGrid) return@LaunchedEffect
         when (focusZone) {
             VodFocusZone.HERO -> {
-                columnListState.animateScrollToItemIfNeeded(0, TvLazyFocusScrollDirection.UP)
+                columnListState.animateScrollVodWallRowIntoView(0, TvLazyFocusScrollDirection.UP)
             }
             VodFocusZone.CONTENT -> {
                 val heroOffset = if (heroMovie != null) 1 else 0
-                columnListState.animateScrollToItemIfNeeded(
+                columnListState.animateScrollVodWallRowIntoView(
                     index = (contentRowIndex + heroOffset).coerceAtLeast(0),
                     direction = contentScrollDirection
                 )
+            }
+            VodFocusZone.FILTER_PANEL, VodFocusZone.TOP_BAR -> {
+                columnListState.scrollVodWallToTop()
             }
             else -> Unit
         }
