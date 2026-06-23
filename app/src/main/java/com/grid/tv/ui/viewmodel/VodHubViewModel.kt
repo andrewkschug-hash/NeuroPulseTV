@@ -15,7 +15,9 @@ import com.grid.tv.feature.vod.matchesLanguageFilter
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.feature.recommendation.FeaturedContentRanker
 import com.grid.tv.feature.recommendation.TasteGenomeEngine
+import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.vod.curation.FeaturedCurationRepository
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -72,7 +75,15 @@ class VodHubViewModel @Inject constructor(
     private val recommendationSample: StateFlow<List<VodItem>> =
         repository.vodCatalogRevision()
             .flatMapLatest {
-                flow { emit(repository.vodSampleForRecommendations(sampleSize = 500)) }
+                flow {
+                    delay(StartupTierPolicy.tier2DelayMs())
+                    val sampleSize = StartupTierPolicy.recommendationSampleSize()
+                    emit(
+                        withContext(Dispatchers.IO) {
+                            repository.vodSampleForRecommendations(sampleSize)
+                        }
+                    )
+                }
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -133,10 +144,11 @@ class VodHubViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            delay(StartupTierPolicy.tier2DelayMs())
             recommendationSample.collect { catalog ->
                 com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubRecommendations", catalog.size)
                 if (catalog.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
-                    prefetchEnrichmentForCatalog(catalog.take(40))
+                    prefetchEnrichmentForCatalog(catalog.take(if (LowEndDeviceMode.current().active) 20 else 40))
                 }
             }
         }
@@ -156,8 +168,9 @@ class VodHubViewModel @Inject constructor(
         }
         viewModelScope.launch {
             featuredCarousel.collect { carousel ->
-                if (!playlistImportCoordinator.isImportActive()) {
-                    carousel.forEach { prefetchEnrichmentForItem(it) }
+                if (!playlistImportCoordinator.isImportActive() && carousel.isNotEmpty()) {
+                    val prefetchCount = if (LowEndDeviceMode.current().active) 2 else carousel.size
+                    carousel.take(prefetchCount).forEach { prefetchEnrichmentForItem(it) }
                 }
             }
         }

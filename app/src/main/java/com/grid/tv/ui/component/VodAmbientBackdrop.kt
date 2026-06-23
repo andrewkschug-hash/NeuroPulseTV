@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.grid.tv.util.TvImageSizing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -66,8 +67,9 @@ internal object VodPosterColorExtractor {
         withContext(Dispatchers.IO) {
             runCatching {
                 val request = ImageRequest.Builder(context)
-                    .data(imageUrl)
+                    .data(TvImageSizing.posterThumbnailUrl(imageUrl, context))
                     .size(48, 72)
+                    .allowRgb565(true)
                     .allowHardware(false)
                     .build()
                 val result = context.imageLoader.execute(request)

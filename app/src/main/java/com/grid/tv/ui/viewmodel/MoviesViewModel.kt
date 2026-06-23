@@ -15,12 +15,12 @@ import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
 import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.parseVodDurationMs
-import com.grid.tv.ui.component.toGridCardModel
-import com.grid.tv.util.runVodPipelineCatching
+import com.grid.tv.feature.startup.StartupTierPolicy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import androidx.paging.filter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.grid.tv.util.runVodPipelineCatching
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -52,14 +54,36 @@ class MoviesViewModel @Inject constructor(
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
 
+    /** Non-null repository flows — initialized before any init { launch } block. */
+    private val moviesCountFlow: Flow<Int> = repository.vodStreamCount()
+
+    private val seriesCountFlow: Flow<Int> = repository.seriesShowCount()
+
+    private val catalogRevisionFlow: Flow<Long> = repository.vodCatalogRevision()
+
     val preferredLanguages: StateFlow<Set<String>> = languagePreferenceStore.preferredLanguages
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     val categories: StateFlow<List<VodCategory>> = repository.vodCategories()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val catalogTotalCount: StateFlow<Int> = moviesCountFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())
+
+    val catalogStatus: StateFlow<VodCatalogStatus> = repository.vodCatalogStatus()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogStatus())
+
+    val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val pagedMovies = combine(
-        repository.vodCatalogRevision(),
+        catalogRevisionFlow,
         _searchQuery,
         _selectedCategoryId,
         languagePreferenceStore.preferredLanguages,
@@ -84,6 +108,23 @@ class MoviesViewModel @Inject constructor(
             }
     }.cachedIn(viewModelScope)
 
+    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
+        catalogRevisionFlow,
+        moviesCountFlow,
+        languagePreferenceStore.preferredLanguages,
+        categories
+    ) { _, _, languages, categoryList ->
+        languages to categoryList.associate { it.id to it.name }
+    }
+        .flatMapLatest { (languages, categoryNames) ->
+            flow {
+                delay(StartupTierPolicy.tier2DelayMs())
+                val rows = withContext(Dispatchers.IO) { repository.loadMovieBrowseRows() }
+                emit(filterBrowseRows(rows, languages, movieCategoryNames = categoryNames))
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     init {
         viewModelScope.launch {
             combine(_searchQuery, _selectedCategoryId) { query, categoryId ->
@@ -93,7 +134,7 @@ class MoviesViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            combine(catalogTotalCount, _filteredTotalCount) { dbTotal, filtered ->
+            combine(moviesCountFlow, _filteredTotalCount) { dbTotal, filtered ->
                 dbTotal to filtered
             }.collect { (dbTotal, filtered) ->
                 com.grid.tv.util.VodCatalogLogger.moviesReceived(dbTotal)
@@ -101,37 +142,6 @@ class MoviesViewModel @Inject constructor(
             }
         }
     }
-
-    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
-        repository.vodCatalogRevision(),
-        repository.vodStreamCount(),
-        languagePreferenceStore.preferredLanguages,
-        categories
-    ) { _, _, languages, categoryList ->
-        languages to categoryList.associate { it.id to it.name }
-    }
-        .flatMapLatest { (languages, categoryNames) ->
-            flow {
-                val rows = repository.loadMovieBrowseRows()
-                emit(filterBrowseRows(rows, languages, movieCategoryNames = categoryNames))
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())
-
-    val catalogStatus: StateFlow<VodCatalogStatus> = repository.vodCatalogStatus()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogStatus())
-
-    val catalogTotalCount: StateFlow<Int> = repository.vodStreamCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val catalogLoading: StateFlow<Boolean> = repository.vodCatalogLoading()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
-
-    val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private suspend fun refreshFilteredCount(query: String, categoryId: String?) {
         withContext(Dispatchers.IO) {

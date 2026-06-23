@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.ui.theme.DmSansFamily
@@ -93,15 +92,11 @@ private fun ContinueWatchingCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (item.posterUrl != null) {
-                    val posterPx = TvImageSizing.continueWatchingPosterPx(context)
-                    AsyncImage(
-                        model = TvImageSizing.sizedRequest(
-                            context = context,
-                            data = item.posterUrl,
-                            widthPx = posterPx,
-                            heightPx = posterPx
-                        ),
+                    TvPosterImage(
+                        url = item.posterUrl,
                         contentDescription = item.title,
+                        kind = PosterImageKind.ContinueWatching,
+                        placeholderLetter = item.title,
                         modifier = Modifier.size(120.dp).clip(RoundedCornerShape(6.dp))
                     )
                 } else {

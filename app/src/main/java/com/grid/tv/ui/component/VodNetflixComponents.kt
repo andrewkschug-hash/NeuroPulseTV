@@ -67,7 +67,6 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import androidx.paging.compose.LazyPagingItems
-import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.size.Size
 import com.grid.tv.domain.model.ContinueWatchingItem
@@ -246,17 +245,11 @@ fun NetflixPosterCard(
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (!posterUrl.isNullOrBlank()) {
-                        val context = LocalContext.current
-                        val (posterW, posterH) = TvImageSizing.vodPosterSize(context)
-                        AsyncImage(
-                            model = TvImageSizing.sizedRequest(
-                                context = context,
-                                data = posterUrl,
-                                widthPx = posterW,
-                                heightPx = posterH
-                            ),
+                        TvPosterImage(
+                            url = posterUrl,
                             contentDescription = displayTitle,
-                            contentScale = ContentScale.Crop,
+                            kind = PosterImageKind.VodGrid,
+                            placeholderLetter = displayTitle,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -491,17 +484,11 @@ fun ContinueWatchingLandscapeCard(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 if (!item.posterUrl.isNullOrBlank()) {
-                    val context = LocalContext.current
-                    val (landscapeW, landscapeH) = TvImageSizing.vodLandscapeSize(context)
-                    AsyncImage(
-                        model = TvImageSizing.sizedRequest(
-                            context = context,
-                            data = item.posterUrl,
-                            widthPx = landscapeW,
-                            heightPx = landscapeH
-                        ),
+                    TvPosterImage(
+                        url = item.posterUrl,
                         contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
+                        kind = PosterImageKind.VodLandscape,
+                        placeholderLetter = item.title,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {

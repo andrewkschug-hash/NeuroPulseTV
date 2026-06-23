@@ -24,6 +24,7 @@ import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
+import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 data class SelectedEpisodeDetail(
@@ -132,7 +134,8 @@ class SeriesViewModel @Inject constructor(
     }
         .flatMapLatest { (languages, categoryNames) ->
             flow {
-                val rows = repository.loadSeriesBrowseRows()
+                delay(StartupTierPolicy.tier2DelayMs())
+                val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
                 emit(filterBrowseRows(rows, languages, seriesCategoryNames = categoryNames))
             }
         }

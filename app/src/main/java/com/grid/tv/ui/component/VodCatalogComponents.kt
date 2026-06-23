@@ -51,16 +51,13 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.size.Size
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
-import com.grid.tv.util.TvImageSizing
 import java.text.NumberFormat
 
 fun parseVodDurationMs(raw: String?): Long? {
@@ -122,17 +119,11 @@ fun VodPosterCard(
                     .background(Color(0xFF1A1A22))
             ) {
                 if (!posterUrl.isNullOrBlank()) {
-                    val context = LocalContext.current
-                    val (posterW, posterH) = TvImageSizing.vodPosterSize(context)
-                    AsyncImage(
-                        model = TvImageSizing.sizedRequest(
-                            context = context,
-                            data = posterUrl,
-                            widthPx = posterW,
-                            heightPx = posterH
-                        ),
+                    TvPosterImage(
+                        url = posterUrl,
                         contentDescription = displayTitle,
-                        contentScale = ContentScale.Crop,
+                        kind = PosterImageKind.VodGrid,
+                        placeholderLetter = displayTitle,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -595,17 +586,11 @@ fun VodHeroSection(
             .height(320.dp)
     ) {
         if (!backdropUrl.isNullOrBlank()) {
-            val (backdropW, backdropH) = TvImageSizing.vodBackdropSize(context)
-            AsyncImage(
-                model = TvImageSizing.sizedRequest(
-                    context = context,
-                    data = backdropUrl,
-                    widthPx = backdropW,
-                    heightPx = backdropH,
-                    crossfadeMs = if (TvImageSizing.crossfadeMs(context) == 0) 0 else 300
-                ),
+            TvPosterImage(
+                url = backdropUrl,
                 contentDescription = displayTitle,
-                contentScale = ContentScale.Crop,
+                kind = PosterImageKind.Backdrop,
+                placeholderLetter = displayTitle,
                 modifier = Modifier.fillMaxSize()
             )
         } else {

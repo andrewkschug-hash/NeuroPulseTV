@@ -14,7 +14,9 @@ class StartupCoordinator @Inject constructor(
 ) {
     suspend fun warmCriticalLocalData() {
         runCatching {
+            StartupProfiler.mark("startup_coordinator_warm_start")
             repository.warmLocalUiCache()
+            StartupProfiler.mark("startup_coordinator_warm_complete")
             Log.i(TAG, "Local VOD cache and channel lists warmed")
         }.onFailure {
             Log.w(TAG, "warmCriticalLocalData failed: ${it.message}", it)

@@ -31,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.feature.startup.StartupProfiler
+import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.ui.viewmodel.UpdateViewModel
 import kotlinx.coroutines.delay
 
@@ -59,12 +61,13 @@ fun MainContentGate(
     }
 
     LaunchedEffect(Unit) {
+        delay(StartupTierPolicy.updateCheckDelayMs())
         updateViewModel.checkForUpdate()
     }
 
     LaunchedEffect(Unit) {
         runCatching {
-            delay(50)
+            StartupProfiler.mark("ui_first_frame")
             ready = true
         }.onFailure {
             loadError = it.message ?: "Unable to load app"

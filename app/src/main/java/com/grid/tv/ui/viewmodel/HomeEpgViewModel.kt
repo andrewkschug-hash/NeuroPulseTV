@@ -23,6 +23,8 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
+import com.grid.tv.feature.startup.StartupProfiler
+import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
@@ -426,18 +428,27 @@ class HomeEpgViewModel @Inject constructor(
                     _programmeIndex.value = result.index
                 }
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            _hasConnection.value = repository.hasActiveConnection()
-            _activeProfile.value = repository.activeProfile()
+        viewModelScope.launch {
             _isInitializing.value = false
+            StartupProfiler.mark("guide_ui_ready")
+            withContext(Dispatchers.IO) {
+                _hasConnection.value = repository.hasActiveConnection()
+                _activeProfile.value = repository.activeProfile()
+            }
         }
         viewModelScope.launch(Dispatchers.IO) {
+            delay(StartupTierPolicy.guideBootstrapDelayMs())
+            StartupProfiler.mark("guide_bootstrap_start")
             bootstrapGuideFromSettings()
+            StartupProfiler.mark("guide_bootstrap_complete")
         }
         viewModelScope.launch(Dispatchers.IO) {
             combine(_windowStart, _windowDurationMs, _guideSettingsLoaded) { _, _, loaded -> loaded }
                 .filter { it }
-                .collectLatest { scheduleLoadWindow() }
+                .collectLatest {
+                    delay(StartupTierPolicy.epgHydrateDelayMs())
+                    scheduleLoadWindow()
+                }
         }
         viewModelScope.launch(Dispatchers.IO) {
             _channels.collectLatest { channels ->

@@ -186,6 +186,9 @@ interface IptvRepository {
     /** Loads VOD rows from local DB and warms the first channel page — no network. */
     suspend fun warmLocalUiCache()
 
+    /** Network VOD sync, category repair, and full indexing — never blocks the caller. */
+    fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger)
+
     suspend fun refreshVodSeriesCatalog(
         trigger: VodRefreshTrigger = VodRefreshTrigger.UNKNOWN,
         force: Boolean = false
