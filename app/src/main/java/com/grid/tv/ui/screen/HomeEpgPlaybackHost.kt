@@ -36,9 +36,10 @@ internal fun HomeEpgLivePlaybackSideEffects(
         }
     }
     LaunchedEffect(guidePreviewEnabled, previewChannelId, livePlayerManager) {
-        livePlayerManager.playbackUiState.collect {
+        livePlayerManager.playbackUiState.collect { ui ->
             if (!guidePreviewEnabled) return@collect
-            if (previewChannelId == null && it.activeChannelId == null) return@collect
+            val previewId = previewChannelId ?: return@collect
+            if (ui.activeChannelId != previewId) return@collect
             viewModel.resumeGuidePreviewIfEnabled(context)
         }
     }
@@ -54,7 +55,11 @@ internal fun rememberPreviewPlaybackPlayer(
     val playerGeneration by livePlayerManager.playerGeneration.collectAsStateWithLifecycle()
     val needsPreviewPlayer = guidePreviewEnabled && previewChannelId != null
     return remember(playerGeneration, context, needsPreviewPlayer) {
-        if (needsPreviewPlayer) livePlayerManager.getOrCreatePlayer(context) else null
+        if (needsPreviewPlayer) {
+            livePlayerManager.activePlayer() ?: livePlayerManager.getOrCreatePlayer(context)
+        } else {
+            null
+        }
     }
 }
 

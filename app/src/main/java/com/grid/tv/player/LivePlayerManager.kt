@@ -293,6 +293,7 @@ class LivePlayerManager @Inject constructor(
                 preferLiveStability = caps.isTelevision && !caps.isLowEndDevice
             ).also { exo ->
                 exo.addListener(timeshiftListener)
+                markPlayerReplaced()
                 PerformanceAudit.logPlayerLifecycle("CREATE", exo, _playerGeneration.value)
             }
         }
@@ -841,6 +842,7 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.unregisterPlayer(exo)
         player = null
         fullscreenSessions = 0
+        markPlayerReplaced()
         catalogHydrationGuard.setViewportEpgSuspended(true)
         Log.i(TAG, "Handed off live player to multi-pane channelId=$currentChannelId")
         return MultiPanePlayerHandoff(player = exo, streamUrl = streamUrl)
@@ -857,6 +859,7 @@ class LivePlayerManager @Inject constructor(
         fullscreenSessions = 1
         channelScanner.setPlaybackScanSuspended(true)
         catalogHydrationGuard.setViewportEpgSuspended(true)
+        markPlayerReplaced()
         applyVolume()
         Log.i(TAG, "Reclaimed live player from multi-pane channelId=$currentChannelId")
         return true
