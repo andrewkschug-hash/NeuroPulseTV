@@ -113,12 +113,7 @@ class StreamFailoverController @Inject constructor(
                 return
             }
             val category = error.failureCategory()
-            val recoverable = error.isRecoverableForFailover()
-            playbackMetrics.logPlaybackError(
-                errorCode = error.errorCode,
-                recoverable = recoverable,
-                message = error.message
-            )
+            val recoverable = error.isRecoverableForPlayback()
             if (!recoverable) {
                 PlaybackHttpFailure.logHttpFailure(error, activeUrl, LOG_TAG)
                 blockRecoveryForSession()
@@ -501,24 +496,4 @@ private fun PlaybackException.failureCategory(): PlaybackFailureCategory = when 
     PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
     PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> PlaybackFailureCategory.DECODER
     else -> PlaybackFailureCategory.UNKNOWN
-}
-
-/** Skip auto-reconnect for fatal URL/codec failures; retry network/transient HTTP issues. */
-private fun PlaybackException.isRecoverableForFailover(): Boolean {
-    if (isCodecCapabilityError()) return false
-    when (errorCode) {
-        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return false
-        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
-            val httpCode = PlaybackHttpFailure.responseCode(this)
-            return httpCode != null && PlaybackHttpFailure.isRetriableHttpStatus(httpCode)
-        }
-        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-        PlaybackException.ERROR_CODE_DECODING_FAILED,
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
-        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> return false
-        else -> return true
-    }
 }

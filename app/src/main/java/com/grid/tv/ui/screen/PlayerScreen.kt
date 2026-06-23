@@ -587,10 +587,12 @@ fun PlayerScreen(
             sleepTimer.onExpired = null
             livePlayerManager.resetVolumeFade()
             livePlayerManager.exitFullscreen(context)
-            playbackOrchestrator.releaseSession(
-                PlaybackOrchestrator.PlaybackSession.LIVE_FULLSCREEN,
-                context
-            )
+            if (!playbackOrchestrator.isMultiPaneTransitionFromLive()) {
+                playbackOrchestrator.releaseSession(
+                    PlaybackOrchestrator.PlaybackSession.LIVE_FULLSCREEN,
+                    context
+                )
+            }
             viewModel.pipController.setPlaybackActive(false)
             livePlayerManager.activePlayer()?.let { exo ->
                 viewModel.savePosition(exo.currentPosition)

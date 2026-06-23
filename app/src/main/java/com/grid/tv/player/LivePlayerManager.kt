@@ -175,6 +175,8 @@ class LivePlayerManager @Inject constructor(
     private var fullscreenSessions: Int = 0
     @Volatile
     private var suppressExitFullscreenSideEffects = false
+    @Volatile
+    private var multiPaneHandoffInProgress = false
     private var volumeFadeMultiplier: Float = 1f
     private var streamTransitionJob: Job? = null
     private var watchDurationJob: Job? = null
@@ -263,7 +265,7 @@ class LivePlayerManager @Inject constructor(
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             playbackMetrics.logPlaybackError(
                 errorCode = error.errorCode,
-                recoverable = error.errorCode != androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                recoverable = error.isRecoverableForPlayback(),
                 message = error.message
             )
             playbackTelemetry.onPlaybackError()
@@ -811,6 +813,17 @@ class LivePlayerManager @Inject constructor(
     /** Suppress guide-preview resume when transitioning into split/multiview. */
     fun beginMultiPaneHandoff() {
         suppressExitFullscreenSideEffects = true
+        multiPaneHandoffInProgress = true
+    }
+
+    fun completeMultiPaneHandoff() {
+        multiPaneHandoffInProgress = false
+        suppressExitFullscreenSideEffects = false
+    }
+
+    fun cancelMultiPaneHandoff() {
+        multiPaneHandoffInProgress = false
+        suppressExitFullscreenSideEffects = false
     }
 
     /**
@@ -828,7 +841,6 @@ class LivePlayerManager @Inject constructor(
         decoderPressureTracker.unregisterPlayer(exo)
         player = null
         fullscreenSessions = 0
-        suppressExitFullscreenSideEffects = false
         catalogHydrationGuard.setViewportEpgSuspended(true)
         Log.i(TAG, "Handed off live player to multi-pane channelId=$currentChannelId")
         return MultiPanePlayerHandoff(player = exo, streamUrl = streamUrl)
@@ -855,6 +867,11 @@ class LivePlayerManager @Inject constructor(
             fullscreenSessions--
         }
         if (fullscreenSessions > 0) return
+
+        if (multiPaneHandoffInProgress) {
+            channelScanner.setPlaybackScanSuspended(false)
+            return
+        }
 
         if (suppressExitFullscreenSideEffects) {
             suppressExitFullscreenSideEffects = false

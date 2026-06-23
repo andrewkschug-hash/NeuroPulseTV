@@ -173,4 +173,8 @@ class SplitViewViewModel @Inject constructor(
             context
         )
     }
+
+    fun cancelMultiPaneTransition(context: Context) {
+        playbackOrchestrator.cancelMultiPaneTransitionFromLive(context)
+    }
 }

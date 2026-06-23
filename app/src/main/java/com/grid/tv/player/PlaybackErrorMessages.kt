@@ -32,3 +32,23 @@ fun PlaybackException.playbackErrorMessage(isEmulator: Boolean = false): String 
 }
 
 fun PlaybackException.isRetriablePlaybackError(): Boolean = PlaybackHttpFailure.isRetriablePlaybackError(this)
+
+/** Whether live failover / reconnect should attempt recovery for this error. */
+fun PlaybackException.isRecoverableForPlayback(): Boolean {
+    if (isCodecCapabilityError()) return false
+    when (errorCode) {
+        PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED -> return false
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+            val httpCode = PlaybackHttpFailure.responseCode(this)
+            return httpCode != null && PlaybackHttpFailure.isRetriableHttpStatus(httpCode)
+        }
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+        PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED -> return false
+        else -> return true
+    }
+}

@@ -63,12 +63,25 @@ class DirectPlayerViewModel @Inject constructor(
     val recordedMedia: StateFlow<RecordedMediaEntity?> = _recordedMedia.asStateFlow()
 
     private var vodMeta: VodPlaybackMeta = VodPlaybackMeta()
+    private var enrichmentRequestedForKey: String? = null
 
     fun setVodMetadata(meta: VodPlaybackMeta) {
         vodMeta = meta
+        val key = meta.enrichmentSessionKey() ?: return
+        if (enrichmentRequestedForKey == key) return
+        enrichmentRequestedForKey = key
         viewModelScope.launch {
             titleEnrichmentRepository.enrichFromPlaybackMeta(meta)
             _settings.value = repository.loadSettings()
+        }
+    }
+
+    private fun VodPlaybackMeta.enrichmentSessionKey(): String? {
+        val playlist = playlistId ?: return null
+        return when {
+            isSeries && seriesId != null -> TitleEnrichmentRepository.xtreamSeriesKey(playlist, seriesId)
+            streamId != null -> TitleEnrichmentRepository.xtreamVodKey(playlist, streamId)
+            else -> null
         }
     }
 

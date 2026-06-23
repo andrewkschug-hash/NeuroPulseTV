@@ -93,9 +93,11 @@ class TitleEnrichmentRepository @Inject constructor(
 
         inFlight[providerKey]?.let { return it.await() }
 
-        val deferred = CompletableDeferred<TitleEnrichmentEntity?>()
+        val waiter = CompletableDeferred<TitleEnrichmentEntity?>()
         trimInFlightIfNeeded()
-        inFlight[providerKey] = deferred
+        val existingWaiter = inFlight.putIfAbsent(providerKey, waiter)
+        if (existingWaiter != null) return existingWaiter.await()
+
         return try {
             val entity = fetchAndPersist(
                 providerKey = providerKey,
@@ -105,14 +107,14 @@ class TitleEnrichmentRepository @Inject constructor(
                 imdbId = imdbId,
                 prior = existing
             )
-            deferred.complete(entity)
+            waiter.complete(entity)
             entity?.let { sessionCache.put(providerKey, it) }
             entity
         } catch (_: Throwable) {
-            deferred.complete(existing)
+            waiter.complete(existing)
             existing
         } finally {
-            inFlight.remove(providerKey)
+            inFlight.remove(providerKey, waiter)
         }
     }
 
@@ -173,12 +175,11 @@ class TitleEnrichmentRepository @Inject constructor(
         isTv: Boolean,
         imdbId: String?
     ): TmdbEnrichment? = withContext(Dispatchers.IO) {
-        if (!isTv && supabaseClientProvider.isConfigured) {
-            enrichMovieViaEdgeFunction(title, releaseYear, imdbId)?.let { return@withContext it }
-        }
         when {
             !imdbId.isNullOrBlank() -> tmdbService.enrichByImdb(imdbId)
             isTv -> tmdbService.enrichTvFromTitle(title, releaseYear)
+            supabaseClientProvider.isConfigured ->
+                enrichMovieViaEdgeFunction(title, releaseYear, imdbId = null)
             else -> tmdbService.enrichMovieFromTitle(title, releaseYear)
         }
     }

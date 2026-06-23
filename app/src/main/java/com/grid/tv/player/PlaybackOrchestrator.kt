@@ -95,7 +95,8 @@ class PlaybackOrchestrator @Inject constructor(
 
         if (current != PlaybackSession.NONE &&
             current != session &&
-            current.priority > incomingPriority
+            current.priority > incomingPriority &&
+            !isMultiPaneHandoffTransition(incoming = session, current = current)
         ) {
             emitBlocked("Stop ${current.label()} before starting ${session.label()}")
             Log.w(TAG, "requestSession DENIED_PRIORITY current=$current incoming=$session")
@@ -155,9 +156,29 @@ class PlaybackOrchestrator @Inject constructor(
     fun beginMultiPaneTransitionFromLive() {
         multiPaneTransitionFromLive = true
         livePlayerManager.beginMultiPaneHandoff()
+        if (activeSession == PlaybackSession.LIVE_FULLSCREEN) {
+            activeSession = PlaybackSession.NONE
+        }
     }
 
     fun isMultiPaneTransitionFromLive(): Boolean = multiPaneTransitionFromLive
+
+    /** Split/multiview session could not start — restore live fullscreen ownership. */
+    fun cancelMultiPaneTransitionFromLive(context: Context) {
+        if (!multiPaneTransitionFromLive) return
+        multiPaneTransitionFromLive = false
+        livePlayerManager.cancelMultiPaneHandoff()
+        if (livePlayerManager.hasPlayerInstance()) {
+            activeSession = PlaybackSession.LIVE_FULLSCREEN
+            livePlayerManager.enterFullscreen()
+        }
+        Log.w(TAG, "cancelMultiPaneTransitionFromLive restoredLive=${livePlayerManager.hasPlayerInstance()}")
+    }
+
+    fun completeMultiPaneHandoffFromLive() {
+        multiPaneTransitionFromLive = false
+        livePlayerManager.completeMultiPaneHandoff()
+    }
 
     /** Background / process teardown — releases all pane players and live decode. */
     fun releaseAllPlayback(context: Context) {
@@ -201,9 +222,9 @@ class PlaybackOrchestrator @Inject constructor(
         when (session) {
             PlaybackSession.SPLIT_VIEW, PlaybackSession.MULTIVIEW -> {
                 if (tryHandoffLivePlayerToMultiPane(appContext, session)) {
-                    multiPaneTransitionFromLive = false
                     return
                 }
+                livePlayerManager.cancelMultiPaneHandoff()
                 suspendLivePlayback(appContext, reason = session.name)
                 multiPaneTransitionFromLive = false
             }
@@ -232,6 +253,7 @@ class PlaybackOrchestrator @Inject constructor(
             owner = owner
         )
         liveSuspendedForExclusiveMode = false
+        completeMultiPaneHandoffFromLive()
         Log.i(
             TAG,
             "handoffLiveToMultiPane session=$session streamUrlHash=${handoff.streamUrl.hashCode()}"
@@ -257,6 +279,15 @@ class PlaybackOrchestrator @Inject constructor(
 
     private fun emitBlocked(message: String) {
         _blockedMessages.tryEmit(message)
+    }
+
+    private fun isMultiPaneHandoffTransition(
+        incoming: PlaybackSession,
+        current: PlaybackSession
+    ): Boolean {
+        if (!multiPaneTransitionFromLive) return false
+        if (incoming != PlaybackSession.SPLIT_VIEW && incoming != PlaybackSession.MULTIVIEW) return false
+        return current == PlaybackSession.LIVE_FULLSCREEN
     }
 
     private fun PlaybackSession.label(): String = when (this) {

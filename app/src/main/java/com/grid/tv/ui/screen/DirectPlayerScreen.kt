@@ -16,7 +16,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import android.util.Log
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,8 +74,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.media3.common.util.UnstableApi
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
 import kotlinx.coroutines.delay
@@ -106,6 +105,13 @@ fun DirectPlayerScreen(
     val streamId = pendingVodMeta.streamId ?: remember(url) {
         Regex("""/(\d+)\.\w+$""").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
     }
+    val vodEnrichmentKey = remember(pendingVodMeta, url, streamId) {
+        pendingVodMeta.playlistId?.let { playlistId ->
+            pendingVodMeta.streamId?.let { id ->
+                com.grid.tv.feature.enrichment.TitleEnrichmentRepository.xtreamVodKey(playlistId, id)
+            }
+        } ?: "vod:$streamId:$url"
+    }
     val resumeSeekState = remember(resume, url) { ResumeSeekState() }
     val immediateResumeMs = remember(resume, resumePositionMs, pendingVodMeta) {
         if (!resume) {
@@ -119,7 +125,7 @@ fun DirectPlayerScreen(
         }
     }
 
-    SideEffect {
+    LaunchedEffect(vodEnrichmentKey) {
         if (!isRecordedPlayback && !isCatchupPlayback) {
             viewModel.setVodMetadata(pendingVodMeta)
         }

@@ -109,7 +109,10 @@ fun SplitViewScreen(
     }
 
     LaunchedEffect(sessionGranted) {
-        if (sessionGranted == false) onBack()
+        if (sessionGranted == false) {
+            viewModel.cancelMultiPaneTransition(context)
+            onBack()
+        }
     }
 
     LaunchedEffect(primaryChannelId) {
@@ -117,7 +120,10 @@ fun SplitViewScreen(
     }
 
     LaunchedEffect(loadFailed) {
-        if (loadFailed) onBack()
+        if (loadFailed) {
+            viewModel.cancelMultiPaneTransition(context)
+            onBack()
+        }
     }
 
     LaunchedEffect(paneChannels, audioPaneIndex, decodeOnlyAudio) {
