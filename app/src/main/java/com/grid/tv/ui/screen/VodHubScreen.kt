@@ -348,8 +348,8 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery, wallRows.size) {
-        if (searchQuery.isNotBlank() || showBrowseGrid) return@LaunchedEffect
+    LaunchedEffect(focusZone, contentRowIndex, heroMovie, showBrowseGrid, searchQuery, wallRows.size, showInlineSearch) {
+        if (searchQuery.isNotBlank() || showBrowseGrid || showInlineSearch) return@LaunchedEffect
         when (focusZone) {
             VodFocusZone.HERO -> {
                 columnListState.animateScrollVodWallRowIntoView(0, TvLazyFocusScrollDirection.UP)
@@ -425,9 +425,9 @@ fun VodHubScreen(
                 heroPlayFocusRequester.requestFocusSafelyAfterLayout()
             focusZone == VodFocusZone.FILTER_PANEL ||
                 focusZone == VodFocusZone.GENRE_PANEL ||
-                focusZone == VodFocusZone.CONTENT ||
                 focusZone == VodFocusZone.TOP_BAR ||
-                focusZone == VodFocusZone.HERO ->
+                focusZone == VodFocusZone.HERO ||
+                (focusZone == VodFocusZone.CONTENT && !showInlineSearch) ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
@@ -493,6 +493,9 @@ fun VodHubScreen(
     fun focusInlineSearchField() {
         vodSearchFocused = true
         focusZone = VodFocusZone.CONTENT
+        scope.launch {
+            inlineSearchFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun focusSearchResults() {
@@ -508,6 +511,9 @@ fun VodHubScreen(
         vodSearchFocused = true
         topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Search).coerceAtLeast(0)
         focusZone = VodFocusZone.CONTENT
+        scope.launch {
+            inlineSearchFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun clearInlineSearch() {
@@ -826,6 +832,21 @@ fun VodHubScreen(
     fun handleContentKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (showInlineSearch) {
+            if (vodSearchFocused) return false
+            if (!showBrowseGrid) {
+                return when (event.key) {
+                    Key.DirectionUp -> {
+                        focusInlineSearchField()
+                        scope.launch {
+                            inlineSearchFocusRequester.requestFocusSafelyAfterLayout()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
         if (showBrowseGrid) {
             if (!showInlineSearch) {
                 return handleBrowseGridKey(event)
@@ -1039,7 +1060,8 @@ fun VodHubScreen(
             .focusable(
                 enabled = !seriesDetailOpen &&
                     !movieDetailOpen &&
-                    !imeTypingActive
+                    !imeTypingActive &&
+                    !(showInlineSearch && vodSearchFocused)
             )
             .focusProperties {
                 if (seriesDetailOpen || movieDetailOpen) {
@@ -1051,6 +1073,14 @@ fun VodHubScreen(
                     return@onPreviewKeyEvent false
                 }
                 if (TvTextInputSession.shouldStandDownForActiveInput(event)) {
+                    return@onPreviewKeyEvent false
+                }
+                if (showInlineSearch && vodSearchFocused && !imeTypingActive) {
+                    if (event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.Back || event.key == Key.Escape)
+                    ) {
+                        return@onPreviewKeyEvent consumeVodLocalBack()
+                    }
                     return@onPreviewKeyEvent false
                 }
                 val handled = when (event.key) {

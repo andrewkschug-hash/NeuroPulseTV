@@ -68,6 +68,7 @@ import com.grid.tv.domain.model.UnifiedSearchResults
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvImageSizing
+import com.grid.tv.util.TvImeKeyDispatcher
 import com.grid.tv.util.TvTextInputSession
 
 private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
@@ -272,8 +273,19 @@ fun SearchOverlay(
             .zIndex(20f)
             .background(Color.Black.copy(alpha = 0.75f))
             .focusRequester(modalTrapFocusRequester)
-            .focusable()
-            .onPreviewKeyEvent { handleKey(it) }
+            .focusable(enabled = focusZone != SearchFocusZone.FIELD)
+            .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
+                if (focusZone == SearchFocusZone.FIELD &&
+                    event.type == KeyEventType.KeyDown &&
+                    !TvImeKeyDispatcher.isImeNavigationKey(event.key) &&
+                    event.key != Key.Back &&
+                    event.key != Key.Escape
+                ) {
+                    return@onPreviewKeyEvent false
+                }
+                handleKey(event)
+            }
     ) {
         Column(
             modifier = Modifier
