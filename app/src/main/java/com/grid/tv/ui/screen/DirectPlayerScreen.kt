@@ -215,7 +215,6 @@ fun DirectPlayerScreen(
     val player = remember(url, immediateResumeMs, onDemandContentKind) {
         resumeSeekState.applied = immediateResumeMs > 0L
         resumeSeekState.pendingMs = immediateResumeMs
-        vodPlaybackNetworkGuard.beginSession(url)
         viewModel.createPlayer(context).apply {
             val mediaItem = viewModel.buildOnDemandMediaItem(url, onDemandContentKind)
             if (immediateResumeMs > 0L) {
@@ -259,6 +258,10 @@ fun DirectPlayerScreen(
                 }
             })
         }
+    }
+
+    LaunchedEffect(url) {
+        vodPlaybackNetworkGuard.beginSession(url)
     }
 
     LaunchedEffect(vodEnrichmentKey, player.playbackState) {

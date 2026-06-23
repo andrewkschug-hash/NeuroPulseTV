@@ -86,15 +86,11 @@ class MultiPanePlaybackPool @Inject constructor(
             val previousUrl = paneStreamUrls[paneIndex]?.takeIf { it != streamUrl }
             previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
             playbackNetworkExclusivity.registerStream(streamUrl)
-            if (!playbackNetworkExclusivity.shouldSkipPreflightProbe(streamUrl)) {
-                withContext(Dispatchers.IO) {
-                    streamFormatProber.probeAndRegister(streamUrl)
-                }
-            }
             val player = getOrCreatePlayer(context, paneIndex, owner)
             val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
             if (!forceRetune && currentUri == streamUrl) {
                 if (!player.playWhenReady) player.playWhenReady = true
+                paneStreamUrls[paneIndex] = streamUrl
                 paneWatchdog.attachPane(paneIndex, player, streamUrl)
                 return@launch
             }
@@ -105,6 +101,11 @@ class MultiPanePlaybackPool @Inject constructor(
             player.playWhenReady = true
             paneStreamUrls[paneIndex] = streamUrl
             paneWatchdog.attachPane(paneIndex, player, streamUrl)
+            if (!playbackNetworkExclusivity.shouldSkipPreflightProbe(streamUrl)) {
+                withContext(Dispatchers.IO) {
+                    streamFormatProber.probeAndRegister(streamUrl)
+                }
+            }
         }
     }
 

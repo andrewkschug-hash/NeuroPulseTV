@@ -613,7 +613,6 @@ class LivePlayerManager @Inject constructor(
         val previousUrl = currentStreamUrl?.takeIf { it.isNotBlank() && it != streamUrl }
         previousUrl?.let { playbackNetworkExclusivity.unregisterStream(it) }
         playbackNetworkExclusivity.registerStream(streamUrl)
-        resolvePlaybackFormat(streamUrl)
 
         playbackMonitor.onTuneStarted(streamUrl)
         playbackMetrics.onTuneStarted(channelId, streamUrl)
@@ -669,6 +668,7 @@ class LivePlayerManager @Inject constructor(
         exo.prepare()
         exo.playWhenReady = playWhenReady
         applyVolume()
+        ioScope.launch { resolvePlaybackFormat(streamUrl) }
         if (configureFailover) {
             streamFailover.onStreamSwitched(streamUrl)
         } else {

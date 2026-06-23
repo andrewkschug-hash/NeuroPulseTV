@@ -12,31 +12,39 @@ import org.junit.Test
 class VodPlaybackNetworkGuardTest {
 
     private lateinit var channelScanner: ChannelScanner
+    private lateinit var scannerIsolation: PlaybackScannerIsolation
     private lateinit var liveExclusivity: PlaybackNetworkExclusivity
     private lateinit var guard: VodPlaybackNetworkGuard
 
     @Before
     fun setUp() {
         channelScanner = mockk(relaxed = true)
-        liveExclusivity = mockk(relaxed = true)
-        every { liveExclusivity.hasActivePlayback } returns false
         every { channelScanner.isPlaybackScanSuspended } returns false
-        guard = VodPlaybackNetworkGuard(channelScanner, liveExclusivity)
+        scannerIsolation = PlaybackScannerIsolation(channelScanner).apply {
+            executorOverride = PlaybackScannerIsolation.QueuedTestExecutor()
+        }
+        liveExclusivity = PlaybackNetworkExclusivity(scannerIsolation)
+        guard = VodPlaybackNetworkGuard(liveExclusivity, scannerIsolation)
     }
 
     @Test
-    fun beginSession_suspendsScannerAndBlocksPreflight() {
+    fun beginSession_registersPreflightImmediatelyAndSuspendsScannerAsync() {
         guard.beginSession("http://vod.example/movie.mkv")
 
-        verify { channelScanner.setPlaybackScanSuspended(true) }
         assertTrue(guard.shouldSkipPreflightProbe("http://vod.example/movie.mkv"))
         assertFalse(guard.shouldSkipPreflightProbe("http://other.example/stream.mkv"))
+        verify(exactly = 0) { channelScanner.setPlaybackScanSuspended(true) }
+
+        scannerIsolation.awaitIdleForTests()
+        verify { channelScanner.setPlaybackScanSuspended(true) }
     }
 
     @Test
     fun endSession_resumesScannerWhenLiveInactive() {
         guard.beginSession("http://vod.example/movie.mkv")
+        scannerIsolation.awaitIdleForTests()
         guard.endSession()
+        scannerIsolation.awaitIdleForTests()
 
         verify { channelScanner.setPlaybackScanSuspended(false) }
         assertFalse(guard.hasActiveVodSession())
@@ -44,9 +52,12 @@ class VodPlaybackNetworkGuardTest {
 
     @Test
     fun endSession_doesNotResumeScannerWhenLiveActive() {
+        liveExclusivity.registerStream("http://live.example/stream.m3u8")
+        scannerIsolation.awaitIdleForTests()
         guard.beginSession("http://vod.example/movie.mkv")
-        every { liveExclusivity.hasActivePlayback } returns true
+        scannerIsolation.awaitIdleForTests()
         guard.endSession()
+        scannerIsolation.awaitIdleForTests()
 
         verify(exactly = 0) { channelScanner.setPlaybackScanSuspended(false) }
     }

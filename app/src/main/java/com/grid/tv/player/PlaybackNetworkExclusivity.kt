@@ -1,16 +1,17 @@
 package com.grid.tv.player
 
-import com.grid.tv.feature.scanner.ChannelScanner
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Ensures live playback is not competing with channel scanning, HEAD preflight probes,
  * or duplicate manifest fetches for the same stream URL.
+ *
+ * Stream registration is synchronous and lightweight; scanner suspension is deferred.
  */
 @Singleton
 class PlaybackNetworkExclusivity @Inject constructor(
-    private val channelScanner: ChannelScanner
+    private val playbackScannerIsolation: PlaybackScannerIsolation
 ) {
     private val lock = Any()
 
@@ -23,37 +24,48 @@ class PlaybackNetworkExclusivity @Inject constructor(
     fun registerStream(streamUrl: String) {
         val trimmed = streamUrl.trim()
         if (trimmed.isEmpty()) return
+        val scheduleIsolation: Boolean
         synchronized(lock) {
-            val wasInactive = activeStreamUrls.isEmpty()
+            scheduleIsolation = activeStreamUrls.isEmpty()
             activeStreamUrls.add(trimmed)
             hasActivePlayback = true
-            if (wasInactive) {
+            if (scheduleIsolation) {
                 PlaybackActivityGate.suppressScannerMetrics = true
-                channelScanner.setPlaybackScanSuspended(true)
             }
+        }
+        if (scheduleIsolation) {
+            playbackScannerIsolation.acquireAsync()
         }
     }
 
     fun unregisterStream(streamUrl: String?) {
         val trimmed = streamUrl?.trim().orEmpty()
         if (trimmed.isEmpty()) return
+        val scheduleRelease: Boolean
         synchronized(lock) {
             activeStreamUrls.remove(trimmed)
-            if (activeStreamUrls.isEmpty()) {
+            scheduleRelease = activeStreamUrls.isEmpty()
+            if (scheduleRelease) {
                 hasActivePlayback = false
                 PlaybackActivityGate.suppressScannerMetrics = false
-                channelScanner.setPlaybackScanSuspended(false)
             }
+        }
+        if (scheduleRelease) {
+            playbackScannerIsolation.releaseAsync()
         }
     }
 
     fun clearAll() {
+        val scheduleRelease: Boolean
         synchronized(lock) {
             if (activeStreamUrls.isEmpty()) return
             activeStreamUrls.clear()
             hasActivePlayback = false
             PlaybackActivityGate.suppressScannerMetrics = false
-            channelScanner.setPlaybackScanSuspended(false)
+            scheduleRelease = true
+        }
+        if (scheduleRelease) {
+            playbackScannerIsolation.releaseAsync()
         }
     }
 

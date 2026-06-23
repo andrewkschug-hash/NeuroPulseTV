@@ -1,17 +1,16 @@
 package com.grid.tv.player
 
-import com.grid.tv.feature.scanner.ChannelScanner
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * VOD-only playback network isolation. Suspends channel scanning and blocks duplicate
- * preflight probes for the active on-demand stream without touching live playback wiring.
+ * VOD-only playback network isolation. URL registration is immediate; scanner suspension
+ * is deferred so ExoPlayer can start its first request without waiting on scan teardown.
  */
 @Singleton
 class VodPlaybackNetworkGuard @Inject constructor(
-    private val channelScanner: ChannelScanner,
-    private val liveNetworkExclusivity: PlaybackNetworkExclusivity
+    private val liveNetworkExclusivity: PlaybackNetworkExclusivity,
+    private val playbackScannerIsolation: PlaybackScannerIsolation
 ) {
     private val lock = Any()
 
@@ -20,40 +19,41 @@ class VodPlaybackNetworkGuard @Inject constructor(
 
     private var activeStreamUrl: String? = null
 
-    /** True when this guard suspended the scanner (live may already hold suspend). */
-    private var vodSuspendedScanner: Boolean = false
+    private var holdsScannerIsolation: Boolean = false
 
     fun beginSession(streamUrl: String) {
         val trimmed = streamUrl.trim()
         if (trimmed.isEmpty()) return
+        val scheduleIsolation: Boolean
         synchronized(lock) {
             if (sessionActive && activeStreamUrl == trimmed) return
             activeStreamUrl = trimmed
             sessionActive = true
-            if (!channelScanner.isPlaybackScanSuspended) {
-                channelScanner.setPlaybackScanSuspended(true)
-                vodSuspendedScanner = true
-            } else {
-                vodSuspendedScanner = false
-            }
+            scheduleIsolation = !holdsScannerIsolation
+            holdsScannerIsolation = true
             if (!liveNetworkExclusivity.hasActivePlayback) {
                 PlaybackActivityGate.suppressScannerMetrics = true
             }
         }
+        if (scheduleIsolation) {
+            playbackScannerIsolation.acquireAsync()
+        }
     }
 
     fun endSession() {
+        val scheduleRelease: Boolean
         synchronized(lock) {
             if (!sessionActive) return
             sessionActive = false
             activeStreamUrl = null
-            if (vodSuspendedScanner && !liveNetworkExclusivity.hasActivePlayback) {
-                channelScanner.setPlaybackScanSuspended(false)
-                vodSuspendedScanner = false
-            }
+            scheduleRelease = holdsScannerIsolation
+            holdsScannerIsolation = false
             if (!liveNetworkExclusivity.hasActivePlayback) {
                 PlaybackActivityGate.suppressScannerMetrics = false
             }
+        }
+        if (scheduleRelease) {
+            playbackScannerIsolation.releaseAsync()
         }
     }
 
