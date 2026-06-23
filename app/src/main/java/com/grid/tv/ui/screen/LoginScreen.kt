@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -141,7 +142,12 @@ fun LoginScreen(
                 }
 
                 is AuthUiState.Unauthenticated, is AuthUiState.Error -> {
-                    if (!showSkipDialog) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth(0.42f)
+                            .focusProperties { canFocus = !showSkipDialog },
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         if (!googleConfigured) {
                             Text(
                                 text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
@@ -150,48 +156,44 @@ fun LoginScreen(
                                 fontSize = 14.sp,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
-                                    .fillMaxWidth(0.7f)
+                                    .fillMaxWidth()
                                     .padding(bottom = 16.dp)
                             )
                         }
 
-                        Column(
-                            modifier = Modifier.fillMaxWidth(0.42f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            GoogleSignInBlock(
-                                supabaseClient = supabaseClient,
-                                viewModel = viewModel,
-                                fillMaxWidthFraction = 1f,
-                                focusRequester = googleButtonFocus,
-                                requestInitialFocus = true,
-                                enabled = googleConfigured
-                            )
+                        GoogleSignInBlock(
+                            supabaseClient = supabaseClient,
+                            viewModel = viewModel,
+                            fillMaxWidthFraction = 1f,
+                            focusRequester = googleButtonFocus,
+                            requestInitialFocus = !showSkipDialog,
+                            enabled = googleConfigured && !showSkipDialog
+                        )
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
-                            GridOutlinedButton(
-                                text = "Skip for now",
-                                onClick = { showSkipDialog = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                height = 56.dp,
-                                shape = RoundedCornerShape(10.dp),
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        GridOutlinedButton(
+                            text = "Skip for now",
+                            onClick = { showSkipDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            height = 56.dp,
+                            shape = RoundedCornerShape(10.dp),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            enabled = !showSkipDialog
+                        )
+                    }
 
-                        if (state is AuthUiState.Error) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = state.message,
-                                color = Color(0xFFFF8A80),
-                                fontFamily = DmSansFamily,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(0.7f)
-                            )
-                        }
+                    if (state is AuthUiState.Error) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = state.message,
+                            color = Color(0xFFFF8A80),
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(0.7f)
+                        )
                     }
                 }
 

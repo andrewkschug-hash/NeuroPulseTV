@@ -11,8 +11,8 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 20100,
-      "versionName": "2.1.0",
+      "versionCode": 10300,
+      "versionName": "1.03",
       "outputFile": "app-google-release.apk"
     }
   ],

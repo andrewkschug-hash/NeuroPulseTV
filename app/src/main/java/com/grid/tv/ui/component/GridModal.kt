@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -40,6 +42,7 @@ import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.platform.LocalDeviceFormFactor
 
 private val ModalBg = Color(0xFF14141E)
 private val ModalBorder = Color.White.copy(alpha = 0.08f)
@@ -54,6 +57,8 @@ fun GridModal(
     closeFocusRequester: FocusRequester = remember { FocusRequester() },
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val isTv = LocalDeviceFormFactor.current.isTelevision
+
     LaunchedEffect(showCloseButton, focusCloseButtonOnOpen) {
         if (showCloseButton && focusCloseButtonOnOpen) {
             closeFocusRequester.requestFocusSafelyAfterLayout()
@@ -64,19 +69,36 @@ fun GridModal(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.65f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onDismiss
-            )
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
-                    onDismiss()
-                    true
+            .then(
+                if (isTv) {
+                    // TV: backdrop must not steal focus or treat OK as dismiss — only Back closes.
+                    Modifier
+                        .focusable(enabled = false)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                                onDismiss()
+                                true
+                            } else {
+                                false
+                            }
+                        }
                 } else {
-                    false
+                    Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDismiss
+                        )
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.Back) {
+                                onDismiss()
+                                true
+                            } else {
+                                false
+                            }
+                        }
                 }
-            },
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(
@@ -85,6 +107,7 @@ fun GridModal(
                 .clip(RoundedCornerShape(16.dp))
                 .background(ModalBg)
                 .border(1.dp, ModalBorder, RoundedCornerShape(16.dp))
+                .focusProperties { canFocus = true }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

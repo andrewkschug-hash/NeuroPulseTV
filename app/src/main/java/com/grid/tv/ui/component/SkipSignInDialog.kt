@@ -31,7 +31,7 @@ fun SkipSignInDialog(
     val gotItFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        goBackFocusRequester.requestFocusSafelyAfterLayout()
+        gotItFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     GridModal(
