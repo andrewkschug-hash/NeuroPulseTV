@@ -27,5 +27,6 @@ data class SeriesShowEntity(
     val name: String,
     val coverUrl: String? = null,
     val categoryId: String? = null,
-    val genre: String? = null
+    val genre: String? = null,
+    val syncGeneration: Long = 0L
 )

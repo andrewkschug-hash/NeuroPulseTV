@@ -914,8 +914,25 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_32_33 = object : Migration(32, 33) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                ALTER TABLE vod_streams
+                ADD COLUMN syncGeneration INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                ALTER TABLE series_shows
+                ADD COLUMN syncGeneration INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 32
+    const val SCHEMA_VERSION = 33
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -951,6 +968,7 @@ object DbMigrations {
         MIGRATION_28_29,
         MIGRATION_29_30,
         MIGRATION_30_31,
-        MIGRATION_31_32
+        MIGRATION_31_32,
+        MIGRATION_32_33
     )
 }

@@ -40,7 +40,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 
 data class SelectedEpisodeDetail(
@@ -132,10 +132,12 @@ class SeriesViewModel @Inject constructor(
     ) { _, seriesCount, languages, categoryList ->
         Triple(seriesCount, languages, categoryList.associate { it.id to it.name })
     }
+        .debounce(350L)
         .flatMapLatest { (seriesCount, languages, categoryNames) ->
             flow {
                 if (seriesCount <= 0) {
-                    delay(StartupTierPolicy.tier2DelayMs())
+                    emit(emptyList())
+                    return@flow
                 }
                 val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
                 emit(filterBrowseRows(rows, languages, seriesCategoryNames = categoryNames))
@@ -228,10 +230,7 @@ class SeriesViewModel @Inject constructor(
     fun refreshCatalog() {
         viewModelScope.launch {
             runVodPipelineCatching("SeriesViewModel.refreshCatalog") {
-                repository.refreshVodSeriesCatalog(
-                    trigger = VodRefreshTrigger.MANUAL_RETRY,
-                    force = true
-                )
+                repository.loadVodStreamed(VodRefreshTrigger.MANUAL_RETRY)
             }
         }
     }

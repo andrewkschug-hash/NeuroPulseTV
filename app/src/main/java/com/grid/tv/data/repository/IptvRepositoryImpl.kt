@@ -156,6 +156,7 @@ import java.net.URLEncoder
 import java.net.URI
 import java.io.File
 import java.util.Calendar
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -223,6 +224,7 @@ class IptvRepositoryImpl @Inject constructor(
         private const val SPORTS_FILTER_EMPTY_SENTINEL = "__none__"
         /** Serve in-memory/disk cache without network for this long unless [force] refresh. */
         private const val VOD_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
+        private const val INGEST_REVISION_EVERY_BATCHES = 4
         private const val VIEWPORT_EPG_LOOKBACK_MS = 30L * 60L * 1000L
         private const val VIEWPORT_EPG_LOOKAHEAD_MS = 4L * 60L * 60L * 1000L
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
@@ -240,6 +242,9 @@ class IptvRepositoryImpl @Inject constructor(
         private const val EPG_PURGE_GRACE_MS = 7L * 24L * 60L * 60L * 1000L
     }
 
+    private val vodSyncGenerationCounter = AtomicLong(System.currentTimeMillis())
+
+    private fun nextVodSyncGeneration(): Long = vodSyncGenerationCounter.incrementAndGet()
     private val recommendationEngine = RecommendationEngine()
     private val healthEngine = StreamHealthEngine()
     private val epgCache = EpgBlockCache(registry = appCacheRegistry)
@@ -527,7 +532,28 @@ class IptvRepositoryImpl @Inject constructor(
         _vodCatalogRevision.update { it + 1L }
     }
 
+    private fun publishMoviesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
+        _vodStreamCountFlow.value = parsedSoFar
+        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+            bumpVodCatalogRevision()
+        }
+    }
+
+    private fun publishSeriesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
+        _seriesShowCountFlow.value = parsedSoFar
+        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+            bumpVodCatalogRevision()
+        }
+    }
+
     private fun isSuccessfulHttp(httpCode: Int): Boolean = httpCode in 200..299
+
+    private fun deleteCatalogCacheFile(file: File) {
+        if (!file.exists()) return
+        if (!file.delete()) {
+            Log.w(VOD_FLOW_TAG, "Failed to delete catalog cache file ${file.absolutePath}")
+        }
+    }
 
     private suspend fun preserveCatalogLog(
         playlistId: Long,
@@ -2200,8 +2226,13 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger) {
+        loadVodStreamed(trigger)
+    }
+
+    override fun loadVodStreamed(trigger: VodRefreshTrigger) {
         com.grid.tv.util.VodCatalogLogger.vodLoadStart(trigger.name)
-        withContext(Dispatchers.IO) {
+        vodRepositoryScope.launch(Dispatchers.IO) {
+            hydrateVodUiFromRoom(trigger)
             StartupProfiler.mark("vod_local_warm_start", trigger.name)
             if (!vodDiskCacheLoaded) {
                 warmLocalUiCache()
@@ -2210,23 +2241,45 @@ class IptvRepositoryImpl @Inject constructor(
             }
             StartupProfiler.mark("vod_local_warm_complete", trigger.name)
         }
-        scheduleDeferredVodCatalogRefresh(trigger)
+        scheduleDeferredVodCatalogRefresh(
+            trigger,
+            immediate = trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
+                trigger == VodRefreshTrigger.MANUAL_RETRY
+        )
+    }
+
+    /** Publishes cached Room counts immediately so VOD UI never waits on network. */
+    private suspend fun hydrateVodUiFromRoom(trigger: VodRefreshTrigger) {
+        StartupProfiler.mark("vod_instant_hydrate_start", trigger.name)
+        refreshCatalogCountsFromDb(
+            trigger = trigger,
+            force = true,
+            publishUi = true,
+            persist = false
+        )
+        StartupProfiler.mark(
+            "vod_instant_hydrate_complete",
+            "movies=${cachedMoviesCount()} series=${cachedSeriesCount()}"
+        )
     }
 
     override fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger) {
+        scheduleDeferredVodCatalogRefresh(trigger, immediate = false)
+    }
+
+    private fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger, immediate: Boolean) {
         deferredVodCatalogRefreshJob?.cancel()
         deferredVodCatalogRefreshJob = vodRepositoryScope.launch {
             val dbEmpty = withContext(Dispatchers.IO) {
                 cachedMoviesCount() <= 0 && cachedSeriesCount() <= 0
             }
-            val delayMs = if (dbEmpty && (
+            val delayMs = when {
+                immediate -> 0L
+                dbEmpty && (
                     trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
                         trigger == VodRefreshTrigger.MANUAL_RETRY
-                    )
-            ) {
-                StartupTierPolicy.emptyCatalogVodRefreshDelayMs()
-            } else {
-                StartupTierPolicy.deferredVodRefreshDelayMs(trigger)
+                    ) -> StartupTierPolicy.emptyCatalogVodRefreshDelayMs()
+                else -> StartupTierPolicy.deferredVodRefreshDelayMs(trigger)
             }
             StartupProfiler.mark("vod_refresh_scheduled", "delay=${delayMs}ms trigger=$trigger dbEmpty=$dbEmpty")
             delay(delayMs)
@@ -2940,20 +2993,23 @@ class IptvRepositoryImpl @Inject constructor(
             "Starting get_vod_streams playlist=${playlist.id} trigger=$trigger at=${System.currentTimeMillis()}"
         )
         return try {
-            val fetchResult = remoteTextFetcher.fetchDetailed(vodUrl)
-            val vodRaw = fetchResult.body
+            val fetchResult = remoteTextFetcher.fetchCatalogToTempFile(
+                rawUrl = vodUrl,
+                cacheKey = "vod_pl${playlist.id}"
+            )
+            val catalogFile = fetchResult.file
             Log.i(
                 VOD_FLOW_TAG,
                 "VOD fetch playlist=${playlist.id} action=get_vod_streams trigger=$trigger " +
                     "http=${fetchResult.httpCode} rawBytes=${fetchResult.rawBytes} " +
-                    "decodedChars=${vodRaw.length} urlHost=${runCatching { URI(server).host }.getOrNull()}"
+                    "urlHost=${runCatching { URI(server).host }.getOrNull()}"
             )
-            if (vodRaw.length <= 500) {
-                Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(400)}")
+            if (fetchResult.headPreview.length <= 500) {
+                Log.d(VOD_FLOW_TAG, "VOD raw preview playlist=${playlist.id}: ${fetchResult.headPreview.take(400)}")
             } else {
                 Log.d(
                     VOD_FLOW_TAG,
-                    "VOD raw preview playlist=${playlist.id}: ${vodRaw.take(200)}…${vodRaw.takeLast(80)}"
+                    "VOD raw preview playlist=${playlist.id}: ${fetchResult.headPreview.take(200)}…"
                 )
             }
 
@@ -2964,54 +3020,51 @@ class IptvRepositoryImpl @Inject constructor(
                     contentType = "movie",
                     reason = "HTTP ${fetchResult.httpCode}"
                 )
+                catalogFile?.let { deleteCatalogCacheFile(it) }
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
+                    rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned HTTP ${fetchResult.httpCode} for ${playlist.name}"
                 )
             }
 
-            val arrayLength = xtreamParser.parseVodArrayLength(vodRaw)
-            Log.i(VOD_FLOW_TAG, "VOD parse arrayLength=$arrayLength playlist=${playlist.id}")
-            val diagnosis = xtreamParser.diagnoseVodResponse(vodRaw)
-
-            if (arrayLength <= 0) {
-                if (diagnosis != null) {
-                    preserveCatalogLog(playlist.id, "movie", diagnosis)
-                } else if (vodRaw.isBlank()) {
-                    preserveCatalogLog(playlist.id, "movie", "empty HTTP body")
-                }
+            if (catalogFile == null || !catalogFile.exists()) {
+                preserveCatalogLog(playlist.id, "movie", "empty HTTP body")
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
-                    arrayLength = arrayLength,
-                    error = when {
-                        diagnosis != null -> diagnosis
-                        vodRaw.isBlank() ->
-                            "Provider returned an empty response for ${playlist.name}. Check your connection and server URL."
-                        else -> null
-                    }
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    error = "Provider returned an empty response for ${playlist.name}."
                 )
             }
 
-            if (diagnosis != null) {
+            try {
+            val diagnosis = xtreamParser.diagnoseVodResponse(fetchResult.headPreview)
+            if (diagnosis != null && !fetchResult.headPreview.trimStart().startsWith("[")) {
                 preserveCatalogLog(playlist.id, "movie", diagnosis)
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
-                    arrayLength = arrayLength,
+                    rawLength = fetchResult.rawBytes.toInt(),
                     error = diagnosis
                 )
             }
 
-            val parsedItems = ArrayList<com.grid.tv.domain.model.VodItem>(arrayLength.coerceAtMost(1024))
-            xtreamParser.parseVodBatched(
-                raw = vodRaw,
+            com.grid.tv.util.PlaybackDiagnostics.logMemory("before_vod_stream_parse playlist=${playlist.id}")
+            val parseStartNs = System.nanoTime()
+            var parsedCount = 0
+            var skippedCount = 0
+            var firstBatchLogged = false
+            val ingestBatchSize = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.DEFAULT_BATCH_SIZE
+            val syncGeneration = nextVodSyncGeneration()
+
+            val streamResult = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.parseVodCatalogStream(
+                input = catalogFile.inputStream(),
                 username = user,
                 password = pass,
                 serverUrl = server,
                 playlistId = playlist.id,
-                batchSize = CHANNEL_INSERT_CHUNK
-            ) { batch ->
-                if (batch.isEmpty()) return@parseVodBatched
-                if (parsedItems.isEmpty()) {
+                batchSize = ingestBatchSize,
+                parser = xtreamParser
+            ) { batch, batchIndex, parsedSoFar ->
+                if (batch.isEmpty()) return@parseVodCatalogStream
+                if (!firstBatchLogged) {
+                    firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, item ->
                         Log.d(
                             VOD_FLOW_TAG,
@@ -3020,43 +3073,77 @@ class IptvRepositoryImpl @Inject constructor(
                         )
                     }
                 }
-                parsedItems.addAll(batch)
-                onBatchInserted(parsedItems.size, arrayLength)
+                val batchStartNs = System.nanoTime()
+                com.grid.tv.util.VodCatalogIngestLogger.logBatchStart(
+                    phase = "movies",
+                    playlistId = playlist.id,
+                    batchIndex = batchIndex,
+                    batchSize = batch.size,
+                    parsedSoFar = parsedSoFar
+                )
+                vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
+                com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
+                    phase = "movies",
+                    playlistId = playlist.id,
+                    batchIndex = batchIndex,
+                    batchSize = batch.size,
+                    parsedSoFar = parsedSoFar,
+                    elapsedMs = batchMs
+                )
+                publishMoviesIngestBatch(parsedSoFar, batchIndex)
+                onBatchInserted(parsedSoFar, parsedSoFar)
             }
+            parsedCount = streamResult.parsedCount
+            skippedCount = streamResult.skippedCount
 
-            if (parsedItems.isEmpty()) {
+            val parseMs = (System.nanoTime() - parseStartNs) / 1_000_000L
+            com.grid.tv.util.PerformanceAudit.logJsonParse("parseVodCatalogStream", parseMs, parsedCount)
+            com.grid.tv.util.PlaybackDiagnostics.logMemory("after_vod_stream_parse playlist=${playlist.id}")
+            com.grid.tv.util.VodCatalogIngestLogger.logIngestComplete(
+                phase = "movies",
+                playlistId = playlist.id,
+                parsedCount = parsedCount,
+                skippedCount = skippedCount,
+                totalElapsedMs = parseMs
+            )
+
+            if (parsedCount <= 0) {
                 preserveCatalogLog(
                     playlist.id,
                     "movie",
-                    "parsed 0 of $arrayLength entries"
+                    "parsed 0 catalog entries"
                 )
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
-                    arrayLength = arrayLength,
-                    error = "Parsed 0 of $arrayLength movie entries for ${playlist.name}"
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    arrayLength = 0,
+                    error = "Parsed 0 movie entries for ${playlist.name}"
                 )
             }
 
-            database.replaceVodStreamsForPlaylist(playlist.id) {
-                parsedItems.chunked(CHANNEL_INSERT_CHUNK).forEach { batch ->
-                    vodStreamDao.insertAll(batch.map { it.toEntity() })
-                }
-            }
+            refreshCatalogCountsFromDb(
+                trigger = trigger,
+                force = true,
+                publishUi = true,
+                persist = true
+            )
+            val pruned = vodStreamDao.deleteStaleByPlaylist(playlist.id, syncGeneration)
             bumpVodCatalogRevision()
-            vodCatalogDiskCache.clear(playlist.id)
             refreshVodCategoriesForPlaylist(playlist, server, user, pass, trigger)
 
-            val parsedCount = parsedItems.size
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD atomic swap playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength " +
-                    "replacedPrior=$priorCount"
+                "VOD incremental sync playlist=${playlist.id} upserted=$parsedCount " +
+                    "prunedStale=$pruned priorCount=$priorCount syncGen=$syncGeneration"
             )
             VodPlaylistRefreshResult(
-                rawLength = fetchResult.rawBytes,
+                rawLength = fetchResult.rawBytes.toInt(),
                 parsedCount = parsedCount,
-                arrayLength = arrayLength
+                arrayLength = parsedCount
             )
+            } finally {
+                deleteCatalogCacheFile(catalogFile)
+            }
         } catch (error: Throwable) {
             val message = error.message ?: error.javaClass.simpleName
             Log.e(
@@ -3135,50 +3222,58 @@ class IptvRepositoryImpl @Inject constructor(
                 VOD_FLOW_TAG,
                 "Starting get_series playlist=${playlist.id} trigger=$trigger at=${System.currentTimeMillis()}"
             )
-            val fetchResult = remoteTextFetcher.fetchDetailed(seriesUrl)
-            val seriesRaw = fetchResult.body
+            val fetchResult = remoteTextFetcher.fetchCatalogToTempFile(
+                rawUrl = seriesUrl,
+                cacheKey = "series_pl${playlist.id}"
+            )
+            val catalogFile = fetchResult.file
             Log.i(
                 VOD_FLOW_TAG,
                 "Series fetch playlist=${playlist.id} action=get_series trigger=$trigger " +
-                    "http=${fetchResult.httpCode} rawBytes=${fetchResult.rawBytes} decodedChars=${seriesRaw.length}"
+                    "http=${fetchResult.httpCode} rawBytes=${fetchResult.rawBytes}"
             )
-            if (seriesRaw.length < 500) {
-                Log.d(VOD_FLOW_TAG, "Series raw preview playlist=${playlist.id}: ${seriesRaw.take(300)}")
+            if (fetchResult.headPreview.length < 500) {
+                Log.d(VOD_FLOW_TAG, "Series raw preview playlist=${playlist.id}: ${fetchResult.headPreview.take(300)}")
             }
 
             val priorCount = seriesShowDao.countByPlaylist(playlist.id)
             if (!isSuccessfulHttp(fetchResult.httpCode)) {
                 preserveCatalogLog(playlist.id, "series", "HTTP ${fetchResult.httpCode}")
+                catalogFile?.let { deleteCatalogCacheFile(it) }
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
+                    rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned HTTP ${fetchResult.httpCode} for ${playlist.name}"
                 )
             }
 
-            val arrayLength = xtreamParser.parseSeriesArrayLength(seriesRaw)
-            Log.i(VOD_FLOW_TAG, "Series parse arrayLength=$arrayLength playlist=${playlist.id}")
-
-            if (arrayLength <= 0) {
+            if (catalogFile == null || !catalogFile.exists()) {
                 preserveCatalogLog(playlist.id, "series", "empty or invalid response")
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
-                    arrayLength = arrayLength,
-                    error = if (seriesRaw.isBlank()) {
-                        "Provider returned an empty series response for ${playlist.name}."
-                    } else {
-                        null
-                    }
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    error = "Provider returned an empty series response for ${playlist.name}."
                 )
             }
 
-            val parsedShows = ArrayList<SeriesShow>(arrayLength.coerceAtMost(1024))
-            xtreamParser.parseSeriesBatched(
-                raw = seriesRaw,
+            try {
+            com.grid.tv.util.PlaybackDiagnostics.logMemory("before_series_stream_parse playlist=${playlist.id}")
+            val parseStartNs = System.nanoTime()
+            var parsedCount = 0
+            var skippedCount = 0
+            var firstBatchLogged = false
+            val ingestBatchSize = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.DEFAULT_BATCH_SIZE
+
+            clearSeriesSeasonsForPlaylist(playlist.id)
+            val syncGeneration = nextVodSyncGeneration()
+
+            val streamResult = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.parseSeriesCatalogStream(
+                input = catalogFile.inputStream(),
                 playlistId = playlist.id,
-                batchSize = CHANNEL_INSERT_CHUNK
-            ) { batch ->
-                if (batch.isEmpty()) return@parseSeriesBatched
-                if (parsedShows.isEmpty()) {
+                batchSize = ingestBatchSize,
+                parser = xtreamParser
+            ) { batch, batchIndex, parsedSoFar ->
+                if (batch.isEmpty()) return@parseSeriesCatalogStream
+                if (!firstBatchLogged) {
+                    firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, show ->
                         Log.d(
                             VOD_FLOW_TAG,
@@ -3187,39 +3282,73 @@ class IptvRepositoryImpl @Inject constructor(
                         )
                     }
                 }
-                parsedShows.addAll(batch)
-                onBatchInserted(parsedShows.size, arrayLength)
+                val batchStartNs = System.nanoTime()
+                com.grid.tv.util.VodCatalogIngestLogger.logBatchStart(
+                    phase = "series",
+                    playlistId = playlist.id,
+                    batchIndex = batchIndex,
+                    batchSize = batch.size,
+                    parsedSoFar = parsedSoFar
+                )
+                seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
+                com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
+                    phase = "series",
+                    playlistId = playlist.id,
+                    batchIndex = batchIndex,
+                    batchSize = batch.size,
+                    parsedSoFar = parsedSoFar,
+                    elapsedMs = batchMs
+                )
+                publishSeriesIngestBatch(parsedSoFar, batchIndex)
+                onBatchInserted(parsedSoFar, parsedSoFar)
             }
+            parsedCount = streamResult.parsedCount
+            skippedCount = streamResult.skippedCount
 
-            if (parsedShows.isEmpty()) {
-                preserveCatalogLog(playlist.id, "series", "parsed 0 of $arrayLength entries")
+            val parseMs = (System.nanoTime() - parseStartNs) / 1_000_000L
+            com.grid.tv.util.PerformanceAudit.logJsonParse("parseSeriesCatalogStream", parseMs, parsedCount)
+            com.grid.tv.util.PlaybackDiagnostics.logMemory("after_series_stream_parse playlist=${playlist.id}")
+            com.grid.tv.util.VodCatalogIngestLogger.logIngestComplete(
+                phase = "series",
+                playlistId = playlist.id,
+                parsedCount = parsedCount,
+                skippedCount = skippedCount,
+                totalElapsedMs = parseMs
+            )
+
+            if (parsedCount <= 0) {
+                preserveCatalogLog(playlist.id, "series", "parsed 0 catalog entries")
                 return VodPlaylistRefreshResult(
-                    rawLength = fetchResult.rawBytes,
-                    arrayLength = arrayLength,
-                    error = "Parsed 0 of $arrayLength series entries for ${playlist.name}"
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    arrayLength = 0,
+                    error = "Parsed 0 series entries for ${playlist.name}"
                 )
             }
 
-            clearSeriesSeasonsForPlaylist(playlist.id)
-            database.replaceSeriesShowsForPlaylist(playlist.id) {
-                parsedShows.chunked(CHANNEL_INSERT_CHUNK).forEach { batch ->
-                    seriesShowDao.insertAll(batch.map { it.toEntity() })
-                }
-            }
+            refreshCatalogCountsFromDb(
+                trigger = trigger,
+                force = true,
+                publishUi = true,
+                persist = true
+            )
+            val pruned = seriesShowDao.deleteStaleByPlaylist(playlist.id, syncGeneration)
             bumpVodCatalogRevision()
             refreshSeriesCategoriesForPlaylist(playlist, trigger)
 
-            val parsedCount = parsedShows.size
             Log.i(
                 VOD_FLOW_TAG,
-                "Series atomic swap playlist=${playlist.id} finalCount=$parsedCount arrayLength=$arrayLength " +
-                    "replacedPrior=$priorCount"
+                "Series incremental sync playlist=${playlist.id} upserted=$parsedCount " +
+                    "prunedStale=$pruned priorCount=$priorCount syncGen=$syncGeneration"
             )
             VodPlaylistRefreshResult(
-                rawLength = fetchResult.rawBytes,
+                rawLength = fetchResult.rawBytes.toInt(),
                 parsedCount = parsedCount,
-                arrayLength = arrayLength
+                arrayLength = parsedCount
             )
+            } finally {
+                deleteCatalogCacheFile(catalogFile)
+            }
         } catch (error: Throwable) {
             val message = error.message ?: error.javaClass.simpleName
             Log.e(

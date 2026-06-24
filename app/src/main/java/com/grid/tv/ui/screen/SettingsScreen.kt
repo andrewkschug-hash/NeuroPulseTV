@@ -114,12 +114,15 @@ import com.grid.tv.ui.component.GoogleSignInBlock
 import com.grid.tv.ui.component.SettingsGoogleSignInButton
 import com.grid.tv.ui.viewmodel.AuthUiState
 import com.grid.tv.ui.viewmodel.AuthViewModel
+import com.grid.tv.ui.viewmodel.ManualUpdateUiState
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
+import com.grid.tv.ui.viewmodel.UpdateViewModel
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.profileInitials
 import com.grid.tv.util.quitAppToHome
+import com.grid.tv.BuildConfig
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -168,7 +171,8 @@ fun SettingsScreen(
     onSignOut: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
     profileViewModel: ProfileViewModel = hiltViewModel(),
-    authViewModel: AuthViewModel = hiltViewModel()
+    authViewModel: AuthViewModel = hiltViewModel(),
+    updateViewModel: UpdateViewModel = hiltViewModel()
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -206,6 +210,7 @@ fun SettingsScreen(
     var pendingHideAdultValue by remember { mutableStateOf<Boolean?>(null) }
     val cacheMessage by viewModel.cacheMessage.collectAsStateWithLifecycle()
     val playbackHealthSummary by viewModel.playbackHealthSummary.collectAsStateWithLifecycle()
+    val updateUiState by updateViewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {
         while (true) {
             now = System.currentTimeMillis()
@@ -851,6 +856,9 @@ fun SettingsScreen(
                             ).supabaseClientProvider().clientOrNull()
                             AboutSettingsContent(
                                 appVersion = viewModel.appVersion,
+                                updateUiState = updateUiState,
+                                onCheckForUpdates = updateViewModel::checkForUpdate,
+                                onDownloadUpdate = updateViewModel::downloadAndInstall,
                                 lowEndDeviceModeActive = LowEndDeviceMode.isActive(context),
                                 lowEndDeviceSummary = LowEndDeviceMode.profile(context).let { profile ->
                                     if (!profile.active) null
@@ -2190,6 +2198,9 @@ private fun playlistConnectionSubtitle(playlist: Playlist): String {
 @Composable
 private fun AboutSettingsContent(
     appVersion: String,
+    updateUiState: ManualUpdateUiState,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: () -> Unit,
     lowEndDeviceModeActive: Boolean,
     lowEndDeviceSummary: String?,
     importSummary: String?,
@@ -2299,9 +2310,67 @@ private fun AboutSettingsContent(
         }
     }
     SettingsPanel(
+        title = "Updates",
+        description = "Check GitHub for a newer sideload build. Updates are never downloaded automatically.",
+        cardIndex = 2,
+        focus = focus
+    ) {
+        Text(
+            text = "Current version: ${BuildConfig.VERSION_NAME}",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp
+        )
+        val statusText = when (updateUiState) {
+            ManualUpdateUiState.Idle -> null
+            ManualUpdateUiState.Checking -> "Checking for updates…"
+            ManualUpdateUiState.UpToDate -> "You are up to date"
+            is ManualUpdateUiState.UpdateAvailable ->
+                "Update available: ${updateUiState.info.versionName}"
+            is ManualUpdateUiState.Downloading ->
+                "Downloading… ${updateUiState.percent}%"
+            is ManualUpdateUiState.Error -> updateUiState.message
+        }
+        statusText?.let {
+            Text(
+                text = it,
+                color = when (updateUiState) {
+                    is ManualUpdateUiState.Error -> EpgColors.Accent
+                    is ManualUpdateUiState.UpdateAvailable -> EpgColors.Accent
+                    else -> EpgColors.TextDimmed
+                },
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        SettingsFocusButton(
+            text = if (updateUiState is ManualUpdateUiState.Checking) {
+                "Checking…"
+            } else {
+                "Check for updates"
+            },
+            onClick = onCheckForUpdates,
+            chainIndex = 3,
+            focus = focus,
+            enabled = updateUiState !is ManualUpdateUiState.Checking &&
+                updateUiState !is ManualUpdateUiState.Downloading,
+            modifier = Modifier.padding(top = 12.dp)
+        )
+        if (updateUiState is ManualUpdateUiState.UpdateAvailable) {
+            SettingsFocusButton(
+                text = "Update now",
+                onClick = onDownloadUpdate,
+                chainIndex = 4,
+                focus = focus,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+    }
+    SettingsPanel(
         title = "Playback health",
         description = "Aggregated startup, buffering, failover, and error metrics from live playback sessions.",
-        cardIndex = 2,
+        cardIndex = 3,
         focus = focus
     ) {
         playbackHealthSummary.diagnosticsMessage?.let {
@@ -2319,14 +2388,14 @@ private fun AboutSettingsContent(
         SettingsFocusButton(
             text = "Refresh health summary",
             onClick = onRefreshPlaybackHealth,
-            chainIndex = 3,
+            chainIndex = 5,
             focus = focus,
             modifier = Modifier.padding(top = 12.dp)
         )
         SettingsFocusButton(
             text = "Log diagnostics to logcat",
             onClick = onLogPlaybackHealth,
-            chainIndex = 4,
+            chainIndex = 6,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -2334,13 +2403,13 @@ private fun AboutSettingsContent(
     SettingsPanel(
         title = "Reset settings",
         description = "Restore defaults for playback, guide, interface, and parental controls. Profiles and connections are kept.",
-        cardIndex = 3,
+        cardIndex = 4,
         focus = focus
     ) {
         SettingsFocusButton(
             text = "Reset all settings",
             onClick = onResetSettings,
-            chainIndex = 5,
+            chainIndex = 7,
             focus = focus,
             destructive = true
         )
@@ -2348,13 +2417,13 @@ private fun AboutSettingsContent(
     SettingsPanel(
         title = "Reset app",
         description = "Delete all profiles, connections, watch history, favorites, and settings. Restarts as a fresh install.",
-        cardIndex = 4,
+        cardIndex = 5,
         focus = focus
     ) {
         SettingsFocusButton(
             text = "Reset everything",
             onClick = onResetApp,
-            chainIndex = 6,
+            chainIndex = 8,
             focus = focus,
             destructive = true
         )

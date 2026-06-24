@@ -835,6 +835,12 @@ class LivePlayerManager @Inject constructor(
     }
 
     private fun handleFatalPlaybackError(error: androidx.media3.common.PlaybackException) {
+        com.grid.tv.util.PlaybackDiagnostics.logPlaybackError(
+            owner = "live_fullscreen",
+            error = error,
+            streamUrl = currentStreamUrl,
+            channelId = currentChannelId
+        )
         PlaybackHttpFailure.logHttpFailure(error, currentStreamUrl)
         streamFailover.cancelRecoveryAndBlockSession()
         val exo = player ?: return

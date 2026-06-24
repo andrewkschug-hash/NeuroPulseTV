@@ -16,52 +16,77 @@ class GitHubReleaseChecker @Inject constructor(
     appHttpClient: AppHttpClient
 ) {
     private val client: OkHttpClient = appHttpClient.client()
-    private var checkedThisSession = false
 
-    suspend fun checkForUpdate(): AppUpdateInfo? {
-        if (checkedThisSession) return null
-        checkedThisSession = true
-        return withContext(Dispatchers.IO) {
-            runCatching { fetchLatestRelease() }.getOrNull()
+    /** Manual update check only — never called automatically by the app. */
+    suspend fun checkForUpdate(): UpdateCheckResult = withContext(Dispatchers.IO) {
+        val localVersion = BuildConfig.VERSION_NAME
+        Log.d(
+            TAG,
+            "checkForUpdate: local=$localVersion owner=${BuildConfig.GITHUB_OWNER} repo=${BuildConfig.GITHUB_REPO}"
+        )
+        runCatching {
+            fetchLatestRelease(localVersion)
+        }.getOrElse { error ->
+            UpdateCheckResult.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
 
-    private fun fetchLatestRelease(): AppUpdateInfo? {
+    private fun fetchLatestRelease(localVersion: String): UpdateCheckResult {
         val request = Request.Builder()
-            .url(RELEASES_URL)
+            .url(latestReleaseApiUrl())
             .header("Accept", "application/vnd.github+json")
             .header("User-Agent", "GRID-TV/${BuildConfig.VERSION_NAME}")
             .get()
             .build()
         client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val body = response.body?.string().orEmpty()
-            if (body.isBlank()) return null
-            val json = JSONObject(body)
-            val tagName = json.optString("tag_name").trim()
-            if (tagName.isBlank()) return null
-            val current = BuildConfig.VERSION_NAME
-            val remoteNorm = normalizeVersionLabel(tagName)
-            val currentNorm = normalizeVersionLabel(current)
-            logVersionConfigWarnings(current, currentNorm)
             Log.d(
                 TAG,
-                "Installed=$currentNorm Remote=$remoteNorm (raw tag=$tagName) normalized comparison running"
+                "checkForUpdate: HTTP ${response.code} remaining=${response.header("X-RateLimit-Remaining")}"
             )
-            if (!isNewerVersion(tagName, current)) {
-                Log.d(TAG, "No update: remote $remoteNorm is not newer than installed $currentNorm")
-                return null
+            when {
+                response.code == 404 -> return UpdateCheckResult.NoReleasePublished(404)
+                response.code == 403 ->
+                    return UpdateCheckResult.Failed(
+                        reason = "GitHub API rate limit or access denied (403)",
+                        httpCode = 403
+                    )
+                !response.isSuccessful ->
+                    return UpdateCheckResult.Failed(
+                        reason = "GitHub API HTTP ${response.code}",
+                        httpCode = response.code
+                    )
             }
-            Log.d(TAG, "Update available: $remoteNorm > $currentNorm")
+            val body = response.body?.string().orEmpty()
+            if (body.isBlank()) {
+                return UpdateCheckResult.Failed("Empty GitHub release response")
+            }
+            val json = JSONObject(body)
+            val tagName = json.optString("tag_name").trim()
+            if (tagName.isBlank()) {
+                return UpdateCheckResult.Failed("Release JSON missing version tag")
+            }
+            val remoteNorm = normalizeVersionLabel(tagName)
+            val currentNorm = normalizeVersionLabel(localVersion)
+            logVersionConfigWarnings(localVersion, currentNorm)
+            Log.d(TAG, "Installed=$currentNorm Remote=$remoteNorm (raw tag=$tagName)")
+            if (!isNewerVersion(tagName, localVersion)) {
+                return UpdateCheckResult.UpToDate
+            }
+            val downloadUrl = resolveDownloadUrl(json)
+                ?: return UpdateCheckResult.Failed("Release has no installable APK asset")
             val releaseNotes = json.optString("body").trim().takeIf { it.isNotBlank() }
-            val downloadUrl = resolveDownloadUrl(json) ?: return null
-            return AppUpdateInfo(
-                versionName = normalizeVersionLabel(tagName),
-                releaseNotes = releaseNotes,
-                downloadUrl = downloadUrl
+            return UpdateCheckResult.UpdateAvailable(
+                AppUpdateInfo(
+                    versionName = remoteNorm,
+                    releaseNotes = releaseNotes,
+                    downloadUrl = downloadUrl
+                )
             )
         }
     }
+
+    private fun latestReleaseApiUrl(): String =
+        "https://api.github.com/repos/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/releases/latest"
 
     private fun resolveDownloadUrl(json: JSONObject): String? {
         val assets = json.optJSONArray("assets")
@@ -76,7 +101,7 @@ class GitHubReleaseChecker @Inject constructor(
                 }
             }
         }
-        return json.optString("html_url").trim().takeIf { it.isNotBlank() }
+        return null
     }
 
     private fun logVersionConfigWarnings(rawVersion: String, normalizedVersion: String) {
@@ -87,16 +112,12 @@ class GitHubReleaseChecker @Inject constructor(
             parseVersionParts(normalizedVersion).isEmpty() ->
                 Log.w(
                     TAG,
-                    "VERSION_NAME unparseable: raw='$rawVersion' normalized='$normalizedVersion' " +
-                        "— align with GitHub tags (e.g. 1.03)"
+                    "VERSION_NAME unparseable: raw='$rawVersion' normalized='$normalizedVersion'"
                 )
         }
     }
 
     internal companion object {
-        private const val RELEASES_URL =
-            "https://api.github.com/repos/gridtvsupport-wq/GRID/releases/latest"
-
         fun normalizeVersionLabel(version: String): String =
             version.trim().removePrefix("v").removePrefix("V")
 

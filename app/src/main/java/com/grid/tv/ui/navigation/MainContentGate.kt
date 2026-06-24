@@ -1,10 +1,8 @@
 package com.grid.tv.ui.navigation
 
 import android.widget.Toast
-import com.grid.tv.BuildConfig
 import com.grid.tv.di.PlayerEntryPoint
 import com.grid.tv.ui.component.GlowFocusButton
-import com.grid.tv.ui.component.UpdateAvailableDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,15 +24,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.feature.startup.StartupProfiler
-import com.grid.tv.feature.startup.StartupTierPolicy
-import com.grid.tv.ui.viewmodel.UpdateViewModel
-import kotlinx.coroutines.delay
 
 @Composable
 fun MainContentGate(
@@ -42,12 +35,10 @@ fun MainContentGate(
     onPickTiviMateZip: () -> Unit,
     onSwitchProfile: () -> Unit,
     onRestartToOnboarding: () -> Unit,
-    onSignOut: () -> Unit,
-    updateViewModel: UpdateViewModel = hiltViewModel()
+    onSignOut: () -> Unit
 ) {
     var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    val pendingUpdate by updateViewModel.pendingUpdate.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val playbackOrchestrator = remember(context) {
         EntryPointAccessors.fromApplication(context.applicationContext, PlayerEntryPoint::class.java)
@@ -58,11 +49,6 @@ fun MainContentGate(
         playbackOrchestrator.blockedMessages.collect { message ->
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
-    }
-
-    LaunchedEffect(Unit) {
-        delay(StartupTierPolicy.updateCheckDelayMs())
-        updateViewModel.checkForUpdate()
     }
 
     LaunchedEffect(Unit) {
@@ -81,22 +67,13 @@ fun MainContentGate(
             onConnect = { ready = true; loadError = null }
         )
         !ready -> LoadingPlaceholder()
-        else -> Box(modifier = Modifier.fillMaxSize()) {
-            AppNavHost(
-                onPickLocalFile = onPickLocalFile,
-                onPickTiviMateZip = onPickTiviMateZip,
-                onSwitchProfile = onSwitchProfile,
-                onRestartToOnboarding = onRestartToOnboarding,
-                onSignOut = onSignOut
-            )
-            pendingUpdate?.let { update ->
-                UpdateAvailableDialog(
-                    update = update,
-                    currentVersion = BuildConfig.VERSION_NAME,
-                    onDismiss = updateViewModel::dismissUpdate
-                )
-            }
-        }
+        else -> AppNavHost(
+            onPickLocalFile = onPickLocalFile,
+            onPickTiviMateZip = onPickTiviMateZip,
+            onSwitchProfile = onSwitchProfile,
+            onRestartToOnboarding = onRestartToOnboarding,
+            onSignOut = onSignOut
+        )
     }
 }
 

@@ -51,6 +51,7 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.VodWallItem
+import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.domain.model.buildVodWallRows
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgTopBar
@@ -67,6 +68,7 @@ import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodContentFilterTabBar
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
+import com.grid.tv.ui.component.VodCatalogSkeletonWall
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodHeroSection
@@ -145,6 +147,8 @@ fun VodHubScreen(
     var profileMenuOpen by remember { mutableStateOf(false) }
     var profileMenuFocusIndex by remember { mutableIntStateOf(0) }
     var showLanguageDialog by remember { mutableStateOf(false) }
+
+    val continueWatchingListState = remember { LazyListState() }
 
     val recordingViewModel: RecordingViewModel = hiltViewModel()
     val context = LocalContext.current
@@ -313,6 +317,8 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(Unit) {
+        com.grid.tv.util.PlaybackDiagnostics.logDeviceProfile(context)
+        livePlayerManager.stopGuidePreview()
         livePlayerManager.setMode(com.grid.tv.player.LivePlayerManager.Mode.IDLE)
     }
 
@@ -1196,13 +1202,7 @@ fun VodHubScreen(
                     )
                 }
 
-                val vodContentPending = wallRows.isEmpty() &&
-                    !showInlineSearch &&
-                    movieBrowseRows.isEmpty() &&
-                    seriesBrowseRows.isEmpty()
-                val vodLoading = catalogLoading ||
-                    catalogProgress.isLoading ||
-                    (vodContentPending && catalogTotalCount == 0)
+                val catalogSyncActive = catalogLoading || catalogProgress.isLoading
                 val movieProgressFraction = { card: com.grid.tv.ui.component.VodGridCardModel, map: Map<Long, Long> ->
                     moviePagingItems.itemSnapshotList.items
                         .firstOrNull { it.streamId == card.streamId }
@@ -1241,52 +1241,102 @@ fun VodHubScreen(
                             )
                         }
                         contentFilter == VodContentFilter.MOVIES -> {
-                            VodMoviePagedGrid(
-                                pagingItems = moviePagingItems,
-                                progressByStreamId = vodProgress,
-                                progressFraction = movieProgressFraction,
-                                onItemClick = ::openMovieDetail,
-                                gridState = browseGridState,
-                                gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
-                                focusedItemIndex = browseGridFocusIndex,
-                                onColumnCountChanged = { browseGridColumnCount = it },
-                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                            Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                            )
+                            ) {
+                                if (catalogSyncActive && moviePagingItems.itemCount == 0) {
+                                    VodCatalogSkeletonWall(modifier = Modifier.fillMaxSize())
+                                }
+                                VodMoviePagedGrid(
+                                    pagingItems = moviePagingItems,
+                                    progressByStreamId = vodProgress,
+                                    progressFraction = movieProgressFraction,
+                                    onItemClick = ::openMovieDetail,
+                                    gridState = browseGridState,
+                                    gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
+                                    focusedItemIndex = browseGridFocusIndex,
+                                    onColumnCountChanged = { browseGridColumnCount = it },
+                                    onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                         contentFilter == VodContentFilter.SERIES -> {
-                            VodPagedVerticalGrid(
-                                pagingItems = seriesPagingItems,
-                                progressByStreamId = vodProgress,
-                                progressFraction = { _, _ -> null },
-                                onItemClick = { card ->
-                                    seriesViewModel.selectShow(card.showId, null)
-                                },
-                                gridState = browseGridState,
-                                gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
-                                focusedItemIndex = browseGridFocusIndex,
-                                onColumnCountChanged = { browseGridColumnCount = it },
-                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                            Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                            )
+                            ) {
+                                if (catalogSyncActive && seriesPagingItems.itemCount == 0) {
+                                    VodCatalogSkeletonWall(modifier = Modifier.fillMaxSize())
+                                }
+                                VodPagedVerticalGrid(
+                                    pagingItems = seriesPagingItems,
+                                    progressByStreamId = vodProgress,
+                                    progressFraction = { _, _ -> null },
+                                    onItemClick = { card ->
+                                        seriesViewModel.selectShow(card.showId, null)
+                                    },
+                                    gridState = browseGridState,
+                                    gridFocused = focusZone == VodFocusZone.CONTENT && !showInlineSearch,
+                                    focusedItemIndex = browseGridFocusIndex,
+                                    onColumnCountChanged = { browseGridColumnCount = it },
+                                    onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                         wallRows.isEmpty() -> {
-                            if (vodLoading) {
-                                VodCatalogLoadingBanner(
-                                    baseMessage = "Loading your movie and series catalog…",
-                                    progress = catalogProgress,
-                                    isMovies = true
-                                )
-                            } else {
-                                VodEmptyState(
-                                    title = "Nothing to watch yet",
-                                    message = "Connect a playlist or wait for your catalog to finish syncing.",
-                                    onRetry = { moviesViewModel.refreshCatalog() }
-                                )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                if (catalogSyncActive) {
+                                    VodCatalogLoadingBanner(
+                                        baseMessage = "Syncing your catalog…",
+                                        progress = catalogProgress,
+                                        isMovies = !catalogProgress.isMoviesPhaseComplete
+                                    )
+                                }
+                                when {
+                                    continueWatchingItems.isNotEmpty() -> {
+                                        NetflixContentWallRow(
+                                            row = VodWallRow(
+                                                id = "continue_watching",
+                                                title = "Continue Watching",
+                                                items = continueWatchingItems.map { VodWallItem.ContinueItem(it) }
+                                            ),
+                                            rowIndex = 0,
+                                            focusedColumn = -1,
+                                            rowFocused = false,
+                                            listState = continueWatchingListState,
+                                            progressByStreamId = vodProgress,
+                                            posterUrlForMovie = ::posterFor,
+                                            ratingForMovie = ::ratingFor,
+                                            metaForMovie = ::metaFor,
+                                            overviewForMovie = ::overviewForMovie,
+                                            overviewForSeries = ::overviewForSeries,
+                                            onActivateItem = ::activateWallItem
+                                        )
+                                        if (catalogSyncActive || catalogTotalCount == 0) {
+                                            VodCatalogSkeletonWall(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                    catalogSyncActive || (catalogTotalCount == 0 &&
+                                        !catalogProgress.isMoviesPhaseComplete) -> {
+                                        VodCatalogSkeletonWall(modifier = Modifier.weight(1f))
+                                    }
+                                    else -> {
+                                        VodEmptyState(
+                                            title = "Nothing to watch yet",
+                                            message = "Connect a playlist or wait for your catalog to finish syncing.",
+                                            onRetry = { moviesViewModel.refreshCatalog() }
+                                        )
+                                    }
+                                }
                             }
                         }
                         else -> {

@@ -538,8 +538,8 @@ private const val PLAYBACK_CARD3_COUNT =
 /** InterfaceSettingsContent chain indices 0..15. */
 const val INTERFACE_FOCUS_COUNT = 16
 
-/** AboutSettingsContent chain indices 0..4. */
-const val ABOUT_FOCUS_COUNT = 7
+/** AboutSettingsContent chain indices 0..8. */
+const val ABOUT_FOCUS_COUNT = 9
 
 private const val SETTINGS_FOCUS_LOG_TAG = "SettingsFocus"
 
@@ -717,8 +717,10 @@ fun settingsVerticalFocusRows(
     SettingsSectionKind.About -> listOf(
         0..0,
         1..2,
-        3..3,
-        4..4
+        3..4,
+        5..6,
+        7..7,
+        8..8
     )
 }
 
@@ -993,7 +995,9 @@ fun buildSettingsSectionCards(
     SettingsSectionKind.About -> listOf(
         SettingsSectionCard(firstFocusIndex = 0, focusCount = 1),
         SettingsSectionCard(firstFocusIndex = 1, focusCount = 2),
-        SettingsSectionCard(firstFocusIndex = 3, focusCount = 1),
-        SettingsSectionCard(firstFocusIndex = 4, focusCount = 1)
+        SettingsSectionCard(firstFocusIndex = 3, focusCount = 2),
+        SettingsSectionCard(firstFocusIndex = 5, focusCount = 2),
+        SettingsSectionCard(firstFocusIndex = 7, focusCount = 1),
+        SettingsSectionCard(firstFocusIndex = 8, focusCount = 1)
     )
 }

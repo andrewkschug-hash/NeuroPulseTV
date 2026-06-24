@@ -299,6 +299,11 @@ fun DirectPlayerScreen(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    com.grid.tv.util.PlaybackDiagnostics.logPlaybackError(
+                        owner = "vod_direct",
+                        error = error,
+                        streamUrl = url
+                    )
                     PlaybackHttpFailure.logHttpFailure(error, url)
                     playbackError = error.playbackErrorMessage(isEmulator)
                     playWhenReady = false

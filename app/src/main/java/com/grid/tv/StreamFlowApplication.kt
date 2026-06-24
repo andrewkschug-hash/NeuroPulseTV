@@ -31,6 +31,7 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         super.onCreate()
         StartupProfiler.mark("app_onCreate")
         LowEndDeviceMode.init(this)
+        com.grid.tv.util.PlaybackDiagnostics.logDeviceProfile(this)
         PerformanceAudit.lowEndModeActive = !LowEndDeviceMode.current().performanceAuditEnabled
         val imageProfile = LowEndDeviceMode.current()
         registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
@@ -98,7 +99,8 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
         val tier3Remaining = (StartupTierPolicy.tier3DelayMs() - tier2).coerceAtLeast(0L)
         if (tier3Remaining > 0L) delay(tier3Remaining)
-        entryPoint.repository().scheduleDeferredVodCatalogRefresh(VodRefreshTrigger.REPOSITORY_INIT)
+        entryPoint.repository().loadVodStreamed(VodRefreshTrigger.REPOSITORY_INIT)
+        entryPoint.vodCatalogSyncScheduler().schedulePeriodicSync()
         Log.i(TAG, "Startup tiers complete — ${StartupProfiler.summary()}")
     }
 

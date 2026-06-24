@@ -16,6 +16,15 @@ interface SeriesShowDao {
     @Query("DELETE FROM series_shows WHERE playlistId = :playlistId")
     suspend fun clearByPlaylist(playlistId: Long)
 
+    @Query(
+        """
+        DELETE FROM series_shows
+        WHERE playlistId = :playlistId
+          AND syncGeneration != :syncGeneration
+        """
+    )
+    suspend fun deleteStaleByPlaylist(playlistId: Long, syncGeneration: Long): Int
+
     @Query("DELETE FROM series_shows")
     suspend fun clearAll()
 

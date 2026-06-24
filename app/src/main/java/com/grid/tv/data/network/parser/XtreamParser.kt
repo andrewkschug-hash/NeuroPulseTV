@@ -9,6 +9,8 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.epg.EpgProgramTextDecoder
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
 import java.net.URI
 import java.net.URLEncoder
 import org.json.JSONArray
@@ -267,10 +269,6 @@ class XtreamParser {
         return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
-    fun parseVodArrayLength(raw: String): Int = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS)?.length() ?: 0
-
-    fun parseSeriesArrayLength(raw: String): Int = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS)?.length() ?: 0
-
     /** Human-readable hint when a VOD payload cannot be parsed into a stream list. */
     fun diagnoseVodResponse(raw: String): String? {
         val trimmed = sanitizeJsonPayload(raw)
@@ -283,7 +281,7 @@ class XtreamParser {
             if (trimmed.startsWith("[")) return null
             val obj = JSONObject(trimmed)
             when {
-                obj.has("user_info") && parseJsonArray(trimmed, VOD_ARRAY_WRAPPER_KEYS) == null ->
+                obj.has("user_info") && !previewHasCatalogArray(trimmed) ->
                     "Provider returned account info instead of a movie list (check server URL or credentials)."
                 obj.optString("error").isNotBlank() ->
                     "Provider error: ${obj.optString("error")}"
@@ -311,24 +309,21 @@ class XtreamParser {
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
         onBatch: suspend (List<VodItem>) -> Unit
     ): Int {
-        val arr = parseJsonArray(raw, VOD_ARRAY_WRAPPER_KEYS) ?: return 0
-        val batch = ArrayList<VodItem>(batchSize)
-        for (i in 0 until arr.length()) {
-            val parsed = parseVodItem(arr.optJSONObject(i), username, password, serverUrl, playlistId)
-                ?: continue
-            batch += parsed
-            if (batch.size >= batchSize) {
-                onBatch(batch.toList())
-                batch.clear()
-            }
+        val result = XtreamCatalogStreamParser.parseVodCatalogStream(
+            input = raw.byteInputStream(Charsets.UTF_8),
+            username = username,
+            password = password,
+            serverUrl = serverUrl,
+            playlistId = playlistId,
+            batchSize = batchSize,
+            parser = this
+        ) { batch, _, _ ->
+            onBatch(batch)
         }
-        if (batch.isNotEmpty()) {
-            onBatch(batch.toList())
-        }
-        return arr.length()
+        return result.parsedCount
     }
 
-    private fun parseVodItem(
+    internal fun parseVodItemFromJson(
         item: JSONObject?,
         username: String,
         password: String,
@@ -359,6 +354,172 @@ class XtreamParser {
         )
     }
 
+    internal fun parseVodItemFromJsonReader(
+        reader: JsonReader,
+        username: String,
+        password: String,
+        serverUrl: String,
+        playlistId: Long
+    ): VodItem? {
+        var streamId: Long? = null
+        var movieId: Long? = null
+        var genericId: Long? = null
+        var numId: Long? = null
+        var name: String? = null
+        var extension = "mp4"
+        var directSource: String? = null
+        var posterUrl: String? = null
+        var plot: String? = null
+        var cast: String? = null
+        var director: String? = null
+        var genre: String? = null
+        var rating: String? = null
+        var duration: String? = null
+        var categoryId: String? = null
+        var addedEpochSec: Long? = null
+
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "stream_id" -> streamId = readLongToken(reader)
+                "movie_id" -> movieId = readLongToken(reader)
+                "id" -> genericId = readLongToken(reader)
+                "num" -> numId = readLongToken(reader)
+                "name" -> name = readStringToken(reader)
+                "container_extension" -> extension = readStringToken(reader)?.ifBlank { null } ?: extension
+                "direct_source" -> directSource = readStringToken(reader)?.ifBlank { null }
+                "stream_icon" -> posterUrl = readStringToken(reader)?.ifBlank { null }
+                "plot" -> plot = readStringToken(reader)?.ifBlank { null } ?: plot
+                "description" -> if (plot.isNullOrBlank()) plot = readStringToken(reader)?.ifBlank { null }
+                "synopsis" -> if (plot.isNullOrBlank()) plot = readStringToken(reader)?.ifBlank { null }
+                "overview" -> if (plot.isNullOrBlank()) plot = readStringToken(reader)?.ifBlank { null }
+                "cast" -> cast = readStringToken(reader)?.ifBlank { null }
+                "director" -> director = readStringToken(reader)?.ifBlank { null }
+                "genre" -> genre = readStringToken(reader)?.ifBlank { null }
+                "rating" -> rating = readStringToken(reader)?.ifBlank { null }
+                "duration" -> duration = readStringToken(reader)?.ifBlank { null }
+                "category_id" -> categoryId = readCategoryIdToken(reader)
+                "added" -> addedEpochSec = readLongToken(reader)
+                "info" -> plot = plot ?: readPlotFromInfoReader(reader)
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+
+        val id = streamId ?: movieId ?: genericId ?: numId ?: return null
+        val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), extension, directSource)
+        val title = name?.ifBlank { null } ?: "VOD $id"
+        return VodItem(
+            id = id,
+            title = title,
+            streamId = id,
+            streamUrl = url,
+            posterUrl = posterUrl,
+            plot = plot,
+            cast = cast,
+            director = director,
+            genre = genre,
+            rating = rating,
+            duration = duration,
+            categoryId = categoryId,
+            addedEpochSec = addedEpochSec,
+            playlistId = playlistId
+        )
+    }
+
+    internal fun parseSeriesItemFromJsonReader(reader: JsonReader, playlistId: Long): SeriesShow? {
+        var seriesId: Long? = null
+        var name: String? = null
+        var coverUrl: String? = null
+        var categoryId: String? = null
+        var genre: String? = null
+        var plot: String? = null
+
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "series_id" -> seriesId = readLongToken(reader)
+                "name" -> name = readStringToken(reader)
+                "cover" -> coverUrl = readStringToken(reader)?.ifBlank { null }
+                "category_id" -> categoryId = readCategoryIdToken(reader)
+                "genre" -> genre = readStringToken(reader)?.ifBlank { null }
+                "plot" -> plot = readStringToken(reader)?.ifBlank { null }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+
+        val id = seriesId ?: return null
+        return SeriesShow(
+            id = id,
+            name = name?.ifBlank { null } ?: "Series $id",
+            coverUrl = coverUrl,
+            categoryId = categoryId,
+            genre = genre,
+            plot = plot,
+            playlistId = playlistId
+        )
+    }
+
+    private fun readPlotFromInfoReader(reader: JsonReader): String? {
+        var plot: String? = null
+        reader.beginObject()
+        while (reader.hasNext()) {
+            when (reader.nextName()) {
+                "plot", "description", "synopsis", "overview" -> {
+                    val value = readStringToken(reader)?.ifBlank { null }
+                    if (plot.isNullOrBlank() && value != null) plot = value
+                }
+                else -> reader.skipValue()
+            }
+        }
+        reader.endObject()
+        return plot
+    }
+
+    private fun readStringToken(reader: JsonReader): String? =
+        when (reader.peek()) {
+            JsonToken.NULL -> {
+                reader.nextNull()
+                null
+            }
+            JsonToken.STRING -> reader.nextString()
+            JsonToken.NUMBER -> reader.nextString()
+            JsonToken.BOOLEAN -> reader.nextBoolean().toString()
+            else -> {
+                reader.skipValue()
+                null
+            }
+        }
+
+    private fun readLongToken(reader: JsonReader): Long? =
+        when (reader.peek()) {
+            JsonToken.NULL -> {
+                reader.nextNull()
+                null
+            }
+            JsonToken.NUMBER -> reader.nextLong()
+            JsonToken.STRING -> reader.nextString().toLongOrNull()
+            else -> {
+                reader.skipValue()
+                null
+            }
+        }
+
+    private fun readCategoryIdToken(reader: JsonReader): String? =
+        when (reader.peek()) {
+            JsonToken.NULL -> {
+                reader.nextNull()
+                null
+            }
+            JsonToken.NUMBER -> reader.nextLong().toString()
+            JsonToken.STRING -> reader.nextString().takeIf { it.isNotBlank() }
+            else -> {
+                reader.skipValue()
+                null
+            }
+        }
+
     suspend fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
         val out = ArrayList<SeriesShow>()
         parseSeriesBatched(raw, playlistId) { batch ->
@@ -373,23 +534,18 @@ class XtreamParser {
         batchSize: Int = VOD_CATALOG_BATCH_SIZE,
         onBatch: suspend (List<SeriesShow>) -> Unit
     ): Int {
-        val arr = parseJsonArray(raw, SERIES_ARRAY_WRAPPER_KEYS) ?: return 0
-        val batch = ArrayList<SeriesShow>(batchSize)
-        for (i in 0 until arr.length()) {
-            val parsed = parseSeriesItem(arr.optJSONObject(i), playlistId) ?: continue
-            batch += parsed
-            if (batch.size >= batchSize) {
-                onBatch(batch.toList())
-                batch.clear()
-            }
+        val result = XtreamCatalogStreamParser.parseSeriesCatalogStream(
+            input = raw.byteInputStream(Charsets.UTF_8),
+            playlistId = playlistId,
+            batchSize = batchSize,
+            parser = this
+        ) { batch, _, _ ->
+            onBatch(batch)
         }
-        if (batch.isNotEmpty()) {
-            onBatch(batch.toList())
-        }
-        return arr.length()
+        return result.parsedCount
     }
 
-    private fun parseSeriesItem(item: JSONObject?, playlistId: Long): SeriesShow? {
+    internal fun parseSeriesItemFromJson(item: JSONObject?, playlistId: Long): SeriesShow? {
         item ?: return null
         val id = optLongId(item, "series_id") ?: return null
         return SeriesShow(
@@ -595,6 +751,25 @@ class XtreamParser {
         }
         return fallback
     }
+
+    private fun previewHasCatalogArray(preview: String): Boolean =
+        runCatching {
+            java.io.InputStreamReader(preview.byteInputStream(), Charsets.UTF_8).use { reader ->
+                com.google.gson.stream.JsonReader(reader).use { json ->
+                    XtreamCatalogStreamParser.seekCatalogArray(
+                        json,
+                        setOf(
+                            "vod_streams",
+                            "movies",
+                            "movie_data",
+                            "streams",
+                            "data",
+                            "js"
+                        )
+                    )
+                }
+            }
+        }.getOrDefault(false)
 
     private fun sanitizeJsonPayload(raw: String): String =
         raw.trim().removePrefix("\uFEFF").trim()

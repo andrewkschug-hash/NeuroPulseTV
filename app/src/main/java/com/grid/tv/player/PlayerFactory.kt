@@ -1,6 +1,7 @@
 package com.grid.tv.player
 
 import android.content.Context
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -105,6 +106,13 @@ class PlayerFactory @Inject constructor(
             .setUsage(C.USAGE_MEDIA)
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
+
+        Log.i(
+            "PlayerFactory",
+            "ExoPlayer created owner=$decoderOwner onDemand=$onDemandPlayback " +
+                "liveStability=$preferLiveStability hwDecode=$preferHardwareDecoding " +
+                "extensionMode=$extensionMode emulator=${caps.isEmulator} lowEnd=${caps.isLowEndDevice}"
+        )
 
         return ExoPlayer.Builder(appContext, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)

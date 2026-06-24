@@ -10,5 +10,7 @@ enum class VodRefreshTrigger {
     MANUAL_RETRY,
     PLAYLIST_CONNECT,
     ONBOARDING,
-    SETTINGS
+    SETTINGS,
+    /** WorkManager periodic background sync — respects TTL unless stale. */
+    BACKGROUND_SYNC
 }

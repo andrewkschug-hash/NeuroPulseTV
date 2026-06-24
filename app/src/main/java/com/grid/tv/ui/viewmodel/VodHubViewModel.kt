@@ -69,11 +69,9 @@ class VodHubViewModel @Inject constructor(
         repository.vodCatalogRevision()
             .flatMapLatest {
                 flow {
-                    delay(StartupTierPolicy.tier2DelayMs())
-                    val sampleSize = StartupTierPolicy.recommendationSampleSize()
                     emit(
                         withContext(Dispatchers.IO) {
-                            repository.vodSampleForRecommendations(sampleSize)
+                            repository.vodSampleForRecommendations(StartupTierPolicy.recommendationSampleSize())
                         }
                     )
                 }
@@ -133,11 +131,10 @@ class VodHubViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             if (!playlistImportCoordinator.isImportActive()) {
-                repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+                repository.loadVodStreamed(VodRefreshTrigger.VOD_HUB_MOUNT)
             }
         }
         viewModelScope.launch {
-            delay(StartupTierPolicy.tier2DelayMs())
             recommendationSample.collect { catalog ->
                 com.grid.tv.util.VodCatalogLogger.uiItemsRendered("VodHubRecommendations", catalog.size)
                 if (catalog.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
@@ -148,7 +145,7 @@ class VodHubViewModel @Inject constructor(
         viewModelScope.launch {
             playlistImportCoordinator.importActive.collect { importing ->
                 if (!importing) {
-                    repository.ensureVodCatalogLoaded(VodRefreshTrigger.VOD_HUB_MOUNT)
+                    repository.loadVodStreamed(VodRefreshTrigger.VOD_HUB_MOUNT)
                 }
             }
         }
@@ -216,10 +213,7 @@ class VodHubViewModel @Inject constructor(
     fun refreshCatalog() {
         viewModelScope.launch {
             runVodPipelineCatching("VodHubViewModel.refreshCatalog") {
-                repository.refreshVodSeriesCatalog(
-                    trigger = VodRefreshTrigger.MANUAL_RETRY,
-                    force = true
-                )
+                repository.loadVodStreamed(VodRefreshTrigger.MANUAL_RETRY)
             }
         }
     }

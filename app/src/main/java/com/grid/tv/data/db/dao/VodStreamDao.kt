@@ -16,6 +16,15 @@ interface VodStreamDao {
     @Query("DELETE FROM vod_streams WHERE playlistId = :playlistId")
     suspend fun clearByPlaylist(playlistId: Long)
 
+    @Query(
+        """
+        DELETE FROM vod_streams
+        WHERE playlistId = :playlistId
+          AND syncGeneration != :syncGeneration
+        """
+    )
+    suspend fun deleteStaleByPlaylist(playlistId: Long, syncGeneration: Long): Int
+
     @Query("DELETE FROM vod_streams")
     suspend fun clearAll()
 

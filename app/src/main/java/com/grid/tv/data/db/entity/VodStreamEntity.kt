@@ -37,5 +37,7 @@ data class VodStreamEntity(
     val rating: String? = null,
     val duration: String? = null,
     val categoryId: String? = null,
-    val addedEpochSec: Long? = null
+    val addedEpochSec: Long? = null,
+    /** Monotonic sync pass id — used to prune removed provider items without full table delete. */
+    val syncGeneration: Long = 0L
 )

@@ -8,7 +8,7 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodItem
 
-fun VodItem.toEntity(): VodStreamEntity = VodStreamEntity(
+fun VodItem.toEntity(syncGeneration: Long = 0L): VodStreamEntity = VodStreamEntity(
     playlistId = playlistId,
     streamId = streamId,
     title = title,
@@ -21,7 +21,8 @@ fun VodItem.toEntity(): VodStreamEntity = VodStreamEntity(
     rating = rating,
     duration = duration,
     categoryId = categoryId,
-    addedEpochSec = addedEpochSec
+    addedEpochSec = addedEpochSec,
+    syncGeneration = syncGeneration
 )
 
 fun VodStreamEntity.toDomain(): VodItem = VodItem(
@@ -65,13 +66,14 @@ fun SeriesCategoryEntity.toDomain(): VodCategory = VodCategory(
     playlistId = playlistId
 )
 
-fun SeriesShow.toEntity(): SeriesShowEntity = SeriesShowEntity(
+fun SeriesShow.toEntity(syncGeneration: Long = 0L): SeriesShowEntity = SeriesShowEntity(
     playlistId = playlistId,
     seriesId = id,
     name = name,
     coverUrl = coverUrl,
     categoryId = categoryId,
-    genre = genre
+    genre = genre,
+    syncGeneration = syncGeneration
 )
 
 fun SeriesShowEntity.toDomain(): SeriesShow = SeriesShow(

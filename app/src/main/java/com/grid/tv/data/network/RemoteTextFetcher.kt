@@ -33,6 +33,15 @@ data class RemoteFetchResult(
     val body: String
 )
 
+/** Disk-spooled catalog fetch — avoids holding the full HTTP body as a String. */
+data class CatalogFileFetchResult(
+    val httpCode: Int,
+    val rawBytes: Long,
+    val file: File?,
+    val headPreview: String,
+    val errorBodyPreview: String? = null
+)
+
 data class EpgParsedFetchResult(
     val httpCode: Int,
     val rawBytes: Long,
@@ -94,14 +103,27 @@ class RemoteTextFetcher @Inject constructor(
         var lastRetryable: Exception? = null
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             try {
+                val fetchStart = System.nanoTime()
                 val result = executeFetch(url, logTag)
+                val elapsedMs = (System.nanoTime() - fetchStart) / 1_000_000L
                 Log.i(
                     logTag,
                     "HTTP ${result.httpCode} for $url — ${result.rawBytes} raw bytes, " +
-                        "${result.body.length} decoded chars"
+                        "${result.body.length} decoded chars elapsedMs=$elapsedMs"
                 )
+                if (isVodCatalogUrl(url)) {
+                    com.grid.tv.util.PlaybackDiagnostics.logVodNetworkFetch(
+                        url = url,
+                        httpCode = result.httpCode,
+                        rawBytes = result.rawBytes,
+                        elapsedMs = elapsedMs
+                    )
+                }
                 return@withContext result
             } catch (e: Exception) {
+                if (isVodCatalogUrl(url)) {
+                    com.grid.tv.util.PlaybackDiagnostics.logVodNetworkFailure(url, e)
+                }
                 if (isRetryableNetworkError(e) && attempt < MAX_FETCH_ATTEMPTS - 1) {
                     lastRetryable = e
                     Log.w(
@@ -119,6 +141,91 @@ class RemoteTextFetcher @Inject constructor(
         }
         throw lastRetryable ?: IllegalStateException("Fetch failed for $url")
     }
+
+    /**
+     * Downloads a large VOD/series catalog response directly to a temp file for streaming parse.
+     * Never materializes the full body as a [String].
+     */
+    suspend fun fetchCatalogToTempFile(rawUrl: String, cacheKey: String): CatalogFileFetchResult =
+        withContext(Dispatchers.IO) {
+            val url = normalizeRemoteUrl(rawUrl)
+            Log.i(VOD_FLOW_TAG, "HTTP GET (stream-to-disk) $url")
+            var lastRetryable: Exception? = null
+            repeat(MAX_FETCH_ATTEMPTS) { attempt ->
+                val cacheFile = createCatalogCacheFile(cacheKey)
+                try {
+                    val requestBuilder = Request.Builder().url(url).get()
+                    if (isXtreamApiUrl(url)) {
+                        requestBuilder.header("Accept-Encoding", "identity")
+                    }
+                    val request = requestBuilder.build()
+                    appHttpClient.vodClient().newCall(request).execute().use { response ->
+                        val code = response.code
+                        if (!response.isSuccessful) {
+                            val preview = readAndCloseErrorBody(
+                                response.body,
+                                response.header("Content-Encoding")
+                            )
+                            deleteCatalogCacheFile(cacheFile)
+                            logHttpError(VOD_FLOW_TAG, code, url, preview)
+                            return@withContext CatalogFileFetchResult(
+                                httpCode = code,
+                                rawBytes = 0L,
+                                file = null,
+                                headPreview = preview ?: "",
+                                errorBodyPreview = preview
+                            )
+                        }
+                        val body = response.body
+                            ?: throw IllegalStateException("Empty HTTP body for $url")
+                        val fetchStartNs = System.nanoTime()
+                        val spool = downloadBodyToCacheFile(
+                            body = body,
+                            url = url,
+                            destination = cacheFile,
+                            contentEncoding = response.header("Content-Encoding")
+                        )
+                        val elapsedMs = (System.nanoTime() - fetchStartNs) / 1_000_000L
+                        val headPreview = readFileHeadPreview(cacheFile)
+                        Log.i(
+                            VOD_FLOW_TAG,
+                            "HTTP $code spooled to disk for $url — wireBytes=${spool.networkBytesRead} " +
+                                "fileBytes=${spool.decompressedBytesWritten} previewChars=${headPreview.length}"
+                        )
+                        com.grid.tv.util.PlaybackDiagnostics.logVodNetworkFetch(
+                            url = url,
+                            httpCode = code,
+                            rawBytes = spool.decompressedBytesWritten.toInt(),
+                            elapsedMs = elapsedMs
+                        )
+                        return@withContext CatalogFileFetchResult(
+                            httpCode = code,
+                            rawBytes = spool.decompressedBytesWritten,
+                            file = cacheFile,
+                            headPreview = headPreview
+                        )
+                    }
+                } catch (e: Exception) {
+                    deleteCatalogCacheFile(cacheFile)
+                    if (isRetryableNetworkError(e) && attempt < MAX_FETCH_ATTEMPTS - 1) {
+                        lastRetryable = e
+                        Log.w(
+                            VOD_FLOW_TAG,
+                            "Catalog disk fetch transient error on attempt ${attempt + 1}/$MAX_FETCH_ATTEMPTS " +
+                                "for $url: ${e.message}",
+                            e
+                        )
+                        com.grid.tv.util.PlaybackDiagnostics.logVodNetworkFailure(url, e)
+                        delay(retryBackoffMs(attempt))
+                        return@repeat
+                    }
+                    com.grid.tv.util.PlaybackDiagnostics.logVodNetworkFailure(url, e)
+                    Log.e(VOD_FLOW_TAG, "Catalog disk fetch failed for $url: ${e.message}", e)
+                    throw e
+                }
+            }
+            throw lastRetryable ?: IllegalStateException("Catalog fetch failed for $url")
+        }
 
     /**
      * Downloads XMLTV to a cache file first, then parses from disk so network hiccups during
@@ -327,6 +434,27 @@ class RemoteTextFetcher @Inject constructor(
         return File(context.cacheDir, "epg_pl${playlistId}_${System.currentTimeMillis()}.xmltv.tmp")
     }
 
+    private fun createCatalogCacheFile(cacheKey: String): File {
+        context.cacheDir.mkdirs()
+        return File(context.cacheDir, "catalog_${cacheKey}_${System.currentTimeMillis()}.json.tmp")
+    }
+
+    private fun readFileHeadPreview(file: File, maxBytes: Int = CATALOG_HEAD_PREVIEW_BYTES): String {
+        if (!file.exists() || file.length() <= 0L) return ""
+        return file.inputStream().use { input ->
+            val buffer = ByteArray(maxBytes)
+            val read = input.read(buffer)
+            if (read <= 0) "" else buffer.copyOf(read).toString(Charsets.UTF_8).trim()
+        }
+    }
+
+    private fun deleteCatalogCacheFile(file: File) {
+        if (!file.exists()) return
+        if (!file.delete()) {
+            Log.w(VOD_FLOW_TAG, "Failed to delete catalog cache file ${file.absolutePath}")
+        }
+    }
+
     private fun ensureCacheSpaceForEpgDownload() {
         val usable = context.cacheDir.usableSpace
         if (usable in 1 until MIN_CACHE_HEADROOM_BYTES) {
@@ -529,6 +657,7 @@ class RemoteTextFetcher @Inject constructor(
         const val BYTES_PER_MB = 1024L * 1024L
         const val MIN_CACHE_HEADROOM_BYTES = 128L * BYTES_PER_MB
         const val SPOOL_BUFFER_SIZE = 131_072
+        const val CATALOG_HEAD_PREVIEW_BYTES = 512
         const val ACCEPT_ENCODING_GZIP = "gzip"
 
         fun isRetryableErrorMessage(message: String?): Boolean {

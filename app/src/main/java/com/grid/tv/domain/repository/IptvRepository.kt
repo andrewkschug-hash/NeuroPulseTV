@@ -189,6 +189,13 @@ interface IptvRepository {
     /** Network VOD sync, category repair, and full indexing — never blocks the caller. */
     fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger)
 
+    /** Starts background VOD/series streaming ingest — returns immediately; UI reads Room via paging. */
+    fun loadVodStreamed(trigger: VodRefreshTrigger = VodRefreshTrigger.VOD_HUB_MOUNT)
+
+    /** Alias for [loadVodStreamed] — zero-load continuous sync entry point. */
+    fun startContinuousVodSync(trigger: VodRefreshTrigger = VodRefreshTrigger.VOD_HUB_MOUNT) =
+        loadVodStreamed(trigger)
+
     suspend fun refreshVodSeriesCatalog(
         trigger: VodRefreshTrigger = VodRefreshTrigger.UNKNOWN,
         force: Boolean = false

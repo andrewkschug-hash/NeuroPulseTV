@@ -900,6 +900,37 @@ fun VodCatalogRefreshWarningBanner(
 }
 
 @Composable
+fun VodCatalogSkeletonWall(
+    modifier: Modifier = Modifier,
+    rowCount: Int = 3,
+    cardsPerRow: Int = 6
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        repeat(rowCount) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(cardsPerRow) {
+                    Box(
+                        modifier = Modifier
+                            .width(112.dp)
+                            .height(168.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(VodNetflixColors.CardPlaceholder.copy(alpha = 0.55f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun VodEmptyState(
     title: String,
     message: String,

@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.grid.tv.util.runVodPipelineCatching
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -116,10 +116,12 @@ class MoviesViewModel @Inject constructor(
     ) { _, movieCount, languages, categoryList ->
         Triple(movieCount, languages, categoryList.associate { it.id to it.name })
     }
+        .debounce(350L)
         .flatMapLatest { (movieCount, languages, categoryNames) ->
             flow {
                 if (movieCount <= 0) {
-                    delay(StartupTierPolicy.tier2DelayMs())
+                    emit(emptyList())
+                    return@flow
                 }
                 val rows = withContext(Dispatchers.IO) { repository.loadMovieBrowseRows() }
                 emit(filterBrowseRows(rows, languages, movieCategoryNames = categoryNames))
@@ -169,10 +171,7 @@ class MoviesViewModel @Inject constructor(
     fun refreshCatalog() {
         viewModelScope.launch {
             runVodPipelineCatching("MoviesViewModel.refreshCatalog") {
-                repository.refreshVodSeriesCatalog(
-                    trigger = VodRefreshTrigger.MANUAL_RETRY,
-                    force = true
-                )
+                repository.loadVodStreamed(VodRefreshTrigger.MANUAL_RETRY)
             }
         }
     }
