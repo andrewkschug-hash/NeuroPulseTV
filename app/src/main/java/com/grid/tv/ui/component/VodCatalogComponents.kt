@@ -96,10 +96,15 @@ fun VodPosterCard(
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier
-            .width(112.dp)
+            .padding(VodPosterFocusLayout.gridEdgePadding)
+            .width(VodPosterFocusLayout.POSTER_WIDTH)
             .then(
                 if (externallyFocused) {
-                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
+                    Modifier.border(
+                        VodPosterFocusLayout.GRID_FOCUS_BORDER,
+                        EpgColors.FocusBorder,
+                        RoundedCornerShape(8.dp)
+                    )
                 } else {
                     Modifier
                 }
@@ -241,26 +246,33 @@ fun SeriesPosterCard(
 
 @Composable
 fun SeeAllVodCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    GridFocusSurface(
-        onClick = onClick,
+    Column(
         modifier = modifier
-            .width(112.dp)
-            .height(168.dp),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xFF1C3A6B),
-            focusedContainerColor = Color(0xFF1C3A6B)
-        )
+            .padding(VodPosterFocusLayout.gridEdgePadding)
+            .width(VodPosterFocusLayout.POSTER_WIDTH)
     ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "See All →",
-                color = EpgColors.Accent,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+        GridFocusSurface(
+            onClick = onClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(VodPosterFocusLayout.POSTER_HEIGHT),
+            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = Color(0xFF1C3A6B),
+                focusedContainerColor = Color(0xFF1C3A6B)
             )
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "See All →",
+                    color = EpgColors.Accent,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
+        Box(modifier = Modifier.height(VodPosterFocusLayout.gridPosterTitleBandHeight))
     }
 }
 
@@ -290,7 +302,7 @@ fun VodCatalogRow(
 @Composable
 fun MoviesHomeRow(
     movies: List<VodItem>,
-    progressByStreamId: Map<Long, Long>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
     onPlayMovie: (VodItem) -> Unit,
     onSeeAll: () -> Unit
 ) {
@@ -298,7 +310,7 @@ fun MoviesHomeRow(
     PersonalizedVodRow(
         title = "Movies",
         movies = movies,
-        progressByStreamId = progressByStreamId,
+        progressByKey = progressByKey,
         onPlayMovie = onPlayMovie,
         onSeeAll = onSeeAll
     )
@@ -308,7 +320,7 @@ fun MoviesHomeRow(
 fun PersonalizedVodRow(
     title: String,
     movies: List<VodItem>,
-    progressByStreamId: Map<Long, Long>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
     onPlayMovie: (VodItem) -> Unit,
     onSeeAll: () -> Unit,
     ratingForMovie: (VodItem) -> String? = { null },
@@ -343,12 +355,16 @@ fun PersonalizedVodRow(
             )
         }
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(end = 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(
+                end = 8.dp,
+                top = VodPosterFocusLayout.gridEdgePadding,
+                bottom = VodPosterFocusLayout.gridEdgePadding
+            )
         ) {
             items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
                 val durationMs = parseVodDurationMs(movie.duration)
-                val progressMs = progressByStreamId[movie.streamId]
+                val progressMs = progressByKey[movie.playlistId to movie.streamId]
                 val fraction = if (durationMs != null && progressMs != null && durationMs > 0L) {
                     (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                 } else {
@@ -379,8 +395,12 @@ fun SeriesHomeRow(
     if (shows.isEmpty()) return
     VodCatalogRow(title = "Series") {
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(end = 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(
+                end = 8.dp,
+                top = VodPosterFocusLayout.gridEdgePadding,
+                bottom = VodPosterFocusLayout.gridEdgePadding
+            )
         ) {
             items(shows, key = { "${it.playlistId}_${it.id}" }) { show ->
                 SeriesPosterCard(show = show, onClick = { onOpenSeries(show) })
@@ -905,25 +925,51 @@ fun VodCatalogSkeletonWall(
     rowCount: Int = 3,
     cardsPerRow: Int = 6
 ) {
+    val rowShape = RoundedCornerShape(6.dp)
+    val placeholder = VodNetflixColors.CardPlaceholder.copy(alpha = 0.55f)
+    val titlePlaceholder = VodNetflixColors.CardPlaceholder.copy(alpha = 0.4f)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+            .padding(top = VodPosterFocusLayout.categoryRowTopPadding),
+        verticalArrangement = Arrangement.spacedBy(
+            VodPosterFocusLayout.categoryRowTopPadding + VodPosterFocusLayout.categoryRowBottomPadding
+        )
     ) {
         repeat(rowCount) {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(vertical = 4.dp)
-            ) {
-                items(cardsPerRow) {
-                    Box(
-                        modifier = Modifier
-                            .width(112.dp)
-                            .height(168.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(VodNetflixColors.CardPlaceholder.copy(alpha = 0.55f))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .padding(
+                            start = 16.dp,
+                            end = 16.dp,
+                            bottom = VodPosterFocusLayout.categoryTitleBottomGap
+                        )
+                        .width(160.dp)
+                        .height(20.dp)
+                        .clip(rowShape)
+                        .background(titlePlaceholder)
+                )
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = VodPosterFocusLayout.lazyRowVerticalPadding,
+                        bottom = VodPosterFocusLayout.lazyRowVerticalPadding
                     )
+                ) {
+                    items(cardsPerRow) {
+                        Column(modifier = Modifier.width(VodPosterFocusLayout.netflixCardWidth)) {
+                            Box(
+                                modifier = Modifier
+                                    .width(VodPosterFocusLayout.netflixCardWidth)
+                                    .height(VodPosterFocusLayout.netflixCardHeight)
+                                    .clip(rowShape)
+                                    .background(placeholder)
+                            )
+                        }
+                    }
                 }
             }
         }

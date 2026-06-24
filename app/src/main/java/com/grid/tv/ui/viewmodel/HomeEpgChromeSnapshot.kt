@@ -23,7 +23,7 @@ data class HomeEpgChromeSnapshot(
     val guidePreviewEnabled: Boolean,
     val guidePreviewChannelId: Long?,
     val guidePosition: EpgGuidePosition,
-    val vodProgress: Map<Long, Long>
+    val vodProgress: Map<Pair<Long, Long>, Long>
 ) {
     companion object {
         val INITIAL = HomeEpgChromeSnapshot(

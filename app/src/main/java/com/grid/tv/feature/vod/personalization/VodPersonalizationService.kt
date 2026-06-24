@@ -31,6 +31,7 @@ class VodPersonalizationService @Inject constructor(
                 positionMs = row.positionMs,
                 durationMs = row.durationMs,
                 lastWatchedAt = row.lastWatchedAt,
+                playlistId = row.playlistId,
                 streamId = row.streamId,
                 seriesId = row.seriesId,
                 seasonNumber = row.seasonNumber,
@@ -87,7 +88,15 @@ class VodPersonalizationService @Inject constructor(
         positionMs: Long,
         durationMs: Long
     ) {
-        watchTracker.recordEpisode(profileId, seriesId, seasonNumber, episodeNumber, positionMs, durationMs)
+        watchTracker.recordEpisode(
+            profileId,
+            playlistId,
+            seriesId,
+            seasonNumber,
+            episodeNumber,
+            positionMs,
+            durationMs
+        )
         followManager.evaluateAutoFollow(profileId, seriesId, seriesTitle, playlistId)
     }
 }

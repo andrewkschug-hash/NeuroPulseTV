@@ -14,12 +14,14 @@ interface VodWatchEventDao {
     @Query(
         """
         SELECT * FROM vod_watch_events
-        WHERE profileId = :profileId AND seriesId = :seriesId
+        WHERE profileId = :profileId
+          AND seriesId = :seriesId
+          AND (:playlistId <= 0 OR playlistId = :playlistId)
         ORDER BY lastWatched DESC
         LIMIT 1
         """
     )
-    suspend fun latestForSeries(profileId: Long, seriesId: Long): VodWatchEventEntity?
+    suspend fun latestForSeries(profileId: Long, playlistId: Long, seriesId: Long): VodWatchEventEntity?
 
     @Query(
         """

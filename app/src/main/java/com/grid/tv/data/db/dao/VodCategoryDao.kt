@@ -26,4 +26,23 @@ interface VodCategoryDao {
 
     @Query("SELECT * FROM vod_categories ORDER BY name COLLATE NOCASE LIMIT :limit")
     suspend fun topCategories(limit: Int): List<VodCategoryEntity>
+
+    @Query("SELECT COUNT(*) FROM vod_categories")
+    suspend fun countTotal(): Int
+
+    /**
+     * Categories ranked by number of titles in [vod_streams], largest first.
+     */
+    @Query(
+        """
+        SELECT c.playlistId, c.categoryId, c.name
+        FROM vod_categories c
+        INNER JOIN vod_streams s
+            ON s.playlistId = c.playlistId AND s.categoryId = c.categoryId
+        GROUP BY c.playlistId, c.categoryId, c.name
+        ORDER BY COUNT(*) DESC, c.name COLLATE NOCASE
+        LIMIT :limit
+        """
+    )
+    suspend fun topCategoriesByStreamCount(limit: Int): List<VodCategoryEntity>
 }

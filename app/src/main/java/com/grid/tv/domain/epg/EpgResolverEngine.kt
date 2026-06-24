@@ -286,9 +286,7 @@ class EpgResolverEngine @Inject constructor(
     private suspend fun gatherCandidates(channel: Channel): List<EpgSourceChannelEntity> {
         val pool = linkedMapOf<String, EpgSourceChannelEntity>()
         sourceDao.bySource("xmltv:${channel.playlistId}").forEach { pool[it.epgId] = it }
-        localCandidates().forEach { pool[it.epgId] = it }
-
-        sourceDao.all().filter { it.source.startsWith("xmltv:") }.forEach { pool[it.epgId] = it }
+        localCandidates(channel.playlistId).forEach { pool[it.epgId] = it }
 
         refreshSourceIfStale("epg.best", "https://epg.best/epg.xml.gz")
         sourceDao.bySource("epg.best").forEach { pool[it.epgId] = it }
@@ -302,13 +300,13 @@ class EpgResolverEngine @Inject constructor(
         return pool.values.toList()
     }
 
-    private suspend fun localCandidates(): List<EpgSourceChannelEntity> {
-        return programDao.distinctChannelEpgIds().map {
+    private suspend fun localCandidates(playlistId: Long): List<EpgSourceChannelEntity> {
+        return programDao.distinctChannelEpgIdsForPlaylist(playlistId).map {
             EpgSourceChannelEntity(
                 epgId = it,
                 displayName = it,
                 normalizedName = normalizer.normalize(it),
-                source = "local",
+                source = "local:$playlistId",
                 logoUrl = null,
                 cachedAt = System.currentTimeMillis()
             )

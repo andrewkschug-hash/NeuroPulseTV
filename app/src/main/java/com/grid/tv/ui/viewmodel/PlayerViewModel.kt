@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.player.PictureInPictureController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val repository: IptvRepository,
+    private val playlistContext: PlaylistContext,
     val pipController: PictureInPictureController
 ) : ViewModel() {
 
@@ -79,14 +81,17 @@ class PlayerViewModel @Inject constructor(
     fun switchNext() {
         val current = _channel.value ?: return
         viewModelScope.launch {
-            repository.channelByNumber(current.number + 1)?.let { applyChannel(it.id) }
+            repository.channelByNumber(current.playlistId, current.number + 1)?.let { applyChannel(it.id) }
         }
     }
 
     fun switchPrev() {
         val current = _channel.value ?: return
         viewModelScope.launch {
-            repository.channelByNumber((current.number - 1).coerceAtLeast(1))?.let { applyChannel(it.id) }
+            repository.channelByNumber(
+                current.playlistId,
+                (current.number - 1).coerceAtLeast(1)
+            )?.let { applyChannel(it.id) }
         }
     }
 
@@ -119,6 +124,9 @@ class PlayerViewModel @Inject constructor(
             )
         }
         _channel.value = ch
+        if (ch != null) {
+            playlistContext.setActive(ch.playlistId)
+        }
         if (recordWatchHistory && ch != null) {
             val history = repository.watchHistory(ch.id)
             repository.saveWatchPosition(
@@ -136,9 +144,12 @@ class PlayerViewModel @Inject constructor(
 
     fun jumpByNumber() {
         val number = _numberInput.value.toIntOrNull() ?: return
+        val playlistId = _channel.value?.playlistId?.takeIf { it > 0L }
+            ?: playlistContext.activePlaylistId.value.takeIf { it > 0L }
+            ?: return
         _numberInput.value = ""
         viewModelScope.launch {
-            repository.channelByNumber(number)?.let { applyChannel(it.id) }
+            repository.channelByNumber(playlistId, number)?.let { applyChannel(it.id) }
         }
     }
 

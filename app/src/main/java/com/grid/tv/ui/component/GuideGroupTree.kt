@@ -41,15 +41,18 @@ fun buildGuideGroupCategories(
     groupChannelCounts: Map<String, Int> = emptyMap()
 ): List<GuideGroupCategory> {
     val grouped = linkedMapOf<String, MutableList<String>>()
-    channelGroups.forEach { group ->
-        val parent = resolveParentGroup(group)
-        grouped.getOrPut(parent) { mutableListOf() }.add(group)
+    channelGroups.forEach { key ->
+        val groupName = com.grid.tv.domain.model.ChannelGroupIdentity.groupName(key)
+        val parent = resolveParentGroup(groupName)
+        grouped.getOrPut(parent) { mutableListOf() }.add(key)
     }
     return grouped.entries
         .map { (parent, groups) ->
             GuideGroupCategory(
                 displayName = parent,
-                groups = groups.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it }),
+                groups = groups.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) {
+                    com.grid.tv.domain.model.ChannelGroupIdentity.groupName(it)
+                }),
                 channelCount = groups.sumOf { groupChannelCounts[it] ?: 0 }
             )
         }

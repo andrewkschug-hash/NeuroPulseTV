@@ -36,12 +36,18 @@ fun buildMovieBrowseRows(
         .takeIf { it.isNotEmpty() }
         ?.let { rows += VodBrowseRow("4k", "4K Movies", movies = it) }
 
-    categories.distinctBy { it.id }
+    categories.distinctBy { categoryKey(it.playlistId, it.id) }
         .sortedBy { it.name.lowercase() }
         .forEach { category ->
-            val items = byCategory[category.id].orEmpty().take(itemsPerRow)
+            val items = byCategory[category.id].orEmpty()
+                .filter { it.playlistId == category.playlistId }
+                .take(itemsPerRow)
             if (items.isNotEmpty()) {
-                rows += VodBrowseRow("cat_${category.id}", category.name, movies = items)
+                rows += VodBrowseRow(
+                    categoryBrowseRowId(category.playlistId, category.id),
+                    category.name,
+                    movies = items
+                )
             }
         }
 
@@ -50,7 +56,12 @@ fun buildMovieBrowseRows(
         .sortedBy { (id, _) -> id.lowercase() }
         .forEach { (id, items) ->
             val label = categoryNameById[id] ?: id
-            rows += VodBrowseRow("cat_$id", label, movies = items.take(itemsPerRow))
+            val playlistId = items.firstOrNull()?.playlistId ?: 0L
+            rows += VodBrowseRow(
+                categoryBrowseRowId(playlistId, id),
+                label,
+                movies = items.take(itemsPerRow)
+            )
         }
 
     return rows.filter { !it.isEmpty }.distinctBy { it.id }.take(maxRows)
@@ -92,7 +103,12 @@ fun buildSeriesBrowseRows(
         .filter { (id, _) -> id.isNotBlank() }
         .sortedBy { (id, _) -> id.lowercase() }
         .forEach { (id, items) ->
-            rows += VodBrowseRow("cat_$id", id, series = items.take(itemsPerRow))
+            val playlistId = items.firstOrNull()?.playlistId ?: 0L
+            rows += VodBrowseRow(
+                categoryBrowseRowId(playlistId, id),
+                id,
+                series = items.take(itemsPerRow)
+            )
         }
 
     return rows.filter { !it.isEmpty }.distinctBy { it.id }.take(maxRows)

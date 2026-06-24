@@ -309,7 +309,7 @@ fun GuideGroupFilterMenu(
                                 onFocused = { onFocusedIndexChange(index) }
                             )
                             is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
-                                label = row.fullName,
+                                label = com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(row.fullName),
                                 checked = row.fullName in selectedGroups,
                                 onClick = { onToggle(index) },
                                 focusRequester = rowFocusRequesters[index],

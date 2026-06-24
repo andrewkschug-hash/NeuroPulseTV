@@ -178,7 +178,7 @@ class UnifiedSearchIndex {
             val popularity = recentVodRank[movie.streamId] ?: movie.addedEpochSec?.let { (it / 86_400).toInt() } ?: 0
             val watched = if (movie.streamId in snapshot.lastWatchedVodStreamIds) now else 0L
             val result = SearchResultItem(
-                id = "vod-${movie.id}",
+                id = com.grid.tv.domain.model.VodSearchIdentity.vodResultId(movie.playlistId, movie.streamId),
                 primaryTitle = cleanVodDisplayTitle(movie.title),
                 secondaryLine = buildMovieSearchSecondaryLine(movie.genre, movie.rating),
                 imageUrl = movie.posterUrl,
@@ -193,7 +193,7 @@ class UnifiedSearchIndex {
 
         snapshot.series.forEach { show ->
             val result = SearchResultItem(
-                id = "series-${show.id}",
+                id = com.grid.tv.domain.model.VodSearchIdentity.seriesResultId(show.playlistId, show.id),
                 primaryTitle = cleanVodDisplayTitle(show.name),
                 secondaryLine = listOfNotNull("Series", show.genre).joinToString(" · "),
                 imageUrl = show.coverUrl,
@@ -206,7 +206,12 @@ class UnifiedSearchIndex {
         snapshot.episodes.forEach { indexed ->
             val label = "S${indexed.seasonNumber}E${indexed.episode.episodeNumber ?: "?"} · ${indexed.series.name}"
             val result = SearchResultItem(
-                id = "ep-${indexed.series.id}-${indexed.seasonNumber}-${indexed.episode.id}",
+                id = com.grid.tv.domain.model.VodSearchIdentity.episodeResultId(
+                    indexed.series.playlistId,
+                    indexed.series.id,
+                    indexed.seasonNumber,
+                    indexed.episode.episodeNumber ?: 0
+                ),
                 primaryTitle = cleanVodDisplayTitle(
                     indexed.episode.title.ifBlank { indexed.series.name }
                 ),

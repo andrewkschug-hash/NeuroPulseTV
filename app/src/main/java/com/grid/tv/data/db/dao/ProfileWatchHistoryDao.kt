@@ -37,6 +37,9 @@ interface ProfileWatchHistoryDao {
     @Query("SELECT * FROM profile_watch_history WHERE profileId = :profileId")
     suspend fun allForProfile(profileId: Long): List<ProfileWatchHistoryEntity>
 
+    @Query("DELETE FROM profile_watch_history WHERE profileId = :profileId AND channelId = :channelId")
+    suspend fun delete(profileId: Long, channelId: Long)
+
     @Query("DELETE FROM profile_watch_history WHERE profileId = :profileId")
     suspend fun deleteByProfile(profileId: Long)
 

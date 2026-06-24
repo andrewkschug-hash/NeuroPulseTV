@@ -21,6 +21,7 @@ data class EpgLinkResult(
 
 /**
  * Resolves playlist tvg-id / tvg-name values to XMLTV channel ids stored on programmes.
+ * Build one resolver per playlist (`xmltv:{playlistId}` source + that playlist's programme ids).
  * Exact ID matching runs first; fuzzy name matching is the fallback when IDs do not match.
  */
 class EpgChannelLinkResolver(

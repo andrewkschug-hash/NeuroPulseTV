@@ -14,17 +14,17 @@ import java.util.zip.GZIPInputStream
 
 class XmlTvParser {
 
-    fun parse(xml: String): ParsedXmlTv =
-        parse(xml.byteInputStream(Charsets.UTF_8), Charsets.UTF_8.name())
+    fun parse(xml: String, playlistId: Long = 0L): ParsedXmlTv =
+        parse(xml.byteInputStream(Charsets.UTF_8), Charsets.UTF_8.name(), playlistId)
 
     /** Parses XMLTV from an in-memory or file-backed stream. */
-    fun parse(input: InputStream, encoding: String = Charsets.UTF_8.name()): ParsedXmlTv {
+    fun parse(input: InputStream, encoding: String = Charsets.UTF_8.name(), playlistId: Long = 0L): ParsedXmlTv {
         input.use { stream ->
             val parser = newPullParser().apply {
                 setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
                 setInput(stream, encoding)
             }
-            return parseDocument(parser)
+            return parseDocument(parser, playlistId)
         }
     }
 
@@ -35,7 +35,8 @@ class XmlTvParser {
     fun parseFile(
         file: File,
         contentEncoding: String? = null,
-        sourceUrl: String? = null
+        sourceUrl: String? = null,
+        playlistId: Long = 0L
     ): ParsedXmlTv {
         require(file.exists()) { "EPG cache file does not exist: ${file.absolutePath}" }
         require(file.length() > 0L) { "EPG cache file is empty: ${file.absolutePath}" }
@@ -45,12 +46,12 @@ class XmlTvParser {
                     setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
                     setInput(decoded, Charsets.UTF_8.name())
                 }
-                return parseDocument(parser)
+                return parseDocument(parser, playlistId)
             }
         }
     }
 
-    private fun parseDocument(parser: XmlPullParser): ParsedXmlTv {
+    private fun parseDocument(parser: XmlPullParser, playlistId: Long): ParsedXmlTv {
         val channelMap = mutableMapOf<String, String>()
         val programs = mutableListOf<ProgramEntity>()
 
@@ -104,7 +105,8 @@ class XmlTvParser {
                         "programme" -> {
                             if (pChannel.isNotBlank() && pEnd > pStart) {
                                 programs += ProgramEntity(
-                                    id = stableProgramId(pChannel, pStart),
+                                    id = stableProgramId(playlistId, pChannel, pStart),
+                                    playlistId = playlistId,
                                     channelEpgId = pChannel,
                                     title = pTitle.ifBlank { "Untitled" },
                                     description = pDesc,
@@ -171,11 +173,16 @@ class XmlTvParser {
         }
 
         /** Stable primary key so EPG refresh upserts instead of duplicating rows. */
-        fun stableProgramId(channelEpgId: String, startTime: Long): Long {
-            var hash = channelEpgId.lowercase().hashCode().toLong()
+        fun stableProgramId(playlistId: Long, channelEpgId: String, startTime: Long): Long {
+            var hash = playlistId
+            hash = 31L * hash + channelEpgId.lowercase().hashCode().toLong()
             hash = 31L * hash + startTime
             return hash and Long.MAX_VALUE
         }
+
+        @Deprecated("Use stableProgramId(playlistId, channelEpgId, startTime)")
+        fun stableProgramId(channelEpgId: String, startTime: Long): Long =
+            stableProgramId(playlistId = 0L, channelEpgId = channelEpgId, startTime = startTime)
 
         private fun newPullParser(): XmlPullParser =
             XmlPullParserFactory.newInstance().newPullParser()

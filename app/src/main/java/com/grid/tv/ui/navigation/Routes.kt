@@ -2,8 +2,12 @@ package com.grid.tv.ui.navigation
 
 sealed class Routes(val route: String) {
     data object Home : Routes("home")
-    data object VodHub : Routes("vod/{initialTab}/{seriesId}") {
-        fun build(initialTab: Int = 0, seriesId: Long = -1L): String = "vod/$initialTab/$seriesId"
+    data object VodHub : Routes("vod/{initialTab}/{seriesId}/{playlistId}") {
+        fun build(
+            initialTab: Int = 0,
+            seriesId: Long = -1L,
+            playlistId: Long = -1L
+        ): String = "vod/$initialTab/$seriesId/$playlistId"
     }
     /** @deprecated Use [VodHub] — kept for deep links redirecting to tab 0 */
     data object Movies : Routes("movies")
@@ -26,8 +30,8 @@ sealed class Routes(val route: String) {
             return "direct-player/$recordingId/$recordedAt/$resumeFlag/$resumeMs/$t/$u"
         }
     }
-    data object Series : Routes("series/{seriesId}") {
-        fun build(seriesId: Long = -1L): String = "series/$seriesId"
+    data object Series : Routes("series/{seriesId}/{playlistId}") {
+        fun build(seriesId: Long = -1L, playlistId: Long = -1L): String = "series/$seriesId/$playlistId"
     }
     data object Settings : Routes("settings")
     data object EpgResolver : Routes("epg-resolver")

@@ -40,8 +40,8 @@ private fun LazyGridState.visibleColumnCount(fallback: Int = 4): Int {
 @Composable
 fun VodPagedVerticalGrid(
   items: List<VodGridCardModel>,
-  progressByStreamId: Map<Long, Long>,
-  progressFraction: (VodGridCardModel, Map<Long, Long>) -> Float?,
+  progressByKey: Map<Pair<Long, Long>, Long>,
+  progressFraction: (VodGridCardModel, Map<Pair<Long, Long>, Long>) -> Float?,
   onItemClick: (VodGridCardModel) -> Unit,
   onLoadMore: () -> Unit,
   modifier: Modifier = Modifier,
@@ -64,9 +64,9 @@ fun VodPagedVerticalGrid(
   LazyVerticalGrid(
     columns = GridCells.Adaptive(minSize = minCellSize),
     state = gridState,
-    contentPadding = PaddingValues(vertical = 8.dp),
-    horizontalArrangement = Arrangement.spacedBy(12.dp),
-    verticalArrangement = Arrangement.spacedBy(16.dp),
+    contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
+    horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
+    verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
     modifier = modifier
   ) {
     items(
@@ -76,7 +76,7 @@ fun VodPagedVerticalGrid(
       VodPosterCard(
         title = card.title,
         posterUrl = card.posterUrl,
-        progressFraction = progressFraction(card, progressByStreamId),
+        progressFraction = progressFraction(card, progressByKey),
         showHdBadge = card.showHdBadge,
         onClick = { onItemClick(card) }
       )
@@ -88,8 +88,8 @@ fun VodPagedVerticalGrid(
 @Composable
 fun VodPagedVerticalGrid(
     pagingItems: LazyPagingItems<SeriesShow>,
-    progressByStreamId: Map<Long, Long>,
-    progressFraction: (VodGridCardModel, Map<Long, Long>) -> Float?,
+    progressByKey: Map<Pair<Long, Long>, Long>,
+    progressFraction: (VodGridCardModel, Map<Pair<Long, Long>, Long>) -> Float?,
     onItemClick: (VodGridCardModel) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
@@ -121,9 +121,9 @@ fun VodPagedVerticalGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
         state = gridState,
-        contentPadding = PaddingValues(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
+        horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
+        verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
         modifier = modifier
     ) {
         items(
@@ -154,7 +154,7 @@ fun VodPagedVerticalGrid(
             VodPosterCard(
                 title = card.title,
                 posterUrl = card.posterUrl,
-                progressFraction = progressFraction(card, progressByStreamId),
+                progressFraction = progressFraction(card, progressByKey),
                 showHdBadge = card.showHdBadge,
                 onClick = { onItemClick(card) },
                 externallyFocused = externallyFocused,
@@ -168,8 +168,8 @@ fun VodPagedVerticalGrid(
 @Composable
 fun VodMoviePagedGrid(
     pagingItems: LazyPagingItems<VodItem>,
-    progressByStreamId: Map<Long, Long>,
-    progressFraction: (VodGridCardModel, Map<Long, Long>) -> Float?,
+    progressByKey: Map<Pair<Long, Long>, Long>,
+    progressFraction: (VodItem, Map<Pair<Long, Long>, Long>) -> Float?,
     onItemClick: (VodItem) -> Unit,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
@@ -234,7 +234,7 @@ fun VodMoviePagedGrid(
             VodPosterCard(
                 title = card.title,
                 posterUrl = card.posterUrl,
-                progressFraction = progressFraction(card, progressByStreamId),
+                progressFraction = progressFraction(movie, progressByKey),
                 showHdBadge = card.showHdBadge,
                 onClick = { onItemClick(movie) },
                 externallyFocused = externallyFocused,

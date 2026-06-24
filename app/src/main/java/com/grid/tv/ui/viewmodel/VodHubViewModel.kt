@@ -9,6 +9,7 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.matchesLanguageFilter
@@ -43,7 +44,8 @@ class VodHubViewModel @Inject constructor(
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
     private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val featuredCurationRepository: FeaturedCurationRepository,
-    private val languagePreferenceStore: VodLanguagePreferenceStore
+    private val languagePreferenceStore: VodLanguagePreferenceStore,
+    private val playlistContext: PlaylistContext
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
     private val featuredContentRanker = FeaturedContentRanker()
@@ -81,7 +83,7 @@ class VodHubViewModel @Inject constructor(
     private val vodCategories = repository.vodCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val vodProgress: StateFlow<Map<Long, Long>> =
+    val vodProgress: StateFlow<Map<Pair<Long, Long>, Long>> =
         repository.vodWatchProgress().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val recommendedForYou: StateFlow<List<VodItem>> =
@@ -305,13 +307,19 @@ class VodHubViewModel @Inject constructor(
         )
 
         val carousel = selection.carousel.ifEmpty {
-            val categoryNames = inputs.categories.associate { it.id to it.name }
-            repository.vodRecent(limit = 5).filter { item ->
-                item.matchesLanguageFilter(inputs.languages, categoryNames) &&
-                    featuredContentRanker.isEligibleForFeatured(
-                        item = item,
-                        enrichment = enrichmentFor(item, inputs.enrichment)
-                    )
+            val heroPlaylistId = inputs.catalog.firstOrNull { it.playlistId > 0L }?.playlistId
+                ?: playlistContext.activePlaylistId.value.takeIf { it > 0L }
+            if (heroPlaylistId == null) {
+                emptyList()
+            } else {
+                val categoryNames = inputs.categories.associate { it.id to it.name }
+                repository.vodRecent(heroPlaylistId, limit = 5).filter { item ->
+                    item.matchesLanguageFilter(inputs.languages, categoryNames) &&
+                        featuredContentRanker.isEligibleForFeatured(
+                            item = item,
+                            enrichment = enrichmentFor(item, inputs.enrichment)
+                        )
+                }
             }
         }
 

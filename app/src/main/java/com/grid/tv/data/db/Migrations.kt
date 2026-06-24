@@ -931,8 +931,46 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_33_34 = object : Migration(33, 34) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                ALTER TABLE continue_watching
+                ADD COLUMN playlistId INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_34_35 = object : Migration(34, 35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                ALTER TABLE vod_watch_events
+                ADD COLUMN playlistId INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_35_36 = object : Migration(35, 36) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                ALTER TABLE programs
+                ADD COLUMN playlistId INTEGER NOT NULL DEFAULT 0
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_programs_playlistId ON programs(playlistId)")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_programs_playlistId_channelEpgId " +
+                    "ON programs(playlistId, channelEpgId)"
+            )
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 33
+    const val SCHEMA_VERSION = 36
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -969,6 +1007,9 @@ object DbMigrations {
         MIGRATION_29_30,
         MIGRATION_30_31,
         MIGRATION_31_32,
-        MIGRATION_32_33
+        MIGRATION_32_33,
+        MIGRATION_33_34,
+        MIGRATION_34_35,
+        MIGRATION_35_36
     )
 }

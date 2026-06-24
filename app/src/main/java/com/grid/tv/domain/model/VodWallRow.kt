@@ -3,7 +3,9 @@ package com.grid.tv.domain.model
 enum class VodContentFilter {
     ALL,
     MOVIES,
-    SERIES
+    SERIES,
+    /** VOD-only inline search (movies + series); not global Live TV search. */
+    SEARCH
 }
 
 sealed class VodWallItem {

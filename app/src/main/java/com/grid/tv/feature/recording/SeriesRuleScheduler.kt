@@ -79,7 +79,7 @@ class SeriesRuleScheduler @Inject constructor(
             .associateBy { it.epgId!! }
 
         val xtreamEpisodes = rule.seriesId?.let { seriesId ->
-            runCatching { repository.seriesSeasons(seriesId).flatMap { it.episodes } }
+            runCatching { repository.seriesSeasons(rule.playlistId, seriesId).flatMap { it.episodes } }
                 .getOrDefault(emptyList())
         }.orEmpty()
 

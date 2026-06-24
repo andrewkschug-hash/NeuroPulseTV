@@ -93,6 +93,7 @@ class ForYouFeedRanker @Inject constructor(
                     seasonNumber = ep.seasonNumber,
                     episodeNumber = ep.episodeNumber,
                     contentKey = ContinueWatchingRepository.seriesContentKey(
+                        ep.playlistId,
                         ep.seriesId,
                         ep.seasonNumber,
                         ep.episodeNumber

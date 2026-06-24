@@ -75,7 +75,7 @@ internal data class HomeEpgGuideDeps(
     val guideGroupCategories: List<GuideGroupCategory>,
     val guideFilter: GuideChannelFilter,
     val demoFavoriteIds: Set<Long>,
-    val vodProgress: Map<Long, Long>,
+    val vodProgress: Map<Pair<Long, Long>, Long>,
     val continueWatchingItems: List<ContinueWatchingItem>,
     val showPreviewSection: Boolean,
     val hasContinueWatching: Boolean,
@@ -85,7 +85,7 @@ internal data class HomeEpgGuideDeps(
     val onNavigateRecordings: () -> Unit,
     val onNavigateSettings: () -> Unit,
     val onNavigateVod: (Int) -> Unit,
-    val onNavigateSeries: (Long) -> Unit,
+    val onNavigateSeries: (playlistId: Long, seriesId: Long) -> Unit,
     val onPlayVod: (String, String, Boolean) -> Unit,
     val onResumeContinueWatching: (ContinueWatchingItem) -> Unit,
 )
@@ -363,10 +363,10 @@ internal class HomeEpgGuideController(
             }
             SearchResultType.VOD -> result.vodItem?.let { item ->
                 VodPlaybackHelper.stageMovie(item)
-                val resume = (boundDeps.vodProgress[item.streamId] ?: 0L) > 5_000L
+                val resume = (boundDeps.vodProgress[item.playlistId to item.streamId] ?: 0L) > 5_000L
                 boundDeps.onPlayVod(item.streamUrl, item.title, resume)
             }
-            SearchResultType.SERIES -> result.seriesShow?.let { boundDeps.onNavigateSeries(it.id) }
+            SearchResultType.SERIES -> result.seriesShow?.let { boundDeps.onNavigateSeries(it.playlistId, it.id) }
             SearchResultType.EPISODE -> {
                 val show = result.seriesShow
                 val episode = result.seriesEpisode

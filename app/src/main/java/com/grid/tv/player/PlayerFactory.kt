@@ -133,9 +133,21 @@ class PlayerFactory @Inject constructor(
     /** Detach audio recovery and release ExoPlayer resources. */
     fun releasePlayer(exo: ExoPlayer) {
         detachAudioRecovery(exo)
+        detachVodRecovery(exo)
         decoderPressureTracker.unregisterPlayer(exo)
         exo.release()
     }
+
+    internal fun detachVodRecovery(exo: ExoPlayer) {
+        vodRecoveryListeners.remove(System.identityHashCode(exo))?.detach()
+    }
+
+    fun registerVodRecovery(exo: ExoPlayer, listener: VodPlaybackRecoveryListener) {
+        vodRecoveryListeners[System.identityHashCode(exo)] = listener
+    }
+
+    private val vodRecoveryListeners =
+        java.util.concurrent.ConcurrentHashMap<Int, VodPlaybackRecoveryListener>()
 
     internal fun detachAudioRecovery(exo: ExoPlayer) {
         audioRecoveryListeners.remove(System.identityHashCode(exo))?.detach()

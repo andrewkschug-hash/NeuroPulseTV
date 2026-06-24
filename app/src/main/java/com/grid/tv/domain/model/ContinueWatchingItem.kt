@@ -19,6 +19,7 @@ data class ContinueWatchingItem(
     val positionMs: Long,
     val durationMs: Long,
     val lastWatchedAt: Long,
+    val playlistId: Long = 0L,
     val streamId: Long? = null,
     val seriesId: Long? = null,
     val seasonNumber: Int? = null,

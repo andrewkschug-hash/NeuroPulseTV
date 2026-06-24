@@ -395,7 +395,7 @@ class RemoteTextFetcher @Inject constructor(
             EpgFlowLogger.parseStarted(playlistId, playlistName, url)
             val parsed = try {
                 // Cache file always holds decompressed XML after spooling.
-                parser.parseFile(cacheFile, contentEncoding = null, sourceUrl = url)
+                parser.parseFile(cacheFile, contentEncoding = null, sourceUrl = url, playlistId = playlistId)
             } catch (e: Exception) {
                 Log.e(
                     EPG_FLOW_TAG,

@@ -656,7 +656,8 @@ class XtreamParser {
         raw: String,
         channelEpgId: String,
         windowStart: Long,
-        windowEnd: Long
+        windowEnd: Long,
+        playlistId: Long = 0L
     ): List<ProgramEntity> {
         val root = runCatching { JSONObject(raw) }.getOrNull() ?: return emptyList()
         val arr = root.optJSONArray("epg_listings") ?: return emptyList()
@@ -677,7 +678,8 @@ class XtreamParser {
             ).trim()
             val genre = normalizeShortEpgGenre(row.optString("category"))
             out += ProgramEntity(
-                id = XmlTvParser.stableProgramId(channelEpgId, startMs),
+                id = XmlTvParser.stableProgramId(playlistId, channelEpgId, startMs),
+                playlistId = playlistId,
                 channelEpgId = channelEpgId,
                 title = title,
                 description = description,

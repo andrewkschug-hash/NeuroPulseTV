@@ -10,5 +10,6 @@ data class Program(
     val startTime: Long,
     val endTime: Long,
     val genre: ProgramGenre,
-    val catchupUrl: String?
+    val catchupUrl: String?,
+    val playlistId: Long = 0L
 )

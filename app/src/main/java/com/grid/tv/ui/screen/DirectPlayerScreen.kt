@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import android.util.Log
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import com.grid.tv.player.PlaybackHttpFailure
 import com.grid.tv.player.PlaybackNetworkCoordinator
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.player.PlaybackSurfaceInstrument
+import com.grid.tv.player.VodPlaybackRecoveryListener
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import com.grid.tv.ui.component.GlowFocusButton
@@ -111,44 +113,38 @@ fun DirectPlayerScreen(
             }
         } ?: "vod:$streamId:$url"
     }
-    val resumeSeekState = remember(resume, url) { ResumeSeekState() }
-    val immediateResumeMs = remember(resume, resumePositionMs, pendingVodMeta) {
-        if (!resume) {
-            0L
-        } else {
-            when {
-                resumePositionMs > 0L -> resumePositionMs
-                pendingVodMeta.resumePositionMs > 0L -> pendingVodMeta.resumePositionMs
-                else -> 0L
-            }
-        }
+    val resumeSeekState = remember(url) { ResumeSeekState() }
+    val isVodPlayback = !isRecordedPlayback && !isCatchupPlayback
+    var vodResumeMs by remember(url) { mutableLongStateOf(0L) }
+    var vodResumeReady by remember(url, isRecordedPlayback, isCatchupPlayback) {
+        mutableStateOf(isRecordedPlayback || isCatchupPlayback)
     }
 
-    LaunchedEffect(resume, immediateResumeMs, resumePositionMs, pendingVodMeta, streamId, url) {
-        if (!resume || isRecordedPlayback || isCatchupPlayback) {
+    LaunchedEffect(url, pendingVodMeta, streamId, resumePositionMs, isRecordedPlayback, isCatchupPlayback) {
+        if (!isVodPlayback) {
+            vodResumeMs = 0L
+            vodResumeReady = true
             resumeSeekState.pendingMs = 0L
             resumeSeekState.applied = true
             return@LaunchedEffect
         }
-        if (immediateResumeMs > 0L) {
-            resumeSeekState.pendingMs = immediateResumeMs
-            resumeSeekState.applied = true
-            Log.d(
-                "DirectPlayer",
-                "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY}=$immediateResumeMs " +
-                    "(navigation=$resumePositionMs staged=${pendingVodMeta.resumePositionMs})"
-            )
-            return@LaunchedEffect
-        }
-        resumeSeekState.applied = false
+        viewModel.setVodMetadata(pendingVodMeta)
         val resolved = viewModel.resolveResumePositionMs(
+            meta = pendingVodMeta,
             streamId = streamId,
-            url = url,
-            resume = true,
             navigationResumeMs = resumePositionMs,
             stagedResumeMs = pendingVodMeta.resumePositionMs
         )
+        vodResumeMs = resolved
+        vodResumeReady = true
         resumeSeekState.pendingMs = resolved
+        resumeSeekState.applied = resolved > 0L
+        if (resolved > 0L) {
+            Log.d(
+                "DirectPlayer",
+                "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY}=$resolved (pre-playback resolve)"
+            )
+        }
     }
 
     LaunchedEffect(recordingId) {
@@ -175,6 +171,7 @@ fun DirectPlayerScreen(
     }
     val playbackOrchestrator = remember { playerEntryPoint.playbackOrchestrator() }
     val playbackNetworkCoordinator = remember { playerEntryPoint.playbackNetworkCoordinator() }
+    val playerFactory = remember { playerEntryPoint.playerFactory() }
     var vodSessionReady by remember(url) { mutableStateOf<Boolean?>(null) }
 
     DisposableEffect(url) {
@@ -253,13 +250,32 @@ fun DirectPlayerScreen(
         return
     }
 
+    if (!vodResumeReady) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        )
+        return
+    }
+
     val resolvedVod = resolvedVodStream!!
 
     val playbackStarted = remember { mutableStateOf(false) }
+    val vodRecoveryRef = remember { arrayOfNulls<VodPlaybackRecoveryListener>(1) }
+    val onFatalPlaybackError = rememberUpdatedState { error: PlaybackException ->
+        com.grid.tv.util.PlaybackDiagnostics.logPlaybackError(
+            owner = "vod_direct",
+            error = error,
+            streamUrl = url
+        )
+        PlaybackHttpFailure.logHttpFailure(error, url)
+        playbackError = error.playbackErrorMessage(isEmulator)
+    }
 
-    val player = remember(url, immediateResumeMs, onDemandContentKind, resolvedVod) {
-        resumeSeekState.applied = immediateResumeMs > 0L
-        resumeSeekState.pendingMs = immediateResumeMs
+    val player = remember(url, vodResumeMs, onDemandContentKind, resolvedVod) {
+        resumeSeekState.applied = vodResumeMs > 0L
+        resumeSeekState.pendingMs = vodResumeMs
         playbackNetworkCoordinator.beginVodSession(url)
         viewModel.createPlayer(context).apply {
             val mediaItem = viewModel.buildOnDemandMediaItem(
@@ -267,16 +283,24 @@ fun DirectPlayerScreen(
                 onDemandContentKind,
                 resolvedStream = resolvedVod
             )
-            if (immediateResumeMs > 0L) {
-                setMediaItem(mediaItem, immediateResumeMs)
+            if (vodResumeMs > 0L) {
+                setMediaItem(mediaItem, vodResumeMs)
                 Log.d(
                     "DirectPlayer",
-                    "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY} startPosition=$immediateResumeMs"
+                    "${DirectPlayerViewModel.RESUME_POSITION_MS_KEY} startPosition=$vodResumeMs"
                 )
             } else {
                 setMediaItem(mediaItem)
             }
             playbackNetworkCoordinator.markSingleRequestAllowed(url)
+            VodPlaybackRecoveryListener(
+                player = this,
+                onFatalError = { error -> onFatalPlaybackError.value(error) }
+            ).also { recovery ->
+                recovery.attach()
+                vodRecoveryRef[0] = recovery
+                playerFactory.registerVodRecovery(this, recovery)
+            }
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY) {
@@ -297,27 +321,8 @@ fun DirectPlayerScreen(
                 override fun onIsPlayingChanged(playing: Boolean) {
                     isPlaying = playing
                 }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    com.grid.tv.util.PlaybackDiagnostics.logPlaybackError(
-                        owner = "vod_direct",
-                        error = error,
-                        streamUrl = url
-                    )
-                    PlaybackHttpFailure.logHttpFailure(error, url)
-                    playbackError = error.playbackErrorMessage(isEmulator)
-                    playWhenReady = false
-                    stop()
-                    clearMediaItems()
-                }
             })
         }
-    }
-
-    LaunchedEffect(vodEnrichmentKey, player.playbackState) {
-        if (isRecordedPlayback || isCatchupPlayback) return@LaunchedEffect
-        if (player.playbackState != Player.STATE_READY) return@LaunchedEffect
-        viewModel.setVodMetadata(pendingVodMeta)
     }
 
     LaunchedEffect(player.playbackState, url, isRecordedPlayback, isCatchupPlayback, subtitlesAttached) {
@@ -335,11 +340,13 @@ fun DirectPlayerScreen(
     LaunchedEffect(
         resumeSeekState.pendingMs,
         player.playbackState,
-        resume,
+        isVodPlayback,
         isRecordedPlayback,
         isCatchupPlayback
     ) {
-        if (isRecordedPlayback || isCatchupPlayback || !resume || resumeSeekState.applied) return@LaunchedEffect
+        if (!isVodPlayback || isRecordedPlayback || isCatchupPlayback || resumeSeekState.applied) {
+            return@LaunchedEffect
+        }
         if (resumeSeekState.pendingMs <= 0L) return@LaunchedEffect
         applyPendingResumeSeek(player, player.playbackState, resumeSeekState)
         if (resumeSeekState.applied) {
@@ -406,6 +413,8 @@ fun DirectPlayerScreen(
 
     DisposableEffect(player) {
         onDispose {
+            vodRecoveryRef[0]?.detach()
+            vodRecoveryRef[0] = null
             viewModel.pipController.setPlaybackActive(false)
             positionMs = player.currentPosition
             if (durationMs <= 0L) durationMs = player.duration.coerceAtLeast(0L)

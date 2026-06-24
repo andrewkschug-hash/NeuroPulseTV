@@ -103,7 +103,7 @@ fun HomeEpgScreen(
     onNavigateSettings: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
     onNavigateVod: (Int) -> Unit = {},
-    onNavigateSeries: (Long) -> Unit = {},
+    onNavigateSeries: (playlistId: Long, seriesId: Long) -> Unit = { _, _ -> },
     onPlayVod: (String, String, Boolean) -> Unit = { _, _, _ -> },
     onResumeContinueWatching: (ContinueWatchingItem) -> Unit = {},
     profileInitials: String = "?",

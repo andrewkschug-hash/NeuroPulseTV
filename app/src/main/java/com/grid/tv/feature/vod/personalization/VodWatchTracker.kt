@@ -12,6 +12,7 @@ class VodWatchTracker @Inject constructor(
 ) {
     suspend fun recordMovie(
         profileId: Long,
+        playlistId: Long,
         streamId: Long,
         positionMs: Long,
         durationMs: Long
@@ -20,8 +21,9 @@ class VodWatchTracker @Inject constructor(
         watchEventDao.insert(
             VodWatchEventEntity(
                 profileId = profileId,
-                contentId = ContinueWatchingRepository.movieContentKey(streamId),
+                contentId = ContinueWatchingRepository.movieContentKey(playlistId, streamId),
                 contentType = VodContentType.MOVIE.name,
+                playlistId = playlistId.coerceAtLeast(0L),
                 seriesId = null,
                 seasonNumber = null,
                 episodeNumber = null,
@@ -35,19 +37,26 @@ class VodWatchTracker @Inject constructor(
 
     suspend fun recordEpisode(
         profileId: Long,
+        playlistId: Long,
         seriesId: Long,
         seasonNumber: Int,
         episodeNumber: Int,
         positionMs: Long,
         durationMs: Long
     ) {
-        val contentKey = ContinueWatchingRepository.seriesContentKey(seriesId, seasonNumber, episodeNumber)
+        val contentKey = ContinueWatchingRepository.seriesContentKey(
+            playlistId,
+            seriesId,
+            seasonNumber,
+            episodeNumber
+        )
         val progress = progressPercent(positionMs, durationMs)
         watchEventDao.insert(
             VodWatchEventEntity(
                 profileId = profileId,
                 contentId = contentKey,
                 contentType = VodContentType.EPISODE.name,
+                playlistId = playlistId.coerceAtLeast(0L),
                 seriesId = seriesId,
                 seasonNumber = seasonNumber,
                 episodeNumber = episodeNumber,
@@ -59,8 +68,12 @@ class VodWatchTracker @Inject constructor(
         )
     }
 
-    suspend fun latestWatchedEpisode(profileId: Long, seriesId: Long): VodWatchEvent? =
-        watchEventDao.latestForSeries(profileId, seriesId)?.toDomain()
+    suspend fun latestWatchedEpisode(
+        profileId: Long,
+        playlistId: Long,
+        seriesId: Long
+    ): VodWatchEvent? =
+        watchEventDao.latestForSeries(profileId, playlistId, seriesId)?.toDomain()
 
     suspend fun recentEpisodes(profileId: Long, limit: Int = 20): List<VodWatchEvent> =
         watchEventDao.recentEpisodes(profileId, limit).map { it.toDomain() }

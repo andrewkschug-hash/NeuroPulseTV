@@ -66,10 +66,10 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import coil.request.ImageRequest
 import coil.size.Size
-import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodContentFilter
@@ -82,38 +82,16 @@ import com.grid.tv.ui.theme.VodNetflixColors
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.util.TvTextInputSession
 
-private val PosterWidth = 112.dp
-private val PosterHeight = 168.dp
-private val PosterTitleHeight = 40.dp
-private val FocusPopupHeight = 96.dp
+private val PosterWidth = VodPosterFocusLayout.POSTER_WIDTH
+private val PosterHeight = VodPosterFocusLayout.POSTER_HEIGHT
+private val PosterTitleHeight = VodPosterFocusLayout.POSTER_TITLE_HEIGHT
 private val PosterShape = RoundedCornerShape(6.dp)
-private val LandscapeWidth = 300.dp
-private val LandscapeHeight = 168.dp
 
 fun vodBrowseRowDisplayTitle(rowId: String, title: String): String = when (rowId) {
     "top_imdb" -> "Top IMDB picks"
     "4k" -> "4K Ultra HD"
     "recent" -> "Recently Added"
     else -> title
-}
-
-fun formatContinueWatchingSubtitle(item: ContinueWatchingItem): String {
-    val remaining = formatCwRemaining(item.remainingMs)
-    return when {
-        item.subtitle.isNotBlank() -> "$remaining · ${item.subtitle}"
-        else -> remaining
-    }
-}
-
-private fun formatCwRemaining(remainingMs: Long): String {
-    if (remainingMs <= 0L) return "Resume"
-    val totalMin = (remainingMs + 30_000L) / 60_000L
-    val hours = totalMin / 60
-    val minutes = totalMin % 60
-    return when {
-        hours > 0 -> "${hours}h ${minutes}m remaining"
-        else -> "${minutes}m remaining"
-    }
 }
 
 fun movieMetaSubtitle(movie: VodItem, rating: String?): String {
@@ -125,110 +103,56 @@ fun movieMetaSubtitle(movie: VodItem, rating: String?): String {
 }
 
 @Composable
-fun VodFocusInfoPopup(
-    title: String,
-    releaseYear: String? = null,
-    genres: String? = null,
-    rating: String? = null,
-    meta: String? = null,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .width(PosterWidth + 24.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF1A1A1A).copy(alpha = 0.96f))
-            .border(1.dp, VodNetflixColors.Accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = title,
-            color = VodNetflixColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
-        val metaLine = listOfNotNull(
-            rating?.takeIf { it.isNotBlank() }?.let { "★ $it" },
-            releaseYear?.takeIf { it.isNotBlank() },
-            meta?.takeIf { it.isNotBlank() }
-        ).joinToString(" · ")
-        if (metaLine.isNotBlank()) {
-            Text(
-                text = metaLine,
-                color = Color(0xFFFFD54F),
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp
-            )
-        }
-        if (!genres.isNullOrBlank()) {
-            Text(
-                text = genres,
-                color = VodNetflixColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 14.sp
-            )
-        }
-    }
-}
-
-@Composable
 fun NetflixPosterCard(
     rawTitle: String,
     posterUrl: String?,
     progressFraction: Float?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRating: String? = null,
-    focusMeta: String? = null,
-    focusGenres: String? = null,
-    focusReleaseYear: String? = null,
     externallyFocused: Boolean = false
 ) {
     val displayTitle = remember(rawTitle) { cleanVodDisplayTitle(rawTitle) }
     val languageBadge = remember(rawTitle) { parseVodLanguageBadge(rawTitle) }
     val resolutionBadge = remember(rawTitle) { parseVodResolutionBadge(rawTitle) }
-    val releaseYear = focusReleaseYear ?: remember(rawTitle) { parseVodReleaseYear(rawTitle) }
     val interactionSource = remember { MutableInteractionSource() }
     val interactionFocused by interactionSource.collectIsFocusedAsState()
     val focused = interactionFocused || externallyFocused
     val scale by animateFloatAsState(
-        targetValue = if (focused) 1.08f else 1f,
+        targetValue = if (focused) VodPosterFocusLayout.POSTER_FOCUS_SCALE else 1f,
         animationSpec = tween(150),
         label = "posterScale"
     )
     val border = if (focused) {
         ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(3.dp, VodNetflixColors.FocusBorder)
+                border = androidx.compose.foundation.BorderStroke(
+                    VodPosterFocusLayout.NETFLIX_FOCUS_BORDER,
+                    VodNetflixColors.FocusBorder
+                )
             )
         )
     } else {
         TvFocusDefaults.noBorder()
     }
 
-    val showFocusPopup = focused
-    val totalHeight = PosterHeight + PosterTitleHeight +
-        if (showFocusPopup) FocusPopupHeight + 8.dp else 0.dp
+    val edgeH = VodPosterFocusLayout.netflixEdgePaddingHorizontal
+    val edgeV = VodPosterFocusLayout.netflixEdgePaddingVertical
+    val overflowY = VodPosterFocusLayout.scaleOverflowY
+    val titleTop = edgeV + PosterHeight + overflowY + VodPosterFocusLayout.POSTER_TITLE_GAP
 
     Column(
-        modifier = modifier.width(PosterWidth)
+        modifier = modifier.width(VodPosterFocusLayout.netflixCardWidth)
     ) {
         Box(
             modifier = Modifier
-                .width(PosterWidth)
-                .height(totalHeight)
+                .fillMaxWidth()
+                .height(VodPosterFocusLayout.netflixCardHeight)
         ) {
             Surface(
                 onClick = onClick,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .padding(top = edgeV)
                     .width(PosterWidth)
                     .height(PosterHeight)
                     .scale(scale)
@@ -334,23 +258,9 @@ fun NetflixPosterCard(
                 lineHeight = 14.sp,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .offset(y = PosterHeight + 4.dp)
+                    .padding(top = titleTop)
                     .width(PosterWidth)
             )
-
-            if (showFocusPopup) {
-                VodFocusInfoPopup(
-                    title = displayTitle,
-                    releaseYear = releaseYear,
-                    genres = focusGenres,
-                    rating = focusRating,
-                    meta = focusMeta,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .offset(y = PosterHeight + PosterTitleHeight + 8.dp)
-                        .zIndex(2f)
-                )
-            }
         }
     }
 }
@@ -366,12 +276,19 @@ fun NetflixCategoryRow(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 6.dp, bottom = 12.dp)
+            .padding(
+                top = VodPosterFocusLayout.categoryRowTopPadding,
+                bottom = VodPosterFocusLayout.categoryRowBottomPadding
+            )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, bottom = 10.dp),
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = VodPosterFocusLayout.categoryTitleBottomGap
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -417,7 +334,7 @@ fun NetflixPosterCardWithMeta(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(PosterWidth),
+        modifier = modifier.width(VodPosterFocusLayout.netflixCardWidth),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         NetflixPosterCard(
@@ -436,111 +353,6 @@ fun NetflixPosterCardWithMeta(
                 overflow = TextOverflow.Ellipsis
             )
         }
-    }
-}
-
-@Composable
-fun ContinueWatchingLandscapeCard(
-    item: ContinueWatchingItem,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val focused by interactionSource.collectIsFocusedAsState()
-    val scale by animateFloatAsState(
-        targetValue = if (focused) 1.05f else 1f,
-        animationSpec = tween(150),
-        label = "cwScale"
-    )
-    val border = if (focused) {
-        ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(2.dp, VodNetflixColors.FocusBorder)
-            )
-        )
-    } else {
-        TvFocusDefaults.noBorder()
-    }
-
-    Column(
-        modifier = modifier.width(LandscapeWidth),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Surface(
-            onClick = onClick,
-            modifier = Modifier
-                .width(LandscapeWidth)
-                .height(LandscapeHeight)
-                .scale(scale),
-            interactionSource = interactionSource,
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = VodNetflixColors.CardPlaceholder,
-                focusedContainerColor = VodNetflixColors.CardPlaceholder
-            ),
-            scale = TvFocusDefaults.NoScale,
-            border = border,
-            glow = TvFocusDefaults.noGlow()
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (!item.posterUrl.isNullOrBlank()) {
-                    TvPosterImage(
-                        url = item.posterUrl,
-                        contentDescription = item.title,
-                        kind = PosterImageKind.VodLandscape,
-                        placeholderLetter = item.title,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(VodNetflixColors.CardPlaceholder),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = item.title.take(2).uppercase(),
-                            color = VodNetflixColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 22.sp
-                        )
-                    }
-                }
-                item.progressFraction.takeIf { it in 0.01f..0.98f }?.let { fraction ->
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(Color.Black.copy(alpha = 0.55f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(fraction)
-                                .height(4.dp)
-                                .background(VodNetflixColors.Accent)
-                        )
-                    }
-                }
-            }
-        }
-        Text(
-            text = item.title,
-            color = VodNetflixColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = formatContinueWatchingSubtitle(item),
-            color = VodNetflixColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
@@ -606,7 +418,7 @@ fun VodCategoryFilterRow(
 @Composable
 fun NetflixMovieRow(
     movies: List<VodItem>,
-    progressByStreamId: Map<Long, Long>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
     posterUrlFor: (VodItem) -> String?,
     metaSubtitleFor: (VodItem) -> String?,
     onPlayMovie: (VodItem) -> Unit,
@@ -616,12 +428,15 @@ fun NetflixMovieRow(
     if (movies.isEmpty()) return
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 48.dp),
+        contentPadding = PaddingValues(
+            horizontal = 48.dp,
+            vertical = VodPosterFocusLayout.lazyRowVerticalPadding
+        ),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         items(movies, key = { "${it.playlistId}_${it.streamId}" }) { movie ->
             val durationMs = parseVodDurationMs(movie.duration)
-            val progressMs = progressByStreamId[movie.streamId]
+            val progressMs = progressByKey[movie.playlistId to movie.streamId]
             val fraction = if (durationMs != null && progressMs != null && durationMs > 0L) {
                 (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
             } else {
@@ -654,7 +469,10 @@ fun NetflixSeriesRow(
     if (shows.isEmpty()) return
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 48.dp),
+        contentPadding = PaddingValues(
+            horizontal = 48.dp,
+            vertical = VodPosterFocusLayout.lazyRowVerticalPadding
+        ),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(shows, key = { "${it.playlistId}_${it.id}" }) { show ->
@@ -676,7 +494,7 @@ fun NetflixSeriesRow(
 
 fun LazyListScope.netflixMovieBrowseRows(
     rows: List<VodBrowseRow>,
-    progressByStreamId: Map<Long, Long>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
     posterUrlFor: (VodItem) -> String?,
     metaSubtitleFor: (VodItem) -> String?,
     onPlayMovie: (VodItem) -> Unit,
@@ -693,7 +511,7 @@ fun LazyListScope.netflixMovieBrowseRows(
             ) {
                 NetflixMovieRow(
                     movies = row.movies,
-                    progressByStreamId = progressByStreamId,
+                    progressByKey = progressByKey,
                     posterUrlFor = posterUrlFor,
                     metaSubtitleFor = metaSubtitleFor,
                     onPlayMovie = onPlayMovie,
@@ -842,6 +660,7 @@ fun VodContentFilterTabBar(
                 VodContentFilter.ALL -> "All"
                 VodContentFilter.MOVIES -> "Movies"
                 VodContentFilter.SERIES -> "Series"
+                VodContentFilter.SEARCH -> "Search"
             }
             val shape = RoundedCornerShape(999.dp)
             val backgroundColor = when {
@@ -953,11 +772,13 @@ fun VodContentFilterPanel(
                 VodContentFilter.ALL -> "☰"
                 VodContentFilter.MOVIES -> "▣"
                 VodContentFilter.SERIES -> "▤"
+                VodContentFilter.SEARCH -> "⌕"
             }
             val label = when (filter) {
                 VodContentFilter.ALL -> "All"
                 VodContentFilter.MOVIES -> "Movies"
                 VodContentFilter.SERIES -> "Series"
+                VodContentFilter.SEARCH -> "Search"
             }
             val containerColor = when {
                 selected -> Color(0xFF2A2A2A)
@@ -1027,7 +848,7 @@ fun NetflixContentWallRow(
     focusedColumn: Int,
     rowFocused: Boolean,
     listState: LazyListState,
-    progressByStreamId: Map<Long, Long>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
     posterUrlForMovie: (VodItem) -> String?,
     ratingForMovie: (VodItem) -> String?,
     metaForMovie: (VodItem) -> String?,
@@ -1048,7 +869,12 @@ fun NetflixContentWallRow(
         LazyRow(
             state = listState,
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = VodPosterFocusLayout.lazyRowVerticalPadding,
+                bottom = VodPosterFocusLayout.lazyRowVerticalPadding
+            ),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(row.items.size, key = { row.items[it].key }) { index ->
@@ -1063,9 +889,6 @@ fun NetflixContentWallRow(
                             posterUrl = cw.posterUrl,
                             progressFraction = cw.progressFraction.takeIf { it in 0.01f..0.98f },
                             onClick = { onActivateItem(item) },
-                            focusMeta = formatContinueWatchingSubtitle(cw),
-                            focusGenres = cw.subtitle.ifBlank { "Continue watching" },
-                            focusReleaseYear = parseVodReleaseYear(cw.title),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )
@@ -1073,7 +896,7 @@ fun NetflixContentWallRow(
                     is VodWallItem.MovieItem -> {
                         val movie = item.movie
                         val durationMs = parseVodDurationMs(movie.duration)
-                        val progressMs = progressByStreamId[movie.streamId]
+                        val progressMs = progressByKey[movie.playlistId to movie.streamId]
                         val fraction = if (durationMs != null && progressMs != null && durationMs > 0L) {
                             (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                         } else {
@@ -1084,10 +907,6 @@ fun NetflixContentWallRow(
                             posterUrl = posterUrlForMovie(movie),
                             progressFraction = fraction,
                             onClick = { onActivateItem(item) },
-                            focusRating = ratingForMovie(movie),
-                            focusMeta = metaForMovie(movie),
-                            focusGenres = formatVodGenreTags(movie.genre),
-                            focusReleaseYear = parseVodReleaseYear(movie.title),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )
@@ -1099,9 +918,6 @@ fun NetflixContentWallRow(
                             posterUrl = show.coverUrl,
                             progressFraction = null,
                             onClick = { onActivateItem(item) },
-                            focusMeta = "Series",
-                            focusGenres = formatVodGenreTags(show.genre),
-                            focusReleaseYear = parseVodReleaseYear(show.name),
                             externallyFocused = externallyFocused,
                             modifier = itemModifier
                         )
@@ -1202,10 +1018,10 @@ fun VodInlineSearchContent(
     searchFocusRequester: FocusRequester,
     resultsFocusRequester: FocusRequester,
     contentFilter: VodContentFilter,
-    moviePagingItems: LazyPagingItems<VodItem>,
-    seriesPagingItems: LazyPagingItems<SeriesShow>,
-    progressByStreamId: Map<Long, Long>,
-    movieProgressFraction: (VodGridCardModel, Map<Long, Long>) -> Float?,
+    moviePagingItems: LazyPagingItems<VodItem>?,
+    seriesPagingItems: LazyPagingItems<SeriesShow>?,
+    progressByKey: Map<Pair<Long, Long>, Long>,
+    movieProgressFraction: (VodItem, Map<Pair<Long, Long>, Long>) -> Float?,
     onMovieClick: (VodItem) -> Unit,
     onSeriesCardClick: (VodGridCardModel) -> Unit,
     onFocusSearchField: () -> Unit = {},
@@ -1213,13 +1029,17 @@ fun VodInlineSearchContent(
     onNavigateUpFromResults: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val movieResults = moviePagingItems.itemSnapshotList.items
-    val seriesResults = seriesPagingItems.itemSnapshotList.items
     val showMovies = contentFilter != VodContentFilter.SERIES
     val showSeries = contentFilter != VodContentFilter.MOVIES
-    val hasMovieResults = showMovies && movieResults.isNotEmpty()
-    val hasSeriesResults = showSeries && seriesResults.isNotEmpty()
+    val movieRefreshComplete = moviePagingItems?.loadState?.refresh !is LoadState.Loading
+    val seriesRefreshComplete = seriesPagingItems?.loadState?.refresh !is LoadState.Loading
+    val hasMovieResults = showMovies && (moviePagingItems?.itemCount ?: 0) > 0
+    val hasSeriesResults = showSeries && (seriesPagingItems?.itemCount ?: 0) > 0
     val hasResults = hasMovieResults || hasSeriesResults
+    val showNoResults = query.isNotBlank() &&
+        (if (showMovies) movieRefreshComplete else true) &&
+        (if (showSeries) seriesRefreshComplete else true) &&
+        !hasResults
     val firstResultsFocusRequester = if (hasMovieResults) {
         resultsFocusRequester
     } else if (hasSeriesResults) {
@@ -1265,7 +1085,7 @@ fun VodInlineSearchContent(
                     modifier = Modifier.focusProperties { canFocus = false }
                 )
             }
-            !hasResults -> {
+            showNoResults -> {
                 Text(
                     text = "No results for \"$query\"",
                     color = VodNetflixColors.TextSecondary,
@@ -1274,7 +1094,7 @@ fun VodInlineSearchContent(
                     modifier = Modifier.focusProperties { canFocus = false }
                 )
             }
-            else -> {
+            moviePagingItems != null && seriesPagingItems != null -> {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -1285,7 +1105,7 @@ fun VodInlineSearchContent(
                         VodSearchCategoryHeader(title = "Movies")
                         VodMoviePagedGrid(
                             pagingItems = moviePagingItems,
-                            progressByStreamId = progressByStreamId,
+                            progressByKey = progressByKey,
                             progressFraction = movieProgressFraction,
                             onItemClick = onMovieClick,
                             firstItemFocusRequester = resultsFocusRequester,
@@ -1299,7 +1119,7 @@ fun VodInlineSearchContent(
                         VodSearchCategoryHeader(title = "Series")
                         VodPagedVerticalGrid(
                             pagingItems = seriesPagingItems,
-                            progressByStreamId = progressByStreamId,
+                            progressByKey = progressByKey,
                             progressFraction = { _, _ -> null },
                             onItemClick = onSeriesCardClick,
                             firstItemFocusRequester = if (!hasMovieResults) resultsFocusRequester else null,

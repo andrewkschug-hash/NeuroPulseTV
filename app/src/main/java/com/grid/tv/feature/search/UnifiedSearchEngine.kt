@@ -68,8 +68,19 @@ class UnifiedSearchEngine @Inject constructor(
         val seriesMatches = repository.searchSeriesShows(trimmed, limit = 500).map(::seriesSearchResult)
         base.copy(
             channels = (channelMatches + base.channels).distinctBy { it.id },
-            movies = (vodMatches + base.movies).distinctBy { it.id },
-            series = (seriesMatches + base.series).distinctBy { it.id }
+            movies = (vodMatches + base.movies).distinctBy {
+                com.grid.tv.domain.model.VodSearchIdentity.vodDedupKey(
+                    it.vodItem?.playlistId ?: 0L,
+                    it.vodItem?.streamId ?: 0L
+                )
+            },
+            series = (seriesMatches + base.series).distinctBy {
+                com.grid.tv.domain.model.VodSearchIdentity.vodDedupKey(
+                    it.seriesShow?.playlistId ?: 0L,
+                    0L,
+                    it.seriesShow?.id
+                )
+            }
         )
     }
 
@@ -86,7 +97,7 @@ class UnifiedSearchEngine @Inject constructor(
 
     private fun vodSearchResult(movie: VodItem): SearchResultItem =
         SearchResultItem(
-            id = "vod-${movie.id}",
+            id = com.grid.tv.domain.model.VodSearchIdentity.vodResultId(movie.playlistId, movie.streamId),
             primaryTitle = cleanVodDisplayTitle(movie.title),
             secondaryLine = buildMovieSearchSecondaryLine(movie.genre, movie.rating),
             imageUrl = movie.posterUrl,
@@ -96,7 +107,7 @@ class UnifiedSearchEngine @Inject constructor(
 
     private fun seriesSearchResult(show: SeriesShow): SearchResultItem =
         SearchResultItem(
-            id = "series-${show.id}",
+            id = com.grid.tv.domain.model.VodSearchIdentity.seriesResultId(show.playlistId, show.id),
             primaryTitle = cleanVodDisplayTitle(show.name),
             secondaryLine = listOfNotNull("Series", show.genre).joinToString(" · "),
             imageUrl = show.coverUrl,

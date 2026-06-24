@@ -7,6 +7,7 @@ data class ContinueWatchingEntity(
     val profileId: Long,
     val contentKey: String,
     val contentType: String,
+    val playlistId: Long = 0L,
     val streamId: Long?,
     val seriesId: Long?,
     val seasonNumber: Int?,

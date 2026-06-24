@@ -71,9 +71,6 @@ interface SeriesShowDao {
     )
     suspend fun findBySeriesId(playlistId: Long, seriesId: Long): SeriesShowEntity?
 
-    @Query("SELECT * FROM series_shows WHERE seriesId = :seriesId LIMIT 1")
-    suspend fun findBySeriesIdGlobal(seriesId: Long): SeriesShowEntity?
-
     @Query(
         """
         SELECT * FROM series_shows
@@ -112,6 +109,17 @@ interface SeriesShowDao {
         """
     )
     suspend fun byCategory(categoryId: String, limit: Int): List<SeriesShowEntity>
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE playlistId = :playlistId
+          AND (IFNULL(categoryId, '') = :categoryId OR IFNULL(genre, '') LIKE '%' || :categoryId || '%')
+        ORDER BY name COLLATE NOCASE
+        LIMIT :limit
+        """
+    )
+    suspend fun byCategoryForPlaylist(playlistId: Long, categoryId: String, limit: Int): List<SeriesShowEntity>
 
     @Query(
         """
@@ -162,6 +170,21 @@ interface SeriesShowDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM series_shows
+        WHERE playlistId = :playlistId
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        """
+    )
+    suspend fun countFilteredByIdsForPlaylist(
+        playlistId: Long,
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): Int
+
+    @Query(
+        """
         SELECT * FROM series_shows
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
           AND (:search = '' OR name LIKE '%' || :search || '%')
@@ -169,6 +192,22 @@ interface SeriesShowDao {
         """
     )
     fun seriesPagingSourceByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): PagingSource<Int, SeriesShowEntity>
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE playlistId = :playlistId
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        ORDER BY name COLLATE NOCASE
+        """
+    )
+    fun seriesPagingSourceByIdsForPlaylist(
+        playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
         search: String

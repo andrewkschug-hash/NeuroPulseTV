@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.VodCatalogEmptyReason
@@ -28,6 +29,10 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.vodEmptyMessage
 import com.grid.tv.domain.model.vodEmptyTitle
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogOnboardingPanel
+import com.grid.tv.ui.component.VodCatalogOnboardingTab
+import com.grid.tv.ui.component.VodCatalogOnboardingInputs
+import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodEmptyState
@@ -68,6 +73,18 @@ fun MoviesBrowserScreen(
     }
 
     val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
+    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
+    val showVodOnboarding = rememberVodCatalogOnboardingVisible(
+        VodCatalogOnboardingInputs(
+            catalogLoading = catalogLoading,
+            progress = catalogProgress,
+            tab = VodCatalogOnboardingTab.MOVIES,
+            browseRowCount = browseRows.size,
+            categoryCount = categories.size,
+            pagedItemCount = moviePagingItems.itemCount
+        )
+    )
     val activeSearch = if (embedded) hubSearchQuery else standaloneSearch
     val emptyReason = catalogStatus.moviesEmptyReason(
         filteredCount = filteredTotalCount,
@@ -102,7 +119,7 @@ fun MoviesBrowserScreen(
     ) {
         VodCatalogProgressBar(
             progress = catalogProgress.moviesProgressFraction(),
-            visible = moviesLoading
+            visible = moviesLoading && !showVodOnboarding
         )
 
         if (!embedded) {
@@ -128,28 +145,38 @@ fun MoviesBrowserScreen(
             )
         }
 
-        VodCatalogLoadingBanner(
-            baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
-            progress = catalogProgress,
-            isMovies = true
-        )
+        if (!showVodOnboarding) {
+            VodCatalogLoadingBanner(
+                baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
+                progress = catalogProgress,
+                isMovies = true
+            )
+        }
         VodCatalogRefreshWarningBanner(
             message = catalogStatus.moviesRefreshWarning(catalogTotalCount)
         )
 
         when {
+            showVodOnboarding -> {
+                VodCatalogOnboardingPanel(
+                    progress = catalogProgress,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             activeSearch.isNotBlank() -> {
-                val movies = moviePagingItems.itemSnapshotList.items
-                if (movies.isEmpty() && catalogProgress.moviesPhaseFinished && !moviesLoading) {
+                val hasSearchResults = moviePagingItems.itemCount > 0
+                val searchRefreshComplete = moviePagingItems.loadState.refresh !is LoadState.Loading
+                if (!hasSearchResults && searchRefreshComplete && catalogProgress.moviesPhaseFinished && !moviesLoading) {
                     VodEmptyState(
                         title = emptyReason.vodEmptyTitle(isMovies = true),
                         message = emptyReason.vodEmptyMessage(catalogStatus, isMovies = true)
                     )
-                } else {
+                } else if (hasSearchResults) {
+                    val movies = moviePagingItems.itemSnapshotList.items
                     NetflixCategoryRow(title = "Search Results") {
                         NetflixMovieRow(
                             movies = movies,
-                            progressByStreamId = progress,
+                            progressByKey = progress,
                             posterUrlFor = { it.posterUrl },
                             metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
                             onPlayMovie = { movie -> playFromMovie(movie) }
@@ -174,7 +201,7 @@ fun MoviesBrowserScreen(
                 ) {
                     netflixMovieBrowseRows(
                         rows = browseRows,
-                        progressByStreamId = progress,
+                        progressByKey = progress,
                         posterUrlFor = { it.posterUrl },
                         metaSubtitleFor = { movieMetaSubtitle(it, it.rating) },
                         onPlayMovie = { movie -> playFromMovie(movie) }

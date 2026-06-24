@@ -17,6 +17,7 @@ data class VodWatchEventEntity(
     val profileId: Long,
     val contentId: String,
     val contentType: String,
+    val playlistId: Long = 0L,
     val seriesId: Long?,
     val seasonNumber: Int?,
     val episodeNumber: Int?,

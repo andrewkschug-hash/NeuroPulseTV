@@ -13,12 +13,14 @@ class NewEpisodeDetector @Inject constructor(
         profileId: Long,
         catalogEpisodes: List<CatalogEpisode>
     ): List<NewEpisodeDetection> {
-        val followed = followManager.getFollowedSeries(profileId).map { it.seriesId }.toSet()
-        val bySeries = catalogEpisodes.groupBy { it.seriesId }
+        val followed = followManager.getFollowedSeries(profileId)
+        val followedKeys = followed.map { it.playlistId to it.seriesId }.toSet()
+        val bySeries = catalogEpisodes.groupBy { it.playlistId to it.seriesId }
 
-        return bySeries.flatMap { (seriesId, episodes) ->
-            if (seriesId !in followed) return@flatMap emptyList()
-            val latestWatched = watchTracker.latestWatchedEpisode(profileId, seriesId)
+        return bySeries.flatMap { (key, episodes) ->
+            if (key !in followedKeys) return@flatMap emptyList()
+            val (playlistId, seriesId) = key
+            val latestWatched = watchTracker.latestWatchedEpisode(profileId, playlistId, seriesId)
             val lastEpisode = latestWatched?.episodeNumber
             val lastSeason = latestWatched?.seasonNumber ?: 1
 
@@ -40,6 +42,7 @@ class NewEpisodeDetector @Inject constructor(
                         episodeNumber = ep.episodeNumber,
                         episodeTitle = ep.episodeTitle,
                         contentKey = ContinueWatchingRepository.seriesContentKey(
+                            ep.playlistId,
                             ep.seriesId,
                             ep.seasonNumber,
                             ep.episodeNumber

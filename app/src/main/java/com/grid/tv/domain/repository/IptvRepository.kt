@@ -57,7 +57,7 @@ interface IptvRepository {
     ): Int
     fun hasChannels(): Flow<Boolean>
     suspend fun searchChannels(query: String, limit: Int = 50): List<Channel>
-    fun programs(epgIds: List<String>, fromTime: Long): Flow<List<Program>>
+    fun programs(playlistId: Long, epgIds: List<String>, fromTime: Long): Flow<List<Program>>
     fun searchPrograms(query: String): Flow<List<Program>>
     fun recordings(): Flow<List<String>>
     fun recommendedChannels(limit: Int = 10): Flow<List<Recommendation>>
@@ -87,6 +87,9 @@ interface IptvRepository {
     suspend fun enterGuestSession()
     suspend fun activeProfileId(): Long
     suspend fun activeProfile(): UserProfile?
+
+    fun activePlaylistId(): Flow<Long>
+    suspend fun setActivePlaylist(playlistId: Long)
 
     fun healthBest(limit: Int = 10): Flow<List<StreamHealth>>
     fun healthWorst(limit: Int = 10): Flow<List<StreamHealth>>
@@ -130,31 +133,53 @@ interface IptvRepository {
         limit: Int,
         offset: Int
     ): List<VodItem>
-    fun vodMoviesPaging(categoryId: String? = null, search: String = ""): Flow<PagingData<VodItem>>
-    fun seriesShowsPaging(categoryIds: Set<String>? = null, search: String = ""): Flow<PagingData<SeriesShow>>
-    suspend fun vodFilteredCount(categoryId: String? = null, search: String = ""): Int
+    fun vodMoviesPaging(
+        categoryId: String? = null,
+        search: String = "",
+        playlistId: Long? = null
+    ): Flow<PagingData<VodItem>>
+    fun seriesShowsPaging(
+        categoryIds: Set<String>? = null,
+        search: String = "",
+        playlistId: Long? = null
+    ): Flow<PagingData<SeriesShow>>
+    suspend fun vodFilteredCount(
+        categoryId: String? = null,
+        search: String = "",
+        playlistId: Long? = null
+    ): Int
     suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
-    suspend fun vodRecent(limit: Int): List<VodItem>
+    suspend fun vodRecent(playlistId: Long, limit: Int): List<VodItem>
     suspend fun vodSampleForRecommendations(sampleSize: Int = 500): List<VodItem>
     suspend fun seriesRecentSample(limit: Int = 500): List<SeriesShow>
     suspend fun discoverVodContentLanguages(maxTitlesPerSource: Int = 8000): List<String>
-    suspend fun loadMovieBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
+    suspend fun loadMovieBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16, playlistId: Long? = null): List<VodBrowseRow>
     suspend fun seriesPage(
         category: String = "All",
         search: String = "",
         limit: Int,
         offset: Int
     ): List<SeriesShow>
-    suspend fun seriesFilteredCount(categoryIds: Set<String>? = null, search: String = ""): Int
-    suspend fun findSeriesShow(seriesId: Long): SeriesShow?
+    suspend fun seriesFilteredCount(
+        categoryIds: Set<String>? = null,
+        search: String = "",
+        playlistId: Long? = null
+    ): Int
+    suspend fun findSeriesShow(playlistId: Long, seriesId: Long): SeriesShow?
     suspend fun loadSeriesBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
     suspend fun searchVod(query: String, limit: Int = 40): List<VodItem>
     suspend fun searchSeriesShows(query: String, limit: Int = 40): List<SeriesShow>
     suspend fun distinctSeriesCategories(): List<String>
-    suspend fun saveVodWatchPosition(streamId: Long, positionMs: Long, title: String, durationMs: Long)
-    fun vodWatchProgress(): Flow<Map<Long, Long>>
-    suspend fun seriesSeasons(seriesId: Long): List<SeriesSeason>
-    suspend fun loadSeriesDetail(seriesId: Long): SeriesDetail
+    suspend fun saveVodWatchPosition(
+        streamId: Long,
+        positionMs: Long,
+        title: String,
+        durationMs: Long,
+        playlistId: Long = 0L
+    )
+    fun vodWatchProgress(): Flow<Map<Pair<Long, Long>, Long>>
+    suspend fun seriesSeasons(playlistId: Long, seriesId: Long): List<SeriesSeason>
+    suspend fun loadSeriesDetail(playlistId: Long, seriesId: Long): SeriesDetail
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)
     fun isFavorite(channelId: Long): Flow<Boolean>
@@ -167,7 +192,7 @@ interface IptvRepository {
     suspend fun watchHistory(channelId: Long): WatchHistory?
 
     suspend fun channelById(channelId: Long): Channel?
-    suspend fun channelByNumber(number: Int): Channel?
+    suspend fun channelByNumber(playlistId: Long, number: Int): Channel?
 
     suspend fun loadSettings(): AppSettings
     suspend fun saveSettings(settings: AppSettings)

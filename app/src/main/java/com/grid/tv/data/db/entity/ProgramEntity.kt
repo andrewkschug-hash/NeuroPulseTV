@@ -6,10 +6,16 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "programs",
-    indices = [Index("channelEpgId"), Index("startTime")]
+    indices = [
+        Index("channelEpgId"),
+        Index("startTime"),
+        Index("playlistId"),
+        Index(value = ["playlistId", "channelEpgId"])
+    ]
 )
 data class ProgramEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @PrimaryKey val id: Long = 0,
+    val playlistId: Long = 0L,
     val channelEpgId: String,
     val title: String,
     val description: String,

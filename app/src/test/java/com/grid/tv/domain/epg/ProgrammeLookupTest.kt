@@ -22,8 +22,8 @@ class ProgrammeLookupTest {
             isFavorite = false
         )
         val programs = listOf(
-            Program(1L, "bbc1.uk", "News", "", 0L, 1L, ProgramGenre.NEWS, null),
-            Program(2L, "other", "Other", "", 0L, 1L, ProgramGenre.GENERAL, null)
+            Program(1L, "bbc1.uk", "News", "", 0L, 1L, ProgramGenre.NEWS, null, playlistId = 1L),
+            Program(2L, "other", "Other", "", 0L, 1L, ProgramGenre.GENERAL, null, playlistId = 1L)
         )
         assertEquals(1, programmesForChannel(channel, programs).size)
     }
@@ -42,7 +42,7 @@ class ProgrammeLookupTest {
             isFavorite = false
         )
         val programs = listOf(
-            Program(1L, "CNN", "Live", "", 0L, 1L, ProgramGenre.NEWS, null)
+            Program(1L, "CNN", "Live", "", 0L, 1L, ProgramGenre.NEWS, null, playlistId = 1L)
         )
         assertEquals("Live", programmesForChannel(channel, programs).single().title)
     }

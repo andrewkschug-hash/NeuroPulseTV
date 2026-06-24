@@ -110,6 +110,7 @@ class ProgrammeIndex private constructor(
             val indexed = HashMap<Long, List<Program>>(channels.size)
             for (channel in channels) {
                 indexed[channel.id] = programsForChannelKeys(
+                    channel = channel,
                     keys = channel.programmeLookupKeys(),
                     byRawKey = byRawKey,
                     byNormalizedKey = byNormalizedKey
@@ -157,6 +158,7 @@ class ProgrammeIndex private constructor(
             val indexed = HashMap(previous.byChannelId)
             for (channel in channels.drop(previous.channelIds.size)) {
                 indexed[channel.id] = programsForChannelKeys(
+                    channel = channel,
                     keys = channel.programmeLookupKeys(),
                     byRawKey = previous.byRawKey,
                     byNormalizedKey = previous.byNormalizedKey
@@ -189,27 +191,32 @@ class ProgrammeIndex private constructor(
             for (program in programs) {
                 val raw = program.channelEpgId
                 if (raw.isEmpty()) continue
-                byRawKey.getOrPut(raw.lowercase()) { ArrayList() }.add(program)
-                val normalized = EpgIdNormalizer.normalize(raw)
-                if (normalized.isNotEmpty()) {
-                    byNormalizedKey.getOrPut(normalized) { ArrayList() }.add(program)
+                val rawKey = EpgProgramScope.rawLookupKey(program.playlistId, raw)
+                byRawKey.getOrPut(rawKey) { ArrayList() }.add(program)
+                val normalizedKey = EpgProgramScope.normalizedLookupKey(program.playlistId, raw)
+                if (normalizedKey != rawKey) {
+                    byNormalizedKey.getOrPut(normalizedKey) { ArrayList() }.add(program)
                 }
             }
         }
 
         private fun programsForChannelKeys(
+            channel: Channel,
             keys: List<String>,
             byRawKey: Map<String, List<Program>>,
             byNormalizedKey: Map<String, List<Program>>
         ): List<Program> {
             if (keys.isEmpty()) return emptyList()
-            val normalizedKeys = keys.map { EpgIdNormalizer.normalize(it) }.filter { it.isNotEmpty() }.toSet()
             val merged = LinkedHashMap<Long, Program>()
             for (key in keys) {
-                byRawKey[key.lowercase()]?.forEach { program -> merged.putIfAbsent(program.id, program) }
+                byRawKey[EpgProgramScope.channelLookupKey(channel.playlistId, key)]
+                    ?.forEach { program -> merged.putIfAbsent(program.id, program) }
             }
-            for (norm in normalizedKeys) {
-                byNormalizedKey[norm]?.forEach { program -> merged.putIfAbsent(program.id, program) }
+            for (key in keys) {
+                val normalized = EpgIdNormalizer.normalize(key)
+                if (normalized.isEmpty()) continue
+                byNormalizedKey[EpgProgramScope.normalizedLookupKey(channel.playlistId, key)]
+                    ?.forEach { program -> merged.putIfAbsent(program.id, program) }
             }
             return merged.values.sortedBy { it.startTime }
         }

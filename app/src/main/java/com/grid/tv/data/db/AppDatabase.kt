@@ -234,7 +234,10 @@ abstract class AppDatabase : RoomDatabase() {
             epgSourceChannelDao().insertAll(sourceChannels)
         }
         if (programs.isNotEmpty()) {
-            programs.chunked(EPG_PROGRAM_INSERT_CHUNK).forEach { batch ->
+            val scopedPrograms = programs.map { program ->
+                if (program.playlistId == playlistId) program else program.copy(playlistId = playlistId)
+            }
+            scopedPrograms.chunked(EPG_PROGRAM_INSERT_CHUNK).forEach { batch ->
                 programDao().insertAll(batch)
             }
             playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))

@@ -41,11 +41,16 @@ interface ContinueWatchingDao {
         WHERE profileId = :profileId
           AND contentType = 'SERIES'
           AND seriesId = :seriesId
+          AND (:playlistId <= 0 OR playlistId = :playlistId)
         ORDER BY lastWatchedAt DESC
         LIMIT 1
         """
     )
-    suspend fun latestForSeries(profileId: Long, seriesId: Long): ContinueWatchingEntity?
+    suspend fun latestForSeries(
+        profileId: Long,
+        seriesId: Long,
+        playlistId: Long = 0L
+    ): ContinueWatchingEntity?
 
     @Query("DELETE FROM continue_watching WHERE profileId = :profileId AND contentKey = :contentKey")
     suspend fun delete(profileId: Long, contentKey: String)

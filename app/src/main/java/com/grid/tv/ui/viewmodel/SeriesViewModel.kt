@@ -2,6 +2,7 @@ package com.grid.tv.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.db.dao.ProfileDao
@@ -19,6 +20,7 @@ import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.ui.component.EpisodeWatchStatus
 import com.grid.tv.ui.component.episodeWatchStatus
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
@@ -40,6 +42,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 
@@ -49,6 +52,7 @@ data class SelectedEpisodeDetail(
     val episodeNumber: Int
 )
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class SeriesViewModel @Inject constructor(
     private val repository: IptvRepository,
@@ -56,7 +60,8 @@ class SeriesViewModel @Inject constructor(
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val profileDao: ProfileDao,
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
-    private val languagePreferenceStore: VodLanguagePreferenceStore
+    private val languagePreferenceStore: VodLanguagePreferenceStore,
+    private val playlistContext: PlaylistContext
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -65,7 +70,15 @@ class SeriesViewModel @Inject constructor(
     private val _selectedCategoryId = MutableStateFlow<String?>(null)
     val selectedCategoryId: StateFlow<String?> = _selectedCategoryId.asStateFlow()
 
+    private val _selectedCategoryPlaylistId = MutableStateFlow<Long?>(null)
+    val selectedCategoryPlaylistId: StateFlow<Long?> = _selectedCategoryPlaylistId.asStateFlow()
+
     private val _selectedCategoryFilterIds = MutableStateFlow<Set<String>?>(null)
+
+    private val selectedSeriesCategoryFilter = combine(
+        _selectedCategoryFilterIds,
+        _selectedCategoryPlaylistId
+    ) { categoryFilterIds, playlistId -> categoryFilterIds to playlistId }
 
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
@@ -76,38 +89,65 @@ class SeriesViewModel @Inject constructor(
     val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val _hubSearchMode = MutableStateFlow(false)
+
+    fun setHubSearchMode(active: Boolean) {
+        _hubSearchMode.value = active
+    }
+
+    private val debouncedSearchQuery = _searchQuery
+        .debounce(300)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
     val pagedSeries = combine(
         repository.vodCatalogRevision(),
-        _searchQuery,
-        _selectedCategoryFilterIds,
+        debouncedSearchQuery,
+        selectedSeriesCategoryFilter,
         languagePreferenceStore.preferredLanguages,
         categories
-    ) { _, query, categoryFilterIds, languages, categoryList ->
+    ) { _, query, categoryFilter, languages, categoryList ->
+        val (categoryFilterIds, playlistId) = categoryFilter
         SeriesLanguageFilterParams(
             query = query,
             categoryFilterIds = categoryFilterIds,
+            playlistId = playlistId,
             languages = languages,
             categoryNames = categoryList.associate { it.id to it.name }
         )
+    }.combine(_hubSearchMode) { params, hubSearchMode ->
+        params.copy(hubSearchMode = hubSearchMode)
     }.flatMapLatest { params ->
-        repository.seriesShowsPaging(categoryIds = params.categoryFilterIds, search = params.query)
-            .map { pagingData ->
-                if (params.languages.isEmpty()) {
-                    pagingData
-                } else {
-                    pagingData.filter {
-                        it.matchesLanguageFilter(params.languages, params.categoryNames)
+        if (params.hubSearchMode && params.query.isBlank()) {
+            flow { emit(PagingData.empty()) }
+        } else {
+            repository.seriesShowsPaging(
+                categoryIds = params.categoryFilterIds,
+                search = params.query,
+                playlistId = params.playlistId
+            )
+                .map { pagingData ->
+                    if (params.languages.isEmpty()) {
+                        pagingData
+                    } else {
+                        pagingData.filter {
+                            it.matchesLanguageFilter(params.languages, params.categoryNames)
+                        }
                     }
                 }
-            }
+        }
     }.cachedIn(viewModelScope)
 
     init {
         viewModelScope.launch {
-            combine(_searchQuery, _selectedCategoryFilterIds) { query, categoryFilterIds ->
-                query to categoryFilterIds
-            }.collect { (query, categoryFilterIds) ->
-                refreshFilteredCount(query, categoryFilterIds)
+            combine(debouncedSearchQuery, selectedSeriesCategoryFilter, _hubSearchMode) { query, categoryFilter, hubSearchMode ->
+                val (categoryFilterIds, playlistId) = categoryFilter
+                SeriesFilterCountParams(query, categoryFilterIds, playlistId, hubSearchMode)
+            }.collect { params ->
+                if (params.hubSearchMode && params.query.isBlank()) {
+                    _filteredTotalCount.value = 0
+                } else {
+                    refreshFilteredCount(params.query, params.categoryFilterIds, params.playlistId)
+                }
             }
         }
     }
@@ -184,38 +224,44 @@ class SeriesViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    val episodeProgressMs: StateFlow<Map<Long, Long>> = continueWatchingRepository.observeItems(limit = 50)
+    val episodeProgressMs: StateFlow<Map<Pair<Long, Long>, Long>> = continueWatchingRepository.observeItems(limit = 50)
         .map { items ->
             items.filter { it.contentType == ContinueWatchingContentType.SERIES }
-                .mapNotNull { item -> item.streamId?.let { id -> id to item.positionMs } }
+                .mapNotNull { item -> item.streamId?.let { id -> (item.playlistId to id) to item.positionMs } }
                 .toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    val episodeDurationMs: StateFlow<Map<Long, Long>> = continueWatchingRepository.observeItems(limit = 50)
+    val episodeDurationMs: StateFlow<Map<Pair<Long, Long>, Long>> = continueWatchingRepository.observeItems(limit = 50)
         .map { items ->
             items.filter { it.contentType == ContinueWatchingContentType.SERIES }
-                .mapNotNull { item -> item.streamId?.let { id -> id to item.durationMs } }
+                .mapNotNull { item -> item.streamId?.let { id -> (item.playlistId to id) to item.durationMs } }
                 .toMap()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    private suspend fun refreshFilteredCount(query: String, categoryFilterIds: Set<String>?) {
+    private suspend fun refreshFilteredCount(
+        query: String,
+        categoryFilterIds: Set<String>?,
+        playlistId: Long?
+    ) {
         withContext(Dispatchers.IO) {
-            _filteredTotalCount.value = repository.seriesFilteredCount(categoryFilterIds, query)
+            _filteredTotalCount.value = repository.seriesFilteredCount(categoryFilterIds, query, playlistId)
         }
     }
 
-    suspend fun resolveShow(showId: Long): SeriesShow? = withContext(Dispatchers.IO) {
-        repository.findSeriesShow(showId)
+    suspend fun resolveShow(playlistId: Long, showId: Long): SeriesShow? = withContext(Dispatchers.IO) {
+        repository.findSeriesShow(playlistId, showId)
     }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
     }
 
-    fun setCategory(categoryId: String?, filterIds: Set<String>? = null) {
+    fun setCategory(categoryId: String?, filterIds: Set<String>? = null, playlistId: Long? = null) {
         _selectedCategoryId.value = categoryId
+        _selectedCategoryPlaylistId.value = playlistId?.takeIf { categoryId != null }
+        playlistId?.takeIf { it > 0L && categoryId != null }?.let { playlistContext.setActive(it) }
         _selectedCategoryFilterIds.value = when {
             categoryId == null -> null
             !filterIds.isNullOrEmpty() -> filterIds
@@ -235,7 +281,12 @@ class SeriesViewModel @Inject constructor(
         }
     }
 
-    fun selectShow(showId: Long, preferredSeason: Int? = null, preview: SeriesShow? = null) {
+    fun selectShow(
+        showId: Long,
+        playlistId: Long,
+        preferredSeason: Int? = null,
+        preview: SeriesShow? = null
+    ) {
         _selectedShowId.value = showId
         _selectedShow.value = preview
         _selectedShowOverview.value = null
@@ -247,13 +298,19 @@ class SeriesViewModel @Inject constructor(
         viewModelScope.launch {
             _seasonsLoading.value = true
             try {
-                val show = preview ?: withContext(Dispatchers.IO) { repository.findSeriesShow(showId) }
+                val effectivePlaylistId = preview?.playlistId?.takeIf { it > 0L } ?: playlistId
+                playlistContext.setActive(effectivePlaylistId)
+                val show = preview ?: withContext(Dispatchers.IO) {
+                    repository.findSeriesShow(effectivePlaylistId, showId)
+                }
                 if (show != null) {
                     _selectedShow.value = show
                 }
                 val detail = withContext(Dispatchers.IO) {
-                    runVodPipelineCatching("SeriesViewModel.loadSeriesDetail showId=$showId") {
-                        repository.loadSeriesDetail(showId)
+                    runVodPipelineCatching(
+                        "SeriesViewModel.loadSeriesDetail playlist=$effectivePlaylistId showId=$showId"
+                    ) {
+                        repository.loadSeriesDetail(effectivePlaylistId, showId)
                     }
                         .onFailure { error ->
                             _message.value = "Could not load seasons: ${error.message ?: "unknown error"}"
@@ -266,8 +323,9 @@ class SeriesViewModel @Inject constructor(
                 }
                 _seasons.value = detail.seasons.sortedBy { it.number }
                 val profileId = profileDao.activeProfile()?.profileId
-                val latestWatch = if (profileId != null) {
-                    continueWatchingRepository.latestForSeries(profileId, showId)
+                val resumePlaylistId = (resolvedShow ?: show)?.playlistId?.takeIf { it > 0L } ?: effectivePlaylistId
+                val latestWatch = if (profileId != null && resumePlaylistId > 0L) {
+                    continueWatchingRepository.latestForSeries(profileId, showId, resumePlaylistId)
                 } else {
                     null
                 }
@@ -336,26 +394,28 @@ class SeriesViewModel @Inject constructor(
     }
 
     suspend fun loadEpisodeWatchStatus(
+        playlistId: Long,
         seriesId: Long,
         seasonNumber: Int,
         episodeNumber: Int,
         episode: SeriesEpisode
     ): EpisodeWatchStatus = withContext(Dispatchers.IO) {
         val profileId = profileDao.activeProfile()?.profileId
-        val progressMs = episodeProgressMs.value[episode.id]
+        val progressKey = playlistId to episode.id
+        val progressMs = episodeProgressMs.value[progressKey]
             ?: profileId?.let {
                 continueWatchingRepository.resumePositionForSeriesEpisode(
                     profileId = it,
+                    playlistId = playlistId,
                     seriesId = seriesId,
                     seasonNumber = seasonNumber,
                     episodeNumber = episodeNumber
                 )
             }
-            ?: profileId?.let { continueWatchingRepository.resumePositionForStream(it, episode.id) }
         val durationMs = parseVodDurationMs(episode.duration)
-            ?: episodeDurationMs.value[episode.id]
+            ?: episodeDurationMs.value[progressKey]
             ?: profileId?.let {
-                continueWatchingRepository.latestForSeries(it, seriesId)
+                continueWatchingRepository.latestForSeries(it, seriesId, playlistId)
                     ?.takeIf { row ->
                         row.seasonNumber == seasonNumber && row.episodeNumber == episodeNumber
                     }
@@ -383,24 +443,31 @@ class SeriesViewModel @Inject constructor(
         }
     }
 
-    fun episodeProgressFraction(episodeId: Long, durationRaw: String?): Float? {
-        val durationMs = parseVodDurationMs(durationRaw) ?: episodeDurationMs.value[episodeId]
-        val progressMs = episodeProgressMs.value[episodeId] ?: return null
+    fun episodeProgressFraction(
+        playlistId: Long,
+        episodeId: Long,
+        durationRaw: String?
+    ): Float? {
+        val durationMs = parseVodDurationMs(durationRaw) ?: episodeDurationMs.value[playlistId to episodeId]
+        val progressMs = episodeProgressMs.value[playlistId to episodeId] ?: return null
         if (durationMs == null || durationMs <= 0L) return null
         return (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
     }
 
     suspend fun shouldResumeEpisode(
+        playlistId: Long,
         seriesId: Long,
         seasonNumber: Int,
-        episodeNumber: Int,
-        streamId: Long
+        episodeNumber: Int
     ): Boolean {
         val profileId = profileDao.activeProfile()?.profileId ?: return false
-        if (continueWatchingRepository.hasEpisodeResumeProgress(profileId, seriesId, seasonNumber, episodeNumber)) {
-            return true
-        }
-        return continueWatchingRepository.hasResumeProgress(profileId, streamId)
+        return continueWatchingRepository.hasEpisodeResumeProgress(
+            profileId,
+            playlistId,
+            seriesId,
+            seasonNumber,
+            episodeNumber
+        )
     }
 
     private fun parseVodDurationMs(durationRaw: String?): Long? =
@@ -431,6 +498,15 @@ class SeriesViewModel @Inject constructor(
 private data class SeriesLanguageFilterParams(
     val query: String,
     val categoryFilterIds: Set<String>?,
+    val playlistId: Long?,
     val languages: Set<String>,
-    val categoryNames: Map<String, String>
+    val categoryNames: Map<String, String>,
+    val hubSearchMode: Boolean = false
+)
+
+private data class SeriesFilterCountParams(
+    val query: String,
+    val categoryFilterIds: Set<String>?,
+    val playlistId: Long?,
+    val hubSearchMode: Boolean
 )

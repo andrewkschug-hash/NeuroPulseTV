@@ -53,19 +53,39 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
-    fun prepareSeriesCategoriesForSidebar_deduplicatesByDisplayName() {
+    fun prepareSeriesCategoriesForSidebar_keepsDistinctPlaylistScopedCategories() {
         val categories = listOf(
             VodCategory(id = "1006", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
             VodCategory(id = "1040", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+            VodCategory(id = "1006", name = "Action", playlistId = 2L),
             VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
         )
-        val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(categories)
-        assertEquals(2, sidebar.displayCategories.size)
-        assertEquals("1006", sidebar.displayCategories[0].id)
+        val (streamBacked, _) = VodCategoryGuards.partitionStreamBacked(categories)
+        val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(streamBacked)
+        assertEquals(4, sidebar.displayCategories.size)
         assertEquals(
-            setOf("1006", "1040"),
-            sidebar.filterIdsByRepresentativeId["1006"]
+            setOf("1006"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1006")]
         )
-        assertEquals(setOf("2001"), sidebar.filterIdsByRepresentativeId["2001"])
+        assertEquals(
+            setOf("1040"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
+        )
+        assertEquals(
+            setOf("1006"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(2L, "1006")]
+        )
+    }
+
+    @Test
+    fun buildLookupTable_prefersPlaylistScopedKeys() {
+        val lookup = VodCategoryNameResolver.buildLookupTable(
+            listOf(
+                VodCategory(id = "1006", name = "Provider A Action", playlistId = 1L),
+                VodCategory(id = "1006", name = "Provider B Action", playlistId = 2L)
+            )
+        )
+        assertEquals("Provider A Action", lookup["1_1006"])
+        assertEquals("Provider B Action", lookup["2_1006"])
     }
 }

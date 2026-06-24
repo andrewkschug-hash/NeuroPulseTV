@@ -9,7 +9,8 @@ import com.grid.tv.util.ChannelBrowserMetrics
 
 internal class ChannelBrowserPagingSource(
     private val channelDao: ChannelDao,
-    private val groupName: String?,
+    private val filterPlaylistId: Long,
+    private val filterGroupName: String?,
     private val search: String,
     private val onlyFavorites: Boolean,
     private val profileId: Long,
@@ -25,7 +26,8 @@ internal class ChannelBrowserPagingSource(
         return try {
             val loadStartedAt = System.currentTimeMillis()
             val entities = channelDao.channelsPageFiltered(
-                groupName = groupName,
+                filterPlaylistId = filterPlaylistId,
+                filterGroupName = filterGroupName,
                 search = search,
                 onlyFavorites = onlyFavorites,
                 profileId = profileId,
@@ -41,7 +43,7 @@ internal class ChannelBrowserPagingSource(
                 ChannelBrowserMetrics.logInitialPageLoaded(
                     itemCount = channels.size,
                     elapsedMs = elapsedMs,
-                    group = groupName,
+                    group = filterGroupName,
                     favoritesOnly = onlyFavorites,
                     matchSports = matchSports,
                     search = search

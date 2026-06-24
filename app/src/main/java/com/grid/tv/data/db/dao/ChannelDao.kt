@@ -23,17 +23,23 @@ interface ChannelDao {
     @Query("SELECT COUNT(*) FROM channels WHERE playlistId = :playlistId")
     suspend fun countByPlaylist(playlistId: Long): Int
 
-    @Query("SELECT DISTINCT groupName FROM channels ORDER BY groupName")
-    fun observeGroups(): Flow<List<String>>
-
-    @Query("SELECT groupName, COUNT(*) AS channelCount FROM channels GROUP BY groupName")
+    @Query(
+        """
+        SELECT playlistId, groupName, COUNT(*) AS channelCount
+        FROM channels
+        WHERE groupName IS NOT NULL AND TRIM(groupName) != ''
+        GROUP BY playlistId, groupName
+        ORDER BY playlistId, groupName COLLATE NOCASE
+        """
+    )
     fun observeGroupChannelCounts(): Flow<List<GroupChannelCountRow>>
 
     @Query(
         """
         SELECT c.* FROM channels c
       LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+        WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
+          AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
@@ -41,7 +47,8 @@ interface ChannelDao {
         """
     )
     fun observeChannels(
-        groupName: String?,
+        filterPlaylistId: Long,
+        filterGroupName: String?,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,
@@ -61,8 +68,8 @@ interface ChannelDao {
     @Query("SELECT * FROM channels ORDER BY createdAt DESC LIMIT :limit")
     fun observeRecentlyAdded(limit: Int): Flow<List<ChannelEntity>>
 
-    @Query("SELECT * FROM channels WHERE number = :number LIMIT 1")
-    suspend fun getByNumber(number: Int): ChannelEntity?
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND number = :number LIMIT 1")
+    suspend fun getByNumber(playlistId: Long, number: Int): ChannelEntity?
 
     @Query("SELECT * FROM channels WHERE id = :channelId LIMIT 1")
     suspend fun getById(channelId: Long): ChannelEntity?
@@ -77,14 +84,16 @@ interface ChannelDao {
         """
         SELECT COUNT(*) FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+        WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
+          AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
         """
     )
     suspend fun countChannels(
-        groupName: String?,
+        filterPlaylistId: Long,
+        filterGroupName: String?,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,
@@ -95,7 +104,8 @@ interface ChannelDao {
         """
         SELECT COUNT(*) FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+        WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
+          AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
@@ -103,7 +113,8 @@ interface ChannelDao {
         """
     )
     suspend fun countChannelsFiltered(
-        groupName: String?,
+        filterPlaylistId: Long,
+        filterGroupName: String?,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,
@@ -116,7 +127,8 @@ interface ChannelDao {
         """
         SELECT c.* FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+        WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
+          AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
@@ -126,7 +138,8 @@ interface ChannelDao {
         """
     )
     suspend fun channelsPageFiltered(
-        groupName: String?,
+        filterPlaylistId: Long,
+        filterGroupName: String?,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,
@@ -141,7 +154,8 @@ interface ChannelDao {
         """
         SELECT c.* FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE (:groupName IS NULL OR c.groupName = :groupName)
+        WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
+          AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
@@ -150,7 +164,8 @@ interface ChannelDao {
         """
     )
     suspend fun channelsPage(
-        groupName: String?,
+        filterPlaylistId: Long,
+        filterGroupName: String?,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,
@@ -163,7 +178,7 @@ interface ChannelDao {
         """
         SELECT c.* FROM channels c
         LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
-        WHERE c.groupName IN (:groupNames)
+        WHERE (c.playlistId || char(31) || c.groupName) IN (:groupKeys)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
           AND c.name LIKE '%' || :search || '%'
@@ -172,7 +187,7 @@ interface ChannelDao {
         """
     )
     suspend fun channelsPageInGroups(
-        groupNames: List<String>,
+        groupKeys: List<String>,
         search: String,
         onlyFavorites: Boolean,
         profileId: Long,

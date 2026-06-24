@@ -22,9 +22,9 @@ class ProgrammeIndexTest {
     )
 
     private val programs = listOf(
-        Program(1L, "bbc1.uk", "News", "", 100L, 200L, ProgramGenre.NEWS, null),
-        Program(2L, "other", "Other", "", 0L, 1L, ProgramGenre.GENERAL, null),
-        Program(3L, "bbc1.uk", "Late", "", 300L, 400L, ProgramGenre.GENERAL, null)
+        Program(1L, "bbc1.uk", "News", "", 100L, 200L, ProgramGenre.NEWS, null, playlistId = 1L),
+        Program(2L, "other", "Other", "", 0L, 1L, ProgramGenre.GENERAL, null, playlistId = 1L),
+        Program(3L, "bbc1.uk", "Late", "", 300L, 400L, ProgramGenre.GENERAL, null, playlistId = 1L)
     )
 
     @Test
@@ -63,7 +63,8 @@ class ProgrammeIndexTest {
                 id * 1000L,
                 id * 1000L + 3_600_000L,
                 ProgramGenre.GENERAL,
-                null
+                null,
+                playlistId = 1L
             )
         }
         val startNs = System.nanoTime()
@@ -86,11 +87,25 @@ class ProgrammeIndexTest {
     fun programsFor_fallsBackToChannelName() {
         val nameChannel = channel.copy(epgId = null, name = "CNN")
         val namePrograms = listOf(
-            Program(1L, "CNN", "Live", "", 0L, 1L, ProgramGenre.NEWS, null)
+            Program(1L, "CNN", "Live", "", 0L, 1L, ProgramGenre.NEWS, null, playlistId = 1L)
         )
         val index = ProgrammeIndex.build(listOf(nameChannel), namePrograms)
 
         assertEquals("Live", index.programsFor(nameChannel.id).single().title)
+    }
+
+    @Test
+    fun programsFor_isolatesIdenticalEpgIdsAcrossPlaylists() {
+        val playlistOneChannel = channel.copy(id = 1L, playlistId = 1L, epgId = "cnn.us")
+        val playlistTwoChannel = channel.copy(id = 2L, playlistId = 2L, epgId = "cnn.us")
+        val mixedPrograms = listOf(
+            Program(10L, "cnn.us", "Playlist 1 News", "", 100L, 200L, ProgramGenre.NEWS, null, playlistId = 1L),
+            Program(20L, "cnn.us", "Playlist 2 News", "", 100L, 200L, ProgramGenre.NEWS, null, playlistId = 2L)
+        )
+        val index = ProgrammeIndex.build(listOf(playlistOneChannel, playlistTwoChannel), mixedPrograms)
+
+        assertEquals("Playlist 1 News", index.programsFor(playlistOneChannel.id).single().title)
+        assertEquals("Playlist 2 News", index.programsFor(playlistTwoChannel.id).single().title)
     }
 
     @Test

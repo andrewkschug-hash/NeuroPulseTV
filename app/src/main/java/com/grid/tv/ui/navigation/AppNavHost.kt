@@ -91,11 +91,13 @@ fun AppNavHost(
     fun RoutedVodHub(
         initialTab: Int,
         initialSeriesId: Long? = null,
+        initialPlaylistId: Long? = null,
         onBack: () -> Unit
     ) {
         VodHubScreen(
             initialTab = initialTab,
             initialSeriesId = initialSeriesId,
+            initialPlaylistId = initialPlaylistId,
             profileInitials = profileInitials,
             profileAvatarColor = profileAvatarColor,
             onPlayMovie = { title, url, resume ->
@@ -121,6 +123,9 @@ fun AppNavHost(
             },
             onOpenFavorites = { navigateToFavorites() },
             onNavigateProfile = onSwitchProfile,
+            onWatchChannel = { channelId ->
+                navController.navigate(Routes.Player.build(channelId))
+            },
             onBack = onBack
         )
     }
@@ -264,8 +269,10 @@ fun AppNavHost(
                     onNavigateVod = { tab ->
                         navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
                     },
-                    onNavigateSeries = { seriesId ->
-                        navController.navigate(Routes.VodHub.build(initialTab = 1, seriesId = seriesId)) {
+                    onNavigateSeries = { playlistId, seriesId ->
+                        navController.navigate(
+                            Routes.VodHub.build(initialTab = 1, seriesId = seriesId, playlistId = playlistId)
+                        ) {
                             launchSingleTop = true
                         }
                     },
@@ -298,14 +305,17 @@ fun AppNavHost(
                 route = Routes.VodHub.route,
                 arguments = listOf(
                     navArgument("initialTab") { type = NavType.IntType; defaultValue = 0 },
-                    navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L }
+                    navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L },
+                    navArgument("playlistId") { type = NavType.LongType; defaultValue = -1L }
                 )
             ) { entry ->
                 val initialTab = entry.arguments?.getInt("initialTab") ?: 0
                 val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
+                val playlistId = entry.arguments?.getLong("playlistId") ?: -1L
                 RoutedVodHub(
                     initialTab = initialTab,
                     initialSeriesId = seriesId.takeIf { it > 0 },
+                    initialPlaylistId = playlistId.takeIf { it > 0 },
                     onBack = { navController.popBackStack() }
                 )
             }
@@ -341,12 +351,17 @@ fun AppNavHost(
             }
             composable(
                 route = Routes.Series.route,
-                arguments = listOf(navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L })
+                arguments = listOf(
+                    navArgument("seriesId") { type = NavType.LongType; defaultValue = -1L },
+                    navArgument("playlistId") { type = NavType.LongType; defaultValue = -1L }
+                )
             ) { entry ->
                 val seriesId = entry.arguments?.getLong("seriesId") ?: -1L
+                val playlistId = entry.arguments?.getLong("playlistId") ?: -1L
                 RoutedVodHub(
                     initialTab = 1,
                     initialSeriesId = seriesId.takeIf { it > 0 },
+                    initialPlaylistId = playlistId.takeIf { it > 0 },
                     onBack = { navController.popBackStack() }
                 )
             }

@@ -6,8 +6,20 @@ package com.grid.tv.domain.model
  * Providers sometimes store only numeric [VodCategory.id] values in the name column (backfill
  * paths, missing `category_name`, or `category_name` mirroring the id). This resolver keeps
  * filtering keyed by id while displaying a readable label.
+ *
+ * UI grouping and lookup use [categoryKey] (playlist-scoped). Bare [VodCategory.id] remains
+ * the DAO filter parameter.
  */
 object VodCategoryNameResolver {
+
+    fun categoryKey(playlistId: Long, categoryId: String): String =
+        com.grid.tv.domain.model.categoryKey(playlistId, categoryId)
+
+    /** @see categoryKey */
+    fun compositeKey(playlistId: Long, categoryId: String): String = categoryKey(playlistId, categoryId)
+
+    fun categoryBrowseRowId(playlistId: Long, categoryId: String): String =
+        com.grid.tv.domain.model.categoryBrowseRowId(playlistId, categoryId)
 
     fun isUnresolvedName(categoryId: String, name: String): Boolean {
         val trimmed = name.trim()
@@ -16,17 +28,17 @@ object VodCategoryNameResolver {
         return trimmed.all { it.isDigit() }
     }
 
-    fun compositeKey(playlistId: Long, categoryId: String): String = "${playlistId}_$categoryId"
-
     /**
-     * Builds an id → label lookup from categories whose names are already human-readable.
+     * Builds a playlist-scoped lookup from categories whose names are already human-readable.
+     * Bare [VodCategory.id] is stored only as a last-resort compatibility fallback.
      */
     fun buildLookupTable(categories: Iterable<VodCategory>): Map<String, String> {
         val lookup = linkedMapOf<String, String>()
         categories.forEach { category ->
             if (!isUnresolvedName(category.id, category.name)) {
-                lookup[compositeKey(category.playlistId, category.id)] = category.name.trim()
-                lookup.putIfAbsent(category.id, category.name.trim())
+                val name = category.name.trim()
+                lookup[categoryKey(category.playlistId, category.id)] = name
+                lookup.putIfAbsent(category.id, name)
             }
         }
         return lookup
@@ -52,8 +64,8 @@ object VodCategoryNameResolver {
     ): String {
         if (!isUnresolvedName(categoryId, storedName)) return storedName.trim()
 
-        val composite = compositeKey(playlistId, categoryId)
-        lookupById[composite]?.takeIf { !isUnresolvedName(categoryId, it) }?.let { return it.trim() }
+        val scoped = categoryKey(playlistId, categoryId)
+        lookupById[scoped]?.takeIf { !isUnresolvedName(categoryId, it) }?.let { return it.trim() }
         lookupById[categoryId]?.takeIf { !isUnresolvedName(categoryId, it) }?.let { return it.trim() }
 
         return storedName.trim().ifBlank { categoryId }
@@ -61,8 +73,9 @@ object VodCategoryNameResolver {
 
     fun normalizeList(categories: List<VodCategory>): List<VodCategory> {
         if (categories.isEmpty()) return categories
-        val lookup = buildLookupTable(categories)
-        return categories.map { category ->
+        val streamBacked = VodCategoryGuards.filterStreamBacked(categories, source = "normalizeList")
+        val lookup = buildLookupTable(streamBacked)
+        return streamBacked.map { category ->
             category.copy(
                 name = resolveDisplayName(
                     categoryId = category.id,
@@ -86,14 +99,9 @@ object VodCategoryNameResolver {
         )
     )
 
-    /**
-     * Collapses series sidebar categories that share the same resolved display name
-     * (e.g. multiple numeric ids mapping to "Action & Adventure / …").
-     * [displayCategories] keeps one representative row per name; filtering must use
-     * [filterIdsByRepresentativeId] so all underlying ids are matched.
-     */
     data class SeriesSidebarCategories(
         val displayCategories: List<VodCategory>,
+        /** Keys are [categoryKey] values; values are bare category ids for DAO filtering. */
         val filterIdsByRepresentativeId: Map<String, Set<String>>
     )
 
@@ -101,16 +109,26 @@ object VodCategoryNameResolver {
         if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
         }
-        val grouped = categories
-            .filter { it.name.isNotBlank() }
-            .groupBy { it.name.lowercase().trim() }
+        val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
+        val lookup = buildLookupTable(streamBacked)
         val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
-        val displayCategories = grouped.values
-            .map { group ->
-                val sorted = group.sortedWith(compareBy({ it.playlistId }, { it.id }))
-                val representative = sorted.first()
-                filterIdsByRepresentativeId[representative.id] = group.map { it.id }.toSet()
-                representative.copy(name = representative.name.trim())
+        val displayCategories = streamBacked
+            .filter { it.name.isNotBlank() }
+            .map { category ->
+                category.copy(
+                    name = resolveDisplayName(
+                        categoryId = category.id,
+                        storedName = category.name,
+                        playlistId = category.playlistId,
+                        lookupById = lookup
+                    )
+                )
+            }
+            .distinctBy { categoryKey(it.playlistId, it.id) }
+            .map { category ->
+                val key = categoryKey(category.playlistId, category.id)
+                filterIdsByRepresentativeId[key] = setOf(category.id)
+                category.copy(name = category.name.trim())
             }
             .sortedBy { it.name.lowercase() }
         return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)

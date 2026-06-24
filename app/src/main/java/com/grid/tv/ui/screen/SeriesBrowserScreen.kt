@@ -78,6 +78,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import android.util.Log
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
+import com.grid.tv.feature.vod.personalization.matchContinueWatchingSeries
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.domain.model.VodCatalogEmptyReason
@@ -88,6 +89,10 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
+import com.grid.tv.ui.component.VodCatalogOnboardingPanel
+import com.grid.tv.ui.component.VodCatalogOnboardingTab
+import com.grid.tv.ui.component.VodCatalogOnboardingInputs
+import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCategoryChip
 import com.grid.tv.ui.component.VodEmptyState
@@ -108,6 +113,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SeriesBrowserScreen(
     initialSeriesId: Long? = null,
+    initialPlaylistId: Long? = null,
     onPlayUrl: (String, String, Boolean) -> Unit,
     onBack: () -> Unit = {},
     embedded: Boolean = false,
@@ -121,6 +127,7 @@ fun SeriesBrowserScreen(
     if (overlayDetail) {
         SeriesDetailOverlay(
             initialSeriesId = initialSeriesId,
+            initialPlaylistId = initialPlaylistId,
             onPlayUrl = onPlayUrl,
             hubSearchQuery = hubSearchQuery,
             viewModel = viewModel,
@@ -136,6 +143,8 @@ fun SeriesBrowserScreen(
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val catalogProgress by viewModel.catalogProgress.collectAsStateWithLifecycle()
     val catalogStatus by viewModel.catalogStatus.collectAsStateWithLifecycle()
+    val catalogLoading by viewModel.catalogLoading.collectAsStateWithLifecycle()
+    val browseRows by viewModel.browseRows.collectAsStateWithLifecycle()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsStateWithLifecycle()
     val seasons by viewModel.seasons.collectAsStateWithLifecycle()
     val selectedShowId by viewModel.selectedShowId.collectAsStateWithLifecycle()
@@ -160,12 +169,15 @@ fun SeriesBrowserScreen(
         if (embedded) viewModel.setSearchQuery(hubSearchQuery)
     }
 
-    LaunchedEffect(initialSeriesId, continueWatchingItems) {
+    LaunchedEffect(initialSeriesId, initialPlaylistId, continueWatchingItems) {
         if (initialSeriesId == null) return@LaunchedEffect
-        val cw = continueWatchingItems.firstOrNull {
-            it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == initialSeriesId
-        }
-        viewModel.selectShow(initialSeriesId, cw?.seasonNumber)
+        val playlistHint = initialPlaylistId ?: 0L
+        val cw = matchContinueWatchingSeries(continueWatchingItems, initialSeriesId, playlistHint)
+        viewModel.selectShow(
+            showId = initialSeriesId,
+            playlistId = initialPlaylistId ?: cw?.playlistId ?: 0L,
+            preferredSeason = cw?.seasonNumber
+        )
     }
 
     LaunchedEffect(selectedShowEnrichment) {
@@ -191,18 +203,21 @@ fun SeriesBrowserScreen(
         activeShow = when {
             showId == null -> null
             selectedShow != null -> selectedShow
-            else -> viewModel.resolveShow(showId)
-                ?: continueWatchingItems.firstOrNull {
-                    it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == showId
-                }?.let { cw ->
-                    SeriesShow(
-                        id = showId,
-                        name = cleanVodDisplayTitle(
-                            cw.title.substringBefore(" · ").trim().ifBlank { cw.title }
-                        ),
-                        coverUrl = cw.posterUrl
-                    )
-                }
+            else -> {
+                val cw = matchContinueWatchingSeries(continueWatchingItems, showId)
+                val playlistId = cw?.playlistId ?: 0L
+                viewModel.resolveShow(playlistId, showId)
+                    ?: cw?.let { item ->
+                        SeriesShow(
+                            id = showId,
+                            name = cleanVodDisplayTitle(
+                                item.title.substringBefore(" · ").trim().ifBlank { item.title }
+                            ),
+                            coverUrl = item.posterUrl,
+                            playlistId = item.playlistId
+                        )
+                    }
+            }
         }
     }
 
@@ -211,6 +226,16 @@ fun SeriesBrowserScreen(
     val seriesLoading = catalogProgress.isLoading &&
         catalogProgress.isMoviesPhaseComplete &&
         !catalogProgress.isSeriesPhaseComplete
+    val showVodOnboarding = rememberVodCatalogOnboardingVisible(
+        VodCatalogOnboardingInputs(
+            catalogLoading = catalogLoading,
+            progress = catalogProgress,
+            tab = VodCatalogOnboardingTab.SERIES,
+            browseRowCount = browseRows.size,
+            categoryCount = categories.size,
+            pagedItemCount = seriesPagingItems.itemCount
+        )
+    )
     val activeSearch = if (embedded) hubSearchQuery else searchQuery
     val seriesEmptyReason = catalogStatus.seriesEmptyReason(
         filteredCount = filteredTotalCount,
@@ -237,7 +262,7 @@ fun SeriesBrowserScreen(
         if (seasons.isEmpty() && !detailOpen) {
             VodCatalogProgressBar(
                 progress = catalogProgress.seriesProgressFraction(),
-                visible = seriesLoading
+                visible = seriesLoading && !showVodOnboarding
             )
         }
 
@@ -266,7 +291,7 @@ fun SeriesBrowserScreen(
             )
         }
 
-        if (seasons.isEmpty() && !detailOpen) {
+        if (seasons.isEmpty() && !detailOpen && !showVodOnboarding) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier
@@ -293,7 +318,7 @@ fun SeriesBrowserScreen(
             }
         }
 
-        if (seasons.isEmpty() && !detailOpen) {
+        if (seasons.isEmpty() && !detailOpen && !showVodOnboarding) {
             VodCatalogLoadingBanner(
                 baseMessage = "Fetching your provider's series catalog. Large libraries can take a minute.",
                 progress = catalogProgress,
@@ -336,10 +361,10 @@ fun SeriesBrowserScreen(
                     onEpisodePlay = { episode, seasonNumber, episodeNumber ->
                         scope.launch {
                             val resume = viewModel.shouldResumeEpisode(
+                                playlistId = show.playlistId,
                                 seriesId = show.id,
                                 seasonNumber = seasonNumber,
-                                episodeNumber = episodeNumber,
-                                streamId = episode.id
+                                episodeNumber = episodeNumber
                             )
                             VodPlaybackHelper.stageSeriesEpisode(
                                 show = show,
@@ -351,7 +376,7 @@ fun SeriesBrowserScreen(
                         }
                     },
                     episodeProgressFraction = { episode ->
-                        viewModel.episodeProgressFraction(episode.id, episode.duration)
+                        viewModel.episodeProgressFraction(show.playlistId, episode.id, episode.duration)
                     },
                     onMoveFocusUp = onMoveFocusUp,
                     modifier = Modifier.fillMaxSize()
@@ -366,6 +391,11 @@ fun SeriesBrowserScreen(
                     watchFocusRequester = episodeWatchFocusRequester
                 )
             }
+        } else if (showVodOnboarding && !detailOpen) {
+            VodCatalogOnboardingPanel(
+                progress = catalogProgress,
+                modifier = Modifier.weight(1f)
+            )
         } else if (seriesPagingItems.itemCount == 0 && catalogProgress.seriesPhaseFinished && !seriesLoading) {
             val title = seriesEmptyReason.vodEmptyTitle(isMovies = false)
             val message = seriesEmptyReason.vodEmptyMessage(catalogStatus, isMovies = false)
@@ -381,14 +411,15 @@ fun SeriesBrowserScreen(
         } else if (!detailOpen) {
             VodPagedVerticalGrid(
                 pagingItems = seriesPagingItems,
-                progressByStreamId = emptyMap(),
+                progressByKey = emptyMap(),
                 progressFraction = { _, _ -> null },
                 onItemClick = { card ->
-                    val cw = continueWatchingItems.firstOrNull {
-                        it.contentType == ContinueWatchingContentType.SERIES &&
-                            it.seriesId == card.showId
-                    }
-                    viewModel.selectShow(card.showId, cw?.seasonNumber)
+                    val cw = matchContinueWatchingSeries(
+                        continueWatchingItems,
+                        card.showId,
+                        card.playlistId
+                    )
+                    viewModel.selectShow(card.showId, card.playlistId, cw?.seasonNumber)
                 },
                 modifier = Modifier.weight(1f)
             )
@@ -1002,6 +1033,7 @@ private fun SeriesEpisodeDetailLayer(
     }
     LaunchedEffect(detail.episode.id, detail.seasonNumber, detail.episodeNumber) {
         watchStatus = viewModel.loadEpisodeWatchStatus(
+            playlistId = show.playlistId,
             seriesId = show.id,
             seasonNumber = detail.seasonNumber,
             episodeNumber = detail.episodeNumber,
@@ -1016,10 +1048,10 @@ private fun SeriesEpisodeDetailLayer(
         onWatchNow = {
             scope.launch {
                 val resume = viewModel.shouldResumeEpisode(
+                    playlistId = show.playlistId,
                     seriesId = show.id,
                     seasonNumber = detail.seasonNumber,
-                    episodeNumber = detail.episodeNumber,
-                    streamId = detail.episode.id
+                    episodeNumber = detail.episodeNumber
                 )
                 VodPlaybackHelper.stageSeriesEpisode(
                     show = show,
@@ -1041,6 +1073,7 @@ private fun SeriesEpisodeDetailLayer(
 @Composable
 private fun SeriesDetailOverlay(
     initialSeriesId: Long?,
+    initialPlaylistId: Long?,
     onPlayUrl: (String, String, Boolean) -> Unit,
     hubSearchQuery: String,
     viewModel: SeriesViewModel,
@@ -1068,12 +1101,15 @@ private fun SeriesDetailOverlay(
         viewModel.setSearchQuery(hubSearchQuery)
     }
 
-    LaunchedEffect(initialSeriesId, continueWatchingItems) {
+    LaunchedEffect(initialSeriesId, initialPlaylistId, continueWatchingItems) {
         if (initialSeriesId == null) return@LaunchedEffect
-        val cw = continueWatchingItems.firstOrNull {
-            it.contentType == ContinueWatchingContentType.SERIES && it.seriesId == initialSeriesId
-        }
-        viewModel.selectShow(initialSeriesId, cw?.seasonNumber)
+        val playlistHint = initialPlaylistId ?: 0L
+        val cw = matchContinueWatchingSeries(continueWatchingItems, initialSeriesId, playlistHint)
+        viewModel.selectShow(
+            showId = initialSeriesId,
+            playlistId = initialPlaylistId ?: cw?.playlistId ?: 0L,
+            preferredSeason = cw?.seasonNumber
+        )
     }
 
     LaunchedEffect(selectedShowEnrichment) {
@@ -1134,10 +1170,10 @@ private fun SeriesDetailOverlay(
             onEpisodePlay = { episode, seasonNumber, episodeNumber ->
                 scope.launch {
                     val resume = viewModel.shouldResumeEpisode(
+                        playlistId = resolvedShow.playlistId,
                         seriesId = resolvedShow.id,
                         seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        streamId = episode.id
+                        episodeNumber = episodeNumber
                     )
                     VodPlaybackHelper.stageSeriesEpisode(
                         show = resolvedShow,
@@ -1149,7 +1185,7 @@ private fun SeriesDetailOverlay(
                 }
             },
             episodeProgressFraction = { episode ->
-                viewModel.episodeProgressFraction(episode.id, episode.duration)
+                viewModel.episodeProgressFraction(resolvedShow.playlistId, episode.id, episode.duration)
             },
             modifier = Modifier.fillMaxSize()
         )

@@ -273,7 +273,7 @@ class HomeEpgViewModel @Inject constructor(
     val recentlyAdded: StateFlow<List<Channel>> = repository.recentlyAdded(8)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val vodProgress: StateFlow<Map<Long, Long>> = repository.vodWatchProgress()
+    val vodProgress: StateFlow<Map<Pair<Long, Long>, Long>> = repository.vodWatchProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _replayUrlsByProgramId = MutableStateFlow<Map<Long, String>>(emptyMap())
@@ -321,14 +321,16 @@ class HomeEpgViewModel @Inject constructor(
 
     private fun computeReplayUrls(programs: List<Program>, channels: List<Channel>): Map<Long, String> {
         if (programs.isEmpty() || channels.isEmpty()) return emptyMap()
-        val channelsByEpg = HashMap<String, Channel>(channels.size * 2)
+        val channelsByScopedKey = HashMap<Pair<Long, String>, Channel>(channels.size * 2)
         for (channel in channels) {
-            channel.epgId?.trim()?.takeIf { it.isNotEmpty() }?.let { channelsByEpg.putIfAbsent(it, channel) }
-            channelsByEpg.putIfAbsent(channel.name, channel)
+            channel.epgId?.trim()?.takeIf { it.isNotEmpty() }?.let { epgId ->
+                channelsByScopedKey.putIfAbsent(channel.playlistId to epgId, channel)
+            }
+            channelsByScopedKey.putIfAbsent(channel.playlistId to channel.name, channel)
         }
         val out = HashMap<Long, String>(minOf(programs.size, 512))
         for (program in programs) {
-            val channel = channelsByEpg[program.channelEpgId] ?: continue
+            val channel = channelsByScopedKey[program.playlistId to program.channelEpgId] ?: continue
             CatchupUrlFormatter.build(program, channel)?.let { out[program.id] = it }
         }
         return out
@@ -387,7 +389,7 @@ class HomeEpgViewModel @Inject constructor(
                 guidePreviewEnabled = values[14] as Boolean,
                 guidePreviewChannelId = values[15] as Long?,
                 guidePosition = values[16] as EpgGuidePosition,
-                vodProgress = values[17] as Map<Long, Long>
+                vodProgress = values[17] as Map<Pair<Long, Long>, Long>
             )
         )
     }.distinctUntilChanged()
@@ -1174,14 +1176,14 @@ class HomeEpgViewModel @Inject constructor(
         channelsForLookup: List<Channel>,
         programs: List<Program>
     ): ProgrammeCoverageStats {
-        val channelsWithPrograms = HashSet<String>(programs.size)
+        val channelsWithPrograms = HashSet<Pair<Long, String>>(programs.size)
         for (program in programs) {
-            channelsWithPrograms.add(program.channelEpgId.lowercase())
+            channelsWithPrograms.add(program.playlistId to program.channelEpgId.lowercase())
         }
         var matchedChannels = 0
         for (channel in channelsForLookup) {
             val epgId = channel.epgId ?: continue
-            if (channelsWithPrograms.contains(epgId.lowercase())) {
+            if (channelsWithPrograms.contains(channel.playlistId to epgId.lowercase())) {
                 matchedChannels++
             }
         }

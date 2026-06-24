@@ -11,12 +11,13 @@ data class GuideChannelFilter(
     val label: String
         get() = when {
             selectedGroups.isEmpty() -> "All channels"
-            selectedGroups.size == 1 -> selectedGroups.first()
+            selectedGroups.size == 1 -> com.grid.tv.domain.model.ChannelGroupIdentity.groupName(selectedGroups.first())
             else -> "${selectedGroups.size} groups"
         }
 
     fun appliesTo(channel: Channel): Boolean =
-        selectedGroups.isEmpty() || channel.group in selectedGroups
+        selectedGroups.isEmpty() ||
+            selectedGroups.any { com.grid.tv.domain.model.ChannelGroupIdentity.matches(channel, it) }
 
     companion object {
         val All = GuideChannelFilter()

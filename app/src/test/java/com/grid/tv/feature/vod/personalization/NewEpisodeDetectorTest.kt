@@ -33,10 +33,11 @@ class NewEpisodeDetectorTest {
                 followedAt = 0
             )
         )
-        coEvery { watchDao.latestForSeries(profileId, seriesId) } returns VodWatchEventEntity(
+        coEvery { watchDao.latestForSeries(profileId, 1L, seriesId) } returns VodWatchEventEntity(
             profileId = profileId,
-            contentId = "series:42:1:37",
+            contentId = "series:1:42:1:37",
             contentType = "EPISODE",
+            playlistId = 1L,
             seriesId = seriesId,
             seasonNumber = 1,
             episodeNumber = 37,

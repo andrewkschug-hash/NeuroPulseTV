@@ -23,7 +23,7 @@ class EpgUiSnapshotTest {
     )
 
     private val programs = listOf(
-        Program(1L, "bbc1.uk", "News", "", 100L, 200L, ProgramGenre.NEWS, null)
+        Program(1L, "bbc1.uk", "News", "", 100L, 200L, ProgramGenre.NEWS, null, playlistId = 1L)
     )
 
     @Test

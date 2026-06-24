@@ -18,30 +18,63 @@ interface ProgramDao {
     @Query("DELETE FROM programs")
     suspend fun clearAll()
 
-    @Query("SELECT * FROM programs WHERE channelEpgId IN (:epgIds) AND endTime >= :fromTime ORDER BY startTime")
-    fun observeGrid(epgIds: List<String>, fromTime: Long): Flow<List<ProgramEntity>>
-
-        @Query("SELECT * FROM programs WHERE channelEpgId IN (:epgIds) AND startTime < :windowEnd AND endTime > :windowStart ORDER BY startTime")
-        suspend fun loadWindow(epgIds: List<String>, windowStart: Long, windowEnd: Long): List<ProgramEntity>
-
     @Query(
         """
         SELECT * FROM programs
-        WHERE channelEpgId IN (:epgIds) AND startTime < :windowEnd AND endTime > :windowStart
+        WHERE playlistId = :playlistId
+            AND channelEpgId IN (:epgIds)
+            AND endTime >= :fromTime
         ORDER BY startTime
         """
     )
-    fun observeWindow(epgIds: List<String>, windowStart: Long, windowEnd: Long): Flow<List<ProgramEntity>>
+    fun observeGrid(playlistId: Long, epgIds: List<String>, fromTime: Long): Flow<List<ProgramEntity>>
 
     @Query(
         """
         SELECT * FROM programs
-        WHERE LOWER(channelEpgId) IN (:epgIdsLower)
-            AND startTime < :windowEnd AND endTime > :windowStart
+        WHERE playlistId = :playlistId
+            AND channelEpgId IN (:epgIds)
+            AND startTime < :windowEnd
+            AND endTime > :windowStart
+        ORDER BY startTime
+        """
+    )
+    suspend fun loadWindow(
+        playlistId: Long,
+        epgIds: List<String>,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<ProgramEntity>
+
+    @Query(
+        """
+        SELECT * FROM programs
+        WHERE playlistId = :playlistId
+            AND channelEpgId IN (:epgIds)
+            AND startTime < :windowEnd
+            AND endTime > :windowStart
+        ORDER BY startTime
+        """
+    )
+    fun observeWindow(
+        playlistId: Long,
+        epgIds: List<String>,
+        windowStart: Long,
+        windowEnd: Long
+    ): Flow<List<ProgramEntity>>
+
+    @Query(
+        """
+        SELECT * FROM programs
+        WHERE playlistId = :playlistId
+            AND LOWER(channelEpgId) IN (:epgIdsLower)
+            AND startTime < :windowEnd
+            AND endTime > :windowStart
         ORDER BY startTime
         """
     )
     suspend fun loadWindowIgnoreCase(
+        playlistId: Long,
         epgIdsLower: List<String>,
         windowStart: Long,
         windowEnd: Long
@@ -50,15 +83,23 @@ interface ProgramDao {
     @Query("SELECT * FROM programs WHERE title LIKE '%' || :query || '%' ORDER BY startTime LIMIT 100")
     fun observeSearch(query: String): Flow<List<ProgramEntity>>
 
-        @Query(
-                """
-                SELECT * FROM programs
-                WHERE (genre = 'SPORTS' OR title LIKE '%live%' OR title LIKE '%vs%' OR title LIKE '%match%')
-                    AND endTime >= :fromTime
-                ORDER BY startTime
-                """
-        )
-        fun observeSports(fromTime: Long): Flow<List<ProgramEntity>>
+    @Query(
+        """
+        SELECT * FROM programs
+        WHERE (genre = 'SPORTS' OR title LIKE '%live%' OR title LIKE '%vs%' OR title LIKE '%match%')
+            AND endTime >= :fromTime
+        ORDER BY startTime
+        """
+    )
+    fun observeSports(fromTime: Long): Flow<List<ProgramEntity>>
+
+    @Query(
+        """
+        SELECT DISTINCT channelEpgId FROM programs
+        WHERE playlistId = :playlistId AND channelEpgId != ''
+        """
+    )
+    suspend fun distinctChannelEpgIdsForPlaylist(playlistId: Long): List<String>
 
     @Query("SELECT DISTINCT channelEpgId FROM programs WHERE channelEpgId != ''")
     suspend fun distinctChannelEpgIds(): List<String>
