@@ -2742,23 +2742,51 @@ class IptvRepositoryImpl @Inject constructor(
         )
     }
 
-    private suspend fun buildFallbackSeriesCategories(): List<VodCategory> {
-        val lookup = buildCategoryNameLookup()
-        return VodCategoryGuards.filterStreamBacked(
+    private suspend fun buildStreamFallbackSeriesCategoriesRaw(): List<VodCategory> =
+        VodCategoryGuards.filterStreamBacked(
             seriesShowDao.distinctCategoryPairs().map { row ->
                 VodCategory(
                     id = row.categoryId,
-                    name = resolvedCategoryDisplayName(
-                        categoryId = row.categoryId,
-                        storedName = lookupCategoryLabel(lookup, row.playlistId, row.categoryId),
-                        playlistId = row.playlistId,
-                        lookup = lookup
-                    ),
+                    name = row.categoryId,
                     playlistId = row.playlistId
                 )
             },
-            source = "fallbackSeriesCategories"
+            source = "fallbackSeriesCategoriesRaw"
         )
+
+    private suspend fun buildSeriesGenreHintCategoriesRaw(): List<VodCategory> =
+        VodCategoryGuards.filterStreamBacked(
+            seriesShowDao.distinctCategoryGenreHints().mapNotNull { row ->
+                val genre = row.genre.trim()
+                if (genre.isBlank()) return@mapNotNull null
+                VodCategory(
+                    id = row.categoryId,
+                    name = genre,
+                    playlistId = row.playlistId
+                )
+            },
+            source = "seriesGenreHintCategories"
+        )
+
+    private suspend fun mergeAllSeriesCategorySources(stored: List<VodCategory>): List<VodCategory> =
+        VodCategoryNameResolver.mergeSeriesCategorySources(
+            stored,
+            buildStreamFallbackSeriesCategoriesRaw(),
+            buildSeriesGenreHintCategoriesRaw()
+        )
+
+    private suspend fun buildFallbackSeriesCategories(): List<VodCategory> {
+        val lookup = buildCategoryNameLookup()
+        return buildStreamFallbackSeriesCategoriesRaw().map { category ->
+            category.copy(
+                name = resolvedCategoryDisplayName(
+                    categoryId = category.id,
+                    storedName = lookupCategoryLabel(lookup, category.playlistId, category.id),
+                    playlistId = category.playlistId,
+                    lookup = lookup
+                )
+            )
+        }
     }
 
     private suspend fun buildFallbackVodCategories(): List<VodCategory> {
@@ -3615,12 +3643,8 @@ class IptvRepositoryImpl @Inject constructor(
         ) { stored, _, _ -> stored }
             .flatMapLatest { stored ->
                 flow {
-                    val categories = if (stored.isNotEmpty()) {
-                        stored.map { it.toDomain() }
-                    } else {
-                        buildFallbackSeriesCategories()
-                    }
-                    emit(resolveCategoriesForDisplay(categories))
+                    val merged = mergeAllSeriesCategorySources(stored.map { it.toDomain() })
+                    emit(resolveCategoriesForDisplay(merged))
                 }
             }
             .flowOn(Dispatchers.IO)

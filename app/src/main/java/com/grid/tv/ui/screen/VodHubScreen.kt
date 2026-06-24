@@ -1625,11 +1625,8 @@ private fun seriesCategoriesForSidebar(
     primary: List<VodCategory>,
     browseRows: List<VodBrowseRow>
 ): VodCategoryNameResolver.SeriesSidebarCategories {
-    val raw = if (primary.isNotEmpty()) {
-        primary
-    } else {
-        browseRows.mapNotNull(::vodCategoryFromBrowseRow)
-    }
+    val fromBrowse = browseRows.mapNotNull(::vodCategoryFromBrowseRow)
+    val raw = VodCategoryNameResolver.mergeSeriesCategorySources(primary, fromBrowse)
     return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw).also { bundle ->
         VodCategoryGuards.logDisplayNameCollisions(bundle.displayCategories, source = "seriesSidebar")
     }

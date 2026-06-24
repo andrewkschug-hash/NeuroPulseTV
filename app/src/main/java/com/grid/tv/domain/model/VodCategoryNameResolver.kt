@@ -105,15 +105,47 @@ object VodCategoryNameResolver {
         val filterIdsByRepresentativeId: Map<String, Set<String>>
     )
 
+    /**
+     * Collapses raw series categories from DB, stream fallback, and genre hints to one row per
+     * [categoryKey] before any display-name resolution.
+     */
+    fun mergeSeriesCategorySources(vararg sources: List<VodCategory>): List<VodCategory> {
+        val merged = linkedMapOf<String, VodCategory>()
+        sources.forEach { source ->
+            VodCategoryGuards.sanitizeStreamBacked(source).forEach { category ->
+                if (category.id.isBlank()) return@forEach
+                val key = categoryKey(category.playlistId, category.id)
+                val existing = merged[key]
+                merged[key] = preferCategoryForMerge(existing, category)
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun preferCategoryForMerge(existing: VodCategory?, incoming: VodCategory): VodCategory {
+        if (existing == null) return incoming
+        val existingReadable = !isUnresolvedName(existing.id, existing.name)
+        val incomingReadable = !isUnresolvedName(incoming.id, incoming.name)
+        return when {
+            incomingReadable && !existingReadable -> incoming
+            existingReadable && !incomingReadable -> existing
+            incomingReadable && incoming.name.length > existing.name.length -> incoming
+            else -> existing
+        }
+    }
+
     fun prepareSeriesCategoriesForSidebar(categories: List<VodCategory>): SeriesSidebarCategories {
         if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
         }
-        val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
-        val lookup = buildLookupTable(streamBacked)
+        val merged = mergeSeriesCategorySources(categories)
+            .distinctBy { categoryKey(it.playlistId, it.id) }
+        if (merged.isEmpty()) {
+            return SeriesSidebarCategories(emptyList(), emptyMap())
+        }
+        val lookup = buildLookupTable(merged)
         val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
-        val displayCategories = streamBacked
-            .filter { it.name.isNotBlank() }
+        val displayCategories = merged
             .map { category ->
                 category.copy(
                     name = resolveDisplayName(
@@ -124,7 +156,6 @@ object VodCategoryNameResolver {
                     )
                 )
             }
-            .distinctBy { categoryKey(it.playlistId, it.id) }
             .map { category ->
                 val key = categoryKey(category.playlistId, category.id)
                 filterIdsByRepresentativeId[key] = setOf(category.id)
