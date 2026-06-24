@@ -2214,10 +2214,21 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger) {
-        val delayMs = StartupTierPolicy.deferredVodRefreshDelayMs(trigger)
         deferredVodCatalogRefreshJob?.cancel()
         deferredVodCatalogRefreshJob = vodRepositoryScope.launch {
-            StartupProfiler.mark("vod_refresh_scheduled", "delay=${delayMs}ms trigger=$trigger")
+            val dbEmpty = withContext(Dispatchers.IO) {
+                cachedMoviesCount() <= 0 && cachedSeriesCount() <= 0
+            }
+            val delayMs = if (dbEmpty && (
+                    trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
+                        trigger == VodRefreshTrigger.MANUAL_RETRY
+                    )
+            ) {
+                StartupTierPolicy.emptyCatalogVodRefreshDelayMs()
+            } else {
+                StartupTierPolicy.deferredVodRefreshDelayMs(trigger)
+            }
+            StartupProfiler.mark("vod_refresh_scheduled", "delay=${delayMs}ms trigger=$trigger dbEmpty=$dbEmpty")
             delay(delayMs)
             if (playlistImportCoordinator.isImportActive()) {
                 playlistImportCoordinator.deferVodRefresh("deferred_startup trigger=$trigger")
@@ -2278,11 +2289,6 @@ class IptvRepositoryImpl @Inject constructor(
                 publishUi = countsChanged || !persisted.isValid
             )
 
-            if (dbCounts.movies > 0 || dbCounts.series > 0) {
-                if (lastVodRefreshCompletedAtMs <= 0L) {
-                    lastVodRefreshCompletedAtMs = System.currentTimeMillis()
-                }
-            }
             if (dbCounts.channels > 0) {
                 // Warm SQLite page cache for the first guide page only — never load the full channel table.
                 mapChannelEntities(
@@ -2317,6 +2323,10 @@ class IptvRepositoryImpl @Inject constructor(
         val callAtMs = System.currentTimeMillis()
         val dbMovies = cachedMoviesCount()
         val dbSeries = cachedSeriesCount()
+        if (!force && isSystemLowOnMemory()) {
+            Log.w(VOD_FLOW_TAG, "Skipping VOD refresh — system low on memory trigger=$trigger")
+            return@withContext
+        }
         Log.i(
             VOD_FLOW_TAG,
             "refreshVodSeriesCatalog requested trigger=$trigger force=$force at=$callAtMs " +
@@ -2382,9 +2392,6 @@ class IptvRepositoryImpl @Inject constructor(
             val dbSeries = cachedSeriesCount()
             vodDiskCacheLoaded = true
             if (dbMovies > 0 || dbSeries > 0) {
-                if (lastVodRefreshCompletedAtMs <= 0L) {
-                    lastVodRefreshCompletedAtMs = System.currentTimeMillis()
-                }
                 Log.i(
                     VOD_FLOW_TAG,
                     "VOD catalog available in DB movies=$dbMovies series=$dbSeries (lazy paging — no bulk load)"
@@ -2397,9 +2404,6 @@ class IptvRepositoryImpl @Inject constructor(
                     persist = true
                 )
                 if (counts.movies > 0 || counts.series > 0) {
-                    if (lastVodRefreshCompletedAtMs <= 0L) {
-                        lastVodRefreshCompletedAtMs = System.currentTimeMillis()
-                    }
                     Log.i(
                         VOD_FLOW_TAG,
                         "VOD catalog available in DB movies=${counts.movies} series=${counts.series} " +
@@ -2414,7 +2418,17 @@ class IptvRepositoryImpl @Inject constructor(
         if (lastVodRefreshCompletedAtMs <= 0L) return false
         val ageMs = System.currentTimeMillis() - lastVodRefreshCompletedAtMs
         if (ageMs >= VOD_CACHE_TTL_MS) return false
-        return cachedMoviesCount() > 0 || cachedSeriesCount() > 0
+        val movies = cachedMoviesCount()
+        val series = cachedSeriesCount()
+        if (movies <= 0 && series <= 0) return false
+        return true
+    }
+
+    private fun isSystemLowOnMemory(): Boolean {
+        val runtime = Runtime.getRuntime()
+        val used = runtime.totalMemory() - runtime.freeMemory()
+        val max = runtime.maxMemory().coerceAtLeast(1L)
+        return used.toDouble() / max.toDouble() >= 0.85
     }
 
     private suspend fun needsSeriesCategoriesRefresh(): Boolean =
@@ -2820,7 +2834,9 @@ class IptvRepositoryImpl @Inject constructor(
                 moviesPhaseFinished = true,
                 seriesPhaseFinished = true
             )
-            lastVodRefreshCompletedAtMs = System.currentTimeMillis()
+            if (moviesParsedCount > 0 || seriesParsedCount > 0) {
+                lastVodRefreshCompletedAtMs = System.currentTimeMillis()
+            }
             bumpVodCatalogRevision()
             refreshCatalogCountsFromDb(trigger = trigger, force = true)
             Log.i(
@@ -3269,6 +3285,7 @@ class IptvRepositoryImpl @Inject constructor(
         return Pager(
             config = PagingConfig(
                 pageSize = VOD_PAGING_PAGE_SIZE,
+                initialLoadSize = StartupTierPolicy.vodPagingInitialLoadSize(VOD_PAGING_PAGE_SIZE),
                 prefetchDistance = TvImageSizing.vodPagingPrefetchDistance(),
                 enablePlaceholders = false
             ),
@@ -3283,6 +3300,7 @@ class IptvRepositoryImpl @Inject constructor(
         return Pager(
             config = PagingConfig(
                 pageSize = VOD_PAGING_PAGE_SIZE,
+                initialLoadSize = StartupTierPolicy.vodPagingInitialLoadSize(VOD_PAGING_PAGE_SIZE),
                 prefetchDistance = TvImageSizing.vodPagingPrefetchDistance(),
                 enablePlaceholders = false
             ),

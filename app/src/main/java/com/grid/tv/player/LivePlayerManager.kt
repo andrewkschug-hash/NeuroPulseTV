@@ -152,6 +152,22 @@ class LivePlayerManager @Inject constructor(
     /** @deprecated Prefer [playbackUiState]. */
     val activeStreamUrlFlow: StateFlow<String?> = _activeStreamUrl.asStateFlow()
 
+    private fun shouldPlayNow(requested: Boolean = true): Boolean =
+        requested && mode != Mode.IDLE && !deferPlayUntilSurfaceAttached
+
+    /** Resume playback after the fullscreen [PlayerView] has attached its surface. */
+    fun onFullscreenSurfaceAttached() {
+        if (!deferPlayUntilSurfaceAttached) return
+        deferPlayUntilSurfaceAttached = false
+        TuneLatencyTracker.logEvent("SURFACE_ATTACHED", "owner=live_fullscreen")
+        player?.let { exo ->
+            if (mode == Mode.FULLSCREEN && !exo.playWhenReady) {
+                exo.playWhenReady = true
+                applyVolume()
+            }
+        }
+    }
+
     private val failoverActions = object : StreamFailoverPlaybackActions {
         override fun reconnectSameStream() {
             val exo = player ?: return
@@ -160,7 +176,7 @@ class LivePlayerManager @Inject constructor(
             val resumeMs = exo.currentPosition.coerceAtLeast(0L)
             exo.setMediaItem(buildLiveMediaItem(url), resumeMs)
             exo.prepare()
-            exo.playWhenReady = mode != Mode.IDLE
+            exo.playWhenReady = shouldPlayNow()
             applyVolume()
         }
 
@@ -181,6 +197,8 @@ class LivePlayerManager @Inject constructor(
     private var suppressExitFullscreenSideEffects = false
     @Volatile
     private var multiPaneHandoffInProgress = false
+    @Volatile
+    private var deferPlayUntilSurfaceAttached = false
     private var volumeFadeMultiplier: Float = 1f
     private var streamTransitionJob: Job? = null
 
@@ -519,7 +537,7 @@ class LivePlayerManager @Inject constructor(
         }
         PerformanceAudit.logPlayerLifecycle("REUSE_SKIP_FLUSH", exo, _playerGeneration.value, channelId)
         PerformanceAudit.logTuneReuseSkipFlush(channelId, streamUrl)
-        exo.playWhenReady = true
+        exo.playWhenReady = shouldPlayNow()
         applyVolume()
         refreshTimeshiftWindow(exo)
         playbackMonitor.onStreamContinued(exo)
@@ -714,7 +732,7 @@ class LivePlayerManager @Inject constructor(
         TuneLatencyTracker.logEvent("PLAYER_PREPARE_START")
         exo.prepare()
         TuneLatencyTracker.logEvent("PLAYER_PREPARE_END")
-        exo.playWhenReady = playWhenReady
+        exo.playWhenReady = shouldPlayNow(playWhenReady)
         applyVolume()
 
         playbackMonitor.onTuneStarted(streamUrl)
@@ -775,7 +793,7 @@ class LivePlayerManager @Inject constructor(
         exo.clearMediaItems()
         exo.setMediaItem(buildLiveMediaItem(url, formatOverride = IptvStreamFormat.PROGRESSIVE))
         exo.prepare()
-        exo.playWhenReady = mode != Mode.IDLE
+        exo.playWhenReady = shouldPlayNow()
         return true
     }
 
@@ -933,7 +951,7 @@ class LivePlayerManager @Inject constructor(
     fun setMode(newMode: Mode) {
         mode = newMode
         applyVolume()
-        player?.playWhenReady = newMode != Mode.IDLE
+        player?.playWhenReady = shouldPlayNow(newMode != Mode.IDLE)
         syncCatalogHydrationGuard()
     }
 
@@ -941,6 +959,7 @@ class LivePlayerManager @Inject constructor(
         fullscreenSessions++
         syncFullscreenActive()
         resetVolumeFade()
+        deferPlayUntilSurfaceAttached = true
         player?.clearVideoSurface()
         setMode(Mode.FULLSCREEN)
         LiveFullscreenLogger.enterFullscreen(player)
@@ -949,6 +968,7 @@ class LivePlayerManager @Inject constructor(
     /** EPG → PlayerScreen: detach preview surface early without incrementing fullscreen session count. */
     fun prepareFullscreenHandoff() {
         _fullscreenActive.value = true
+        deferPlayUntilSurfaceAttached = true
         player?.clearVideoSurface()
     }
 
@@ -1013,6 +1033,7 @@ class LivePlayerManager @Inject constructor(
             fullscreenSessions--
         }
         syncFullscreenActive()
+        deferPlayUntilSurfaceAttached = false
         LiveFullscreenLogger.exitFullscreen(player)
         if (fullscreenSessions > 0) return
 
@@ -1120,7 +1141,7 @@ class LivePlayerManager @Inject constructor(
             return
         }
         tuneChannel(context, channel)
-        player?.playWhenReady = true
+        player?.playWhenReady = shouldPlayNow()
         applyVolume()
     }
 

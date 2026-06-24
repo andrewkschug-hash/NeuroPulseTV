@@ -25,6 +25,10 @@
 -keep class com.grid.tv.data.db.** { *; }
 -dontwarn androidx.room.paging.**
 
+# Paging 3 — keep Room paging sources for release VOD grids
+-keep class * extends androidx.paging.PagingSource { *; }
+-keep class com.grid.tv.data.db.dao.** { *; }
+
 # App models / DTOs (Retrofit responses, kotlinx.serialization, data classes)
 -keep @kotlinx.serialization.Serializable class ** { *; }
 -keepclassmembers @kotlinx.serialization.Serializable class ** {

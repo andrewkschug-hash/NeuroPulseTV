@@ -195,7 +195,8 @@ private fun EpgPreviewPlayerPane(
                         }
                     },
                     update = { view ->
-                        if (view.player != player) {
+                        if (view.player !== player) {
+                            view.player = null
                             view.player = player
                             LiveFullscreenLogger.attachPlayerToFullscreen(player, "epg_preview")
                         }

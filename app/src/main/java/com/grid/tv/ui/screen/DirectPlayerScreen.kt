@@ -255,6 +255,8 @@ fun DirectPlayerScreen(
 
     val resolvedVod = resolvedVodStream!!
 
+    val playbackStarted = remember { mutableStateOf(false) }
+
     val player = remember(url, immediateResumeMs, onDemandContentKind, resolvedVod) {
         resumeSeekState.applied = immediateResumeMs > 0L
         resumeSeekState.pendingMs = immediateResumeMs
@@ -275,8 +277,6 @@ fun DirectPlayerScreen(
                 setMediaItem(mediaItem)
             }
             playbackNetworkCoordinator.markSingleRequestAllowed(url)
-            prepare()
-            playWhenReady = true
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY) {
@@ -811,6 +811,11 @@ fun DirectPlayerScreen(
                     playerViewRef[0] = this
                 }.also { view ->
                     PlaybackSurfaceInstrument.attach("vod_direct", player, view)
+                    if (!playbackStarted.value) {
+                        player.prepare()
+                        player.playWhenReady = true
+                        playbackStarted.value = true
+                    }
                 }
             },
             update = { view ->

@@ -113,12 +113,14 @@ class MoviesViewModel @Inject constructor(
         moviesCountFlow,
         languagePreferenceStore.preferredLanguages,
         categories
-    ) { _, _, languages, categoryList ->
-        languages to categoryList.associate { it.id to it.name }
+    ) { _, movieCount, languages, categoryList ->
+        Triple(movieCount, languages, categoryList.associate { it.id to it.name })
     }
-        .flatMapLatest { (languages, categoryNames) ->
+        .flatMapLatest { (movieCount, languages, categoryNames) ->
             flow {
-                delay(StartupTierPolicy.tier2DelayMs())
+                if (movieCount <= 0) {
+                    delay(StartupTierPolicy.tier2DelayMs())
+                }
                 val rows = withContext(Dispatchers.IO) { repository.loadMovieBrowseRows() }
                 emit(filterBrowseRows(rows, languages, movieCategoryNames = categoryNames))
             }

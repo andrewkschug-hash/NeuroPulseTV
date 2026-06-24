@@ -24,6 +24,12 @@ object StartupTierPolicy {
         else -> tier3DelayMs()
     }
 
+    /** Faster retry when the on-disk catalog is empty and the hub needs content. */
+    fun emptyCatalogVodRefreshDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 400L
+
+    fun vodPagingInitialLoadSize(pageSize: Int): Int =
+        if (LowEndDeviceMode.current().active) pageSize else pageSize * 2
+
     fun updateCheckDelayMs(): Long = tier3DelayMs()
 
     fun recommendationSampleSize(): Int = if (LowEndDeviceMode.current().active) 150 else 500

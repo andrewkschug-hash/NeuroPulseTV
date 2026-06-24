@@ -712,6 +712,7 @@ fun PlayerScreen(
                         LiveFullscreenLogger.surfaceCreated("live_fullscreen", player)
                         PlaybackSurfaceInstrument.attach("live_fullscreen", player, view)
                         LiveFullscreenLogger.attachPlayerToFullscreen(player, "live_fullscreen")
+                        livePlayerManager.onFullscreenSurfaceAttached()
                     }
                 },
                 update = { view ->

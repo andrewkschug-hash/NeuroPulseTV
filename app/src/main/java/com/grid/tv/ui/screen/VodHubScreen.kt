@@ -1196,7 +1196,13 @@ fun VodHubScreen(
                     )
                 }
 
-                val vodLoading = catalogLoading || (catalogProgress.isLoading && catalogTotalCount == 0)
+                val vodContentPending = wallRows.isEmpty() &&
+                    !showInlineSearch &&
+                    movieBrowseRows.isEmpty() &&
+                    seriesBrowseRows.isEmpty()
+                val vodLoading = catalogLoading ||
+                    catalogProgress.isLoading ||
+                    (vodContentPending && catalogTotalCount == 0)
                 val movieProgressFraction = { card: com.grid.tv.ui.component.VodGridCardModel, map: Map<Long, Long> ->
                     moviePagingItems.itemSnapshotList.items
                         .firstOrNull { it.streamId == card.streamId }

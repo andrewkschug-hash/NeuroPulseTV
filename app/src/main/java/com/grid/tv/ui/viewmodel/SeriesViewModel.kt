@@ -129,12 +129,14 @@ class SeriesViewModel @Inject constructor(
         repository.seriesShowCount(),
         languagePreferenceStore.preferredLanguages,
         categories
-    ) { _, _, languages, categoryList ->
-        languages to categoryList.associate { it.id to it.name }
+    ) { _, seriesCount, languages, categoryList ->
+        Triple(seriesCount, languages, categoryList.associate { it.id to it.name })
     }
-        .flatMapLatest { (languages, categoryNames) ->
+        .flatMapLatest { (seriesCount, languages, categoryNames) ->
             flow {
-                delay(StartupTierPolicy.tier2DelayMs())
+                if (seriesCount <= 0) {
+                    delay(StartupTierPolicy.tier2DelayMs())
+                }
                 val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
                 emit(filterBrowseRows(rows, languages, seriesCategoryNames = categoryNames))
             }
