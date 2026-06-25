@@ -21,6 +21,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
+import com.grid.tv.feature.startup.CachedCatalogCounts
 import kotlinx.coroutines.flow.Flow
 import android.content.ContentResolver
 import android.net.Uri
@@ -207,6 +208,21 @@ interface IptvRepository {
     suspend fun importTiviMate(contentResolver: ContentResolver, uri: Uri, cacheDir: File): String
 
     suspend fun ensureVodCatalogLoaded(trigger: VodRefreshTrigger)
+
+    /** Phase 1 startup — profile, settings, persisted counts only (no SQLite COUNT). */
+    suspend fun warmLocalUiCacheMinimal()
+
+    /** Phase 2A — re-publish cached counts (SharedPreferences / memory only). */
+    fun applyCachedCatalogCountsAtStartup()
+
+    /** Read cached catalog sizes without SQLite COUNT. */
+    fun getCachedCatalogCounts(): CachedCatalogCounts
+
+    /** Phase 2B — chunked background COUNT queries + channel page warm (after interactive window). */
+    suspend fun updateCountsInBackground()
+
+    /** Phase 3 startup — network VOD sync scheduling only (returns immediately). */
+    fun startDeferredVodMaintenance(trigger: VodRefreshTrigger)
 
     /** Loads VOD rows from local DB and warms the first channel page — no network. */
     suspend fun warmLocalUiCache()
