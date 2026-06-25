@@ -19,6 +19,10 @@ class EpgScheduler @Inject constructor(
         epgJobCoordinator.scheduleStartupEpg()
     }
 
+    fun scheduleEpgOnGuideOpen() {
+        epgJobCoordinator.scheduleEpgOnGuideOpen()
+    }
+
     /** @deprecated Prefer [scheduleStartupEpg] or [scheduleManualEpg] via coordinator sources. */
     fun runEpgRefreshNow() {
         epgJobCoordinator.scheduleManualEpg()

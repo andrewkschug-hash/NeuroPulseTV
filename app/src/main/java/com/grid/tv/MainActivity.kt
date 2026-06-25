@@ -18,7 +18,7 @@ import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
-import com.grid.tv.ui.navigation.AppRoot
+import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.viewmodel.SettingsViewModel
@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        StartupTrace.trace("MainActivity.onCreate") {
         super.onCreate(savedInstanceState)
         requestedOrientation = if (isTelevision()) {
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -98,6 +99,7 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
         }
     }
 

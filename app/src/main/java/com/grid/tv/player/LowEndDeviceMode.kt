@@ -48,6 +48,9 @@ object LowEndDeviceMode {
 
     fun isActive(context: Context): Boolean = profile(context).active
 
+    /** True when the constrained-device profile is active (≤2 GB RAM / low-RAM TV). */
+    fun isEnabled(): Boolean = current().active
+
     fun current(): Profile = cached ?: HIGH_END_DEFAULT
 
     fun onTrimMemory(level: Int) {
@@ -86,7 +89,7 @@ object LowEndDeviceMode {
             maxBufferMsCap = 60_000,
             telemetryVerbose = false,
             performanceAuditEnabled = false,
-            epgStartupDelaySec = 45L,
+            epgStartupDelaySec = 90L,
             watchdogPollIntervalMs = 4_000L,
             watchDurationTickMs = 10_000L,
             decodeOnlyMultiPaneAudio = true,

@@ -66,6 +66,7 @@ import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.feature.startup.PersistedCatalogCounts
 import com.grid.tv.feature.startup.StartupCatalogCountsStore
@@ -122,6 +123,7 @@ import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.feature.backup.GridBackupManager
 import com.grid.tv.feature.health.StreamHealthEngine
@@ -279,8 +281,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodCatalogLoading = MutableStateFlow(false)
     private val vodCatalogProgress = MutableStateFlow(VodCatalogProgress())
     private val vodCatalogStatus = MutableStateFlow(VodCatalogStatus())
-    private val vodRefreshMutex = Mutex()
-    private val epgRefreshMutex = Mutex()
+    private val startupHeavyWorkMutex = Mutex()
     private val vodDiskLoadMutex = Mutex()
     private val vodRepositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile
@@ -1373,13 +1374,25 @@ class IptvRepositoryImpl @Inject constructor(
         return rebuildEpgLinkResolver(playlistId)
     }
 
-    private suspend fun rebuildEpgLinkResolver(playlistId: Long): EpgChannelLinkResolver {
+    private suspend fun rebuildEpgLinkResolver(playlistId: Long): EpgChannelLinkResolver =
+        startupHeavyWorkMutex.withLock {
+        StartupTrace.traceSuspend("rebuildEpgLinkResolver playlistId=$playlistId") {
         val sourceKey = "xmltv:$playlistId"
         val refs = linkedMapOf<String, XmlTvChannelRef>()
-        epgSourceChannelDao.bySource(sourceKey).forEach { source ->
-            refs[source.epgId] = XmlTvChannelRef(source.epgId, source.displayName)
+        val sourceChannels = epgSourceChannelDao.bySource(sourceKey)
+        if (sourceChannels.size <= MAX_RESOLVER_SOURCE_CHANNELS) {
+            sourceChannels.forEach { source ->
+                refs[source.epgId] = XmlTvChannelRef(source.epgId, source.displayName)
+            }
+        } else {
+            Log.w(
+                EPG_FLOW_TAG,
+                "EPG resolver: skipping ${sourceChannels.size} xmltv source channels for playlistId=$playlistId " +
+                    "(cap=$MAX_RESOLVER_SOURCE_CHANNELS) — using programme channel ids only"
+            )
         }
         programDao.distinctChannelEpgIdsForPlaylist(playlistId).forEach { epgId ->
+            if (refs.size >= MAX_RESOLVER_SOURCE_CHANNELS) return@forEach
             refs.putIfAbsent(epgId, XmlTvChannelRef(epgId, epgId))
         }
         val learnedMappings = epgLearnedMappingDao.all().associate { mapping ->
@@ -1393,8 +1406,14 @@ class IptvRepositoryImpl @Inject constructor(
             val map = epgLinkResolversByPlaylist
                 ?: mutableMapOf<Long, EpgChannelLinkResolver>().also { epgLinkResolversByPlaylist = it }
             map[playlistId] = resolver
+            Log.i(
+                EPG_FLOW_TAG,
+                "EPG link resolver built playlistId=$playlistId sourceChannels=${sourceChannels.size} " +
+                    "resolverChannels=${refs.size} cap=$MAX_RESOLVER_SOURCE_CHANNELS"
+            )
         }
-    }
+        }
+        }
 
     private fun logEpgMatchDebug(
         channels: List<Channel>,
@@ -2052,7 +2071,8 @@ class IptvRepositoryImpl @Inject constructor(
         bumpVodCatalogRevision()
     }
 
-    override suspend fun refreshEpgNow(): EpgRefreshReport = epgRefreshMutex.withLock {
+    override suspend fun refreshEpgNow(): EpgRefreshReport = startupHeavyWorkMutex.withLock {
+        StartupTrace.traceSuspend("refreshEpgNow") {
         withContext(epgDispatchers.io) {
         epgDownloadTracker.setInProgress(true)
         try {
@@ -2261,6 +2281,7 @@ class IptvRepositoryImpl @Inject constructor(
             epgDownloadTracker.setInProgress(false)
         }
         }
+        }
     }
 
     private fun reportWillImportData(attempts: List<EpgFetchAttempt>): Boolean =
@@ -2308,6 +2329,13 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun loadVodStreamed(trigger: VodRefreshTrigger) {
+        if (LowEndDeviceMode.isEnabled() && trigger == VodRefreshTrigger.REPOSITORY_INIT) {
+            Log.i(
+                VOD_FLOW_TAG,
+                "Skipping startup VOD load on low-end device trigger=$trigger — loads on VOD hub entry"
+            )
+            return
+        }
         com.grid.tv.util.VodCatalogLogger.vodLoadStart(trigger.name)
         vodRepositoryScope.launch(Dispatchers.IO) {
             hydrateVodUiFromRoom(trigger)
@@ -2387,6 +2415,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun warmLocalUiCache() {
+        StartupTrace.traceSuspend("warmLocalUiCache") {
         withContext(Dispatchers.IO) {
             StartupProfiler.mark("repository_warm_start")
             ensureDefaultProfile()
@@ -2447,6 +2476,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
             appCacheRegistry.logInventory("warm_local_ui_cache")
         }
+        }
     }
 
     override suspend fun refreshVodSeriesCatalog(
@@ -2499,7 +2529,7 @@ class IptvRepositoryImpl @Inject constructor(
         val completion = CompletableDeferred<Unit>()
         activeVodRefresh = completion
         try {
-            vodRefreshMutex.withLock {
+            startupHeavyWorkMutex.withLock {
                 if (!force && isVodCatalogFresh()) {
                     Log.i(VOD_FLOW_TAG, "Skipping network refresh inside lock trigger=$trigger — cache became fresh")
                     publishVodProgressFromDb(trigger = trigger)
@@ -3228,7 +3258,8 @@ class IptvRepositoryImpl @Inject constructor(
             VOD_FLOW_TAG,
             "Starting get_vod_streams playlist=${playlist.id} trigger=$trigger at=${System.currentTimeMillis()}"
         )
-        return try {
+        return StartupTrace.traceSuspend("refreshVodCatalogForPlaylist playlistId=${playlist.id}") {
+        try {
             val fetchResult = remoteTextFetcher.fetchCatalogToTempFile(
                 rawUrl = vodUrl,
                 cacheKey = "vod_pl${playlist.id}"
@@ -3390,6 +3421,7 @@ class IptvRepositoryImpl @Inject constructor(
             preserveCatalogLog(playlist.id, "movie", message)
             VodPlaylistRefreshResult(error = message)
         }
+        }
     }
 
     private suspend fun refreshVodCategoriesForPlaylist(
@@ -3460,7 +3492,8 @@ class IptvRepositoryImpl @Inject constructor(
             return VodPlaylistRefreshResult(skippedReason = reason)
         }
         val (server, user, pass) = credentials
-        return try {
+        return StartupTrace.traceSuspend("refreshSeriesCatalogForPlaylist playlistId=${playlist.id}") {
+        try {
             val seriesUrl = buildXtreamApiUrl(server, user, pass, action = "get_series")
             Log.i(
                 VOD_FLOW_TAG,
@@ -3602,6 +3635,7 @@ class IptvRepositoryImpl @Inject constructor(
             )
             preserveCatalogLog(playlist.id, "series", message)
             VodPlaylistRefreshResult(error = message)
+        }
         }
     }
 

@@ -33,6 +33,7 @@ class EpgJobCoordinator @Inject constructor(
     }
 
     private val importEpgScheduled = AtomicBoolean(false)
+    private val lowEndGuideEpgTriggered = AtomicBoolean(false)
 
     fun schedulePeriodicWorkers() {
         Log.i(TAG, "EPG_JOB_SCHEDULED source=PERIODIC action=register_periodic_workers policy=KEEP")
@@ -70,10 +71,33 @@ class EpgJobCoordinator @Inject constructor(
             Log.i(TAG, "EPG startup skipped — import EPG already queued")
             return
         }
+        val delaySec = LowEndDeviceMode.current().epgStartupDelaySec
+        if (LowEndDeviceMode.isEnabled()) {
+            Log.i(
+                TAG,
+                "EPG low-end startup deferred ${delaySec}s — will also run on guide open (GUIDE_OPEN)"
+            )
+        }
         enqueueRefresh(
             source = EpgJobSource.STARTUP,
-            initialDelaySec = LowEndDeviceMode.current().epgStartupDelaySec,
+            initialDelaySec = delaySec,
             policy = ExistingWorkPolicy.KEEP
+        )
+    }
+
+    /**
+     * Low-end only: refresh EPG when the user opens the guide (replaces any deferred startup job).
+     */
+    fun scheduleEpgOnGuideOpen() {
+        if (!LowEndDeviceMode.isEnabled()) return
+        if (!lowEndGuideEpgTriggered.compareAndSet(false, true)) {
+            Log.i(TAG, "EPG guide-open refresh already scheduled")
+            return
+        }
+        enqueueRefresh(
+            source = EpgJobSource.GUIDE_OPEN,
+            initialDelaySec = 0L,
+            policy = ExistingWorkPolicy.REPLACE
         )
     }
 

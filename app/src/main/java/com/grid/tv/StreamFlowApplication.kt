@@ -11,8 +11,10 @@ import coil.memory.MemoryCache
 import com.grid.tv.data.db.AppDatabaseHolder
 import com.grid.tv.di.StartupEntryPoint
 import com.grid.tv.domain.model.VodRefreshTrigger
+import com.grid.tv.feature.startup.MemoryPressureMonitor
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.util.PosterImageEventListener
 import com.grid.tv.util.PerformanceAudit
@@ -29,6 +31,8 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        MemoryPressureMonitor.start()
+        StartupTrace.trace("Application.onCreate") {
         StartupProfiler.mark("app_onCreate")
         LowEndDeviceMode.init(this)
         com.grid.tv.util.PlaybackDiagnostics.logDeviceProfile(this)
@@ -65,6 +69,7 @@ class StreamFlowApplication : Application(), Configuration.Provider {
                 .eventListenerFactory(PosterImageEventListener.Factory)
                 .build()
         )
+        }
     }
 
     private fun trimImageCaches() {
@@ -79,7 +84,9 @@ class StreamFlowApplication : Application(), Configuration.Provider {
      */
     private suspend fun runDeferredStartup() {
         StartupProfiler.mark("database_prewarm_start")
-        AppDatabaseHolder.prewarm(this)
+        StartupTrace.traceSuspend("AppDatabaseHolder.prewarm") {
+            AppDatabaseHolder.prewarm(this)
+        }
         StartupProfiler.mark("database_prewarm_complete")
 
         val tier2 = StartupTierPolicy.tier2DelayMs()
@@ -99,7 +106,11 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
         val tier3Remaining = (StartupTierPolicy.tier3DelayMs() - tier2).coerceAtLeast(0L)
         if (tier3Remaining > 0L) delay(tier3Remaining)
-        entryPoint.repository().loadVodStreamed(VodRefreshTrigger.REPOSITORY_INIT)
+        if (!LowEndDeviceMode.isEnabled()) {
+            entryPoint.repository().loadVodStreamed(VodRefreshTrigger.REPOSITORY_INIT)
+        } else {
+            Log.i(TAG, "Skipping startup VOD refresh on low-end device — loads on VOD hub entry")
+        }
         entryPoint.vodCatalogSyncScheduler().schedulePeriodicSync()
         Log.i(TAG, "Startup tiers complete — ${StartupProfiler.summary()}")
     }

@@ -25,9 +25,11 @@ import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.worker.EpgScheduler
 import com.grid.tv.domain.epg.EpgTime
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.feature.parental.ProfileAccessGuard
@@ -76,7 +78,8 @@ class HomeEpgViewModel @Inject constructor(
     private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
     private val playbackOrchestrator: PlaybackOrchestrator,
-    private val channelScanner: ChannelScanner
+    private val channelScanner: ChannelScanner,
+    private val epgScheduler: EpgScheduler
 ) : ViewModel() {
 
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
@@ -396,6 +399,7 @@ class HomeEpgViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeEpgScreenSnapshot.INITIAL)
 
     init {
+        StartupTrace.log("HomeEpgViewModel.init", 0L)
         viewModelScope.launch {
             var latestSnapshot = EpgUiSnapshot.EMPTY
             combine(_channels, _epgPrograms, _programmeIndex, _windowStart, _windowDurationMs) { ch, pr, idx, ws, wd ->
@@ -518,6 +522,7 @@ class HomeEpgViewModel @Inject constructor(
             livePlayerManager.setStreamRetries(settings.streamRetries)
         }
         guideBootstrapComplete = true
+        epgScheduler.scheduleEpgOnGuideOpen()
         reloadChannels()
     }
 
@@ -924,7 +929,9 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private suspend fun reloadChannelsInternal() {
-        reloadChannels()
+        StartupTrace.traceSuspend("HomeEpgViewModel.reloadChannels") {
+            reloadChannels()
+        }
     }
 
     private suspend fun loadMoreChannelsInternal(expectedGeneration: Int = channelFilterGeneration) {
@@ -1067,6 +1074,7 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun loadWindow() {
         if (!guideBootstrapComplete) return
+        StartupTrace.traceSuspend("HomeEpgViewModel.loadWindow") {
         val snapshot = LoadWindowSnapshot(
             generation = ++epgLoadGeneration,
             existingPrograms = _epgPrograms.value,
@@ -1103,6 +1111,7 @@ class HomeEpgViewModel @Inject constructor(
                         "filtered channels have matching epgId in window"
                 )
             }
+        }
         }
     }
 
