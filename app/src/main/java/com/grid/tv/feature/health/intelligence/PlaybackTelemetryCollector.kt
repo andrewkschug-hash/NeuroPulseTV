@@ -110,31 +110,33 @@ class PlaybackTelemetryCollector @Inject constructor(
         active?.watchDurationMs = (active?.watchDurationMs ?: 0) + deltaMs.coerceAtLeast(0)
     }
 
-    suspend fun endSession(success: Boolean? = null): PlaybackSessionRecord? = mutex.withLock {
-        val session = active ?: return@withLock null
-        onBufferingEnded()
-        active = null
-        val end = System.currentTimeMillis()
-        val record = PlaybackSessionRecord(
-            channelId = session.channelId,
-            streamId = session.streamId,
-            providerId = session.providerId,
-            sessionStart = session.sessionStart,
-            sessionEnd = end,
-            watchDurationMs = session.watchDurationMs.takeIf { it > 0 }
-                ?: (end - session.sessionStart).coerceAtLeast(0),
-            startupTimeMs = session.startupTimeMs,
-            bufferingEventCount = session.bufferingEventCount,
-            bufferingDurationMs = session.bufferingDurationMs,
-            playbackErrorCount = session.playbackErrorCount,
-            streamSwitchCount = session.streamSwitchCount,
-            reconnectAttempts = session.reconnectAttempts,
-            loadRetryCount = session.loadRetryCount,
-            playbackSuccess = success ?: session.playbackSuccess
-        )
+    suspend fun endSession(success: Boolean? = null): PlaybackSessionRecord? {
+        val record = mutex.withLock {
+            val session = active ?: return null
+            onBufferingEnded()
+            active = null
+            val end = System.currentTimeMillis()
+            PlaybackSessionRecord(
+                channelId = session.channelId,
+                streamId = session.streamId,
+                providerId = session.providerId,
+                sessionStart = session.sessionStart,
+                sessionEnd = end,
+                watchDurationMs = session.watchDurationMs.takeIf { it > 0 }
+                    ?: (end - session.sessionStart).coerceAtLeast(0),
+                startupTimeMs = session.startupTimeMs,
+                bufferingEventCount = session.bufferingEventCount,
+                bufferingDurationMs = session.bufferingDurationMs,
+                playbackErrorCount = session.playbackErrorCount,
+                streamSwitchCount = session.streamSwitchCount,
+                reconnectAttempts = session.reconnectAttempts,
+                loadRetryCount = session.loadRetryCount,
+                playbackSuccess = success ?: session.playbackSuccess
+            )
+        }
         aggregator.processSession(record)
         reporter.logSessionCompleted(record)
-        record
+        return record
     }
 
     suspend fun recordCompletedSession(record: PlaybackSessionRecord) {

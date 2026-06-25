@@ -40,6 +40,7 @@ fun ProfileMenuDropdown(
     onOpenSettings: () -> Unit,
     onQuitApp: () -> Unit,
     modifier: Modifier = Modifier,
+    profileDisplayName: String? = null,
     @Suppress("UNUSED_PARAMETER") focusedIndex: Int = 0
 ) {
     if (!expanded) return
@@ -56,6 +57,18 @@ fun ProfileMenuDropdown(
                 .border(1.dp, EpgColors.BorderSubtle, MenuShape)
                 .padding(vertical = 4.dp)
         ) {
+            if (!profileDisplayName.isNullOrBlank()) {
+                Text(
+                    text = profileDisplayName,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                )
+            }
             ProfileMenuDropdownItem(
                 label = "Switch accounts",
                 onClick = {

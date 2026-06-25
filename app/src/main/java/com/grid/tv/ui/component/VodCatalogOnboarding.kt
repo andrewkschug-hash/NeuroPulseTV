@@ -102,9 +102,17 @@ fun isVodCatalogPipelineComplete(tab: VodCatalogOnboardingTab, progress: VodCata
 fun isVodCatalogContentReady(inputs: VodCatalogOnboardingInputs): Boolean {
     val progress = inputs.progress
     return when (inputs.tab) {
-        VodCatalogOnboardingTab.ALL ->
-            inputs.wallRowCount >= MIN_ALL_WALL_ROWS &&
+        VodCatalogOnboardingTab.ALL -> {
+            val wallReady = inputs.wallRowCount >= MIN_ALL_WALL_ROWS &&
                 inputs.wallItemCount >= MIN_ALL_WALL_ITEMS
+            if (wallReady) return true
+            // Avoid infinite onboarding when ingest finished but wall-row assembly lags count flows.
+            isVodCatalogPipelineComplete(VodCatalogOnboardingTab.ALL, progress) &&
+                !inputs.catalogLoading &&
+                !progress.isLoading &&
+                inputs.effectiveCatalogCount() > 0 &&
+                inputs.browseRowCount > 0
+        }
         VodCatalogOnboardingTab.MOVIES ->
             inputs.pagedItemCount >= MIN_PAGED_ITEMS_WITH_CATEGORY && inputs.categoryCount >= 1 ||
                 inputs.browseRowCount >= MIN_BROWSE_ROWS ||

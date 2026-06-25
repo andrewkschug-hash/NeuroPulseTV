@@ -86,6 +86,18 @@ interface ProgramDao {
     @Query(
         """
         SELECT * FROM programs
+        WHERE genre = 'MOVIES'
+            AND startTime >= :now
+            AND startTime <= :windowEnd
+        ORDER BY startTime
+        LIMIT 50
+        """
+    )
+    fun observeMoviesStartingSoon(now: Long, windowEnd: Long): Flow<List<ProgramEntity>>
+
+    @Query(
+        """
+        SELECT * FROM programs
         WHERE (genre = 'SPORTS' OR title LIKE '%live%' OR title LIKE '%vs%' OR title LIKE '%match%')
             AND endTime >= :fromTime
         ORDER BY startTime

@@ -69,6 +69,7 @@ fun AppNavHost(
     val profileViewModel: ProfileViewModel = hiltViewModel()
     val activeProfile by profileViewModel.activeProfile.collectAsStateWithLifecycle()
     val profileInitials = activeProfile?.let { profileInitials(it.name) } ?: "?"
+    val profileDisplayName = activeProfile?.name
     val profileAvatarColor = activeProfile?.avatarColor ?: DEFAULT_PROFILE_AVATAR_COLOR
     val context = LocalContext.current
 
@@ -100,6 +101,7 @@ fun AppNavHost(
             initialPlaylistId = initialPlaylistId,
             profileInitials = profileInitials,
             profileAvatarColor = profileAvatarColor,
+            profileDisplayName = profileDisplayName,
             onPlayMovie = { title, url, resume ->
                 navController.navigate(Routes.DirectPlayer.build(title, url, resume = resume))
             },
@@ -298,7 +300,8 @@ fun AppNavHost(
                         )
                     },
                     profileInitials = profileInitials,
-                    profileAvatarColor = profileAvatarColor
+                    profileAvatarColor = profileAvatarColor,
+                    profileDisplayName = profileDisplayName
                 )
             }
             composable(Routes.Movies.route) {

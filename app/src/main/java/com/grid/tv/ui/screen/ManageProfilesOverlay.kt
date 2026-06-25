@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -52,6 +53,7 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.grid.tv.util.profileInitials
+import kotlinx.coroutines.launch
 
 private val ModalTextPrimary = Color(0xFFFFFFFF)
 private val ModalTextSecondary = Color(0xFFE0E0E0)
@@ -397,10 +399,13 @@ private fun ManageProfileRowIdentity(
         profile.isParental -> "Parental"
         else -> "Household member"
     }
+    val scope = rememberCoroutineScope()
 
     GridFocusSurface(
         onClick = {
-            renameTarget.requestFocus()
+            scope.launch {
+                renameTarget.requestFocusSafelyAfterLayout()
+            }
         },
         modifier = modifier
             .focusRequester(focusRequester)

@@ -140,8 +140,7 @@ fun ProfilePickerScreen(
 
     LaunchedEffect(hasProfiles, profiles.map { it.id }, showPinFor, showAddProfile) {
         if (showPinFor != null || showAddProfile) return@LaunchedEffect
-        delay(350)
-        firstProfileFocusRequester.requestFocusSafely()
+        firstProfileFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     fun tryOpenAddProfile() {

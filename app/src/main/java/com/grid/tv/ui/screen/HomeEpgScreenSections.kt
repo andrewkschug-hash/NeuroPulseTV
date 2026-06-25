@@ -96,6 +96,7 @@ import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.PerformanceAudit
 import com.grid.tv.util.quitAppToHome
+import com.grid.tv.util.quitAppToHome
 import dagger.hilt.android.EntryPointAccessors
 
 @Composable
@@ -153,6 +154,7 @@ internal fun HomeEpgScreenMainColumn(
     context: Context,
     profileInitials: String,
     profileAvatarColor: String,
+    profileDisplayName: String?,
     profileAccessMessage: String?,
     recordingViewModel: RecordingViewModel,
     onNavigateRecordings: () -> Unit,
@@ -197,7 +199,27 @@ internal fun HomeEpgScreenMainColumn(
             isRecording = isRecording,
             activeRecordingTitle = activeRecordingTitle,
             recordingHealth = recordingHealth ?: RecordingHealth.RECORDING,
-            onRecordingIndicatorClick = onNavigateRecordings
+            onRecordingIndicatorClick = onNavigateRecordings,
+            profileInitials = profileInitials,
+            profileAvatarColor = profileAvatarColor,
+            profileDisplayName = profileDisplayName,
+            profileFocused = ui.profileMenuOpen,
+            profileMenuExpanded = ui.profileMenuOpen,
+            profileMenuFocusIndex = ui.profileMenuFocusIndex,
+            onProfileClick = {
+                ui.profileMenuOpen = true
+                ui.profileMenuFocusIndex = 0
+            },
+            onProfileMenuDismiss = { ui.profileMenuOpen = false },
+            onSwitchAccounts = {
+                ui.profileMenuOpen = false
+                onNavigateProfile()
+            },
+            onOpenSettings = {
+                ui.profileMenuOpen = false
+                onNavigateSettings()
+            },
+            onQuitApp = { context.quitAppToHome() }
         )
 
         if (profileAccessMessage != null) {

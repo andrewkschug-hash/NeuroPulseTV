@@ -206,8 +206,11 @@ class VodHubViewModel @Inject constructor(
     private val rawMovieBrowseRows: StateFlow<List<VodBrowseRow>> = combine(
         catalogRevisionFlow,
         moviesCountFlow,
+        catalogProgress,
         _selectedMovieCategoryPlaylistId
-    ) { _, movieCount, playlistId -> movieCount to playlistId }
+    ) { _, movieCount, progress, playlistId ->
+        maxOf(movieCount, progress.moviesLoaded, if (progress.moviesPhaseFinished) progress.moviesTotal else 0) to playlistId
+    }
         .combine(playlistContext.activePlaylistId) { (movieCount, playlistId), _ ->
             movieCount to playlistId
         }
@@ -230,8 +233,11 @@ class VodHubViewModel @Inject constructor(
 
     private val rawSeriesBrowseRows: StateFlow<List<VodBrowseRow>> = combine(
         catalogRevisionFlow,
-        seriesCountFlow
-    ) { _, seriesCount -> seriesCount }
+        seriesCountFlow,
+        catalogProgress
+    ) { _, seriesCount, progress ->
+        maxOf(seriesCount, progress.seriesLoaded, if (progress.seriesPhaseFinished) progress.seriesTotal else 0)
+    }
         .flatMapLatest { seriesCount ->
             flow {
                 if (seriesCount <= 0) {

@@ -53,16 +53,16 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.VodWallItem
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.domain.model.categoryKey
-import com.grid.tv.ui.component.EpgNavTab
-import com.grid.tv.ui.component.EpgTopBar
-import com.grid.tv.ui.component.GridNavTabs
+import com.grid.tv.ui.component.EpgGuideHeader
+import com.grid.tv.ui.component.GuideNavDrawer
+import com.grid.tv.ui.component.GuideNavDrawerItem
+import com.grid.tv.ui.component.GuideNavDrawerItems
 import com.grid.tv.ui.component.MovieDetailOverlay
 import com.grid.tv.ui.component.NetflixContentWallRow
 import com.grid.tv.ui.component.resolveMovieOverview
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
-import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodContentFilterTabBar
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
@@ -103,7 +103,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class VodFocusZone {
-    TOP_BAR,
+    NAV_DRAWER,
     FILTER_PANEL,
     GENRE_PANEL,
     HERO,
@@ -113,7 +113,7 @@ private enum class VodFocusZone {
 private const val LanguageFilterFocusIndex = 4
 
 private val vodManualFocusZones = setOf(
-    VodFocusZone.TOP_BAR,
+    VodFocusZone.NAV_DRAWER,
     VodFocusZone.FILTER_PANEL,
     VodFocusZone.GENRE_PANEL,
     VodFocusZone.HERO
@@ -129,6 +129,7 @@ fun VodHubScreen(
     initialPlaylistId: Long? = null,
     profileInitials: String = "?",
     profileAvatarColor: String = com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR,
+    profileDisplayName: String? = null,
     onPlayMovie: (String, String, Boolean) -> Unit,
     onPlayUrl: (String, String, Boolean) -> Unit,
     onNavigateHome: () -> Unit = {},
@@ -146,8 +147,9 @@ fun VodHubScreen(
 ) {
     var showGlobalSearchOverlay by remember { mutableStateOf(false) }
     var focusZone by remember { mutableStateOf(VodFocusZone.FILTER_PANEL) }
-    var topBarFocusIndex by remember {
-        mutableIntStateOf(GridNavTabs.indexOf(EpgNavTab.Vod).coerceAtLeast(0))
+    var navDrawerOpen by remember { mutableStateOf(false) }
+    var navDrawerFocusIndex by remember {
+        mutableIntStateOf(GuideNavDrawerItems.indexOf(GuideNavDrawerItem.Vod).coerceAtLeast(0))
     }
     var filterFocusIndex by remember { mutableIntStateOf(0) }
     var contentRowIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -407,13 +409,14 @@ fun VodHubScreen(
                     direction = contentScrollDirection
                 )
             }
-            VodFocusZone.FILTER_PANEL, VodFocusZone.TOP_BAR -> {
+            VodFocusZone.FILTER_PANEL, VodFocusZone.NAV_DRAWER -> {
                 columnListState.scrollVodWallToTop()
             }
             else -> Unit
         }
     }
 
+    val navDrawerFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
     val heroPlayFocusRequester = remember { FocusRequester() }
     val heroMoreInfoFocusRequester = remember { FocusRequester() }
@@ -475,7 +478,7 @@ fun VodHubScreen(
             requestHeroPlayFocus -> Unit
             focusZone == VodFocusZone.FILTER_PANEL ||
                 focusZone == VodFocusZone.GENRE_PANEL ||
-                focusZone == VodFocusZone.TOP_BAR ||
+                focusZone == VodFocusZone.NAV_DRAWER ||
                 (focusZone == VodFocusZone.CONTENT && !showInlineSearch && (showBrowseGrid || wallRows.isEmpty())) ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
         }
@@ -558,8 +561,90 @@ fun VodHubScreen(
 
     fun openGlobalSearch() {
         showGlobalSearchOverlay = true
-        focusZone = VodFocusZone.TOP_BAR
-        topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Search).coerceAtLeast(0)
+        focusZone = VodFocusZone.FILTER_PANEL
+    }
+
+    fun openNavDrawer() {
+        navDrawerOpen = true
+        focusZone = VodFocusZone.NAV_DRAWER
+        scope.launch {
+            navDrawerFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
+    fun closeNavDrawer(restoreFilter: Boolean = true) {
+        navDrawerOpen = false
+        if (restoreFilter) {
+            focusZone = VodFocusZone.FILTER_PANEL
+            scope.launch {
+                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+            }
+        }
+    }
+
+    fun selectVodDrawerItem(item: GuideNavDrawerItem) {
+        when (item) {
+            GuideNavDrawerItem.Search -> {
+                closeNavDrawer(restoreFilter = false)
+                openGlobalSearch()
+            }
+            GuideNavDrawerItem.ChannelGroups -> {
+                closeNavDrawer(restoreFilter = false)
+                onNavigateHome()
+            }
+            GuideNavDrawerItem.Vod -> closeNavDrawer()
+            GuideNavDrawerItem.Favorites -> {
+                closeNavDrawer(restoreFilter = false)
+                onOpenFavorites()
+            }
+            GuideNavDrawerItem.RecentChannels -> {
+                closeNavDrawer(restoreFilter = false)
+                onNavigateHome()
+            }
+            GuideNavDrawerItem.Recordings -> {
+                closeNavDrawer(restoreFilter = false)
+                onNavigateRecordings()
+            }
+            GuideNavDrawerItem.MultiView -> {
+                closeNavDrawer(restoreFilter = false)
+                onNavigateHome()
+            }
+            GuideNavDrawerItem.Settings -> {
+                closeNavDrawer(restoreFilter = false)
+                onNavigateSettings()
+            }
+        }
+    }
+
+    fun handleNavDrawerKey(event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.Back, Key.Escape -> {
+                closeNavDrawer()
+                true
+            }
+            Key.DirectionRight -> {
+                closeNavDrawer()
+                true
+            }
+            Key.DirectionDown -> {
+                if (navDrawerFocusIndex < GuideNavDrawerItems.lastIndex) {
+                    navDrawerFocusIndex += 1
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (navDrawerFocusIndex > 0) {
+                    navDrawerFocusIndex -= 1
+                }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                selectVodDrawerItem(GuideNavDrawerItems[navDrawerFocusIndex])
+                true
+            }
+            else -> false
+        }
     }
 
     fun dismissGlobalSearch() {
@@ -628,24 +713,11 @@ fun VodHubScreen(
         focusZone = VodFocusZone.FILTER_PANEL
     }
 
-    fun focusTopBarFromBrowseGrid() {
+    fun focusNavDrawerFromBrowseGrid() {
         if (showInlineSearch) {
             focusInlineSearchField()
         } else {
-            focusZone = VodFocusZone.TOP_BAR
-            topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Vod).coerceAtLeast(0)
-        }
-    }
-
-    fun activateNavTab(tabItem: EpgNavTab) {
-        when (tabItem) {
-            EpgNavTab.Guide, EpgNavTab.Home -> onNavigateHome()
-            EpgNavTab.Search -> openGlobalSearch()
-            EpgNavTab.Vod, EpgNavTab.Movies -> onNavigateVod(0)
-            EpgNavTab.Series -> onNavigateVod(1)
-            EpgNavTab.Recordings -> onNavigateRecordings()
-            EpgNavTab.Favorites -> onOpenFavorites()
-            EpgNavTab.Settings -> onNavigateSettings()
+            openNavDrawer()
         }
     }
 
@@ -843,13 +915,14 @@ fun VodHubScreen(
 
     fun handleFilterPanelKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
                 if (filterFocusIndex > 0) {
                     filterFocusIndex -= 1
                 } else {
-                    focusZone = VodFocusZone.TOP_BAR
+                    openNavDrawer()
                 }
                 true
             }
@@ -888,7 +961,7 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionUp -> {
-                focusZone = VodFocusZone.TOP_BAR
+                openNavDrawer()
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -975,7 +1048,10 @@ fun VodHubScreen(
                     focusZone = when {
                         showGenrePanel -> VodFocusZone.GENRE_PANEL
                         searchQuery.isBlank() -> VodFocusZone.FILTER_PANEL
-                        else -> VodFocusZone.TOP_BAR
+                        else -> {
+                            openNavDrawer()
+                            VodFocusZone.NAV_DRAWER
+                        }
                     }
                     scope.launch {
                         when (focusZone) {
@@ -992,7 +1068,10 @@ fun VodHubScreen(
                     focusZone = when {
                         !showBrowseGrid && hasHero && searchQuery.isBlank() -> VodFocusZone.HERO
                         searchQuery.isBlank() -> VodFocusZone.FILTER_PANEL
-                        else -> VodFocusZone.TOP_BAR
+                        else -> {
+                            openNavDrawer()
+                            VodFocusZone.NAV_DRAWER
+                        }
                     }
                     true
                 }
@@ -1006,7 +1085,7 @@ fun VodHubScreen(
                     true
                 }
                 Key.DirectionUp -> {
-                    focusZone = VodFocusZone.TOP_BAR
+                    openNavDrawer()
                     true
                 }
                 else -> false
@@ -1059,69 +1138,6 @@ fun VodHubScreen(
         return handled
     }
 
-    fun handleTopBarKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-        if (profileMenuOpen) {
-            return when (event.key) {
-                Key.Back, Key.Escape -> {
-                    profileMenuOpen = false
-                    true
-                }
-                else -> false
-            }
-        }
-        return when (event.key) {
-            Key.DirectionLeft -> {
-                topBarFocusIndex = (topBarFocusIndex - 1).coerceAtLeast(0)
-                true
-            }
-            Key.DirectionRight -> {
-                topBarFocusIndex = (topBarFocusIndex + 1).coerceAtMost(TopBarProfileIndex)
-                true
-            }
-            Key.DirectionDown -> {
-                when {
-                    topBarFocusIndex == GridNavTabs.indexOf(EpgNavTab.Search) -> openGlobalSearch()
-                    showInlineSearch && hasBrowseResults -> focusSearchResults()
-                    showBrowseGrid && hasBrowseResults -> focusBrowseResultsFromTopBar()
-                    hasHero && searchQuery.isBlank() && !showInlineSearch -> focusZone = VodFocusZone.HERO
-                    wallRows.isNotEmpty() && !showInlineSearch -> {
-                        focusZone = VodFocusZone.CONTENT
-                        contentRowIndex = 0
-                        contentColIndex = 0
-                    }
-                    else -> {
-                        focusZone = when {
-                            showBrowseGrid && showGenrePanel -> VodFocusZone.GENRE_PANEL
-                            else -> VodFocusZone.FILTER_PANEL
-                        }
-                    }
-                }
-                true
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                when {
-                    topBarFocusIndex == GridNavTabs.indexOf(EpgNavTab.Search) -> {
-                        openGlobalSearch()
-                        true
-                    }
-                    topBarFocusIndex in GridNavTabs.indices -> {
-                        activateNavTab(GridNavTabs[topBarFocusIndex])
-                        true
-                    }
-                    topBarFocusIndex == TopBarProfileIndex -> {
-                        profileMenuOpen = true
-                        profileMenuFocusIndex = 0
-                        true
-                    }
-                    else -> false
-                }
-            }
-            else -> false
-        }
-    }
-
     fun consumeVodLocalBack(): Boolean = when {
         showGlobalSearchOverlay -> {
             dismissGlobalSearch()
@@ -1145,8 +1161,11 @@ fun VodHubScreen(
         }
         focusZone == VodFocusZone.CONTENT || focusZone == VodFocusZone.HERO ||
             focusZone == VodFocusZone.FILTER_PANEL || focusZone == VodFocusZone.GENRE_PANEL -> {
-            focusZone = VodFocusZone.TOP_BAR
-            topBarFocusIndex = GridNavTabs.indexOf(EpgNavTab.Vod).coerceAtLeast(0)
+            openNavDrawer()
+            true
+        }
+        focusZone == VodFocusZone.NAV_DRAWER -> {
+            closeNavDrawer()
             true
         }
         else -> false
@@ -1204,10 +1223,22 @@ fun VodHubScreen(
                     }
                     return@onPreviewKeyEvent false
                 }
+                if (profileMenuOpen && event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.Back, Key.Escape -> {
+                            profileMenuOpen = false
+                            return@onPreviewKeyEvent true
+                        }
+                        else -> Unit
+                    }
+                }
+                if (navDrawerOpen && focusZone == VodFocusZone.NAV_DRAWER) {
+                    if (handleNavDrawerKey(event)) return@onPreviewKeyEvent true
+                }
                 val handled = when (event.key) {
                     Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> when (focusZone) {
-                        VodFocusZone.TOP_BAR -> handleTopBarKey(event)
+                        VodFocusZone.NAV_DRAWER -> handleNavDrawerKey(event)
                         VodFocusZone.FILTER_PANEL -> handleFilterPanelKey(event)
                         VodFocusZone.GENRE_PANEL -> handleGenrePanelKey(event)
                         VodFocusZone.HERO -> handleHeroKey(event)
@@ -1232,7 +1263,7 @@ fun VodHubScreen(
             VodAmbientBackdrop(posterUrl = contentAmbientPosterUrl)
         }
 
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
@@ -1243,20 +1274,29 @@ fun VodHubScreen(
                     }
                 )
         ) {
-            EpgTopBar(
-                selectedTab = EpgNavTab.Vod,
-                focusedNavTabIndex = topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
-                navFocused = focusZone == VodFocusZone.TOP_BAR &&
-                    topBarFocusIndex in GridNavTabs.indices,
-                profileFocused = focusZone == VodFocusZone.TOP_BAR &&
-                    topBarFocusIndex == TopBarProfileIndex,
+            GuideNavDrawer(
+                expanded = navDrawerOpen,
+                focusedIndex = navDrawerFocusIndex,
+                drawerFocusRequester = navDrawerFocusRequester,
+                onItemFocused = { navDrawerFocusIndex = it },
+                onItemSelected = ::selectVodDrawerItem,
+                onExpandRequest = ::openNavDrawer,
+                onPreviewKey = ::handleNavDrawerKey,
+                selectedItem = GuideNavDrawerItem.Vod
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+            EpgGuideHeader(
                 profileInitials = profileInitials,
                 profileAvatarColor = profileAvatarColor,
+                profileDisplayName = profileDisplayName,
+                profileFocused = profileMenuOpen,
                 profileMenuExpanded = profileMenuOpen,
                 profileMenuFocusIndex = profileMenuFocusIndex,
                 onProfileClick = {
-                    focusZone = VodFocusZone.TOP_BAR
-                    topBarFocusIndex = TopBarProfileIndex
                     profileMenuOpen = true
                     profileMenuFocusIndex = 0
                 },
@@ -1270,18 +1310,9 @@ fun VodHubScreen(
                 },
                 onQuitApp = { context.quitAppToHome() },
                 onProfileMenuDismiss = { profileMenuOpen = false },
-                onTabSelected = { tabItem ->
-                    focusZone = VodFocusZone.TOP_BAR
-                    topBarFocusIndex = GridNavTabs.indexOf(tabItem).coerceAtLeast(0)
-                    if (tabItem == EpgNavTab.Search) {
-                        openGlobalSearch()
-                    } else {
-                        activateNavTab(tabItem)
-                    }
-                },
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
-                miniPlayer = {},
+                onRecordingIndicatorClick = onNavigateRecordings,
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -1372,7 +1403,7 @@ fun VodHubScreen(
                                 browseGridHandle = moviesBrowseGridHandle,
                                 contentGridFocusRequester = browseGridFocusRequester,
                                 onColumnCountChanged = { browseGridColumnCount = it },
-                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                onNavigateUpFromFirstRow = ::focusNavDrawerFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -1391,7 +1422,7 @@ fun VodHubScreen(
                                 browseGridHandle = seriesBrowseGridHandle,
                                 contentGridFocusRequester = browseGridFocusRequester,
                                 onColumnCountChanged = { browseGridColumnCount = it },
-                                onNavigateUpFromFirstRow = ::focusTopBarFromBrowseGrid,
+                                onNavigateUpFromFirstRow = ::focusNavDrawerFromBrowseGrid,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -1506,6 +1537,7 @@ fun VodHubScreen(
                         }
                     }
                 }
+            }
             }
         }
 

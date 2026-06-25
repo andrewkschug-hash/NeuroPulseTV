@@ -15,7 +15,9 @@ import com.grid.tv.domain.epg.EpgResolverEngine
 import com.grid.tv.domain.model.EpgResolutionStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -215,7 +217,7 @@ class EpgResolverViewModel @Inject constructor(
     }
 
     fun refreshSummary() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val total = channelDao.countTotal()
             val confirmed = channelDao.countByStatus(EpgResolutionStatus.CONFIRMED.name)
             val autoMatched = channelDao.countByStatus(EpgResolutionStatus.AUTO_MATCHED.name)
@@ -236,19 +238,19 @@ class EpgResolverViewModel @Inject constructor(
     }
 
     fun refreshAnalytics() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _analytics.value = analyticsTracker.summary()
         }
     }
 
     fun refreshUnresolved() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _unresolved.value = channelDao.unresolvedForManual()
         }
     }
 
     private fun loadChannelNameIndex() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _channelNames.value = channelDao.all().associate { it.id to it.name }
         }
     }

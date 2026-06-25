@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -37,10 +38,11 @@ import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.handleGuideGroupTvKeyEvent
-import com.grid.tv.ui.component.requestFocusSafely
+import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.toggleCategoryExpansion
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import kotlinx.coroutines.launch
 
 @Composable
 fun GuideGroupsScreen(
@@ -61,6 +63,7 @@ fun GuideGroupsScreen(
     var focusedRowIndex by remember { mutableIntStateOf(0) }
     val rowFocusRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     fun focusRequesterFor(index: Int): FocusRequester =
         rowFocusRequesters.getOrPut(index) { FocusRequester() }
@@ -68,7 +71,9 @@ fun GuideGroupsScreen(
     fun requestRowFocus(index: Int) {
         if (index !in visibleRows.indices) return
         focusedRowIndex = index
-        focusRequesterFor(index).requestFocusSafely()
+        scope.launch {
+            focusRequesterFor(index).requestFocusSafelyAfterLayout()
+        }
     }
 
     LaunchedEffect(visibleRows.size, rowFocusRequesters.size) {
@@ -99,7 +104,8 @@ fun GuideGroupsScreen(
 
     LaunchedEffect(Unit) {
         if (visibleRows.isNotEmpty()) {
-            requestRowFocus(0)
+            focusRequesterFor(0).requestFocusSafelyAfterLayout()
+            focusedRowIndex = 0
         }
     }
 

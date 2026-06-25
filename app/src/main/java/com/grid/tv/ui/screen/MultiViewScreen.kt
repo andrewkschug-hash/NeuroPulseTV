@@ -1,6 +1,7 @@
 package com.grid.tv.ui.screen
 
 import com.grid.tv.ui.component.GlowFocusButton
+import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -78,7 +79,7 @@ fun MultiViewScreen(
     }
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        focusRequester.requestFocusSafelyAfterLayout()
     }
 
     DisposableEffect(Unit) {

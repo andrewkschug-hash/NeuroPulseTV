@@ -294,6 +294,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val vodCatalogProgress = MutableStateFlow(VodCatalogProgress())
     private val vodCatalogStatus = MutableStateFlow(VodCatalogStatus())
     private val startupHeavyWorkMutex = Mutex()
+    private val epgRefreshMutex = Mutex()
     private val vodDiskLoadMutex = Mutex()
     private val vodRepositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile
@@ -909,7 +910,7 @@ class IptvRepositoryImpl @Inject constructor(
                 resolveXtreamPlaybackEntity(entity, playlistById[entity.playlistId])
             }
             mapChannelsWithPlaylists(resolved, playlistNames, health, favIds)
-        }
+        }.flowOn(Dispatchers.IO)
     }
 
     override suspend fun channelsPage(
@@ -1037,7 +1038,7 @@ class IptvRepositoryImpl @Inject constructor(
     override fun searchPrograms(query: String): Flow<List<Program>> =
         programDao.observeSearch(query).map { rows ->
             rows.map(::programFromEntity)
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun recordings(): Flow<List<String>> = recordingDao.observeAll().map { rows ->
         rows.map { "${it.programTitle} (${it.status})" }
@@ -1060,7 +1061,7 @@ class IptvRepositoryImpl @Inject constructor(
                 channelDao.getByIds(channelIds).map { channelFromEntity(it, playlists.associate { p -> p.id to p.name }[it.playlistId]) }
             }
             recommendationEngine.score(channels, stats, Calendar.getInstance().get(Calendar.HOUR_OF_DAY), null).take(limit)
-        }
+        }.flowOn(Dispatchers.IO)
     }
 
     override fun continueWatching(limit: Int): Flow<List<Channel>> = flowOf(emptyList())
@@ -1083,7 +1084,7 @@ class IptvRepositoryImpl @Inject constructor(
                     names[entity.playlistId]
                 )
             }
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun recentChannels(limit: Int): Flow<List<Channel>> =
         combine(
@@ -1101,7 +1102,7 @@ class IptvRepositoryImpl @Inject constructor(
                     names[entity.playlistId]
                 )
             }
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun recentlyAdded(limit: Int): Flow<List<Channel>> =
         combine(channelDao.observeRecentlyAdded(limit), playlistDao.observeAll()) { rows, playlists ->
@@ -1113,20 +1114,23 @@ class IptvRepositoryImpl @Inject constructor(
                     names[entity.playlistId]
                 )
             }
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun liveSportsNow(): Flow<List<Program>> =
         programDao.observeSports(System.currentTimeMillis()).map { rows ->
             rows.map {
                 Program(it.id, it.channelEpgId, it.title, it.description, it.startTime, it.endTime, ProgramGenre.SPORTS, it.catchupUrl)
             }
-        }
+        }.flowOn(Dispatchers.IO)
 
-    override fun moviesStartingSoon(now: Long): Flow<List<Program>> =
-        programDao.observeSearch("").map { rows ->
-            rows.filter { it.genre == "MOVIES" && it.startTime in now..(now + 30 * 60 * 1000) }
-                .map { Program(it.id, it.channelEpgId, it.title, it.description, it.startTime, it.endTime, ProgramGenre.MOVIES, it.catchupUrl) }
-        }
+    override fun moviesStartingSoon(now: Long): Flow<List<Program>> {
+        val windowEnd = now + 30 * 60 * 1000
+        return programDao.observeMoviesStartingSoon(now, windowEnd).map { rows ->
+            rows.map {
+                Program(it.id, it.channelEpgId, it.title, it.description, it.startTime, it.endTime, ProgramGenre.MOVIES, it.catchupUrl)
+            }
+        }.flowOn(Dispatchers.IO)
+    }
 
     override suspend fun programsWindow(epgIds: List<String>, start: Long, end: Long): List<Program> =
         programsWindowForChannels(
@@ -1494,7 +1498,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun rebuildEpgLinkResolver(playlistId: Long): EpgChannelLinkResolver =
-        startupHeavyWorkMutex.withLock {
+        withContext(Dispatchers.IO) {
         StartupTrace.traceSuspend("rebuildEpgLinkResolver playlistId=$playlistId") {
         val sourceKey = "xmltv:$playlistId"
         val refs = linkedMapOf<String, XmlTvChannelRef>()
@@ -1514,7 +1518,7 @@ class IptvRepositoryImpl @Inject constructor(
             if (refs.size >= MAX_RESOLVER_SOURCE_CHANNELS) return@forEach
             refs.putIfAbsent(epgId, XmlTvChannelRef(epgId, epgId))
         }
-        val learnedMappings = epgLearnedMappingDao.all().associate { mapping ->
+        val learnedMappings = epgLearnedMappingDao.recent(5_000).associate { mapping ->
             mapping.normalizedOriginalName to mapping.epgId
         }
         EpgChannelLinkResolver(
@@ -2190,7 +2194,7 @@ class IptvRepositoryImpl @Inject constructor(
         bumpVodCatalogRevision()
     }
 
-    override suspend fun refreshEpgNow(): EpgRefreshReport = startupHeavyWorkMutex.withLock {
+    override suspend fun refreshEpgNow(): EpgRefreshReport = epgRefreshMutex.withLock {
         StartupTrace.traceSuspend("refreshEpgNow") {
         if (!startupSafety.isInputSafe()) {
             Log.i(EPG_FLOW_TAG, "refreshEpgNow deferred — input safe not reached")
@@ -2566,6 +2570,7 @@ class IptvRepositoryImpl @Inject constructor(
             delay(delayMs)
             if (playlistImportCoordinator.isImportActive()) {
                 playlistImportCoordinator.deferVodRefresh("deferred_startup trigger=$trigger")
+                publishVodProgressFromDb(trigger = trigger)
                 return@launch
             }
             if (trigger != VodRefreshTrigger.MANUAL_RETRY && isVodCatalogFresh()) {
@@ -2716,6 +2721,7 @@ class IptvRepositoryImpl @Inject constructor(
         val dbSeries = cachedSeriesCount()
         if (!force && isSystemLowOnMemory()) {
             Log.w(VOD_FLOW_TAG, "Skipping VOD refresh — system low on memory trigger=$trigger")
+            publishVodProgressFromDb(trigger = trigger)
             return@withContext
         }
         Log.i(
@@ -2733,6 +2739,7 @@ class IptvRepositoryImpl @Inject constructor(
                 VOD_FLOW_TAG,
                 "Deferring VOD refresh until import completes trigger=$trigger"
             )
+            publishVodProgressFromDb(trigger = trigger)
             return@withContext
         }
 

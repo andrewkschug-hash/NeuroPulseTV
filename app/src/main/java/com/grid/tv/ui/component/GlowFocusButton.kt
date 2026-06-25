@@ -3,6 +3,7 @@ package com.grid.tv.ui.component
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ProvideTextStyle
@@ -72,9 +73,15 @@ fun GlowFocusButton(
         )
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight(),
+            contentAlignment = Alignment.CenterStart
         ) {
+            Box(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
             val labelColor = if (enabled) Color.White else EpgColors.TextDimmed
             CompositionLocalProvider(LocalContentColor provides labelColor) {
                 ProvideTextStyle(
@@ -87,6 +94,7 @@ fun GlowFocusButton(
                 ) {
                     content()
                 }
+            }
             }
         }
     }

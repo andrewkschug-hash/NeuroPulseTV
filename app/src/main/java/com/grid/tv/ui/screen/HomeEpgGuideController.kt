@@ -470,10 +470,6 @@ internal class HomeEpgGuideController(
                 closeNavDrawer(restoreGrid = false)
                 boundDeps.onNavigateMultiview()
             }
-            com.grid.tv.ui.component.GuideNavDrawerItem.Profile -> {
-                closeNavDrawer(restoreGrid = false)
-                boundDeps.onNavigateProfile()
-            }
             com.grid.tv.ui.component.GuideNavDrawerItem.Settings -> {
                 closeNavDrawer(restoreGrid = false)
                 boundDeps.onNavigateSettings()
@@ -704,6 +700,15 @@ internal class HomeEpgGuideController(
     fun handleGridKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (ui.guideSubScreen != null) return false
+        if (ui.profileMenuOpen) {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
+                    ui.profileMenuOpen = false
+                    true
+                }
+                else -> false
+            }
+        }
         if (ui.navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
