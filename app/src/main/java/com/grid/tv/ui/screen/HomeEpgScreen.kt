@@ -30,6 +30,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.feature.epg.EpgPlaceholderData
+import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GuideNavDrawer
@@ -121,8 +123,8 @@ fun HomeEpgScreen(
     val guideFiltersConfigured = chrome.guideFiltersConfigured
     val guideSettingsLoaded = chrome.guideSettingsLoaded
     val isReloadingChannels = chrome.isReloadingChannels
-    val channelGroups = chrome.channelGroups
-    val groupChannelCounts = chrome.groupChannelCounts
+    val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
+    val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
     val hasCatalogChannels = chrome.hasCatalogChannels
     val demoFavoriteIds = chrome.demoFavoriteIds
     val favoriteGroups = chrome.favoriteGroups
@@ -235,11 +237,26 @@ fun HomeEpgScreen(
 
     val hideAdultContent by viewModel.hideAdultContent.collectAsStateWithLifecycle()
 
-    val guideGroupCategories = remember(channelGroups, groupChannelCounts, hideAdultContent) {
-        buildGuideGroupCategories(channelGroups, groupChannelCounts, hideAdultContent)
+    val needsGroupTree = ui.guideSubScreen == GuideSubScreen.Groups || ui.showGuideGroupPicker
+    val guideGroupCategories = remember(channelGroups, groupChannelCounts, hideAdultContent, needsGroupTree) {
+        if (!needsGroupTree) {
+            emptyList()
+        } else {
+            buildGuideGroupCategories(channelGroups, groupChannelCounts, hideAdultContent)
+        }
     }
-    val organizedGuideGroups = remember(channelGroups, groupChannelCounts, hideAdultContent) {
-        GuideCategoryProcessor.organizeGroups(channelGroups, groupChannelCounts, hideAdultContent)
+    val organizedGuideGroups = remember(channelGroups, groupChannelCounts, hideAdultContent, needsGroupTree) {
+        if (!needsGroupTree) {
+            GuideCategoryProcessor.OrganizedGuideGroups(
+                allChannelCount = 0,
+                countryCategories = emptyList(),
+                contentCategories = emptyList(),
+                providerCategories = emptyList(),
+                flatCategories = emptyList()
+            )
+        } else {
+            GuideCategoryProcessor.organizeGroups(channelGroups, groupChannelCounts, hideAdultContent)
+        }
     }
 
     val hScroll = rememberScrollState()
@@ -397,7 +414,10 @@ fun HomeEpgScreen(
             ui.showGuideGroupPicker = false
             return@LaunchedEffect
         }
-        if (hasCatalogChannels && channelGroups.isNotEmpty()) {
+        if (!hasCatalogChannels || channelGroups.isEmpty()) return@LaunchedEffect
+        if (LowEndDeviceMode.current().active) return@LaunchedEffect
+        delay(StartupTierPolicy.guideGroupMetadataDelayMs())
+        if (!guideFiltersConfigured && channelGroups.isNotEmpty()) {
             ui.guideSubScreen = GuideSubScreen.Groups
         }
     }

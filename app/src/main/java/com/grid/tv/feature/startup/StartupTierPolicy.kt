@@ -51,8 +51,22 @@ object StartupTierPolicy {
     /** EPG programme rows loaded during the first bootstrap channel page. */
     fun guideBootstrapEpgChannelCount(): Int = if (LowEndDeviceMode.current().active) 16 else 32
 
-    /** Defer GROUP BY group metadata until after the guide accepts input. */
-    fun guideGroupMetadataDelayMs(): Long = if (LowEndDeviceMode.current().active) 3_000L else 1_500L
+    /** Defer GROUP BY group metadata until the guide accepts input. */
+    fun guideGroupMetadataDelayMs(): Long = if (LowEndDeviceMode.current().active) 10_000L else 4_000L
+
+    /** Delay before hydrating EPG programmes after the first channel page is shown. */
+    fun guideEpgHydrateDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 300L
+
+    /** Wait before prefetching channel pages beyond the bootstrap window. */
+    fun guideBackgroundPagingDelayMs(): Long = if (LowEndDeviceMode.current().active) 8_000L else 4_000L
+
+    /** Pause between background channel SQL pages to keep the main thread responsive. */
+    fun guideChannelPageGapMs(): Long = if (LowEndDeviceMode.current().active) 400L else 200L
+
+    /** Max channels to prefetch in the background after bootstrap (full paging continues on scroll). */
+    fun guideBackgroundPagingChannelCap(): Int = if (LowEndDeviceMode.current().active) 120 else 240
+
+    fun guideGroupMetadataDebounceMs(): Long = if (LowEndDeviceMode.current().active) 750L else 300L
 
     fun epgHydrateDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 300L
 

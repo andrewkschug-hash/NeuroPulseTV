@@ -227,6 +227,7 @@ class HomeEpgViewModel @Inject constructor(
         .flatMapLatest { ready ->
             if (ready) repository.groups() else flowOf(emptyList())
         }
+        .debounce(StartupTierPolicy.guideGroupMetadataDebounceMs())
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -234,6 +235,7 @@ class HomeEpgViewModel @Inject constructor(
         .flatMapLatest { ready ->
             if (ready) repository.groupChannelCounts() else flowOf(emptyMap())
         }
+        .debounce(StartupTierPolicy.guideGroupMetadataDebounceMs())
         .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
@@ -390,8 +392,6 @@ class HomeEpgViewModel @Inject constructor(
         guideFiltersConfigured,
         guideSettingsLoaded,
         isReloadingChannels,
-        channelGroups,
-        groupChannelCounts,
         hasCatalogChannels,
         demoFavoriteIds,
         favoriteGroups,
@@ -413,16 +413,14 @@ class HomeEpgViewModel @Inject constructor(
                 guideFiltersConfigured = values[5] as Boolean,
                 guideSettingsLoaded = values[6] as Boolean,
                 isReloadingChannels = values[7] as Boolean,
-                channelGroups = values[8] as List<String>,
-                groupChannelCounts = values[9] as Map<String, Int>,
-                hasCatalogChannels = values[10] as Boolean,
-                demoFavoriteIds = values[11] as Set<Long>,
-                favoriteGroups = values[12] as List<FavoriteGroup>,
-                favoriteSavedMessage = values[13] as String?,
-                guidePreviewEnabled = values[14] as Boolean,
-                guidePreviewChannelId = values[15] as Long?,
-                guidePosition = values[16] as EpgGuidePosition,
-                vodProgress = values[17] as Map<Pair<Long, Long>, Long>
+                hasCatalogChannels = values[8] as Boolean,
+                demoFavoriteIds = values[9] as Set<Long>,
+                favoriteGroups = values[10] as List<FavoriteGroup>,
+                favoriteSavedMessage = values[11] as String?,
+                guidePreviewEnabled = values[12] as Boolean,
+                guidePreviewChannelId = values[13] as Long?,
+                guidePosition = values[14] as EpgGuidePosition,
+                vodProgress = values[15] as Map<Pair<Long, Long>, Long>
             )
         )
     }.distinctUntilChanged()
@@ -563,15 +561,30 @@ class HomeEpgViewModel @Inject constructor(
         loadBootstrapChannelPage()
         _guideSettingsLoaded.value = true
         guideBootstrapComplete = true
+        scheduleDeferredGuideMetadata(settings.guideChannelGroups, settings.guideFiltersConfigured)
+        scheduleBackgroundChannelPrefetch()
+    }
+
+    private fun scheduleDeferredGuideMetadata(groups: Set<String>, configured: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             delay(StartupTierPolicy.guideGroupMetadataDelayMs())
             _guideGroupMetadataReady.value = true
-            deferValidateGuideFilter(
-                groups = settings.guideChannelGroups,
-                configured = settings.guideFiltersConfigured
-            )
-            if (_hasMoreChannels.value && !loadingChannels) {
+            yield()
+            deferValidateGuideFilter(groups, configured)
+        }
+    }
+
+    private fun scheduleBackgroundChannelPrefetch() {
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(StartupTierPolicy.guideBackgroundPagingDelayMs())
+            val cap = StartupTierPolicy.guideBackgroundPagingChannelCap()
+            while (_hasMoreChannels.value && channelDbOffset < cap) {
+                if (loadingChannels) {
+                    delay(StartupTierPolicy.guideChannelPageGapMs())
+                    continue
+                }
                 loadMoreChannelsInternal()
+                delay(StartupTierPolicy.guideChannelPageGapMs())
             }
         }
     }
@@ -590,8 +603,11 @@ class HomeEpgViewModel @Inject constructor(
             if (page.isEmpty()) return
             _channels.value = page
             yield()
-            loadWindow()
             skipNextChannelWindowSchedule = true
+            viewModelScope.launch(Dispatchers.IO) {
+                delay(StartupTierPolicy.guideEpgHydrateDelayMs())
+                loadWindow()
+            }
         } finally {
             loadingChannels = false
         }
@@ -599,10 +615,18 @@ class HomeEpgViewModel @Inject constructor(
 
     private suspend fun deferValidateGuideFilter(groups: Set<String>, configured: Boolean) {
         if (!configured || groups.isEmpty()) return
-        val sanitized = sanitizeGuideFilter(groups, configured)
-        if (sanitized == _guideFilter.value) return
-        _guideFilter.value = sanitized
-        reloadChannels()
+        val available = channelGroups.value
+        if (available.isEmpty()) return
+        val valid = groups.intersect(available.toSet())
+        if (valid == groups) return
+        Log.w(
+            TAG,
+            "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
+                "(playlist groups may have changed since last save)"
+        )
+        val updated = GuideChannelFilter(valid)
+        _guideFilter.value = updated
+        repository.saveGuideChannelFilter(valid, configured = true)
     }
 
     /** Drop stale group names after playlist re-import so the SQL IN filter matches live groupName values. */
