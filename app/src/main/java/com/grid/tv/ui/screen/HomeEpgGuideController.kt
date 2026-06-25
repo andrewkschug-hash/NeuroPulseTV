@@ -64,7 +64,7 @@ internal data class HomeEpgGuideDeps(
     val density: Density,
     val gridFocusRequester: FocusRequester,
     val gridFilterFocusRequester: FocusRequester,
-    val topNavFocusRequester: FocusRequester,
+    val navDrawerFocusRequester: FocusRequester,
     val continueWatchingFocusRequester: FocusRequester,
     val previewFocusRequester: FocusRequester,
     val previewChannel: Channel?,
@@ -84,6 +84,8 @@ internal data class HomeEpgGuideDeps(
     val onPlayCatchup: (String, String) -> Unit,
     val onNavigateRecordings: () -> Unit,
     val onNavigateSettings: () -> Unit,
+    val onNavigateProfile: () -> Unit,
+    val onNavigateMultiview: () -> Unit,
     val onNavigateVod: (Int) -> Unit,
     val onNavigateSeries: (playlistId: Long, seriesId: Long) -> Unit,
     val onPlayVod: (String, String, Boolean) -> Unit,
@@ -299,7 +301,7 @@ internal class HomeEpgGuideController(
                 ui.focusZone = EpgFocusZone.GRID
                 ui.focusOnChannelColumn = true
             }
-            EpgNavTab.Search -> ui.showSearchOverlay = true
+            EpgNavTab.Search -> ui.guideSubScreen = GuideSubScreen.Search
             EpgNavTab.Vod -> boundDeps.onNavigateVod(0)
             EpgNavTab.Movies -> boundDeps.onNavigateVod(0)
             EpgNavTab.Series -> boundDeps.onNavigateVod(1)
@@ -326,7 +328,7 @@ internal class HomeEpgGuideController(
             else -> Unit
         }
         boundDeps.searchViewModel.recordSelection(boundDeps.searchViewModel.queryText.value)
-        ui.showSearchOverlay = false
+        ui.guideSubScreen = null
         boundDeps.searchViewModel.clearQuery()
         when (result.type) {
             SearchResultType.CHANNEL -> result.channelId?.let { chId ->
@@ -418,8 +420,100 @@ internal class HomeEpgGuideController(
         }
     }
 
+    fun openNavDrawer() {
+        ui.navDrawerOpen = true
+        ui.focusZone = EpgFocusZone.NAV_DRAWER
+        boundDeps.scope.launch {
+            boundDeps.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
+    fun closeNavDrawer(restoreGrid: Boolean = true) {
+        ui.navDrawerOpen = false
+        if (restoreGrid) {
+            ui.focusZone = EpgFocusZone.GRID
+            boundDeps.scope.launch {
+                boundDeps.gridFocusRequester.requestFocusSafelyAfterLayout()
+            }
+        }
+    }
+
+    fun selectDrawerItem(item: com.grid.tv.ui.component.GuideNavDrawerItem) {
+        when (item) {
+            com.grid.tv.ui.component.GuideNavDrawerItem.Search -> {
+                closeNavDrawer(restoreGrid = false)
+                ui.guideSubScreen = GuideSubScreen.Search
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.ChannelGroups -> {
+                closeNavDrawer(restoreGrid = false)
+                ui.guideSubScreen = GuideSubScreen.Groups
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Favorites -> {
+                boundDeps.viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
+                ui.selectedTab = EpgNavTab.Favorites
+                closeNavDrawer()
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Vod -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateVod(0)
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.RecentChannels -> {
+                boundDeps.viewModel.showRecentChannelsOnly()
+                ui.selectedTab = EpgNavTab.Guide
+                closeNavDrawer()
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Recordings -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateRecordings()
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.MultiView -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateMultiview()
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Profile -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateProfile()
+            }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Settings -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateSettings()
+            }
+        }
+    }
+
+    fun handleNavDrawerKey(event: KeyEvent): Boolean {
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.Back, Key.Escape -> {
+                closeNavDrawer()
+                true
+            }
+            Key.DirectionRight -> {
+                closeNavDrawer()
+                true
+            }
+            Key.DirectionDown -> {
+                if (ui.navDrawerFocusIndex < com.grid.tv.ui.component.GuideNavDrawerItems.lastIndex) {
+                    ui.navDrawerFocusIndex += 1
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (ui.navDrawerFocusIndex > 0) {
+                    ui.navDrawerFocusIndex -= 1
+                }
+                true
+            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                selectDrawerItem(com.grid.tv.ui.component.GuideNavDrawerItems[ui.navDrawerFocusIndex])
+                true
+            }
+            else -> false
+        }
+    }
+
     fun requestEpgZoneFocus(zone: EpgFocusZone) {
-        if (ui.showSearchOverlay) return
+        if (ui.guideSubScreen != null) return
         val d = deps
         if (d == null) {
             Log.w(TAG, "Focus requested before deps initialized zone=$zone")
@@ -427,14 +521,13 @@ internal class HomeEpgGuideController(
         }
         d.scope.launch {
             when (zone) {
-                EpgFocusZone.TOP_BAR -> d.topNavFocusRequester.requestFocusSafelyAfterLayout()
+                EpgFocusZone.NAV_DRAWER -> d.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
                 EpgFocusZone.CONTINUE_WATCHING -> if (d.hasContinueWatching) {
                     d.continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
                 }
                 EpgFocusZone.PREVIEW -> if (d.showPreviewSection) {
                     d.previewFocusRequester.requestFocusSafelyAfterLayout(150)
                 }
-                EpgFocusZone.GRID_FILTER -> d.gridFilterFocusRequester.requestFocusSafelyAfterLayout()
                 EpgFocusZone.GRID -> if (d.displayChannels.isNotEmpty()) {
                     d.gridFocusRequester.requestFocusSafelyAfterLayout()
                 }
@@ -443,41 +536,15 @@ internal class HomeEpgGuideController(
     }
 
     fun focusEpgZone(zone: EpgFocusZone) {
-        if (ui.showSearchOverlay) return
+        if (ui.guideSubScreen != null) return
         val d = deps
         if (d == null) {
             Log.w(TAG, "Focus requested before deps initialized zone=$zone")
             return
         }
-        val resolvedZone = if (zone == EpgFocusZone.GRID_FILTER && ui.selectedTab == EpgNavTab.Favorites) {
-            when {
-                d.showPreviewSection -> EpgFocusZone.PREVIEW
-                d.hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
-                else -> EpgFocusZone.TOP_BAR
-            }
-        } else {
-            zone
-        }
-        ui.focusZone = resolvedZone
-        if (resolvedZone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
-        requestEpgZoneFocus(resolvedZone)
-    }
-
-    fun focusSearchTopBar() {
-        ui.topBarFocusIndex = TopBarSearchIndex
-        focusEpgZone(EpgFocusZone.TOP_BAR)
-    }
-
-    fun focusGuideFilter() {
-        if (ui.selectedTab == EpgNavTab.Favorites) {
-            when {
-                boundDeps.showPreviewSection -> focusPreviewSection()
-                boundDeps.hasContinueWatching -> focusEpgZone(EpgFocusZone.CONTINUE_WATCHING)
-                else -> focusEpgZone(EpgFocusZone.TOP_BAR)
-            }
-        } else {
-            focusEpgZone(EpgFocusZone.GRID_FILTER)
-        }
+        ui.focusZone = zone
+        if (zone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
+        requestEpgZoneFocus(zone)
     }
 
     fun focusGuideChannels(targetIndex: Int = ui.focusChannelIndex) {
@@ -490,16 +557,15 @@ internal class HomeEpgGuideController(
         if (boundDeps.showPreviewSection) {
             focusEpgZone(EpgFocusZone.PREVIEW)
         } else {
-            focusGuideFilter()
+            focusGuideChannels()
         }
     }
 
     fun moveGuideFocusVertical(from: EpgFocusZone, direction: Int) {
-        val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
         val target = if (direction < 0) {
-            epgZoneAbove(from, boundDeps.showPreviewSection, boundDeps.hasContinueWatching, showGroupFilter)
+            epgZoneAbove(from, boundDeps.showPreviewSection, boundDeps.hasContinueWatching)
         } else {
-            epgZoneBelow(from, boundDeps.showPreviewSection, boundDeps.hasContinueWatching, showGroupFilter)
+            epgZoneBelow(from, boundDeps.showPreviewSection, boundDeps.hasContinueWatching)
         }
         target?.let(::focusEpgZone)
     }
@@ -541,85 +607,10 @@ internal class HomeEpgGuideController(
         }
     }
 
-    fun handleGridFilterKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (ui.showSearchOverlay) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-        if (ui.showCategoryFilterMenu) return false
-        return when {
-            event.key == Key.DirectionDown -> {
-                if (boundDeps.displayChannels.isNotEmpty()) {
-                    focusGuideChannels()
-                }
-                true
-            }
-            event.key == Key.DirectionUp -> {
-                moveGuideFocusVertical(EpgFocusZone.GRID_FILTER, direction = -1)
-                true
-            }
-            isTvActivateKey(event) -> {
-                if (ui.pendingPreviewFocus) return false
-                openCategoryFilterMenu()
-                true
-            }
-            event.key == Key.Back || event.key == Key.Escape -> {
-                if (boundDeps.displayChannels.isNotEmpty()) {
-                    focusGuideChannels()
-                }
-                true
-            }
-            else -> false
-        }
-    }
-
-    fun handleTopBarKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (ui.showSearchOverlay) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-        if (ui.showCategoryFilterMenu) return false
-        if (ui.profileMenuOpen) {
-            return when (event.key) {
-                Key.Back, Key.Escape -> {
-                    ui.profileMenuOpen = false
-                    true
-                }
-                Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight -> {
-                    ui.profileMenuOpen = false
-                    false
-                }
-                else -> false
-            }
-        }
-        return when (event.key) {
-            Key.DirectionLeft -> {
-                ui.topBarFocusIndex = (ui.topBarFocusIndex - 1).coerceAtLeast(0)
-                true
-            }
-            Key.DirectionRight -> {
-                ui.topBarFocusIndex = (ui.topBarFocusIndex + 1).coerceAtMost(TopBarProfileIndex)
-                true
-            }
-            Key.DirectionDown -> {
-                moveGuideFocusVertical(EpgFocusZone.TOP_BAR, direction = 1)
-                true
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                when (ui.topBarFocusIndex) {
-                    in GridNavTabs.indices -> activateNavTab(GridNavTabs[ui.topBarFocusIndex])
-                    TopBarProfileIndex -> {
-                        ui.profileMenuOpen = true
-                        ui.profileMenuFocusIndex = 0
-                    }
-                }
-                true
-            }
-            else -> false
-        }
-    }
-
     fun handleContinueWatchingKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (ui.showSearchOverlay) return false
+        if (ui.guideSubScreen != null) return false
+        if (ui.navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (boundDeps.continueWatchingItems.isEmpty()) return false
         return when (event.key) {
@@ -649,7 +640,7 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.Back, Key.Escape -> {
-                focusSearchTopBar()
+                openNavDrawer()
                 true
             }
             else -> false
@@ -658,7 +649,8 @@ internal class HomeEpgGuideController(
 
     fun handlePreviewKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (ui.showSearchOverlay) return false
+        if (ui.guideSubScreen != null) return false
+        if (ui.navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
@@ -711,13 +703,14 @@ internal class HomeEpgGuideController(
 
     fun handleGridKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (ui.showSearchOverlay) return false
+        if (ui.guideSubScreen != null) return false
+        if (ui.navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
         if (boundDeps.displayChannels.isEmpty()) {
             return when (event.key) {
                 Key.DirectionUp -> {
-                    focusGuideFilter()
+                    openNavDrawer()
                     true
                 }
                 else -> false
@@ -748,7 +741,7 @@ internal class HomeEpgGuideController(
                     scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
-                    moveGuideFocusVertical(EpgFocusZone.GRID, direction = -1)
+                    openNavDrawer()
                     true
                 }
             }
@@ -781,15 +774,12 @@ internal class HomeEpgGuideController(
                 } else if (!ui.focusOnChannelColumn) {
                     ui.focusOnChannelColumn = true
                 } else {
-                    val first = progs.firstOrNull()
-                    if (first != null && first.startTime <= boundDeps.windowStart + 15 * 60 * 1000) {
-                        val scrollAdjust = boundDeps.viewModel.extendWindowBackward()
-                        if (scrollAdjust > 0) {
-                            boundDeps.scope.launch { boundDeps.hScroll.scrollTo(boundDeps.hScroll.value + scrollAdjust) }
-                        }
-                    }
-                    scrollByTimeSlot(-1)
+                    openNavDrawer()
                 }
+                true
+            }
+            Key.Menu -> {
+                openNavDrawer()
                 true
             }
             Key.PageDown -> {
@@ -834,6 +824,10 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.Back, Key.Escape -> {
+                if (ui.navDrawerOpen) {
+                    closeNavDrawer()
+                    return true
+                }
                 if (ui.detailExpanded) {
                     GuideNavigationLogger.backPressed(
                         zone = ui.focusZone.name,
@@ -895,7 +889,7 @@ internal class HomeEpgGuideController(
                                 branch = "restore_top_filter"
                             )
                             GuideNavigationLogger.focusRestoreTop()
-                            focusGuideFilter()
+                            openNavDrawer()
                             true
                         }
                     }

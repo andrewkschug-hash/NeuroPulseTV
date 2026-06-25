@@ -108,7 +108,7 @@ object LowEndDeviceMode {
         maxBufferMsCap = 300_000,
         telemetryVerbose = true,
         performanceAuditEnabled = true,
-        epgStartupDelaySec = 5L,
+        epgStartupDelaySec = 10L,
         watchdogPollIntervalMs = 2_000L,
         watchDurationTickMs = 5_000L,
         decodeOnlyMultiPaneAudio = false,

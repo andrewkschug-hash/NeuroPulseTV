@@ -32,7 +32,7 @@ object VodCategoryGuards {
         val idsByScopedLabel = linkedMapOf<String, MutableSet<String>>()
         categories.forEach { category ->
             if (category.name.isBlank() || !isStreamBackedCategoryId(category.id)) return@forEach
-            val labelKey = "${category.playlistId}:${category.name.trim().lowercase()}"
+            val labelKey = VodSidebarGenreNormalizer.scopedComparisonKey(category.playlistId, category.name)
             idsByScopedLabel.getOrPut(labelKey) { linkedSetOf() }.add(category.id)
         }
         return idsByScopedLabel.mapNotNull { (labelKey, ids) ->

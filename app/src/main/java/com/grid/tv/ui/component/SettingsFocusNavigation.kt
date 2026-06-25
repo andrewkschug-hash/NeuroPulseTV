@@ -895,7 +895,7 @@ fun profileContentFocusCount(
     hasActiveProfile: Boolean
 ): Int {
     val swatchCount = if (hasActiveProfile) 8 else 0
-    return 1 + swatchCount + profileCount.coerceAtLeast(0) + 7
+    return 1 + swatchCount + profileCount.coerceAtLeast(0) + 8
 }
 
 fun buildProfileSectionCards(
@@ -907,6 +907,7 @@ fun buildProfileSectionCards(
     swatchCount: Int = 8
 ): List<SettingsSectionCard> {
     val swatches = if (hasActiveProfile) swatchCount else 0
+    val contentPrefsStart = (contentFocusCount - 8).coerceAtLeast(0)
     val parentalStart = (contentFocusCount - 7).coerceAtLeast(0)
     return buildList {
         add(SettingsSectionCard(firstFocusIndex = 0, focusCount = 1))
@@ -920,6 +921,7 @@ fun buildProfileSectionCards(
                 SettingsSectionCard(firstFocusIndex = -1, focusCount = 0)
             }
         )
+        add(SettingsSectionCard(firstFocusIndex = contentPrefsStart, focusCount = 1))
         add(SettingsSectionCard(firstFocusIndex = parentalStart, focusCount = 7))
     }
 }

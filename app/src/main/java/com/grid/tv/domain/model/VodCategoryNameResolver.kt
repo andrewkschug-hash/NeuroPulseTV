@@ -12,6 +12,14 @@ package com.grid.tv.domain.model
  */
 object VodCategoryNameResolver {
 
+    /** @see VodSidebarGenreNormalizer.formatDisplayName */
+    fun formatSidebarGenreName(name: String): String =
+        VodSidebarGenreNormalizer.formatDisplayName(name)
+
+    /** @see VodSidebarGenreNormalizer.comparisonKey */
+    fun sidebarGenreComparisonKey(name: String): String =
+        VodSidebarGenreNormalizer.comparisonKey(name)
+
     fun categoryKey(playlistId: Long, categoryId: String): String =
         com.grid.tv.domain.model.categoryKey(playlistId, categoryId)
 
@@ -140,28 +148,81 @@ object VodCategoryNameResolver {
         }
         val merged = mergeSeriesCategorySources(categories)
             .distinctBy { categoryKey(it.playlistId, it.id) }
-        if (merged.isEmpty()) {
+        return prepareCategoriesForSidebar(merged, source = "seriesSidebar")
+    }
+
+    /** Movies sidebar: same display-name collapse and multi-id filter mapping as series. */
+    fun prepareMovieCategoriesForSidebar(categories: List<VodCategory>): SeriesSidebarCategories {
+        if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
         }
-        val lookup = buildLookupTable(merged)
-        val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
-        val displayCategories = merged
-            .map { category ->
-                category.copy(
-                    name = resolveDisplayName(
+        val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
+            .distinctBy { categoryKey(it.playlistId, it.id) }
+        return prepareCategoriesForSidebar(streamBacked, source = "moviesSidebar")
+    }
+
+    /**
+     * Resolves labels, then collapses to one sidebar row per playlist-scoped display name.
+     * Multiple stream-backed category ids sharing a label map to the same filter id set.
+     */
+    fun prepareCategoriesForSidebar(
+        categories: List<VodCategory>,
+        source: String = "sidebar"
+    ): SeriesSidebarCategories {
+        if (categories.isEmpty()) {
+            return SeriesSidebarCategories(emptyList(), emptyMap())
+        }
+        val lookup = buildLookupTable(categories)
+        val resolved = categories.map { category ->
+            category.copy(
+                name = formatSidebarGenreName(
+                    resolveDisplayName(
                         categoryId = category.id,
                         storedName = category.name,
                         playlistId = category.playlistId,
                         lookupById = lookup
                     )
                 )
-            }
-            .map { category ->
-                val key = categoryKey(category.playlistId, category.id)
-                filterIdsByRepresentativeId[key] = setOf(category.id)
-                category.copy(name = category.name.trim())
+            )
+        }
+
+        val grouped = resolved.groupBy { VodSidebarGenreNormalizer.scopedComparisonKey(it.playlistId, it.name) }
+        VodSidebarGenreNormalizer.logMergedGenreGroups(source, grouped)
+
+        val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
+        val displayCategories = grouped.values
+            .map { group -> pickSidebarRepresentative(group) }
+            .map { representative ->
+                val canonicalName = VodSidebarGenreNormalizer.pickCanonicalDisplayName(
+                    resolved.filter {
+                        it.playlistId == representative.playlistId &&
+                            VodSidebarGenreNormalizer.comparisonKey(it.name) ==
+                            VodSidebarGenreNormalizer.comparisonKey(representative.name)
+                    }.map { it.name }
+                )
+                val displayCategory = representative.copy(name = canonicalName)
+                val repKey = categoryKey(displayCategory.playlistId, displayCategory.id)
+                val comparisonKey = VodSidebarGenreNormalizer.comparisonKey(canonicalName)
+                val siblingIds = resolved
+                    .filter {
+                        it.playlistId == displayCategory.playlistId &&
+                            VodSidebarGenreNormalizer.comparisonKey(it.name) == comparisonKey
+                    }
+                    .map { it.id }
+                    .toSet()
+                filterIdsByRepresentativeId[repKey] = siblingIds
+                displayCategory
             }
             .sortedBy { it.name.lowercase() }
+
         return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
+    }
+
+    private fun pickSidebarRepresentative(group: List<VodCategory>): VodCategory {
+        return group.minWithOrNull(
+            compareBy<VodCategory> { isUnresolvedName(it.id, it.name) }
+                .thenBy { it.id.length }
+                .thenBy { it.id }
+        ) ?: group.first()
     }
 }

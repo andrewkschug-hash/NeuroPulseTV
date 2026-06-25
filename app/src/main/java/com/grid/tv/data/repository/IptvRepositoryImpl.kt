@@ -32,6 +32,7 @@ import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
 import com.grid.tv.data.cache.VodCatalogDiskCache
+import com.grid.tv.data.io.DiskIoSerialExecutor
 import com.grid.tv.data.db.dao.SeriesCategoryDao
 import com.grid.tv.data.db.dao.SeriesShowDao
 import com.grid.tv.data.db.dao.VodCategoryDao
@@ -64,11 +65,13 @@ import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.feature.startup.PersistedCatalogCounts
+import com.grid.tv.feature.startup.CachedCatalogCounts
 import com.grid.tv.feature.startup.StartupCatalogCountsStore
 import com.grid.tv.util.DEFAULT_CONNECTION_TIMEOUT_SECONDS
 import com.grid.tv.util.JsonParseMetrics
@@ -151,6 +154,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -214,8 +218,15 @@ class IptvRepositoryImpl @Inject constructor(
     private val epgDispatchers: EpgCoroutineDispatchers,
     private val appCacheRegistry: AppCacheRegistry,
     private val startupCatalogCountsStore: StartupCatalogCountsStore,
+    private val startupSafety: com.grid.tv.feature.startup.StartupSafety,
+    private val startupDiskQueue: com.grid.tv.feature.startup.StartupDiskQueue,
+    private val diskIoSerialExecutor: DiskIoSerialExecutor,
     private val playlistContext: PlaylistContext
 ) : IptvRepository {
+
+    init {
+        startupSafety.registerVodLoadFlusher { trigger -> loadVodStreamed(trigger) }
+    }
 
     companion object {
         private const val CONNECT_ERROR = "Login or URL invalid"
@@ -234,6 +245,8 @@ class IptvRepositoryImpl @Inject constructor(
         /** Serve in-memory/disk cache without network for this long unless [force] refresh. */
         private const val VOD_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
         private const val INGEST_REVISION_EVERY_BATCHES = 4
+        /** Skip cold-start VOD network ingest when the DB already holds at least this many rows. */
+        private const val STARTUP_VOD_SKIP_MIN_ROWS = 500
         private const val VIEWPORT_EPG_LOOKBACK_MS = 30L * 60L * 1000L
         private const val VIEWPORT_EPG_LOOKAHEAD_MS = 4L * 60L * 60L * 1000L
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
@@ -325,7 +338,49 @@ class IptvRepositoryImpl @Inject constructor(
         _vodStreamCountFlow.value = snapshot.movies
         _seriesShowCountFlow.value = snapshot.series
         _channelCountFlow.value = snapshot.channels
+        seedVodRefreshBaselineIfNeeded(persisted)
     }
+
+    private fun seedVodRefreshBaselineIfNeeded(persisted: PersistedCatalogCounts = startupCatalogCountsStore.read()) {
+        if (!persisted.isValid) return
+        if (persisted.movies <= 0 && persisted.series <= 0) return
+        if (lastVodRefreshCompletedAtMs > 0L) return
+        lastVodRefreshCompletedAtMs = persisted.updatedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+    }
+
+    private suspend fun shouldSkipStartupVodNetworkRefresh(trigger: VodRefreshTrigger): Boolean {
+        if (trigger != VodRefreshTrigger.REPOSITORY_INIT) return false
+        val persisted = startupCatalogCountsStore.read()
+        val movies = persisted.movies.takeIf { it > 0 } ?: cachedMoviesCount()
+        val series = persisted.series.takeIf { it > 0 } ?: cachedSeriesCount()
+        if (movies < STARTUP_VOD_SKIP_MIN_ROWS && series < STARTUP_VOD_SKIP_MIN_ROWS) return false
+        seedVodRefreshBaselineIfNeeded(persisted)
+        Log.i(
+            VOD_FLOW_TAG,
+            "Skipping startup VOD network ingest — on-disk catalog movies=$movies series=$series"
+        )
+        return true
+    }
+
+    private suspend fun awaitVodIngestAllowed() {
+        while (catalogHydrationGuard.shouldDeferHeavyCatalogIo()) {
+            delay(StartupTierPolicy.vodIngestPlaybackWaitMs())
+        }
+    }
+
+    private suspend fun throttleVodIngestBatch(batchIndex: Int) {
+        if (batchIndex <= 0) return
+        if (batchIndex % StartupTierPolicy.vodIngestYieldEveryNBatches() != 0) return
+        delay(StartupTierPolicy.vodIngestBatchGapMs())
+        yield()
+    }
+
+    private fun ingestRevisionCadence(): Int =
+        if (LowEndDeviceMode.current().active) {
+            INGEST_REVISION_EVERY_BATCHES * 4
+        } else {
+            INGEST_REVISION_EVERY_BATCHES
+        }
 
     private fun PersistedCatalogCounts.toSnapshot(source: CatalogCountSource): CatalogCountsSnapshot =
         CatalogCountsSnapshot(
@@ -341,6 +396,50 @@ class IptvRepositoryImpl @Inject constructor(
     private fun cachedSeriesCount(): Int = sessionCatalogCounts?.series ?: _seriesShowCountFlow.value
 
     private fun cachedChannelsCount(): Int = sessionCatalogCounts?.channels ?: _channelCountFlow.value
+
+    private suspend fun queryCatalogCountsFromDbChunked(): CatalogCountsSnapshot {
+        StartupProfiler.mark("phase2_count_query_start")
+        val moviesStart = SystemClock.elapsedRealtime()
+        val movies = withContext(diskIoSerialExecutor.dispatcher) {
+            vodStreamDao.countTotal()
+        }
+        val moviesMs = SystemClock.elapsedRealtime() - moviesStart
+        delay(StartupTierPolicy.phase2CountChunkDelayMs())
+        yield()
+
+        val seriesStart = SystemClock.elapsedRealtime()
+        val series = withContext(diskIoSerialExecutor.dispatcher) {
+            seriesShowDao.countTotal()
+        }
+        val seriesMs = SystemClock.elapsedRealtime() - seriesStart
+        delay(StartupTierPolicy.phase2CountChunkDelayMs())
+        yield()
+
+        val channelsStart = SystemClock.elapsedRealtime()
+        val channels = withContext(diskIoSerialExecutor.dispatcher) {
+            channelDao.countTotal()
+        }
+        val channelsMs = SystemClock.elapsedRealtime() - channelsStart
+
+        val totalMs = moviesMs + seriesMs + channelsMs
+        StartupProfiler.mark(
+            "phase2_count_query_end",
+            "total=${totalMs}ms movies=${moviesMs}ms($movies) " +
+                "series=${seriesMs}ms($series) channels=${channelsMs}ms($channels)"
+        )
+        Log.i(
+            IPTV_REPO_LOG_TAG,
+            "countTotal(chunked): ${totalMs}ms total (movies=${moviesMs}ms/$movies " +
+                "series=${seriesMs}ms/$series channels=${channelsMs}ms/$channels)"
+        )
+        return CatalogCountsSnapshot(
+            movies = movies,
+            series = series,
+            channels = channels,
+            updatedAtMs = System.currentTimeMillis(),
+            source = CatalogCountSource.DATABASE
+        )
+    }
 
     private suspend fun queryCatalogCountsFromDb(): CatalogCountsSnapshot {
         val moviesStart = SystemClock.elapsedRealtime()
@@ -378,6 +477,16 @@ class IptvRepositoryImpl @Inject constructor(
         publishUi: Boolean = true,
         persist: Boolean = true
     ): CatalogCountsSnapshot {
+        if (startupSafety.shouldDeferDbCountQueries()) {
+            sessionCatalogCounts?.let { return it }
+            return CatalogCountsSnapshot(
+                movies = cachedMoviesCount(),
+                series = cachedSeriesCount(),
+                channels = cachedChannelsCount(),
+                updatedAtMs = System.currentTimeMillis(),
+                source = CatalogCountSource.PERSISTED
+            )
+        }
         if (!force && sessionDbCountsLoaded) {
             sessionCatalogCounts?.let { return it }
         }
@@ -458,7 +567,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun runDeferredPostImportWork() {
         vodRepositoryScope.launch {
-            delay(StartupTierPolicy.tier3DelayMs())
+            delay(StartupTierPolicy.phase3DelayMs())
             invalidateCatalogCountCache()
             refreshCatalogCountsFromDb(
                 trigger = VodRefreshTrigger.REPOSITORY_INIT,
@@ -542,14 +651,16 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun publishMoviesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
         _vodStreamCountFlow.value = parsedSoFar
-        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+        val cadence = ingestRevisionCadence()
+        if (batchIndex == 0 || batchIndex % cadence == 0) {
             bumpVodCatalogRevision()
         }
     }
 
     private fun publishSeriesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
         _seriesShowCountFlow.value = parsedSoFar
-        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+        val cadence = ingestRevisionCadence()
+        if (batchIndex == 0 || batchIndex % cadence == 0) {
             bumpVodCatalogRevision()
         }
     }
@@ -1130,6 +1241,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun fetchCurrentEpgForChannels(channelIds: List<String>): Int = withContext(epgDispatchers.io) {
         if (channelIds.isEmpty()) return@withContext 0
+        if (!startupSafety.allowNetwork("viewport_epg")) return@withContext 0
         if (catalogHydrationGuard.viewportEpgSuspended) {
             Log.d(EPG_FLOW_TAG, "Viewport EPG skipped — live playback active")
             return@withContext 0
@@ -2073,6 +2185,10 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun refreshEpgNow(): EpgRefreshReport = startupHeavyWorkMutex.withLock {
         StartupTrace.traceSuspend("refreshEpgNow") {
+        if (!startupSafety.isInputSafe()) {
+            Log.i(EPG_FLOW_TAG, "refreshEpgNow deferred — input safe not reached")
+            return@traceSuspend EpgRefreshReport(playlistsTotal = 0, attempts = emptyList())
+        }
         withContext(epgDispatchers.io) {
         epgDownloadTracker.setInProgress(true)
         try {
@@ -2337,26 +2453,68 @@ class IptvRepositoryImpl @Inject constructor(
             return
         }
         com.grid.tv.util.VodCatalogLogger.vodLoadStart(trigger.name)
-        vodRepositoryScope.launch(Dispatchers.IO) {
-            hydrateVodUiFromRoom(trigger)
-            StartupProfiler.mark("vod_local_warm_start", trigger.name)
-            if (!vodDiskCacheLoaded) {
-                warmLocalUiCache()
-            } else {
-                ensureVodDiskCacheLoaded()
-            }
-            StartupProfiler.mark("vod_local_warm_complete", trigger.name)
+        if (startupSafety.shouldDeferHeavyRepositoryWork(trigger)) {
+            startupSafety.enqueueDeferredVodLoad(trigger)
+            Log.i(
+                VOD_FLOW_TAG,
+                "loadVodStreamed deferred trigger=$trigger phase=${startupSafety.currentPhase()}"
+            )
+            return
         }
-        scheduleDeferredVodCatalogRefresh(
-            trigger,
-            immediate = trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
-                trigger == VodRefreshTrigger.MANUAL_RETRY
-        )
+        loadVodStreamedInternal(trigger)
     }
 
-    /** Publishes cached Room counts immediately so VOD UI never waits on network. */
+    private fun loadVodStreamedInternal(trigger: VodRefreshTrigger) {
+        vodRepositoryScope.launch {
+            if (trigger != VodRefreshTrigger.MANUAL_RETRY) {
+                startupSafety.awaitInputSafe()
+            }
+            startupDiskQueue.run("vod_local_warm_$trigger") {
+                hydrateVodUiFromRoom(trigger)
+                StartupProfiler.mark("vod_local_warm_start", trigger.name)
+                if (!vodDiskCacheLoaded) {
+                    warmLocalUiCacheMinimal()
+                } else {
+                    ensureVodDiskCacheLoaded()
+                }
+                StartupProfiler.mark("vod_local_warm_complete", trigger.name)
+            }
+            scheduleDeferredVodCatalogRefresh(
+                trigger,
+                immediate = trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
+                    trigger == VodRefreshTrigger.MANUAL_RETRY
+            )
+        }
+    }
+
+    override fun startDeferredVodMaintenance(trigger: VodRefreshTrigger) {
+        if (LowEndDeviceMode.isEnabled() && trigger == VodRefreshTrigger.REPOSITORY_INIT) {
+            Log.i(
+                VOD_FLOW_TAG,
+                "Skipping startup VOD maintenance on low-end device trigger=$trigger — loads on VOD hub entry"
+            )
+            return
+        }
+        scheduleDeferredVodCatalogRefresh(trigger, immediate = false)
+    }
+
+    /** Publishes cached Room counts when allowed — never blocks startup Phase 1. */
     private suspend fun hydrateVodUiFromRoom(trigger: VodRefreshTrigger) {
         StartupProfiler.mark("vod_instant_hydrate_start", trigger.name)
+        if (startupSafety.shouldDeferDbCountQueries()) {
+            StartupProfiler.mark(
+                "vod_instant_hydrate_skipped",
+                "phase=${startupSafety.currentPhase()} trigger=$trigger"
+            )
+            return
+        }
+        if (sessionDbCountsLoaded) {
+            StartupProfiler.mark(
+                "vod_instant_hydrate_complete",
+                "movies=${cachedMoviesCount()} series=${cachedSeriesCount()} cached=true"
+            )
+            return
+        }
         refreshCatalogCountsFromDb(
             trigger = trigger,
             force = true,
@@ -2376,11 +2534,21 @@ class IptvRepositoryImpl @Inject constructor(
     private fun scheduleDeferredVodCatalogRefresh(trigger: VodRefreshTrigger, immediate: Boolean) {
         deferredVodCatalogRefreshJob?.cancel()
         deferredVodCatalogRefreshJob = vodRepositoryScope.launch {
-            val dbEmpty = withContext(Dispatchers.IO) {
+            if (trigger != VodRefreshTrigger.MANUAL_RETRY) {
+                startupSafety.awaitInputSafe()
+            }
+            val dbEmpty = startupDiskQueue.run("vod_refresh_db_empty_check") {
                 cachedMoviesCount() <= 0 && cachedSeriesCount() <= 0
             }
+            val persisted = startupCatalogCountsStore.read()
+            val dbPopulated = persisted.movies >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                persisted.series >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                cachedMoviesCount() >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                cachedSeriesCount() >= STARTUP_VOD_SKIP_MIN_ROWS
             val delayMs = when {
                 immediate -> 0L
+                dbPopulated && trigger == VodRefreshTrigger.REPOSITORY_INIT ->
+                    StartupTierPolicy.populatedCatalogVodRefreshDelayMs()
                 dbEmpty && (
                     trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
                         trigger == VodRefreshTrigger.MANUAL_RETRY
@@ -2395,6 +2563,14 @@ class IptvRepositoryImpl @Inject constructor(
             }
             if (trigger != VodRefreshTrigger.MANUAL_RETRY && isVodCatalogFresh()) {
                 Log.i(VOD_FLOW_TAG, "Skipping deferred VOD refresh — catalog still fresh trigger=$trigger")
+                return@launch
+            }
+            if (shouldSkipStartupVodNetworkRefresh(trigger)) {
+                refreshSeriesCategoriesIfMissing(trigger)
+                refreshVodCategoriesIfMissing(trigger)
+                repairStoredCategoryNames()
+                publishVodProgressFromDb(trigger)
+                StartupProfiler.mark("vod_refresh_skipped", trigger.name)
                 return@launch
             }
             try {
@@ -2414,68 +2590,113 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun warmLocalUiCache() {
-        StartupTrace.traceSuspend("warmLocalUiCache") {
-        withContext(Dispatchers.IO) {
-            StartupProfiler.mark("repository_warm_start")
-            ensureDefaultProfile()
-            loadSettings()
+    override suspend fun warmLocalUiCacheMinimal() {
+        StartupProfiler.mark("repository_warm_minimal_start")
+        ensureDefaultProfile()
+        loadSettings()
 
-            val persisted = startupCatalogCountsStore.read()
-            if (persisted.isValid) {
-                applyCatalogCounts(
-                    counts = persisted.toSnapshot(CatalogCountSource.PERSISTED),
-                    trigger = VodRefreshTrigger.REPOSITORY_INIT,
-                    persist = false,
-                    publishUi = true
-                )
-                StartupProfiler.mark(
-                    "catalog_counts_instant",
-                    "movies=${persisted.movies} series=${persisted.series} channels=${persisted.channels}"
-                )
-            }
-
-            vodDiskCacheLoaded = true
-
-            val dbCounts = queryCatalogCountsFromDb()
-            sessionDbCountsLoaded = true
-            val countsChanged = !persisted.isValid ||
-                persisted.movies != dbCounts.movies ||
-                persisted.series != dbCounts.series ||
-                persisted.channels != dbCounts.channels
+        val persisted = startupCatalogCountsStore.read()
+        if (persisted.isValid) {
             applyCatalogCounts(
-                counts = dbCounts,
+                counts = persisted.toSnapshot(CatalogCountSource.PERSISTED),
                 trigger = VodRefreshTrigger.REPOSITORY_INIT,
-                persist = true,
-                publishUi = countsChanged || !persisted.isValid
-            )
-
-            if (dbCounts.channels > 0) {
-                // Warm SQLite page cache for the first guide page only — never load the full channel table.
-                mapChannelEntities(
-                    channelDao.channelsPage(
-                        filterPlaylistId = -1L,
-                        filterGroupName = null,
-                        search = "",
-                        onlyFavorites = false,
-                        profileId = activeProfileId,
-                        favoriteGroupId = -1L,
-                        limit = CHANNEL_PAGE_SIZE,
-                        offset = 0
-                    )
-                )
-            }
-            Log.i(
-                IPTV_REPO_LOG_TAG,
-                "warmLocalUiCache complete profileId=$activeProfileId channels=${dbCounts.channels} " +
-                    "(counts only; movies=${dbCounts.movies} series=${dbCounts.series} — UI loads pages on demand)"
+                persist = false,
+                publishUi = true
             )
             StartupProfiler.mark(
-                "repository_warm_complete",
-                "movies=${dbCounts.movies} series=${dbCounts.series} channels=${dbCounts.channels}"
+                "catalog_counts_instant",
+                "movies=${persisted.movies} series=${persisted.series} channels=${persisted.channels}"
             )
-            appCacheRegistry.logInventory("warm_local_ui_cache")
         }
+        vodDiskCacheLoaded = true
+        StartupProfiler.mark("repository_warm_minimal_complete")
+    }
+
+    override fun getCachedCatalogCounts(): CachedCatalogCounts {
+        sessionCatalogCounts?.let {
+            return CachedCatalogCounts(
+                movies = it.movies,
+                series = it.series,
+                channels = it.channels,
+                isValid = true
+            )
+        }
+        val persisted = startupCatalogCountsStore.read()
+        return CachedCatalogCounts(
+            movies = persisted.movies,
+            series = persisted.series,
+            channels = persisted.channels,
+            isValid = persisted.isValid
+        )
+    }
+
+    override fun applyCachedCatalogCountsAtStartup() {
+        val cached = getCachedCatalogCounts()
+        StartupProfiler.mark(
+            "phase2_cache_used",
+            "movies=${cached.movies} series=${cached.series} channels=${cached.channels} " +
+                "valid=${cached.isValid}"
+        )
+        if (!cached.isValid) return
+        applyCatalogCounts(
+            counts = CatalogCountsSnapshot(
+                movies = cached.movies,
+                series = cached.series,
+                channels = cached.channels,
+                updatedAtMs = System.currentTimeMillis(),
+                source = CatalogCountSource.PERSISTED
+            ),
+            trigger = VodRefreshTrigger.REPOSITORY_INIT,
+            persist = false,
+            publishUi = true
+        )
+    }
+
+    override suspend fun updateCountsInBackground() {
+        ensureDefaultProfile()
+        loadSettings()
+
+        val persisted = startupCatalogCountsStore.read()
+        val dbCounts = queryCatalogCountsFromDbChunked()
+        sessionDbCountsLoaded = true
+        val countsChanged = !persisted.isValid ||
+            persisted.movies != dbCounts.movies ||
+            persisted.series != dbCounts.series ||
+            persisted.channels != dbCounts.channels
+        applyCatalogCounts(
+            counts = dbCounts,
+            trigger = VodRefreshTrigger.REPOSITORY_INIT,
+            persist = true,
+            publishUi = countsChanged || !persisted.isValid
+        )
+
+        if (dbCounts.channels > 0 && !startupSafety.shouldDeferChannelPageWarm()) {
+            yield()
+            delay(50)
+            mapChannelEntities(
+                channelDao.channelsPage(
+                    filterPlaylistId = -1L,
+                    filterGroupName = null,
+                    search = "",
+                    onlyFavorites = false,
+                    profileId = activeProfileId,
+                    favoriteGroupId = -1L,
+                    limit = CHANNEL_PAGE_SIZE,
+                    offset = 0
+                )
+            )
+        }
+        Log.i(
+            IPTV_REPO_LOG_TAG,
+            "updateCountsInBackground complete profileId=$activeProfileId " +
+                "channels=${dbCounts.channels} movies=${dbCounts.movies} series=${dbCounts.series}"
+        )
+        appCacheRegistry.logInventory("warm_local_ui_cache")
+    }
+
+    override suspend fun warmLocalUiCache() {
+        StartupTrace.traceSuspend("warmLocalUiCache") {
+            warmLocalUiCacheMinimal()
         }
     }
 
@@ -2526,6 +2747,14 @@ class IptvRepositoryImpl @Inject constructor(
             return@withContext
         }
 
+        if (!force && shouldSkipStartupVodNetworkRefresh(trigger)) {
+            refreshSeriesCategoriesIfMissing(trigger)
+            refreshVodCategoriesIfMissing(trigger)
+            repairStoredCategoryNames()
+            publishVodProgressFromDb(trigger = trigger)
+            return@withContext
+        }
+
         val completion = CompletableDeferred<Unit>()
         activeVodRefresh = completion
         try {
@@ -2561,6 +2790,7 @@ class IptvRepositoryImpl @Inject constructor(
                     "VOD catalog available in DB movies=$dbMovies series=$dbSeries (lazy paging — no bulk load)"
                 )
             } else if (!sessionDbCountsLoaded) {
+                if (startupSafety.shouldDeferDbCountQueries()) return
                 val counts = refreshCatalogCountsFromDb(
                     trigger = VodRefreshTrigger.REPOSITORY_INIT,
                     force = true,
@@ -3330,6 +3560,7 @@ class IptvRepositoryImpl @Inject constructor(
                 parser = xtreamParser
             ) { batch, batchIndex, parsedSoFar ->
                 if (batch.isEmpty()) return@parseVodCatalogStream
+                awaitVodIngestAllowed()
                 if (!firstBatchLogged) {
                     firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, item ->
@@ -3348,7 +3579,9 @@ class IptvRepositoryImpl @Inject constructor(
                     batchSize = batch.size,
                     parsedSoFar = parsedSoFar
                 )
-                vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                startupDiskQueue.run("vod_ingest_movies_$batchIndex") {
+                    vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                }
                 val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
                 com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
                     phase = "movies",
@@ -3360,6 +3593,7 @@ class IptvRepositoryImpl @Inject constructor(
                 )
                 publishMoviesIngestBatch(parsedSoFar, batchIndex)
                 onBatchInserted(parsedSoFar, parsedSoFar)
+                throttleVodIngestBatch(batchIndex)
             }
             parsedCount = streamResult.parsedCount
             skippedCount = streamResult.skippedCount
@@ -3549,6 +3783,7 @@ class IptvRepositoryImpl @Inject constructor(
                 parser = xtreamParser
             ) { batch, batchIndex, parsedSoFar ->
                 if (batch.isEmpty()) return@parseSeriesCatalogStream
+                awaitVodIngestAllowed()
                 if (!firstBatchLogged) {
                     firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, show ->
@@ -3567,7 +3802,9 @@ class IptvRepositoryImpl @Inject constructor(
                     batchSize = batch.size,
                     parsedSoFar = parsedSoFar
                 )
-                seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                startupDiskQueue.run("vod_ingest_series_$batchIndex") {
+                    seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                }
                 val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
                 com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
                     phase = "series",
@@ -3579,6 +3816,7 @@ class IptvRepositoryImpl @Inject constructor(
                 )
                 publishSeriesIngestBatch(parsedSoFar, batchIndex)
                 onBatchInserted(parsedSoFar, parsedSoFar)
+                throttleVodIngestBatch(batchIndex)
             }
             parsedCount = streamResult.parsedCount
             skippedCount = streamResult.skippedCount
@@ -3693,11 +3931,13 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun vodMoviesPaging(
-        categoryId: String?,
+        categoryIds: Set<String>?,
         search: String,
         playlistId: Long?
     ): Flow<PagingData<VodItem>> {
         val trimmedSearch = search.trim()
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
         val resolvedPlaylistId = scopedPlaylistId(playlistId)
         return Pager(
             config = PagingConfig(
@@ -3708,9 +3948,14 @@ class IptvRepositoryImpl @Inject constructor(
             ),
             pagingSourceFactory = {
                 if (resolvedPlaylistId.isPlaylistScoped()) {
-                    vodStreamDao.vodPagingSourceForPlaylist(resolvedPlaylistId!!, categoryId, trimmedSearch)
+                    vodStreamDao.vodPagingSourceByIdsForPlaylist(
+                        resolvedPlaylistId!!,
+                        matchAll,
+                        ids,
+                        trimmedSearch
+                    )
                 } else {
-                    vodStreamDao.vodPagingSource(categoryId, trimmedSearch)
+                    vodStreamDao.vodPagingSourceByIds(matchAll, ids, trimmedSearch)
                 }
             }
         ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
@@ -3748,16 +3993,18 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun vodFilteredCount(
-        categoryId: String?,
+        categoryIds: Set<String>?,
         search: String,
         playlistId: Long?
     ): Int = withContext(Dispatchers.IO) {
         val trimmedSearch = search.trim()
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
         val resolvedPlaylistId = scopedPlaylistId(playlistId)
         if (resolvedPlaylistId.isPlaylistScoped()) {
-            vodStreamDao.countFilteredForPlaylist(resolvedPlaylistId!!, categoryId, trimmedSearch)
+            vodStreamDao.countFilteredByIdsForPlaylist(resolvedPlaylistId!!, matchAll, ids, trimmedSearch)
         } else {
-            vodStreamDao.countFiltered(categoryId, trimmedSearch)
+            vodStreamDao.countFilteredByIds(matchAll, ids, trimmedSearch)
         }
     }
 

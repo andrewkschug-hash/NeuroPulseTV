@@ -12,6 +12,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.epg.EpgJobSource
+import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import dagger.assisted.Assisted
@@ -25,7 +26,8 @@ class EpgRefreshWorker @AssistedInject constructor(
     private val repository: IptvRepository,
     private val channelScanGate: ChannelScanGate,
     private val epgJobCoordinator: EpgJobCoordinator,
-    private val seriesRuleScheduler: SeriesRuleScheduler
+    private val seriesRuleScheduler: SeriesRuleScheduler,
+    private val startupSafety: StartupSafety
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -37,6 +39,14 @@ class EpgRefreshWorker @AssistedInject constructor(
             "EpgRefreshWorker started source=$source workId=$id runAttempt=$runAttemptCount tags=$tags"
         )
         return try {
+            if (source == EpgJobSource.STARTUP && !startupSafety.isInputSafe()) {
+                Log.i(
+                    TAG,
+                    "EpgRefreshWorker deferred — input safe not reached " +
+                        "phase=${startupSafety.currentPhase()} source=$source"
+                )
+                return Result.retry()
+            }
             if (source == EpgJobSource.IMPORT || source == EpgJobSource.STARTUP) {
                 channelScanGate.awaitValidationIdle()
                 if (channelScanGate.isValidationActive.value) {

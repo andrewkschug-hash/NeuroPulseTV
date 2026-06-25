@@ -50,4 +50,35 @@ object VodCatalogLogger {
             "CATALOG_EMPTY screen=$screen reason=$reason dbMovies=$dbMovies dbSeries=$dbSeries filtered=$filtered"
         )
     }
+
+    /** Pipeline diagnostics: catalog → language filter → recommendations → rows. */
+    fun vodPipelineDebug(
+        catalogCount: Int,
+        filteredCount: Int,
+        selectedLanguage: Set<String>,
+        recommendationCount: Int,
+        focusBefore: String?,
+        focusAfter: String?,
+        includeUntagged: Boolean = true
+    ) {
+        Log.i(
+            TAG,
+            "[VOD] catalog=$catalogCount filtered=$filteredCount " +
+                "language=${selectedLanguage.joinToString(",")} includeUntagged=$includeUntagged " +
+                "recommendations=$recommendationCount focusBefore=$focusBefore focusAfter=$focusAfter"
+        )
+    }
+
+    fun vodLanguageSwitch(
+        durationMs: Long,
+        catalogCount: Int,
+        filteredCount: Int,
+        includeUntagged: Boolean = true
+    ) {
+        Log.i(
+            TAG,
+            "[VOD] languageSwitchMs=$durationMs catalog=$catalogCount filtered=$filteredCount " +
+                "includeUntagged=$includeUntagged"
+        )
+    }
 }

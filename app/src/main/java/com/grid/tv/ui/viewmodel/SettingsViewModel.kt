@@ -27,6 +27,7 @@ import com.grid.tv.feature.dashboard.DashboardController
 import com.grid.tv.feature.recording.RecordingStorageManager
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
+import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -72,6 +73,7 @@ class SettingsViewModel @Inject constructor(
     private val pipController: PictureInPictureController,
     private val livePlayerManager: LivePlayerManager,
     private val streamHealthAnalytics: com.grid.tv.feature.health.intelligence.StreamHealthAnalyticsService,
+    private val vodLanguagePreferenceStore: VodLanguagePreferenceStore,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -134,6 +136,13 @@ class SettingsViewModel @Inject constructor(
     private val _cacheMessage = MutableStateFlow<String?>(null)
     val cacheMessage = _cacheMessage.asStateFlow()
 
+    val includeUntaggedVodContent: StateFlow<Boolean> = vodLanguagePreferenceStore.includeUntaggedContent
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            VodLanguagePreferenceStore.DEFAULT_INCLUDE_UNTAGGED
+        )
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             _settings.value = repository.loadSettings()
@@ -194,6 +203,10 @@ class SettingsViewModel @Inject constructor(
             _settings.value = updated
             repository.saveSettings(updated)
         }
+    }
+
+    fun updateIncludeUntaggedVodContent(enabled: Boolean) {
+        vodLanguagePreferenceStore.setIncludeUntaggedContent(enabled)
     }
 
     fun updateHideAdultContent(enabled: Boolean) {

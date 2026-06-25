@@ -192,6 +192,7 @@ fun SettingsScreen(
     val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
     val authUiState by authViewModel.uiState.collectAsStateWithLifecycle()
     val signedInAccount by authViewModel.signedInAccount.collectAsStateWithLifecycle()
+    val includeUntaggedVodContent by viewModel.includeUntaggedVodContent.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -686,12 +687,16 @@ fun SettingsScreen(
                             activeProfile = activeProfile,
                             profiles = profiles,
                             settings = settings,
+                            includeUntaggedVodContent = includeUntaggedVodContent,
                             focus = contentFocus,
                             onManageProfiles = {
                                 Log.d("SettingsScreen", "Manage profiles clicked — opening inline editor")
                                 showManageProfilesOverlay = true
                             },
                             onSelectProfile = { profileViewModel.switchProfile(it) },
+                            onToggleIncludeUntaggedVodContent = {
+                                viewModel.updateIncludeUntaggedVodContent(!includeUntaggedVodContent)
+                            },
                             onToggleHideAdult = {
                                 val next = !settings.hideAdultContent
                                 if (next && activeProfile?.hasPin == true) {
@@ -1102,9 +1107,11 @@ private fun ProfileSettingsContent(
     activeProfile: UserProfile?,
     profiles: List<UserProfile>,
     settings: com.grid.tv.domain.model.AppSettings,
+    includeUntaggedVodContent: Boolean,
     focus: SettingsContentFocus,
     onManageProfiles: () -> Unit,
     onSelectProfile: (Long) -> Unit,
+    onToggleIncludeUntaggedVodContent: () -> Unit,
     onToggleHideAdult: () -> Unit,
     onToggleParentalPinLock: () -> Unit,
     onMaxContentRating: (MaxContentRating) -> Unit,
@@ -1113,6 +1120,7 @@ private fun ProfileSettingsContent(
 ) {
     val swatchCount = if (activeProfile != null) PROFILE_SWATCH_COUNT else 0
     val profileListStart = 1 + swatchCount
+    val contentPrefsStart = focus.chain.lastIndex - 7
     val parentalStart = focus.chain.lastIndex - 6
     var cardIdx = 0
     SettingsPanel(
@@ -1206,13 +1214,29 @@ private fun ProfileSettingsContent(
     }
 
     SettingsPanel(
+        title = "Content preferences",
+        description = "Control how movies and series are filtered by language.",
+        cardIndex = cardIdx++,
+        focus = focus
+    ) {
+        SettingsFocusToggleRow(
+            label = "Include Untagged Content",
+            description = "When enabled, titles without a detectable language tag will still appear in filtered results.",
+            enabled = includeUntaggedVodContent,
+            onToggle = onToggleIncludeUntaggedVodContent,
+            chainIndex = contentPrefsStart,
+            focus = focus
+        )
+    }
+
+    SettingsPanel(
         title = "Parental controls",
         description = "Filter adult channel groups and restrict access with a PIN.",
         cardIndex = cardIdx++,
         focus = focus
     ) {
         SettingsFocusToggleRow(
-            label = "Hide adult content",
+            label = "Hide Adult Categories",
             description = if (activeProfile?.hasPin == true) {
                 "PIN required to turn on"
             } else {

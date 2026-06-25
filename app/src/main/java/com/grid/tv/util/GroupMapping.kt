@@ -15,7 +15,9 @@ private val ADULT_GROUP_KEYWORDS = listOf(
     "pink",
     "mature",
     "erotic",
-    "adults only"
+    "sex",
+    "redlight",
+    "red light",
 )
 
 fun isAdultChannelGroup(rawGroup: String): Boolean {

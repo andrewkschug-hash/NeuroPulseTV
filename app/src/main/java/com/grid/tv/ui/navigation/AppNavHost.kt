@@ -266,6 +266,9 @@ fun AppNavHost(
                     onNavigateRecordings = { navController.navigate(Routes.Recordings.route) },
                     onNavigateSettings = { navController.navigate(Routes.Settings.route) },
                     onNavigateProfile = onSwitchProfile,
+                    onNavigateMultiview = {
+                        navController.navigate(Routes.Multiview.build(0L)) { launchSingleTop = true }
+                    },
                     onNavigateVod = { tab ->
                         navController.navigate(Routes.VodHub.build(tab)) { launchSingleTop = true }
                     },

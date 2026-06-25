@@ -14,7 +14,9 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 
 @Singleton
-class AppHttpClient @Inject constructor() {
+class AppHttpClient @Inject constructor(
+    private val startupNetworkGate: StartupNetworkGateInterceptor
+) {
     @Volatile
     private var client: OkHttpClient = buildClient(AppSettings())
 
@@ -143,6 +145,7 @@ class AppHttpClient @Inject constructor() {
     ): OkHttpClient.Builder {
         val builder = OkHttpClient.Builder()
             .dns(IptvDns)
+            .addInterceptor(startupNetworkGate)
             .addInterceptor(
                 HttpLoggingInterceptor(createSafeHttpLogger())
                     .apply { level = HttpLoggingInterceptor.Level.BASIC }

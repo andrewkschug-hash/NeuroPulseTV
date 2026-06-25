@@ -65,7 +65,7 @@ class EpgJobCoordinator @Inject constructor(
         )
     }
 
-    /** Cold-start EPG — skipped if an import-triggered job is already queued. */
+    /** Cold-start EPG — deferred until [StartupOrchestrator] reaches READY + initial WorkManager delay. */
     fun scheduleStartupEpg() {
         if (importEpgScheduled.get()) {
             Log.i(TAG, "EPG startup skipped — import EPG already queued")

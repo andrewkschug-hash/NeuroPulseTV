@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -136,6 +137,20 @@ fun GuideGroupPickerDialog(
                     .background(EpgColors.DetailPanelBg, RoundedCornerShape(12.dp))
                     .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(12.dp))
                     .padding(24.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (visibleRows.isEmpty()) return@onPreviewKeyEvent false
+                        handleGuideGroupTvKeyEvent(
+                            event = event,
+                            focusedIndex = focusedRowIndex,
+                            lastIndex = visibleRows.lastIndex,
+                            onFocusedIndexChange = { next ->
+                                focusedRowIndex = next
+                                rowFocusRequesters.getOrNull(next)?.requestFocusSafely()
+                            },
+                            onActivate = { activateRow(visibleRows[focusedRowIndex.coerceIn(0, visibleRows.lastIndex)]) },
+                            onBack = { if (allowDismiss) onDismiss() }
+                        )
+                    }
             ) {
                 Text(
                     text = title,

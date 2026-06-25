@@ -76,10 +76,9 @@ import com.grid.tv.ui.component.EpgPreviewSection
 import com.grid.tv.ui.component.EpgNoInformationCell
 import com.grid.tv.ui.component.EpgProgramCell
 import com.grid.tv.ui.component.EpgTimelineHeader
-import com.grid.tv.ui.component.EpgTopBar
+import com.grid.tv.ui.component.EpgGuideHeader
 import com.grid.tv.ui.component.GlowFocusButton
-import com.grid.tv.ui.component.GridNavTabs
-import com.grid.tv.ui.component.TopBarProfileIndex
+import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.ui.component.GuideGroupFilterMenu
 import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.RecordingPrecheckDialog
@@ -173,19 +172,20 @@ internal fun HomeEpgScreenMainColumn(
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val recordingHealth by recordingViewModel.recordingHealth.collectAsStateWithLifecycle()
     val scheduled by recordingViewModel.scheduled.collectAsStateWithLifecycle()
-    val showGroupFilter = ui.selectedTab != EpgNavTab.Favorites
+    val showGroupFilter = false
+    Box(modifier = modifier.fillMaxSize()) {
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .then(
-                if (ui.showSearchOverlay) {
+                if (ui.guideSubScreen != null) {
                     Modifier.focusProperties { canFocus = false }
                 } else {
                     Modifier
                 }
             )
             .onPreviewKeyEvent {
-                if (ui.showSearchOverlay) return@onPreviewKeyEvent false
+                if (ui.guideSubScreen != null) return@onPreviewKeyEvent false
                 if (ui.focusZone == EpgFocusZone.PREVIEW) {
                     controller.handlePreviewKey(it)
                 } else {
@@ -193,56 +193,11 @@ internal fun HomeEpgScreenMainColumn(
                 }
             }
     ) {
-        EpgTopBar(
-            selectedTab = ui.selectedTab,
-            focusedNavTabIndex = ui.topBarFocusIndex.coerceIn(0, GridNavTabs.lastIndex),
-            navFocused = ui.focusZone == EpgFocusZone.TOP_BAR && ui.topBarFocusIndex <= GridNavTabs.lastIndex,
-            profileFocused = ui.focusZone == EpgFocusZone.TOP_BAR && ui.topBarFocusIndex == TopBarProfileIndex,
-            profileInitials = profileInitials,
-            profileAvatarColor = profileAvatarColor,
-            profileMenuExpanded = ui.profileMenuOpen,
-            profileMenuFocusIndex = ui.profileMenuFocusIndex,
-            onProfileClick = {
-                ui.focusZone = EpgFocusZone.TOP_BAR
-                ui.topBarFocusIndex = TopBarProfileIndex
-                ui.profileMenuOpen = true
-                ui.profileMenuFocusIndex = 0
-            },
-            onSwitchAccounts = {
-                ui.profileMenuOpen = false
-                onNavigateProfile()
-            },
-            onOpenSettings = {
-                ui.profileMenuOpen = false
-                onNavigateSettings()
-            },
-            onQuitApp = { context.quitAppToHome() },
-            onProfileMenuDismiss = { ui.profileMenuOpen = false },
-            onTabSelected = { tab ->
-                ui.focusZone = EpgFocusZone.TOP_BAR
-                ui.topBarFocusIndex = GridNavTabs.indexOf(tab)
-                controller.activateNavTab(tab)
-            },
-            miniPlayer = {},
+        EpgGuideHeader(
             isRecording = isRecording,
             activeRecordingTitle = activeRecordingTitle,
             recordingHealth = recordingHealth ?: RecordingHealth.RECORDING,
-            onRecordingIndicatorClick = onNavigateRecordings,
-            modifier = Modifier
-                .focusRequester(deps.topNavFocusRequester)
-                .focusProperties {
-                    down = when {
-                        deps.hasContinueWatching -> deps.continueWatchingFocusRequester
-                        deps.showPreviewSection -> deps.previewFocusRequester
-                        showGroupFilter -> deps.gridFilterFocusRequester
-                        else -> deps.gridFocusRequester
-                    }
-                }
-                .focusable()
-                .onFocusChanged { if (it.isFocused) ui.focusZone = EpgFocusZone.TOP_BAR }
-                .onPreviewKeyEvent {
-                    if (ui.focusZone == EpgFocusZone.TOP_BAR) controller.handleTopBarKey(it) else false
-                }
+            onRecordingIndicatorClick = onNavigateRecordings
         )
 
         if (profileAccessMessage != null) {
@@ -281,26 +236,17 @@ internal fun HomeEpgScreenMainColumn(
             guideFilter = deps.guideFilter,
             channelGroups = channelGroups,
             showGroupFilter = showGroupFilter,
-            gridFilterFocused = ui.focusZone == EpgFocusZone.GRID_FILTER && !ui.showCategoryFilterMenu,
+            gridFilterFocused = false,
             gridFilterFocusRequester = deps.gridFilterFocusRequester,
             previewFocusRequester = deps.previewFocusRequester,
             continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-            topNavFocusRequester = deps.topNavFocusRequester,
+            topNavFocusRequester = deps.navDrawerFocusRequester,
             showPreviewSection = deps.showPreviewSection,
             hasContinueWatching = deps.hasContinueWatching,
-            onOpenCategoryFilter = {
-                if (!ui.pendingPreviewFocus) {
-                    controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
-                    controller.openCategoryFilterMenu()
-                }
-            },
-            onGridFilterKey = controller::handleGridFilterKey,
+            onOpenCategoryFilter = { controller.openNavDrawer() },
+            onGridFilterKey = { false },
             onGridFocused = { ui.focusZone = EpgFocusZone.GRID },
-            onGridFilterFocused = {
-                if (!ui.pendingPreviewFocus) {
-                    ui.focusZone = EpgFocusZone.GRID_FILTER
-                }
-            },
+            onGridFilterFocused = { },
             listState = listState,
             displayChannels = deps.displayChannels,
             filteredEmptyMessage = when {
@@ -329,6 +275,82 @@ internal fun HomeEpgScreenMainColumn(
             }
         )
     }
+    }
+}
+
+@Composable
+internal fun HomeEpgSearchScreenHost(
+    ui: HomeEpgUiState,
+    controller: HomeEpgGuideController,
+    searchViewModel: SearchViewModel,
+    context: Context
+) {
+    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
+    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
+    GuideSearchScreen(
+        query = searchQuery,
+        unifiedResults = unifiedSearchResults,
+        flatResults = searchResults,
+        searchBarState = searchBarState,
+        onQueryChange = searchViewModel::updateQuery,
+        onClear = searchViewModel::clearQuery,
+        onMicClick = { /* voice handled by overlay */ },
+        onResultSelected = controller::handleSearchResult,
+        onSuggestionSelected = searchViewModel::applyTrendingOrRecent,
+        onClearHistory = searchViewModel::clearRecentHistory,
+        onBack = {
+            ui.guideSubScreen = null
+            searchViewModel.clearQuery()
+            controller.focusEpgZone(EpgFocusZone.GRID)
+        }
+    )
+}
+
+@Composable
+internal fun HomeEpgScreenOverlaysOnly(
+    ui: HomeEpgUiState,
+    controller: HomeEpgGuideController,
+    deps: HomeEpgGuideDeps,
+    channelGroups: List<String>,
+    groupChannelCounts: Map<String, Int>,
+    favoriteGroups: List<FavoriteGroup>,
+    favoriteSavedMessage: String?,
+    recordingViewModel: RecordingViewModel,
+) {
+    val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
+    val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
+    val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
+    val searchViewModel = deps.searchViewModel
+    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
+    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
+
+    HomeEpgScreenOverlays(
+        ui = ui,
+        controller = controller,
+        deps = deps,
+        context = deps.context,
+        channelGroups = channelGroups,
+        groupChannelCounts = groupChannelCounts,
+        favoriteGroups = favoriteGroups,
+        favoriteSavedMessage = favoriteSavedMessage,
+        recordingViewModel = recordingViewModel,
+        showStoragePicker = showStoragePicker,
+        storageOptions = storageOptions,
+        precheck = precheck,
+        searchQuery = searchQuery,
+        unifiedSearchResults = unifiedSearchResults,
+        searchResults = searchResults,
+        searchBarState = searchBarState,
+        searchViewModel = searchViewModel,
+        onRequestVoiceSearch = {},
+        includeSearchOverlay = false,
+        includeCategoryMenu = false,
+        includeGroupPicker = false,
+    )
 }
 
 @Composable
@@ -386,7 +408,7 @@ internal fun HomeEpgPreviewBlock(
         },
         previewFocusRequester = deps.previewFocusRequester,
         continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-        topNavFocusRequester = deps.topNavFocusRequester,
+        topNavFocusRequester = deps.navDrawerFocusRequester,
         gridFilterFocusRequester = deps.gridFilterFocusRequester,
         gridFocusRequester = deps.gridFocusRequester,
         showGroupFilter = showGroupFilter,
@@ -510,15 +532,19 @@ internal fun HomeEpgScreenOverlays(
     searchBarState: SearchBarState,
     searchViewModel: SearchViewModel,
     onRequestVoiceSearch: () -> Unit,
+    includeSearchOverlay: Boolean = true,
+    includeCategoryMenu: Boolean = true,
+    includeGroupPicker: Boolean = true,
 ) {
     Box(modifier = modifier) {
-        if (ui.showCategoryFilterMenu) {
+        if (includeCategoryMenu && ui.showCategoryFilterMenu) {
             BackHandler {
                 ui.showCategoryFilterMenu = false
-                controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
+                controller.focusEpgZone(EpgFocusZone.GRID)
             }
         }
 
+        if (includeCategoryMenu) {
         GuideGroupFilterMenu(
             expanded = ui.showCategoryFilterMenu,
             channelGroups = channelGroups,
@@ -529,12 +555,13 @@ internal fun HomeEpgScreenOverlays(
             onFocusedIndexChange = { ui.categoryMenuFocusIndex = it },
             onDismiss = {
                 ui.showCategoryFilterMenu = false
-                controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
+                controller.focusEpgZone(EpgFocusZone.GRID)
             },
             onToggle = controller::handleCategoryFilterMenuToggle
         )
+        }
 
-        if (ui.showGuideGroupPicker && channelGroups.isNotEmpty()) {
+        if (includeGroupPicker && ui.showGuideGroupPicker && channelGroups.isNotEmpty()) {
             GuideGroupPickerDialog(
                 channelGroups = channelGroups,
                 initialSelection = deps.guideFilter.selectedGroups,
@@ -634,7 +661,7 @@ internal fun HomeEpgScreenOverlays(
             )
         }
 
-        if (ui.showSearchOverlay) {
+        if (includeSearchOverlay && ui.showSearchOverlay) {
             BackHandler {
                 ui.showSearchOverlay = false
                 searchViewModel.clearQuery()

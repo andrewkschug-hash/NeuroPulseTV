@@ -17,6 +17,7 @@ import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgJobCoordinator
+import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.player.IptvStreamFormatRegistry
 import com.grid.tv.player.LowEndDeviceMode
@@ -58,6 +59,7 @@ class ChannelScanner @Inject constructor(
     private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val scanMetrics: ScanMetricsLogger,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
+    private val startupSafety: StartupSafety,
     appCacheRegistry: AppCacheRegistry
 ) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -138,7 +140,9 @@ class ChannelScanner @Inject constructor(
     }
 
     private fun isStartupBusy(): Boolean =
-        playlistImportCoordinator.isImportActive() || epgDownloadTracker.isInProgress()
+        !startupSafety.isInputSafe() ||
+            playlistImportCoordinator.isImportActive() ||
+            epgDownloadTracker.isInProgress()
 
     private fun unlockMaintenanceScan(reason: String) {
         if (!maintenanceScanUnlocked) {

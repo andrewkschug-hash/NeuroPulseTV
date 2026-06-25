@@ -16,6 +16,8 @@ import com.grid.tv.di.SupabaseEntryPoint
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
+import com.grid.tv.feature.startup.StartupSafety
+import com.grid.tv.feature.startup.StartupUiIdleHook
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
 import com.grid.tv.feature.startup.StartupTrace
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
+    @Inject lateinit var startupSafety: StartupSafety
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -80,12 +83,14 @@ class MainActivity : ComponentActivity() {
         setTitle(getString(R.string.app_name))
 
         lifecycleScope.launch(Dispatchers.IO) {
+            startupSafety.awaitInputSafe()
             themeManager.loadFromSettings()
         }
 
         handleAuthDeepLink(intent)
 
         setContent {
+            StartupUiIdleHook(startupSafety)
             val themeId by themeManager.themeId.collectAsStateWithLifecycle()
             GridTheme(themeId = themeId) {
                 AppRoot(
@@ -169,6 +174,7 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
+            startupSafety.signalUiActivity("key")
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {
