@@ -61,6 +61,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import javax.inject.Inject
 
 data class EpgGuidePosition(
@@ -107,6 +108,8 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private var guideBootstrapComplete = false
+    @Volatile
+    private var skipNextChannelWindowSchedule = false
     private var epgLoadGeneration = 0
     private var channelFilterGeneration = 0
 
@@ -218,10 +221,20 @@ class HomeEpgViewModel @Inject constructor(
     private val _guideSettingsLoaded = MutableStateFlow(false)
     val guideSettingsLoaded: StateFlow<Boolean> = _guideSettingsLoaded.asStateFlow()
 
-    val channelGroups: StateFlow<List<String>> = repository.groups()
+    private val _guideGroupMetadataReady = MutableStateFlow(false)
+
+    val channelGroups: StateFlow<List<String>> = _guideGroupMetadataReady
+        .flatMapLatest { ready ->
+            if (ready) repository.groups() else flowOf(emptyList())
+        }
+        .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val groupChannelCounts: StateFlow<Map<String, Int>> = repository.groupChannelCounts()
+    val groupChannelCounts: StateFlow<Map<String, Int>> = _guideGroupMetadataReady
+        .flatMapLatest { ready ->
+            if (ready) repository.groupChannelCounts() else flowOf(emptyMap())
+        }
+        .flowOn(Dispatchers.IO)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
@@ -323,6 +336,22 @@ class HomeEpgViewModel @Inject constructor(
         return url
     }
 
+    private suspend fun computeReplayUrlsOffMain(
+        programs: List<Program>,
+        channels: List<Channel>
+    ): Map<Long, String> = withContext(Dispatchers.Default) {
+        computeReplayUrls(programs, channels)
+    }
+
+    private fun priorityEpgChannelCount(channelCount: Int): Int {
+        val cap = if (channelDbOffset <= StartupTierPolicy.guideInitialChannelPageSize()) {
+            StartupTierPolicy.guideBootstrapEpgChannelCount()
+        } else {
+            PRIORITY_EPG_CHANNEL_COUNT
+        }
+        return minOf(cap, channelCount, PRIORITY_EPG_CHANNEL_COUNT)
+    }
+
     private fun computeReplayUrls(programs: List<Program>, channels: List<Channel>): Map<Long, String> {
         if (programs.isEmpty() || channels.isEmpty()) return emptyMap()
         val channelsByScopedKey = HashMap<Pair<Long, String>, Channel>(channels.size * 2)
@@ -399,29 +428,40 @@ class HomeEpgViewModel @Inject constructor(
     }.distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeEpgScreenSnapshot.INITIAL)
 
+    private data class EpgSnapshotInputs(
+        val channels: List<Channel>,
+        val programs: List<Program>,
+        val programmeIndex: ProgrammeIndex,
+        val windowStart: Long,
+        val windowDurationMs: Long
+    )
+
     init {
         viewModelScope.launch {
             var latestSnapshot = EpgUiSnapshot.EMPTY
             combine(_channels, _epgPrograms, _programmeIndex, _windowStart, _windowDurationMs) { ch, pr, idx, ws, wd ->
-                EpgUiSnapshot.build(
-                    channels = ch,
-                    programs = pr,
-                    programmeIndex = idx,
-                    windowStart = ws,
-                    windowDurationMs = wd,
-                    previous = latestSnapshot
-                )
-            }.distinctUntilChanged { old, new -> old.contentFingerprint == new.contentFingerprint }
-                .collect { snapshot ->
-                    if (snapshot.generation != latestSnapshot.generation) {
-                        PerformanceAudit.logEpgSnapshotEmission(
-                            generation = snapshot.generation,
-                            fingerprint = snapshot.contentFingerprint
-                        )
-                    }
-                    latestSnapshot = snapshot
-                    _epgUiSnapshot.value = snapshot
+                EpgSnapshotInputs(ch, pr, idx, ws, wd)
+            }.collectLatest { inputs ->
+                val snapshot = withContext(Dispatchers.Default) {
+                    EpgUiSnapshot.build(
+                        channels = inputs.channels,
+                        programs = inputs.programs,
+                        programmeIndex = inputs.programmeIndex,
+                        windowStart = inputs.windowStart,
+                        windowDurationMs = inputs.windowDurationMs,
+                        previous = latestSnapshot
+                    )
                 }
+                if (snapshot.contentFingerprint == latestSnapshot.contentFingerprint) return@collectLatest
+                if (snapshot.generation != latestSnapshot.generation) {
+                    PerformanceAudit.logEpgSnapshotEmission(
+                        generation = snapshot.generation,
+                        fingerprint = snapshot.contentFingerprint
+                    )
+                }
+                latestSnapshot = snapshot
+                _epgUiSnapshot.value = snapshot
+            }
         }
         viewModelScope.launch {
             combine(_channels, _epgPrograms) { ch, pr -> ch to pr }
@@ -459,9 +499,12 @@ class HomeEpgViewModel @Inject constructor(
         }
         viewModelScope.launch(Dispatchers.IO) {
             _channels.collectLatest { channels ->
-                if (guideBootstrapComplete && channels.isNotEmpty()) {
-                    scheduleLoadWindow()
+                if (!guideBootstrapComplete || channels.isEmpty()) return@collectLatest
+                if (skipNextChannelWindowSchedule) {
+                    skipNextChannelWindowSchedule = false
+                    return@collectLatest
                 }
+                scheduleLoadWindow()
             }
         }
         viewModelScope.launch {
@@ -510,19 +553,55 @@ class HomeEpgViewModel @Inject constructor(
         val settings = repository.loadSettings()
         _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
         _hideAdultContent.value = settings.hideAdultContent
-        val sanitizedFilter = sanitizeGuideFilter(
-            groups = settings.guideChannelGroups,
-            configured = settings.guideFiltersConfigured
-        )
-        _guideFilter.value = sanitizedFilter
+        _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
         _guideFiltersConfigured.value = settings.guideFiltersConfigured
-        _guideSettingsLoaded.value = true
         withContext(Dispatchers.Main.immediate) {
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
             livePlayerManager.setStreamRetries(settings.streamRetries)
         }
+        loadBootstrapChannelPage()
+        _guideSettingsLoaded.value = true
         guideBootstrapComplete = true
+        viewModelScope.launch(Dispatchers.IO) {
+            delay(StartupTierPolicy.guideGroupMetadataDelayMs())
+            _guideGroupMetadataReady.value = true
+            deferValidateGuideFilter(
+                groups = settings.guideChannelGroups,
+                configured = settings.guideFiltersConfigured
+            )
+            if (_hasMoreChannels.value && !loadingChannels) {
+                loadMoreChannelsInternal()
+            }
+        }
+    }
+
+    private suspend fun loadBootstrapChannelPage() {
+        channelDbOffset = 0
+        _channels.value = emptyList()
+        _epgPrograms.value = emptyList()
+        _hasMoreChannels.value = true
+        loadingChannels = true
+        try {
+            val limit = StartupTierPolicy.guideInitialChannelPageSize()
+            val page = fetchFilteredChannelPage(offset = 0, limit = limit)
+            channelDbOffset = page.size
+            _hasMoreChannels.value = page.size >= limit
+            if (page.isEmpty()) return
+            _channels.value = page
+            yield()
+            loadWindow()
+            skipNextChannelWindowSchedule = true
+        } finally {
+            loadingChannels = false
+        }
+    }
+
+    private suspend fun deferValidateGuideFilter(groups: Set<String>, configured: Boolean) {
+        if (!configured || groups.isEmpty()) return
+        val sanitized = sanitizeGuideFilter(groups, configured)
+        if (sanitized == _guideFilter.value) return
+        _guideFilter.value = sanitized
         reloadChannels()
     }
 
@@ -848,7 +927,7 @@ class HomeEpgViewModel @Inject constructor(
                     val existing = _epgPrograms.value
                     val channels = _channels.value
                     val merged = mergePrograms(existing, programs)
-                    val replayUrls = computeReplayUrls(merged, channels)
+                    val replayUrls = computeReplayUrlsOffMain(merged, channels)
                     withContext(Dispatchers.Main.immediate) {
                         _epgPrograms.value = merged
                         _replayUrlsByProgramId.value = replayUrls
@@ -866,7 +945,7 @@ class HomeEpgViewModel @Inject constructor(
         val existing = _epgPrograms.value
         val programs = repository.programsWindowForChannels(visible, start, end)
         val merged = mergePrograms(existing, programs)
-        val replayUrls = computeReplayUrls(merged, channels)
+        val replayUrls = computeReplayUrlsOffMain(merged, channels)
         withContext(Dispatchers.Main.immediate) {
             _epgPrograms.value = merged
             _replayUrlsByProgramId.value = replayUrls
@@ -945,10 +1024,11 @@ class HomeEpgViewModel @Inject constructor(
         if (!_hasMoreChannels.value) return
         loadingChannels = true
         try {
-            val page = fetchFilteredChannelPage(channelDbOffset)
+            val pageLimit = CHANNEL_PAGE_SIZE
+            val page = fetchFilteredChannelPage(channelDbOffset, limit = pageLimit)
             if (expectedGeneration != channelFilterGeneration) return
             channelDbOffset += page.size
-            _hasMoreChannels.value = page.size >= CHANNEL_PAGE_SIZE
+            _hasMoreChannels.value = page.size >= pageLimit
             if (page.isEmpty()) return
             val merged = trimRetainedChannels(
                 channels = _channels.value + page,
@@ -969,7 +1049,10 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
-    private suspend fun fetchFilteredChannelPage(offset: Int): List<Channel> {
+    private suspend fun fetchFilteredChannelPage(
+        offset: Int,
+        limit: Int = CHANNEL_PAGE_SIZE
+    ): List<Channel> {
         if (_recentChannelsOnly.value) {
             if (offset > 0) return emptyList()
             val recent = repository.recentChannels(limit = 80).first()
@@ -990,7 +1073,7 @@ class HomeEpgViewModel @Inject constructor(
             search = "",
             favoritesOnly = favoriteFilter != null,
             favoriteGroupId = favoriteFilter,
-            limit = CHANNEL_PAGE_SIZE,
+            limit = limit,
             offset = offset
         )
         return if (_hideAdultContent.value) {
@@ -1010,7 +1093,7 @@ class HomeEpgViewModel @Inject constructor(
         val newPrograms = repository.programsWindowForChannels(newChannels, start, end)
         if (generation != epgLoadGeneration) return
         val merged = mergePrograms(existing, newPrograms)
-        val replayUrls = computeReplayUrls(merged, channels)
+        val replayUrls = computeReplayUrlsOffMain(merged, channels)
         withContext(Dispatchers.Main.immediate) {
             _epgPrograms.value = merged
             _replayUrlsByProgramId.value = replayUrls
@@ -1139,8 +1222,9 @@ class HomeEpgViewModel @Inject constructor(
         val generation = snapshot.generation
 
         if (channelsForLookup.isEmpty()) {
-            val priorityChannels = fetchFilteredChannelPage(offset = 0)
-                .take(PRIORITY_EPG_CHANNEL_COUNT)
+            val bootstrapLimit = StartupTierPolicy.guideInitialChannelPageSize()
+            val priorityChannels = fetchFilteredChannelPage(offset = 0, limit = bootstrapLimit)
+                .take(priorityEpgChannelCount(bootstrapLimit))
             Log.d(
                 TAG,
                 "loadWindow: no channels loaded yet; priority filtered batch=${priorityChannels.size}, " +
@@ -1164,12 +1248,12 @@ class HomeEpgViewModel @Inject constructor(
             return LoadWindowOutcome(
                 generation = generation,
                 programs = merged,
-                replayUrls = computeReplayUrls(merged, priorityChannels),
+                replayUrls = computeReplayUrlsOffMain(merged, priorityChannels),
                 coverage = programmeCoverageStats(priorityChannels, merged)
             )
         }
 
-        val priorityCount = minOf(PRIORITY_EPG_CHANNEL_COUNT, channelsForLookup.size)
+        val priorityCount = priorityEpgChannelCount(channelsForLookup.size)
         val priorityChannels = channelsForLookup.take(priorityCount)
         val remainingChannels = channelsForLookup.drop(priorityCount)
         Log.d(
@@ -1193,7 +1277,7 @@ class HomeEpgViewModel @Inject constructor(
         return LoadWindowOutcome(
             generation = generation,
             programs = merged,
-            replayUrls = computeReplayUrls(merged, channelsForLookup),
+            replayUrls = computeReplayUrlsOffMain(merged, channelsForLookup),
             coverage = programmeCoverageStats(channelsForLookup, merged)
         )
     }

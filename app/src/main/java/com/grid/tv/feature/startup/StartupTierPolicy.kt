@@ -45,6 +45,15 @@ object StartupTierPolicy {
     /** Guide channel page + EPG hydrate — after UI is visible. */
     fun guideBootstrapDelayMs(): Long = if (LowEndDeviceMode.current().active) 600L else 150L
 
+    /** First guide channel SQL page — keep small so the grid is interactive before full paging. */
+    fun guideInitialChannelPageSize(): Int = if (LowEndDeviceMode.current().active) 40 else 80
+
+    /** EPG programme rows loaded during the first bootstrap channel page. */
+    fun guideBootstrapEpgChannelCount(): Int = if (LowEndDeviceMode.current().active) 16 else 32
+
+    /** Defer GROUP BY group metadata until after the guide accepts input. */
+    fun guideGroupMetadataDelayMs(): Long = if (LowEndDeviceMode.current().active) 3_000L else 1_500L
+
     fun epgHydrateDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 300L
 
     fun deferredVodRefreshDelayMs(trigger: VodRefreshTrigger): Long = when (trigger) {

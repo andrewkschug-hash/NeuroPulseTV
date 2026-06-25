@@ -10,7 +10,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -51,8 +55,11 @@ fun AuthGate(
         }
     }
 
-    val supabaseClient: SupabaseClient? = remember(supabaseProvider) {
-        supabaseProvider.clientOrNull()
+    var supabaseClient by remember { mutableStateOf<SupabaseClient?>(null) }
+    LaunchedEffect(supabaseProvider) {
+        supabaseClient = withContext(Dispatchers.IO) {
+            supabaseProvider.clientOrNull()
+        }
     }
 
     DisposableEffect(activity) {
@@ -73,9 +80,10 @@ fun AuthGate(
         is AuthUiState.Authenticated,
         is AuthUiState.Guest -> AuthLoadingScreen()
         else -> {
-            if (supabaseClient != null) {
+            val client = supabaseClient
+            if (client != null) {
                 LoginScreen(
-                    supabaseClient = supabaseClient,
+                    supabaseClient = client,
                     onAuthenticated = onAuthenticated,
                     viewModel = viewModel
                 )
