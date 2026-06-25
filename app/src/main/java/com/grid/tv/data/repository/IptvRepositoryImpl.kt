@@ -126,7 +126,6 @@ import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
-import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.feature.backup.GridBackupManager
 import com.grid.tv.feature.health.StreamHealthEngine
@@ -1510,7 +1509,7 @@ class IptvRepositoryImpl @Inject constructor(
         val learnedMappings = epgLearnedMappingDao.all().associate { mapping ->
             mapping.normalizedOriginalName to mapping.epgId
         }
-        return EpgChannelLinkResolver(
+        EpgChannelLinkResolver(
             xmlTvChannels = refs.values.toList(),
             learnedMappings = learnedMappings,
             normalizer = channelNameNormalizer
@@ -3518,7 +3517,7 @@ class IptvRepositoryImpl @Inject constructor(
                     reason = "HTTP ${fetchResult.httpCode}"
                 )
                 catalogFile?.let { deleteCatalogCacheFile(it) }
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned HTTP ${fetchResult.httpCode} for ${playlist.name}"
                 )
@@ -3526,7 +3525,7 @@ class IptvRepositoryImpl @Inject constructor(
 
             if (catalogFile == null || !catalogFile.exists()) {
                 preserveCatalogLog(playlist.id, "movie", "empty HTTP body")
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned an empty response for ${playlist.name}."
                 )
@@ -3536,7 +3535,7 @@ class IptvRepositoryImpl @Inject constructor(
             val diagnosis = xtreamParser.diagnoseVodResponse(fetchResult.headPreview)
             if (diagnosis != null && !fetchResult.headPreview.trimStart().startsWith("[")) {
                 preserveCatalogLog(playlist.id, "movie", diagnosis)
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     error = diagnosis
                 )
@@ -3615,7 +3614,7 @@ class IptvRepositoryImpl @Inject constructor(
                     "movie",
                     "parsed 0 catalog entries"
                 )
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     arrayLength = 0,
                     error = "Parsed 0 movie entries for ${playlist.name}"
@@ -3751,7 +3750,7 @@ class IptvRepositoryImpl @Inject constructor(
             if (!isSuccessfulHttp(fetchResult.httpCode)) {
                 preserveCatalogLog(playlist.id, "series", "HTTP ${fetchResult.httpCode}")
                 catalogFile?.let { deleteCatalogCacheFile(it) }
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned HTTP ${fetchResult.httpCode} for ${playlist.name}"
                 )
@@ -3759,7 +3758,7 @@ class IptvRepositoryImpl @Inject constructor(
 
             if (catalogFile == null || !catalogFile.exists()) {
                 preserveCatalogLog(playlist.id, "series", "empty or invalid response")
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     error = "Provider returned an empty series response for ${playlist.name}."
                 )
@@ -3834,7 +3833,7 @@ class IptvRepositoryImpl @Inject constructor(
 
             if (parsedCount <= 0) {
                 preserveCatalogLog(playlist.id, "series", "parsed 0 catalog entries")
-                return VodPlaylistRefreshResult(
+                return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     arrayLength = 0,
                     error = "Parsed 0 series entries for ${playlist.name}"

@@ -23,6 +23,7 @@ import com.grid.tv.feature.search.VoiceSearchKeys
 import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
+import com.grid.tv.ui.navigation.AppRoot
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import android.view.inputmethod.InputMethodManager
 import com.grid.tv.player.AppPlayerLifecycleCoordinator

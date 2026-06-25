@@ -1224,7 +1224,7 @@ class HomeEpgViewModel @Inject constructor(
             withContext(Dispatchers.Main.immediate) {
                 _epgLoading.value = false
             }
-            return
+            return@traceSuspend
         }
 
         withContext(Dispatchers.Main.immediate) {
