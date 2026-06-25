@@ -24,6 +24,7 @@ import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZ
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.feature.startup.StartupProfiler
+import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
@@ -76,7 +77,8 @@ class HomeEpgViewModel @Inject constructor(
     private val favoritesRepository: FavoritesRepository,
     val livePlayerManager: LivePlayerManager,
     private val playbackOrchestrator: PlaybackOrchestrator,
-    private val channelScanner: ChannelScanner
+    private val channelScanner: ChannelScanner,
+    private val startupSafety: StartupSafety
 ) : ViewModel() {
 
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
@@ -441,6 +443,7 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
+            startupSafety.awaitInputSafe()
             delay(StartupTierPolicy.guideBootstrapDelayMs())
             StartupProfiler.mark("guide_bootstrap_start")
             bootstrapGuideFromSettings()
@@ -886,6 +889,7 @@ class HomeEpgViewModel @Inject constructor(
         previewTuneJob?.cancel()
         previewTuneJob = viewModelScope.launch {
             delay(PREVIEW_TUNE_DEBOUNCE_MS)
+            startupSafety.awaitInputSafe()
             if (channel.streamUrl.isBlank()) return@launch
             playbackOrchestrator.onGuidePreviewActive(context)
             livePlayerManager.tuneChannel(context, channel)

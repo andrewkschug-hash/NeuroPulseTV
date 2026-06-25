@@ -358,6 +358,7 @@ class IptvRepositoryImpl @Inject constructor(
             vodStreamDao.countTotal()
         }
         val moviesMs = SystemClock.elapsedRealtime() - moviesStart
+        delay(StartupTierPolicy.phase2CountChunkDelayMs())
         yield()
 
         val seriesStart = SystemClock.elapsedRealtime()
@@ -365,6 +366,7 @@ class IptvRepositoryImpl @Inject constructor(
             seriesShowDao.countTotal()
         }
         val seriesMs = SystemClock.elapsedRealtime() - seriesStart
+        delay(StartupTierPolicy.phase2CountChunkDelayMs())
         yield()
 
         val channelsStart = SystemClock.elapsedRealtime()

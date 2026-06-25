@@ -2,9 +2,7 @@ package com.grid.tv.ui.screen
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,24 +18,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.guide.GuideCategoryProcessor
-import com.grid.tv.ui.component.GlowFocusButton
-import com.grid.tv.ui.component.GuideGroupCategory
+import com.grid.tv.ui.component.GuideGroupAllChannelsRow
+import com.grid.tv.ui.component.GuideGroupCategoryRow
+import com.grid.tv.ui.component.GuideGroupChildRow
+import com.grid.tv.ui.component.GuideGroupSelectAllRow
 import com.grid.tv.ui.component.GuideGroupVisibleRow
+import com.grid.tv.ui.component.areAllGroupsSelected
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
+import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
+import com.grid.tv.ui.component.handleGuideGroupTvKeyEvent
+import com.grid.tv.ui.component.requestFocusSafely
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.toggleCategoryExpansion
 import com.grid.tv.ui.theme.DmSansFamily
@@ -54,21 +52,59 @@ fun GuideGroupsScreen(
 ) {
     val categories = organized.flatCategories
     var expandedCategories by remember(selectedGroups) {
-        mutableStateOf(
-            categories.indices.filter { idx ->
-                categories[idx].groups.any { it in selectedGroups }
-            }.toSet()
-        )
+        mutableStateOf(expandedCategoriesForSelection(categories, selectedGroups))
     }
-    var focusIndex by remember { mutableIntStateOf(0) }
-    val rows = remember(categories, expandedCategories) {
+    val visibleRows = remember(categories, expandedCategories) {
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
+    var focusedRowIndex by remember { mutableIntStateOf(0) }
+    val rowFocusRequesters = remember(visibleRows.size) {
+        List(visibleRows.size) { FocusRequester() }
+    }
     val listState = rememberLazyListState()
-    val firstFocus = remember { FocusRequester() }
+
+    fun requestRowFocus(index: Int) {
+        if (index !in rowFocusRequesters.indices) return
+        focusedRowIndex = index
+        rowFocusRequesters[index].requestFocusSafely()
+    }
+
+    fun activateRow(row: GuideGroupVisibleRow) {
+        when (row) {
+            GuideGroupVisibleRow.AllChannels -> {
+                onApplyFilter(GuideChannelFilter.All)
+                onBack()
+            }
+            is GuideGroupVisibleRow.Category -> {
+                expandedCategories = toggleCategoryExpansion(expandedCategories, row.categoryIndex)
+            }
+            is GuideGroupVisibleRow.SelectAll -> {
+                guideFilterRowAction(row, selectedGroups)?.let { onApplyFilter(it) }
+            }
+            is GuideGroupVisibleRow.Group -> {
+                onApplyFilter(GuideChannelFilter(setOf(row.fullName)))
+                onBack()
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
-        firstFocus.requestFocusSafelyAfterLayout()
+        if (visibleRows.isNotEmpty()) {
+            requestRowFocus(0)
+        }
+    }
+
+    LaunchedEffect(focusedRowIndex, visibleRows.size) {
+        if (visibleRows.isNotEmpty()) {
+            val index = focusedRowIndex.coerceIn(0, visibleRows.lastIndex)
+            listState.scrollToItem(index)
+        }
+    }
+
+    LaunchedEffect(visibleRows.size) {
+        if (visibleRows.isNotEmpty() && focusedRowIndex > visibleRows.lastIndex) {
+            focusedRowIndex = visibleRows.lastIndex
+        }
     }
 
     BackHandler(onBack = onBack)
@@ -78,22 +114,15 @@ fun GuideGroupsScreen(
             .fillMaxSize()
             .background(EpgColors.Background)
             .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when (event.key) {
-                    Key.Back, Key.Escape -> {
-                        onBack()
-                        true
-                    }
-                    Key.DirectionDown -> {
-                        if (focusIndex < rows.lastIndex) focusIndex += 1
-                        true
-                    }
-                    Key.DirectionUp -> {
-                        if (focusIndex > 0) focusIndex -= 1
-                        true
-                    }
-                    else -> false
-                }
+                if (visibleRows.isEmpty()) return@onPreviewKeyEvent false
+                handleGuideGroupTvKeyEvent(
+                    event = event,
+                    focusedIndex = focusedRowIndex,
+                    lastIndex = visibleRows.lastIndex,
+                    onFocusedIndexChange = ::requestRowFocus,
+                    onActivate = { activateRow(visibleRows[focusedRowIndex]) },
+                    onBack = onBack
+                )
             }
     ) {
         Text(
@@ -104,161 +133,63 @@ fun GuideGroupsScreen(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp)
         )
+        Text(
+            text = "Select groups to show in the live guide. Press Enter to choose.",
+            color = EpgColors.TextSecondary,
+            fontFamily = DmSansFamily,
+            fontSize = 14.sp,
+            modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
+        )
 
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 24.dp)
-                .focusGroup()
         ) {
-            item {
-                SectionHeader(GuideCategoryProcessor.SECTION_ALL)
-                GroupRow(
-                    label = "All Channels (${organized.allChannelCount})",
-                    selected = selectedGroups.isEmpty(),
-                    focused = focusIndex == 0,
-                    modifier = Modifier
-                        .focusRequester(firstFocus)
-                        .onFocusChanged { if (it.isFocused) focusIndex = 0 },
-                    onClick = {
-                        onApplyFilter(GuideChannelFilter.All)
-                        onBack()
+            itemsIndexed(
+                visibleRows,
+                key = { _, row ->
+                    when (row) {
+                        GuideGroupVisibleRow.AllChannels -> "all"
+                        is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
+                        is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
+                        is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
                     }
-                )
-            }
-            if (organized.countryCategories.isNotEmpty()) {
-                item { SectionHeader(GuideCategoryProcessor.SECTION_COUNTRIES) }
-            }
-            organized.countryCategories.forEach { category ->
-                item {
-                    CategorySection(
-                        category = category,
-                        categories = categories,
-                        expandedCategories = expandedCategories,
-                        selectedGroups = selectedGroups,
-                        onToggleExpand = { idx ->
-                            expandedCategories = toggleCategoryExpansion(expandedCategories, idx)
-                        },
-                        onApplyFilter = onApplyFilter,
-                        onBack = onBack
+                }
+            ) { index, row ->
+                when (row) {
+                    GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
+                        checked = selectedGroups.isEmpty(),
+                        onClick = { activateRow(row) },
+                        focusRequester = rowFocusRequesters[index],
+                        onFocused = { focusedRowIndex = index }
+                    )
+                    is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
+                        displayName = row.displayName,
+                        channelCount = row.channelCount,
+                        subGroupCount = row.subGroupCount,
+                        expanded = row.expanded,
+                        onClick = { activateRow(row) },
+                        focusRequester = rowFocusRequesters[index],
+                        onFocused = { focusedRowIndex = index }
+                    )
+                    is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
+                        displayName = row.displayName,
+                        childCount = row.groupNames.size,
+                        checked = areAllGroupsSelected(row.groupNames, selectedGroups),
+                        onClick = { activateRow(row) },
+                        focusRequester = rowFocusRequesters[index],
+                        onFocused = { focusedRowIndex = index }
+                    )
+                    is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
+                        label = com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(row.fullName),
+                        checked = row.fullName in selectedGroups,
+                        onClick = { activateRow(row) },
+                        focusRequester = rowFocusRequesters[index],
+                        onFocused = { focusedRowIndex = index }
                     )
                 }
-            }
-            if (organized.contentCategories.isNotEmpty()) {
-                item { SectionHeader(GuideCategoryProcessor.SECTION_CONTENT) }
-            }
-            organized.contentCategories.forEach { category ->
-                item {
-                    CategorySection(
-                        category = category,
-                        categories = categories,
-                        expandedCategories = expandedCategories,
-                        selectedGroups = selectedGroups,
-                        onToggleExpand = { idx ->
-                            expandedCategories = toggleCategoryExpansion(expandedCategories, idx)
-                        },
-                        onApplyFilter = onApplyFilter,
-                        onBack = onBack
-                    )
-                }
-            }
-            if (organized.providerCategories.isNotEmpty()) {
-                item { SectionHeader(GuideCategoryProcessor.SECTION_PROVIDER) }
-            }
-            itemsIndexed(organized.providerCategories) { _, category ->
-                CategorySection(
-                    category = category,
-                    categories = categories,
-                    expandedCategories = expandedCategories,
-                    selectedGroups = selectedGroups,
-                    onToggleExpand = { idx ->
-                        expandedCategories = toggleCategoryExpansion(expandedCategories, idx)
-                    },
-                    onApplyFilter = onApplyFilter,
-                    onBack = onBack
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        color = EpgColors.TextDimmed,
-        fontFamily = DmSansFamily,
-        fontSize = 13.sp,
-        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-    )
-}
-
-@Composable
-private fun CategorySection(
-    category: GuideGroupCategory,
-    categories: List<GuideGroupCategory>,
-    expandedCategories: Set<Int>,
-    selectedGroups: Set<String>,
-    onToggleExpand: (Int) -> Unit,
-    onApplyFilter: (GuideChannelFilter) -> Unit,
-    onBack: () -> Unit
-) {
-    val categoryIndex = categories.indexOfFirst { it.displayName == category.displayName }
-    if (categoryIndex < 0) return
-    val expanded = categoryIndex in expandedCategories
-    GroupRow(
-        label = "${category.displayName} (${category.channelCount})",
-        selected = category.groups.all { it in selectedGroups },
-        focused = false,
-        onClick = { onToggleExpand(categoryIndex) }
-    )
-    if (expanded) {
-        category.groups.forEach { groupKey ->
-            val name = com.grid.tv.domain.model.ChannelGroupIdentity.groupName(groupKey)
-            GroupRow(
-                label = name,
-                selected = groupKey in selectedGroups,
-                focused = false,
-                onClick = {
-                    onApplyFilter(GuideChannelFilter(setOf(groupKey)))
-                    onBack()
-                }
-            )
-        }
-    }
-}
-
-@Composable
-private fun GroupRow(
-    label: String,
-    selected: Boolean,
-    focused: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    GlowFocusButton(
-        onClick = onClick,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 3.dp),
-        externallyFocused = focused
-    ) {
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = label,
-                color = if (selected) EpgColors.Accent else EpgColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                modifier = Modifier.weight(1f)
-            )
-            if (selected) {
-                Text(
-                    text = "✓",
-                    color = EpgColors.Accent,
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp
-                )
             }
         }
     }

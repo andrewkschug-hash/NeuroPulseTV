@@ -24,6 +24,9 @@ object StartupTierPolicy {
     /** Quiet window with no UI activity before UI_IDLE. */
     fun uiIdleQuietMs(): Long = 500L
 
+    /** Pause between SQLite COUNT queries when phase2b runs after input-safe. */
+    fun phase2CountChunkDelayMs(): Long = if (LowEndDeviceMode.current().active) 200L else 100L
+
     /** Max wait for UI_IDLE before INPUT_SAFE fallback. */
     fun uiIdleTimeoutMs(): Long = if (LowEndDeviceMode.current().active) 20_000L else 15_000L
 

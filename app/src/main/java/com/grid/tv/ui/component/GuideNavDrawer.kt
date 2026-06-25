@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -30,6 +32,7 @@ import com.grid.tv.ui.theme.EpgColors
 enum class GuideNavDrawerItem(val label: String) {
     Search("Search"),
     ChannelGroups("Channel Groups"),
+    Vod("On Demand"),
     Favorites("Favorites"),
     RecentChannels("Recent Channels"),
     Recordings("Recordings"),
@@ -54,6 +57,7 @@ fun GuideNavDrawer(
     onItemFocused: (Int) -> Unit,
     onItemSelected: (GuideNavDrawerItem) -> Unit,
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
+    onExpandRequest: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val width by animateDpAsState(
@@ -62,6 +66,22 @@ fun GuideNavDrawer(
         label = "guideNavDrawerWidth"
     )
     val collapsed = !expanded
+    val trailingRequesters = remember {
+        List((GuideNavDrawerItems.size - 1).coerceAtLeast(0)) { FocusRequester() }
+    }
+
+    fun requesterFor(index: Int): FocusRequester = when {
+        index == 0 -> drawerFocusRequester
+        index - 1 in trailingRequesters.indices -> trailingRequesters[index - 1]
+        else -> drawerFocusRequester
+    }
+
+    LaunchedEffect(focusedIndex, expanded) {
+        if (expanded && GuideNavDrawerItems.isNotEmpty()) {
+            val index = focusedIndex.coerceIn(0, GuideNavDrawerItems.lastIndex)
+            requesterFor(index).requestFocusSafelyAfterLayout()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -77,13 +97,20 @@ fun GuideNavDrawer(
                 .focusGroup()
         ) {
             if (collapsed) {
-                Text(
-                    text = "☰",
-                    color = EpgColors.TextPrimary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 20.sp,
-                    modifier = Modifier.padding(start = 8.dp, top = 8.dp)
-                )
+                GlowFocusButton(
+                    onClick = onExpandRequest,
+                    modifier = Modifier
+                        .focusRequester(drawerFocusRequester)
+                        .onFocusChanged { if (it.isFocused) onItemFocused(0) },
+                    contentDescription = "Open menu"
+                ) {
+                    Text(
+                        text = "☰",
+                        color = EpgColors.TextPrimary,
+                        fontFamily = DmSansFamily,
+                        fontSize = 20.sp
+                    )
+                }
             } else {
                 GuideNavDrawerItems.forEachIndexed { index, item ->
                     val focused = focusedIndex == index
@@ -91,31 +118,9 @@ fun GuideNavDrawer(
                         onClick = { onItemSelected(item) },
                         modifier = Modifier
                             .padding(vertical = 4.dp)
-                            .then(
-                                if (index == 0) {
-                                    Modifier.focusRequester(drawerFocusRequester)
-                                } else {
-                                    Modifier
-                                }
-                            )
+                            .focusRequester(requesterFor(index))
                             .onFocusChanged {
                                 if (it.isFocused) onItemFocused(index)
-                            }
-                            .onPreviewKeyEvent { event ->
-                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                                when (event.key) {
-                                    Key.DirectionDown -> {
-                                        if (index < GuideNavDrawerItems.lastIndex) {
-                                            onItemFocused(index + 1)
-                                        }
-                                        false
-                                    }
-                                    Key.DirectionUp -> {
-                                        if (index > 0) onItemFocused(index - 1)
-                                        false
-                                    }
-                                    else -> false
-                                }
                             },
                         externallyFocused = focused
                     ) {

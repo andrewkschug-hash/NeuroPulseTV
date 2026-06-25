@@ -13,6 +13,7 @@ import com.grid.tv.data.catalog.CatalogHydrationGuard
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.data.network.toNetworkPlaybackConfig
+import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.sourceIdForUrl
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -73,7 +75,8 @@ class LivePlayerManager @Inject constructor(
     private val streamFormatProber: IptvStreamFormatProber,
     private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator,
-    private val streamTypePreflightSniffer: StreamTypePreflightSniffer
+    private val streamTypePreflightSniffer: StreamTypePreflightSniffer,
+    private val startupSafety: StartupSafety
 ) {
     enum class Mode { IDLE, MINI, FULLSCREEN }
 
@@ -154,6 +157,20 @@ class LivePlayerManager @Inject constructor(
 
     private fun shouldPlayNow(requested: Boolean = true): Boolean =
         requested && mode != Mode.IDLE && !deferPlayUntilSurfaceAttached
+
+    private fun runWhenInputSafe(label: String, block: () -> Unit) {
+        if (startupSafety.isInputSafe()) {
+            block()
+            return
+        }
+        Log.i(TAG, "Deferring $label until input safe")
+        ioScope.launch {
+            startupSafety.awaitInputSafe()
+            withContext(Dispatchers.Main.immediate) {
+                block()
+            }
+        }
+    }
 
     /** Resume playback after the fullscreen [PlayerView] has attached its surface. */
     fun onFullscreenSurfaceAttached() {
@@ -496,6 +513,26 @@ class LivePlayerManager @Inject constructor(
     }
 
     fun tuneChannel(
+        context: Context,
+        channelId: Long,
+        streamUrl: String,
+        catchupDays: Int = 0,
+        channelSnapshot: Channel? = null,
+        bypassDedupe: Boolean = false
+    ) {
+        runWhenInputSafe("tuneChannel") {
+            tuneChannelInternal(
+                context = context,
+                channelId = channelId,
+                streamUrl = streamUrl,
+                catchupDays = catchupDays,
+                channelSnapshot = channelSnapshot,
+                bypassDedupe = bypassDedupe
+            )
+        }
+    }
+
+    private fun tuneChannelInternal(
         context: Context,
         channelId: Long,
         streamUrl: String,

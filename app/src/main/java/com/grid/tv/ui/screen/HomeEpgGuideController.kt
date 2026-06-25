@@ -453,6 +453,10 @@ internal class HomeEpgGuideController(
                 ui.selectedTab = EpgNavTab.Favorites
                 closeNavDrawer()
             }
+            com.grid.tv.ui.component.GuideNavDrawerItem.Vod -> {
+                closeNavDrawer(restoreGrid = false)
+                boundDeps.onNavigateVod(0)
+            }
             com.grid.tv.ui.component.GuideNavDrawerItem.RecentChannels -> {
                 boundDeps.viewModel.showRecentChannelsOnly()
                 ui.selectedTab = EpgNavTab.Guide
@@ -737,7 +741,7 @@ internal class HomeEpgGuideController(
                     scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
-                    moveGuideFocusVertical(EpgFocusZone.GRID, direction = -1)
+                    openNavDrawer()
                     true
                 }
             }
@@ -772,6 +776,10 @@ internal class HomeEpgGuideController(
                 } else {
                     openNavDrawer()
                 }
+                true
+            }
+            Key.Menu -> {
+                openNavDrawer()
                 true
             }
             Key.PageDown -> {

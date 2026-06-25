@@ -1,5 +1,10 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import com.grid.tv.util.parentGroupSortIndex
 import com.grid.tv.util.resolveParentGroup
 
@@ -121,4 +126,38 @@ fun categoryCountLabel(channelCount: Int, subGroupCount: Int): String = when {
     channelCount > 0 -> channelCount.toString()
     subGroupCount > 0 -> "$subGroupCount groups"
     else -> "0"
+}
+
+/** Shared D-pad handler for guide group pickers (full-screen, dialog, filter menu). */
+fun handleGuideGroupTvKeyEvent(
+    event: KeyEvent,
+    focusedIndex: Int,
+    lastIndex: Int,
+    onFocusedIndexChange: (Int) -> Unit,
+    onActivate: () -> Unit,
+    onBack: () -> Unit,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    return when (event.key) {
+        Key.DirectionDown -> {
+            if (focusedIndex < lastIndex) onFocusedIndexChange(focusedIndex + 1)
+            true
+        }
+        Key.DirectionUp -> {
+            if (focusedIndex > 0) onFocusedIndexChange(focusedIndex - 1)
+            true
+        }
+        Key.Enter,
+        Key.NumPadEnter,
+        Key.DirectionCenter -> {
+            onActivate()
+            true
+        }
+        Key.Back,
+        Key.Escape -> {
+            onBack()
+            true
+        }
+        else -> false
+    }
 }

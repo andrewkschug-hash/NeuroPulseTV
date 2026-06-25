@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
         setTitle(getString(R.string.app_name))
 
         lifecycleScope.launch(Dispatchers.IO) {
+            startupSafety.awaitInputSafe()
             themeManager.loadFromSettings()
         }
 
@@ -171,6 +172,7 @@ class MainActivity : ComponentActivity() {
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.action == KeyEvent.ACTION_DOWN) {
+            startupSafety.signalUiActivity("key")
             val imm = getSystemService(InputMethodManager::class.java)
             val imeActive = imm?.isAcceptingText == true || TvTextInputSession.isActive
             if (imeActive && TvImeKeyDispatcher.isImeNavigationKeyCode(event.keyCode)) {

@@ -30,6 +30,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -255,6 +260,20 @@ fun GuideGroupFilterMenu(
                     .background(EpgColors.DetailPanelBg, RoundedCornerShape(8.dp))
                     .border(1.dp, EpgColors.BorderSubtle, RoundedCornerShape(8.dp))
                     .padding(vertical = 8.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (visibleRows.isEmpty()) return@onPreviewKeyEvent false
+                        handleGuideGroupTvKeyEvent(
+                            event = event,
+                            focusedIndex = focusedIndex,
+                            lastIndex = visibleRows.lastIndex,
+                            onFocusedIndexChange = { next ->
+                                onFocusedIndexChange(next)
+                                rowFocusRequesters.getOrNull(next)?.requestFocusSafely()
+                            },
+                            onActivate = { onToggle(focusedIndex.coerceIn(0, visibleRows.lastIndex)) },
+                            onBack = onDismiss
+                        )
+                    }
             ) {
                 if (visibleRows.isNotEmpty()) {
                     Text(

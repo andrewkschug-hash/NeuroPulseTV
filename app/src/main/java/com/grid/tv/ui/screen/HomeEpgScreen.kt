@@ -529,6 +529,7 @@ fun HomeEpgScreen(
                     drawerFocusRequester = navDrawerFocusRequester,
                     onItemFocused = { ui.navDrawerFocusIndex = it },
                     onItemSelected = controller::selectDrawerItem,
+                    onExpandRequest = controller::openNavDrawer,
                     onPreviewKey = controller::handleNavDrawerKey
                 )
             }

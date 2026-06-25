@@ -12,7 +12,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.delay
 
 /**
- * Strictly serialized cold start — disk, then UI-ready, then counts, then input-safe, then network.
+ * Strictly serialized cold start — input-safe opens before COUNT queries and network scheduling.
  */
 @Singleton
 class StartupOrchestrator @Inject constructor(
@@ -43,14 +43,7 @@ class StartupOrchestrator @Inject constructor(
         if (phase2Wait > 0L) delay(phase2Wait)
         coordinator.runPhase2CacheInstant()
 
-        val interactiveWait =
-            StartupTierPolicy.phase2InteractiveDelayMs() - safety.elapsedSinceColdStartMs()
-        if (interactiveWait > 0L) delay(interactiveWait)
-
-        diskQueue.run("phase2b_counts") {
-            coordinator.runPhase2BackgroundCounts()
-        }
-        safety.setPhase(StartupPhase.DISK_WARM_COMPLETE)
+        safety.awaitUiIdle()
 
         safety.enterInputSafe()
 
@@ -69,6 +62,11 @@ class StartupOrchestrator @Inject constructor(
         safety.runNetworkExclusive("phase3_vod_maintenance") {
             coordinator.runPhase3VodMaintenance()
         }
+
+        diskQueue.run("phase2b_counts") {
+            coordinator.runPhase2BackgroundCounts()
+        }
+        safety.setPhase(StartupPhase.DISK_WARM_COMPLETE)
 
         safety.drainPendingNetworkJobs()
         safety.setPhase(StartupPhase.READY)
