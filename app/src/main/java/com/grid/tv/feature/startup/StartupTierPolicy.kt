@@ -68,6 +68,15 @@ object StartupTierPolicy {
 
     fun guideGroupMetadataDebounceMs(): Long = if (LowEndDeviceMode.current().active) 750L else 300L
 
+    fun vodIngestBatchGapMs(): Long = if (LowEndDeviceMode.current().active) 50L else 20L
+
+    fun vodIngestYieldEveryNBatches(): Int = if (LowEndDeviceMode.current().active) 4 else 8
+
+    fun vodIngestPlaybackWaitMs(): Long = 200L
+
+    /** Extra delay before startup VOD sync when the on-disk catalog is already populated. */
+    fun populatedCatalogVodRefreshDelayMs(): Long = if (LowEndDeviceMode.current().active) 60_000L else 30_000L
+
     fun epgHydrateDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 300L
 
     fun deferredVodRefreshDelayMs(trigger: VodRefreshTrigger): Long = when (trigger) {

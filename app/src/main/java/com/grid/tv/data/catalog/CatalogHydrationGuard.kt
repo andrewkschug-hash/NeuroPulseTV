@@ -4,8 +4,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Defers JSON/network catalog hydration while live playback is active so tune/zap
- * stays off the main thread and clear of parse/GC spikes.
+ * Defers JSON/network catalog hydration and bulk SQLite ingest while live playback
+ * is active so tune/zap stays responsive and clear of parse/GC spikes.
  */
 @Singleton
 class CatalogHydrationGuard @Inject constructor() {
@@ -16,4 +16,6 @@ class CatalogHydrationGuard @Inject constructor() {
     fun setViewportEpgSuspended(suspended: Boolean) {
         viewportEpgSuspended = suspended
     }
+
+    fun shouldDeferHeavyCatalogIo(): Boolean = viewportEpgSuspended
 }

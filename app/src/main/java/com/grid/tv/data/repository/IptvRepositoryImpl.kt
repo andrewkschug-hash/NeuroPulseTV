@@ -65,6 +65,7 @@ import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.util.TvImageSizing
@@ -242,6 +243,8 @@ class IptvRepositoryImpl @Inject constructor(
         /** Serve in-memory/disk cache without network for this long unless [force] refresh. */
         private const val VOD_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
         private const val INGEST_REVISION_EVERY_BATCHES = 4
+        /** Skip cold-start VOD network ingest when the DB already holds at least this many rows. */
+        private const val STARTUP_VOD_SKIP_MIN_ROWS = 500
         private const val VIEWPORT_EPG_LOOKBACK_MS = 30L * 60L * 1000L
         private const val VIEWPORT_EPG_LOOKAHEAD_MS = 4L * 60L * 60L * 1000L
         private const val VIEWPORT_EPG_COOLDOWN_MS = 90L * 1000L
@@ -334,7 +337,49 @@ class IptvRepositoryImpl @Inject constructor(
         _vodStreamCountFlow.value = snapshot.movies
         _seriesShowCountFlow.value = snapshot.series
         _channelCountFlow.value = snapshot.channels
+        seedVodRefreshBaselineIfNeeded(persisted)
     }
+
+    private fun seedVodRefreshBaselineIfNeeded(persisted: PersistedCatalogCounts = startupCatalogCountsStore.read()) {
+        if (!persisted.isValid) return
+        if (persisted.movies <= 0 && persisted.series <= 0) return
+        if (lastVodRefreshCompletedAtMs > 0L) return
+        lastVodRefreshCompletedAtMs = persisted.updatedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+    }
+
+    private suspend fun shouldSkipStartupVodNetworkRefresh(trigger: VodRefreshTrigger): Boolean {
+        if (trigger != VodRefreshTrigger.REPOSITORY_INIT) return false
+        val persisted = startupCatalogCountsStore.read()
+        val movies = persisted.movies.takeIf { it > 0 } ?: cachedMoviesCount()
+        val series = persisted.series.takeIf { it > 0 } ?: cachedSeriesCount()
+        if (movies < STARTUP_VOD_SKIP_MIN_ROWS && series < STARTUP_VOD_SKIP_MIN_ROWS) return false
+        seedVodRefreshBaselineIfNeeded(persisted)
+        Log.i(
+            VOD_FLOW_TAG,
+            "Skipping startup VOD network ingest — on-disk catalog movies=$movies series=$series"
+        )
+        return true
+    }
+
+    private suspend fun awaitVodIngestAllowed() {
+        while (catalogHydrationGuard.shouldDeferHeavyCatalogIo()) {
+            delay(StartupTierPolicy.vodIngestPlaybackWaitMs())
+        }
+    }
+
+    private suspend fun throttleVodIngestBatch(batchIndex: Int) {
+        if (batchIndex <= 0) return
+        if (batchIndex % StartupTierPolicy.vodIngestYieldEveryNBatches() != 0) return
+        delay(StartupTierPolicy.vodIngestBatchGapMs())
+        yield()
+    }
+
+    private fun ingestRevisionCadence(): Int =
+        if (LowEndDeviceMode.current().active) {
+            INGEST_REVISION_EVERY_BATCHES * 4
+        } else {
+            INGEST_REVISION_EVERY_BATCHES
+        }
 
     private fun PersistedCatalogCounts.toSnapshot(source: CatalogCountSource): CatalogCountsSnapshot =
         CatalogCountsSnapshot(
@@ -605,14 +650,16 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun publishMoviesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
         _vodStreamCountFlow.value = parsedSoFar
-        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+        val cadence = ingestRevisionCadence()
+        if (batchIndex == 0 || batchIndex % cadence == 0) {
             bumpVodCatalogRevision()
         }
     }
 
     private fun publishSeriesIngestBatch(parsedSoFar: Int, batchIndex: Int) {
         _seriesShowCountFlow.value = parsedSoFar
-        if (batchIndex == 0 || batchIndex % INGEST_REVISION_EVERY_BATCHES == 0) {
+        val cadence = ingestRevisionCadence()
+        if (batchIndex == 0 || batchIndex % cadence == 0) {
             bumpVodCatalogRevision()
         }
     }
@@ -2458,8 +2505,15 @@ class IptvRepositoryImpl @Inject constructor(
             val dbEmpty = startupDiskQueue.run("vod_refresh_db_empty_check") {
                 cachedMoviesCount() <= 0 && cachedSeriesCount() <= 0
             }
+            val persisted = startupCatalogCountsStore.read()
+            val dbPopulated = persisted.movies >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                persisted.series >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                cachedMoviesCount() >= STARTUP_VOD_SKIP_MIN_ROWS ||
+                cachedSeriesCount() >= STARTUP_VOD_SKIP_MIN_ROWS
             val delayMs = when {
                 immediate -> 0L
+                dbPopulated && trigger == VodRefreshTrigger.REPOSITORY_INIT ->
+                    StartupTierPolicy.populatedCatalogVodRefreshDelayMs()
                 dbEmpty && (
                     trigger == VodRefreshTrigger.VOD_HUB_MOUNT ||
                         trigger == VodRefreshTrigger.MANUAL_RETRY
@@ -2474,6 +2528,14 @@ class IptvRepositoryImpl @Inject constructor(
             }
             if (trigger != VodRefreshTrigger.MANUAL_RETRY && isVodCatalogFresh()) {
                 Log.i(VOD_FLOW_TAG, "Skipping deferred VOD refresh — catalog still fresh trigger=$trigger")
+                return@launch
+            }
+            if (shouldSkipStartupVodNetworkRefresh(trigger)) {
+                refreshSeriesCategoriesIfMissing(trigger)
+                refreshVodCategoriesIfMissing(trigger)
+                repairStoredCategoryNames()
+                publishVodProgressFromDb(trigger)
+                StartupProfiler.mark("vod_refresh_skipped", trigger.name)
                 return@launch
             }
             try {
@@ -2644,6 +2706,14 @@ class IptvRepositoryImpl @Inject constructor(
                 "Skipping network refresh trigger=$trigger — cache fresh within TTL " +
                     "(movies=$dbMovies, series=$dbSeries)"
             )
+            publishVodProgressFromDb(trigger = trigger)
+            return@withContext
+        }
+
+        if (!force && shouldSkipStartupVodNetworkRefresh(trigger)) {
+            refreshSeriesCategoriesIfMissing(trigger)
+            refreshVodCategoriesIfMissing(trigger)
+            repairStoredCategoryNames()
             publishVodProgressFromDb(trigger = trigger)
             return@withContext
         }
@@ -3452,6 +3522,7 @@ class IptvRepositoryImpl @Inject constructor(
                 parser = xtreamParser
             ) { batch, batchIndex, parsedSoFar ->
                 if (batch.isEmpty()) return@parseVodCatalogStream
+                awaitVodIngestAllowed()
                 if (!firstBatchLogged) {
                     firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, item ->
@@ -3470,7 +3541,9 @@ class IptvRepositoryImpl @Inject constructor(
                     batchSize = batch.size,
                     parsedSoFar = parsedSoFar
                 )
-                vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                startupDiskQueue.run("vod_ingest_movies_$batchIndex") {
+                    vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                }
                 val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
                 com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
                     phase = "movies",
@@ -3482,6 +3555,7 @@ class IptvRepositoryImpl @Inject constructor(
                 )
                 publishMoviesIngestBatch(parsedSoFar, batchIndex)
                 onBatchInserted(parsedSoFar, parsedSoFar)
+                throttleVodIngestBatch(batchIndex)
             }
             parsedCount = streamResult.parsedCount
             skippedCount = streamResult.skippedCount
@@ -3669,6 +3743,7 @@ class IptvRepositoryImpl @Inject constructor(
                 parser = xtreamParser
             ) { batch, batchIndex, parsedSoFar ->
                 if (batch.isEmpty()) return@parseSeriesCatalogStream
+                awaitVodIngestAllowed()
                 if (!firstBatchLogged) {
                     firstBatchLogged = true
                     batch.take(5).forEachIndexed { index, show ->
@@ -3687,7 +3762,9 @@ class IptvRepositoryImpl @Inject constructor(
                     batchSize = batch.size,
                     parsedSoFar = parsedSoFar
                 )
-                seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                startupDiskQueue.run("vod_ingest_series_$batchIndex") {
+                    seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+                }
                 val batchMs = (System.nanoTime() - batchStartNs) / 1_000_000L
                 com.grid.tv.util.VodCatalogIngestLogger.logBatchComplete(
                     phase = "series",
@@ -3699,6 +3776,7 @@ class IptvRepositoryImpl @Inject constructor(
                 )
                 publishSeriesIngestBatch(parsedSoFar, batchIndex)
                 onBatchInserted(parsedSoFar, parsedSoFar)
+                throttleVodIngestBatch(batchIndex)
             }
             parsedCount = streamResult.parsedCount
             skippedCount = streamResult.skippedCount
