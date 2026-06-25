@@ -10,11 +10,12 @@ import javax.inject.Singleton
 /**
  * UI idle gate — debounce timer resets on activity; after 500ms quiet a Choreographer callback
  * plus main-looper idle handler confirms the main thread is free.
+ *
+ * Choreographer is only accessed on the main looper — never during construction or from background threads.
  */
 @Singleton
 class UiIdleMonitor @Inject constructor() {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val choreographer = Choreographer.getInstance()
 
     @Volatile
     private var monitoring = false
@@ -41,22 +42,32 @@ class UiIdleMonitor @Inject constructor() {
     fun isIdle(): Boolean = idle
 
     fun onUiReady() {
+        runOnMain { startMonitoring() }
+    }
+
+    fun signalActivity(source: String) {
+        runOnMain { recordActivity(source) }
+    }
+
+    fun forceIdle(reason: String) {
+        runOnMain {
+            if (idle) return@runOnMain
+            completeIdle(reason)
+        }
+    }
+
+    private fun startMonitoring() {
         monitoring = true
         lastActivityUptimeMs = SystemClock.uptimeMillis()
         scheduleIdleCheck()
     }
 
-    fun signalActivity(source: String) {
+    private fun recordActivity(source: String) {
         if (!monitoring || idle) return
         onActivity?.invoke(source)
         lastActivityUptimeMs = SystemClock.uptimeMillis()
         stopFrameWatch()
         scheduleIdleCheck()
-    }
-
-    fun forceIdle(reason: String) {
-        if (idle) return
-        completeIdle(reason)
     }
 
     private fun scheduleIdleCheck() {
@@ -96,12 +107,13 @@ class UiIdleMonitor @Inject constructor() {
             }
         }
         frameCallback = callback
-        choreographer.postFrameCallback(callback)
+        Choreographer.getInstance().postFrameCallback(callback)
     }
 
     private fun stopFrameWatch() {
-        frameCallback?.let { choreographer.removeFrameCallback(it) }
+        val callback = frameCallback ?: return
         frameCallback = null
+        Choreographer.getInstance().removeFrameCallback(callback)
     }
 
     private fun completeIdle(reason: String) {
@@ -112,5 +124,13 @@ class UiIdleMonitor @Inject constructor() {
         idleCheck = null
         stopFrameWatch()
         onIdle?.invoke(reason)
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
     }
 }
