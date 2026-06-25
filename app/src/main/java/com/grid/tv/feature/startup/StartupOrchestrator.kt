@@ -3,7 +3,6 @@ package com.grid.tv.feature.startup
 import android.app.Application
 import android.util.Log
 import com.grid.tv.data.db.AppDatabaseHolder
-import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.worker.ChannelHealthScheduler
 import com.grid.tv.worker.EpgScheduler
@@ -13,66 +12,67 @@ import javax.inject.Singleton
 import kotlinx.coroutines.delay
 
 /**
- * Three-phase cold start. Phase 2B (SQLite COUNT) is fire-and-forget after the interactive window.
+ * Strictly serialized cold start — disk, then UI-ready, then counts, then input-safe, then network.
  */
 @Singleton
 class StartupOrchestrator @Inject constructor(
-    private val pipeline: StartupPipeline,
+    private val safety: StartupSafety,
+    private val diskQueue: StartupDiskQueue,
     private val coordinator: StartupCoordinator,
-    private val repository: IptvRepository,
     private val epgScheduler: EpgScheduler,
     private val channelHealthScheduler: ChannelHealthScheduler,
     private val vodCatalogSyncScheduler: VodCatalogSyncScheduler
 ) {
     suspend fun runColdStart(application: Application) {
-        pipeline.markColdStart()
-        pipeline.setPhase(StartupPhase.BOOTING)
-        StartupProfiler.mark("database_prewarm_start")
-        AppDatabaseHolder.prewarm(application)
-        StartupProfiler.mark("database_prewarm_complete")
+        safety.markColdStart()
+        safety.setPhase(StartupPhase.BOOTING)
 
-        pipeline.runDiskTask("phase1_minimal") {
+        diskQueue.run("database_prewarm") {
+            StartupProfiler.mark("database_prewarm_start")
+            AppDatabaseHolder.prewarm(application)
+            StartupProfiler.mark("database_prewarm_complete")
+        }
+
+        diskQueue.run("phase1_minimal") {
             coordinator.runPhase1Minimal()
         }
-        pipeline.setPhase(StartupPhase.PHASE1_READY)
 
-        delay(StartupTierPolicy.phase2DelayMs())
-        pipeline.setPhase(StartupPhase.PHASE2_RUNNING)
+        safety.awaitUiReady()
+
+        val phase2Wait = StartupTierPolicy.phase2DelayMs() - safety.elapsedSinceColdStartMs()
+        if (phase2Wait > 0L) delay(phase2Wait)
         coordinator.runPhase2CacheInstant()
-        pipeline.setPhase(StartupPhase.PHASE2_CACHE_READY)
-        flushDeferredVodLoads()
 
-        pipeline.launchBackgroundAfterInteractiveDelay("phase2_db_counts") {
-            pipeline.setPhase(StartupPhase.PHASE2_SAFE)
+        val interactiveWait =
+            StartupTierPolicy.phase2InteractiveDelayMs() - safety.elapsedSinceColdStartMs()
+        if (interactiveWait > 0L) delay(interactiveWait)
+
+        diskQueue.run("phase2b_counts") {
             coordinator.runPhase2BackgroundCounts()
-            pipeline.setPhase(StartupPhase.PHASE2_COMPLETE)
-            flushDeferredVodLoads()
         }
+        safety.setPhase(StartupPhase.DISK_WARM_COMPLETE)
 
-        val phase3Wait = (
-            StartupTierPolicy.phase3DelayMs() - pipeline.elapsedSinceColdStartMs()
-            ).coerceAtLeast(0L)
-        if (phase3Wait > 0L) delay(phase3Wait)
+        safety.enterInputSafe()
 
-        pipeline.setPhase(StartupPhase.PHASE3_RUNNING)
-        epgScheduler.scheduleAtLaunch()
+        safety.runNetworkExclusive("schedule_epg_workers") {
+            epgScheduler.scheduleAtLaunch()
+            epgScheduler.scheduleStartupEpg()
+        }
         if (!LowEndDeviceMode.current().deferChannelHealthProbe) {
-            channelHealthScheduler.schedule()
+            safety.runNetworkExclusive("schedule_channel_health") {
+                channelHealthScheduler.schedule()
+            }
         }
-        vodCatalogSyncScheduler.schedulePeriodicSync()
-        epgScheduler.scheduleStartupEpg()
+        safety.runNetworkExclusive("schedule_vod_sync") {
+            vodCatalogSyncScheduler.schedulePeriodicSync()
+        }
+        safety.runNetworkExclusive("phase3_vod_maintenance") {
+            coordinator.runPhase3VodMaintenance()
+        }
 
-        coordinator.runPhase3VodMaintenance()
-        pipeline.setPhase(StartupPhase.READY)
-        flushDeferredVodLoads()
+        safety.drainPendingNetworkJobs()
+        safety.setPhase(StartupPhase.READY)
         Log.i(TAG, "Cold start complete — ${StartupProfiler.summary()}")
-    }
-
-    private fun flushDeferredVodLoads() {
-        pipeline.drainDeferredVodLoads().forEach { trigger ->
-            Log.i(TAG, "Flushing deferred VOD load trigger=$trigger")
-            repository.loadVodStreamed(trigger)
-        }
     }
 
     companion object {

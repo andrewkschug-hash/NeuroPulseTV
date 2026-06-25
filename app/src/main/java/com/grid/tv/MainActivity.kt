@@ -16,6 +16,8 @@ import com.grid.tv.di.SupabaseEntryPoint
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
+import com.grid.tv.feature.startup.StartupSafety
+import com.grid.tv.feature.startup.StartupUiIdleHook
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
 import com.grid.tv.ui.navigation.AppRoot
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
+    @Inject lateinit var startupSafety: StartupSafety
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -85,6 +88,7 @@ class MainActivity : ComponentActivity() {
         handleAuthDeepLink(intent)
 
         setContent {
+            StartupUiIdleHook(startupSafety)
             val themeId by themeManager.themeId.collectAsStateWithLifecycle()
             GridTheme(themeId = themeId) {
                 AppRoot(

@@ -18,6 +18,21 @@ object StartupTierPolicy {
     /** Total time from process start before Phase 3 (EPG schedule + VOD maintenance). */
     fun phase3DelayMs(): Long = if (LowEndDeviceMode.current().active) 12_000L else 8_000L
 
+    /** Idle disk window after last DAO before any OkHttp / worker scheduling. */
+    fun networkIdleAfterDiskMs(): Long = 2_000L
+
+    /** Quiet window with no UI activity before UI_IDLE. */
+    fun uiIdleQuietMs(): Long = 500L
+
+    /** Max wait for UI_IDLE before INPUT_SAFE fallback. */
+    fun uiIdleTimeoutMs(): Long = if (LowEndDeviceMode.current().active) 20_000L else 15_000L
+
+    @Deprecated("Use uiIdleQuietMs", ReplaceWith("uiIdleQuietMs()"))
+    fun uiStableQuietMs(): Long = uiIdleQuietMs()
+
+    @Deprecated("Use uiIdleTimeoutMs", ReplaceWith("uiIdleTimeoutMs()"))
+    fun uiStableTimeoutMs(): Long = uiIdleTimeoutMs()
+
     @Deprecated("Use phase2DelayMs", ReplaceWith("phase2DelayMs()"))
     fun tier2DelayMs(): Long = phase2DelayMs()
 
