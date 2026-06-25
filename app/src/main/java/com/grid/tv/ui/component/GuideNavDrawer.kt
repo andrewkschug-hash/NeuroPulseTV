@@ -7,7 +7,6 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -24,7 +23,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -42,6 +40,12 @@ enum class GuideNavDrawerItem(val label: String) {
 
 val GuideNavDrawerItems = GuideNavDrawerItem.entries
 
+/** Collapsed rail width — keep in sync with [GuideNavDrawer] animation targets. */
+val GuideNavDrawerCollapsedWidth = 48.dp
+
+/** Expanded drawer width — keep in sync with [GuideNavDrawer] animation targets. */
+val GuideNavDrawerExpandedWidth = 340.dp
+
 @Composable
 fun GuideNavDrawer(
     expanded: Boolean,
@@ -53,7 +57,7 @@ fun GuideNavDrawer(
     modifier: Modifier = Modifier
 ) {
     val width by animateDpAsState(
-        targetValue = if (expanded) 340.dp else 48.dp,
+        targetValue = if (expanded) GuideNavDrawerExpandedWidth else GuideNavDrawerCollapsedWidth,
         animationSpec = tween(durationMillis = 180),
         label = "guideNavDrawerWidth"
     )
@@ -61,7 +65,6 @@ fun GuideNavDrawer(
 
     Box(
         modifier = modifier
-            .zIndex(10f)
             .width(width)
             .fillMaxHeight()
             .background(EpgColors.DetailPanelBg.copy(alpha = 0.98f))

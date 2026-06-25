@@ -31,9 +31,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import com.grid.tv.util.VodPerfLogger
 import com.grid.tv.util.runVodPipelineCatching
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -180,8 +182,12 @@ class MoviesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
-        filterBrowseRows(raw, filterOptions, movieCategoryNames = categoryList.associate { it.id to it.name })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        VodPerfLogger.trace("filterBrowseRows.movies", "rows=${raw.size}") {
+            filterBrowseRows(raw, filterOptions, movieCategoryNames = categoryList.associate { it.id to it.name })
+        }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch {
@@ -224,6 +230,7 @@ class MoviesViewModel @Inject constructor(
     }
 
     fun setCategory(categoryId: String?, filterIds: Set<String>? = null, playlistId: Long? = null) {
+        VodPerfLogger.markInput("genreSelect.movies", "categoryId=$categoryId filterIds=${filterIds?.size ?: 0}")
         _selectedCategoryId.value = categoryId
         _selectedCategoryPlaylistId.value = playlistId?.takeIf { categoryId != null }
         playlistId?.takeIf { it > 0L && categoryId != null }?.let { playlistContext.setActive(it) }

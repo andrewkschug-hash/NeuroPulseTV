@@ -2,6 +2,8 @@ package com.grid.tv.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -30,7 +32,6 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
-import androidx.compose.ui.Alignment
 import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.feature.guide.GuideCategoryProcessor
 import com.grid.tv.ui.component.buildGuideGroupCategories
@@ -520,65 +521,71 @@ fun HomeEpgScreen(
             .background(EpgColors.Background)
             .onPreviewKeyEvent { false }
     ) {
-        when (ui.guideSubScreen) {
-            GuideSubScreen.Search -> {
-                HomeEpgSearchScreenHost(
-                    ui = ui,
-                    controller = controller,
-                    searchViewModel = searchViewModel,
-                    context = context
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (ui.guideSubScreen == null) {
+                GuideNavDrawer(
+                    expanded = ui.navDrawerOpen,
+                    focusedIndex = ui.navDrawerFocusIndex,
+                    drawerFocusRequester = navDrawerFocusRequester,
+                    onItemFocused = { ui.navDrawerFocusIndex = it },
+                    onItemSelected = controller::selectDrawerItem,
+                    onPreviewKey = controller::handleNavDrawerKey
                 )
             }
-            GuideSubScreen.Groups -> {
-                GuideGroupsScreen(
-                    organized = organizedGuideGroups,
-                    selectedGroups = guideFilter.selectedGroups,
-                    hideAdult = hideAdultContent,
-                    onApplyFilter = { filter ->
-                        viewModel.setGuideFilter(filter, markConfigured = true)
-                    },
-                    onBack = {
-                        ui.guideSubScreen = null
-                        controller.focusEpgZone(EpgFocusZone.GRID)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                when (ui.guideSubScreen) {
+                    GuideSubScreen.Search -> {
+                        HomeEpgSearchScreenHost(
+                            ui = ui,
+                            controller = controller,
+                            searchViewModel = searchViewModel,
+                            context = context
+                        )
                     }
-                )
+                    GuideSubScreen.Groups -> {
+                        GuideGroupsScreen(
+                            organized = organizedGuideGroups,
+                            selectedGroups = guideFilter.selectedGroups,
+                            hideAdult = hideAdultContent,
+                            onApplyFilter = { filter ->
+                                viewModel.setGuideFilter(filter, markConfigured = true)
+                            },
+                            onBack = {
+                                ui.guideSubScreen = null
+                                controller.focusEpgZone(EpgFocusZone.GRID)
+                            }
+                        )
+                    }
+                    null -> {
+                        HomeEpgScreenMainColumn(
+                            ui = ui,
+                            controller = controller,
+                            deps = deps,
+                            context = context,
+                            profileInitials = profileInitials,
+                            profileAvatarColor = profileAvatarColor,
+                            profileAccessMessage = profileAccessMessage,
+                            recordingViewModel = recordingViewModel,
+                            onNavigateRecordings = onNavigateRecordings,
+                            onNavigateProfile = onNavigateProfile,
+                            onNavigateSettings = onNavigateSettings,
+                            livePlayerManager = livePlayerManager,
+                            previewSurfaceAttached = previewSurfaceAttached && !fullscreenActive,
+                            channelGroups = channelGroups,
+                            viewModel = viewModel,
+                            timelineWidth = timelineWidth,
+                            scrolledAwayFromLive = scrolledAwayFromLive,
+                            showFilteredEmptyState = showFilteredEmptyState,
+                            hScroll = hScroll,
+                            listState = listState,
+                        )
+                    }
+                }
             }
-            null -> {
-                HomeEpgScreenMainColumn(
-                    ui = ui,
-                    controller = controller,
-                    deps = deps,
-                    context = context,
-                    profileInitials = profileInitials,
-                    profileAvatarColor = profileAvatarColor,
-                    profileAccessMessage = profileAccessMessage,
-                    recordingViewModel = recordingViewModel,
-                    onNavigateRecordings = onNavigateRecordings,
-                    onNavigateProfile = onNavigateProfile,
-                    onNavigateSettings = onNavigateSettings,
-                    livePlayerManager = livePlayerManager,
-                    previewSurfaceAttached = previewSurfaceAttached && !fullscreenActive,
-                    channelGroups = channelGroups,
-                    viewModel = viewModel,
-                    timelineWidth = timelineWidth,
-                    scrolledAwayFromLive = scrolledAwayFromLive,
-                    showFilteredEmptyState = showFilteredEmptyState,
-                    hScroll = hScroll,
-                    listState = listState,
-                )
-            }
-        }
-
-        if (ui.guideSubScreen == null) {
-            GuideNavDrawer(
-                expanded = ui.navDrawerOpen,
-                focusedIndex = ui.navDrawerFocusIndex,
-                drawerFocusRequester = navDrawerFocusRequester,
-                onItemFocused = { ui.navDrawerFocusIndex = it },
-                onItemSelected = controller::selectDrawerItem,
-                onPreviewKey = controller::handleNavDrawerKey,
-                modifier = Modifier.align(Alignment.CenterStart)
-            )
         }
 
         HomeEpgScreenOverlaysOnly(

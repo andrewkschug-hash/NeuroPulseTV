@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 @Singleton
 class VodLanguagePreferenceStore @Inject constructor(
@@ -25,7 +26,7 @@ class VodLanguagePreferenceStore @Inject constructor(
         includeUntaggedContent
     ) { languages, includeUntagged ->
         VodLanguageFilterOptions(languages, includeUntagged)
-    }
+    }.distinctUntilChanged()
 
     fun setPreferredLanguages(languages: Set<String>) {
         val normalized = languages.map { it.trim().uppercase() }.filter { it.isNotBlank() }.toSet()

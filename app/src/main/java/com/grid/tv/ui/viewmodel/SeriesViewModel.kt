@@ -28,6 +28,7 @@ import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
 import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.util.VodPerfLogger
 import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -40,6 +41,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -192,8 +194,12 @@ class SeriesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
-        filterBrowseRows(raw, filterOptions, seriesCategoryNames = categoryList.associate { it.id to it.name })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        VodPerfLogger.trace("filterBrowseRows.series", "rows=${raw.size}") {
+            filterBrowseRows(raw, filterOptions, seriesCategoryNames = categoryList.associate { it.id to it.name })
+        }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()
@@ -269,6 +275,7 @@ class SeriesViewModel @Inject constructor(
     }
 
     fun setCategory(categoryId: String?, filterIds: Set<String>? = null, playlistId: Long? = null) {
+        VodPerfLogger.markInput("genreSelect.series", "categoryId=$categoryId filterIds=${filterIds?.size ?: 0}")
         _selectedCategoryId.value = categoryId
         _selectedCategoryPlaylistId.value = playlistId?.takeIf { categoryId != null }
         playlistId?.takeIf { it > 0L && categoryId != null }?.let { playlistContext.setActive(it) }
