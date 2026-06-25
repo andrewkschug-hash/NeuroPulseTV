@@ -87,7 +87,17 @@ object GuideCategoryProcessor {
         val providerCategories: List<GuideGroupCategory>,
         /** Flat list for legacy picker compatibility. */
         val flatCategories: List<GuideGroupCategory>
-    )
+    ) {
+        companion object {
+            val EMPTY = OrganizedGuideGroups(
+                allChannelCount = 0,
+                countryCategories = emptyList(),
+                contentCategories = emptyList(),
+                providerCategories = emptyList(),
+                flatCategories = emptyList()
+            )
+        }
+    }
 
     fun organizeGroups(
         channelGroups: List<String>,
@@ -95,17 +105,15 @@ object GuideCategoryProcessor {
         hideAdult: Boolean = true
     ): OrganizedGuideGroups {
         val dedupedKeys = linkedMapOf<String, String>()
+        val normalizedIndex = HashMap<String, String>((channelGroups.size * 4 / 3).coerceAtLeast(16))
         channelGroups.forEach { key ->
             val name = normalizeGroupName(ChannelGroupIdentity.groupName(key))
             if (name.isBlank()) return@forEach
             if (shouldHideAdultGroup(name, hideAdult)) return@forEach
-            val normalizedKey = dedupedKeys.keys.firstOrNull { existing ->
-                normalizeGroupName(ChannelGroupIdentity.groupName(existing))
-                    .equals(name, ignoreCase = true)
-            }
-            if (normalizedKey == null) {
-                dedupedKeys[key] = name
-            }
+            val normalizedLookup = name.lowercase()
+            if (normalizedIndex.containsKey(normalizedLookup)) return@forEach
+            normalizedIndex[normalizedLookup] = key
+            dedupedKeys[key] = name
         }
 
         val parentBuckets = linkedMapOf<String, MutableList<String>>()

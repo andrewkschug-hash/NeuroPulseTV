@@ -860,16 +860,24 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.getXtreamPassword(playlist.id) ?: playlist.xtreamPassword
 
     override fun groups(): Flow<List<String>> =
-        channelDao.observeGroupChannelCounts().map { rows ->
-            rows.map { com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(it.playlistId, it.groupName) }
-        }
+        observeGroupMetadata().map { it.groups }
 
     override fun groupChannelCounts(): Flow<Map<String, Int>> =
+        observeGroupMetadata().map { it.counts }
+
+    override fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata> =
         channelDao.observeGroupChannelCounts().map { rows ->
-            rows.associate {
-                com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(it.playlistId, it.groupName) to
-                    it.channelCount
+            val groups = ArrayList<String>(rows.size)
+            val counts = LinkedHashMap<String, Int>(rows.size)
+            rows.forEach { row ->
+                val key = com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(
+                    row.playlistId,
+                    row.groupName
+                )
+                groups += key
+                counts[key] = row.channelCount
             }
+            com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
         }
 
     override fun channels(

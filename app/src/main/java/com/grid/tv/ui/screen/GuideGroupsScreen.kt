@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.grid.tv.feature.epg.GuideChannelFilter
+import com.grid.tv.feature.guide.GroupsTrace
 import com.grid.tv.feature.guide.GuideCategoryProcessor
 import com.grid.tv.ui.component.GuideGroupAllChannelsRow
 import com.grid.tv.ui.component.GuideGroupCategoryRow
@@ -36,7 +38,6 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.handleGuideGroupTvKeyEvent
 import com.grid.tv.ui.component.requestFocusSafely
-import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.toggleCategoryExpansion
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -58,15 +59,23 @@ fun GuideGroupsScreen(
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
     var focusedRowIndex by remember { mutableIntStateOf(0) }
-    val rowFocusRequesters = remember(visibleRows.size) {
-        List(visibleRows.size) { FocusRequester() }
-    }
+    val rowFocusRequesters = remember { mutableStateMapOf<Int, FocusRequester>() }
     val listState = rememberLazyListState()
 
+    fun focusRequesterFor(index: Int): FocusRequester =
+        rowFocusRequesters.getOrPut(index) { FocusRequester() }
+
     fun requestRowFocus(index: Int) {
-        if (index !in rowFocusRequesters.indices) return
+        if (index !in visibleRows.indices) return
         focusedRowIndex = index
-        rowFocusRequesters[index].requestFocusSafely()
+        focusRequesterFor(index).requestFocusSafely()
+    }
+
+    LaunchedEffect(visibleRows.size, rowFocusRequesters.size) {
+        GroupsTrace.logVisibleRows(
+            visibleRowCount = visibleRows.size,
+            focusRequesterCount = rowFocusRequesters.size
+        )
     }
 
     fun activateRow(row: GuideGroupVisibleRow) {
@@ -162,7 +171,7 @@ fun GuideGroupsScreen(
                     GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                         checked = selectedGroups.isEmpty(),
                         onClick = { activateRow(row) },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = focusRequesterFor(index),
                         onFocused = { focusedRowIndex = index }
                     )
                     is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
@@ -171,7 +180,7 @@ fun GuideGroupsScreen(
                         subGroupCount = row.subGroupCount,
                         expanded = row.expanded,
                         onClick = { activateRow(row) },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = focusRequesterFor(index),
                         onFocused = { focusedRowIndex = index }
                     )
                     is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
@@ -179,14 +188,14 @@ fun GuideGroupsScreen(
                         childCount = row.groupNames.size,
                         checked = areAllGroupsSelected(row.groupNames, selectedGroups),
                         onClick = { activateRow(row) },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = focusRequesterFor(index),
                         onFocused = { focusedRowIndex = index }
                     )
                     is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
                         label = com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(row.fullName),
                         checked = row.fullName in selectedGroups,
                         onClick = { activateRow(row) },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = focusRequesterFor(index),
                         onFocused = { focusedRowIndex = index }
                     )
                 }

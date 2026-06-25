@@ -35,8 +35,6 @@ import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GuideNavDrawer
-import com.grid.tv.feature.guide.GuideCategoryProcessor
-import com.grid.tv.ui.component.buildGuideGroupCategories
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.theme.EpgColors
@@ -125,6 +123,7 @@ fun HomeEpgScreen(
     val isReloadingChannels = chrome.isReloadingChannels
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
+    val organizedGuideGroups by viewModel.organizedGuideGroups.collectAsStateWithLifecycle()
     val hasCatalogChannels = chrome.hasCatalogChannels
     val demoFavoriteIds = chrome.demoFavoriteIds
     val favoriteGroups = chrome.favoriteGroups
@@ -237,27 +236,7 @@ fun HomeEpgScreen(
 
     val hideAdultContent by viewModel.hideAdultContent.collectAsStateWithLifecycle()
 
-    val needsGroupTree = ui.guideSubScreen == GuideSubScreen.Groups || ui.showGuideGroupPicker
-    val guideGroupCategories = remember(channelGroups, groupChannelCounts, hideAdultContent, needsGroupTree) {
-        if (!needsGroupTree) {
-            emptyList()
-        } else {
-            buildGuideGroupCategories(channelGroups, groupChannelCounts, hideAdultContent)
-        }
-    }
-    val organizedGuideGroups = remember(channelGroups, groupChannelCounts, hideAdultContent, needsGroupTree) {
-        if (!needsGroupTree) {
-            GuideCategoryProcessor.OrganizedGuideGroups(
-                allChannelCount = 0,
-                countryCategories = emptyList(),
-                contentCategories = emptyList(),
-                providerCategories = emptyList(),
-                flatCategories = emptyList()
-            )
-        } else {
-            GuideCategoryProcessor.organizeGroups(channelGroups, groupChannelCounts, hideAdultContent)
-        }
-    }
+    val guideGroupCategories = organizedGuideGroups.flatCategories
 
     val hScroll = rememberScrollState()
     val listState = rememberLazyListState()

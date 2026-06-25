@@ -33,6 +33,8 @@ interface IptvRepository {
     suspend fun hasActiveConnection(): Boolean
     fun groups(): Flow<List<String>>
     fun groupChannelCounts(): Flow<Map<String, Int>>
+    /** Single Room emission — groups + counts derived together (avoids duplicate GROUP BY work). */
+    fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata>
     fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     suspend fun channelsPage(
         groups: Set<String> = emptySet(),

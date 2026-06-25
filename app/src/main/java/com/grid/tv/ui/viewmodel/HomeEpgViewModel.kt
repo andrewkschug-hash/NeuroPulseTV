@@ -29,6 +29,9 @@ import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.GuideChannelFilter
+import com.grid.tv.feature.guide.GuideCategoryProcessor
+import com.grid.tv.feature.guide.GuideGroupMetadata
+import com.grid.tv.feature.guide.GroupsTrace
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import com.grid.tv.domain.epg.EpgTime
@@ -55,6 +58,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -226,21 +230,63 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _guideGroupMetadataReady = MutableStateFlow(false)
 
-    val channelGroups: StateFlow<List<String>> = _guideGroupMetadataReady
+    private val _hideAdultContent = MutableStateFlow(true)
+    val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
+
+    private val groupMetadata: StateFlow<GuideGroupMetadata> = _guideGroupMetadataReady
         .flatMapLatest { ready ->
-            if (ready) repository.groups() else flowOf(emptyList())
+            if (ready) repository.observeGroupMetadata() else flowOf(GuideGroupMetadata.EMPTY)
         }
         .debounce(StartupTierPolicy.guideGroupMetadataDebounceMs())
+        .distinctUntilChanged()
         .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GuideGroupMetadata.EMPTY)
+
+    val channelGroups: StateFlow<List<String>> = groupMetadata
+        .map { it.groups }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val groupChannelCounts: StateFlow<Map<String, Int>> = _guideGroupMetadataReady
-        .flatMapLatest { ready ->
-            if (ready) repository.groupChannelCounts() else flowOf(emptyMap())
-        }
-        .debounce(StartupTierPolicy.guideGroupMetadataDebounceMs())
-        .flowOn(Dispatchers.IO)
+    val groupChannelCounts: StateFlow<Map<String, Int>> = groupMetadata
+        .map { it.counts }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /**
+     * Precomputed off the main thread — one [GuideCategoryProcessor.organizeGroups] per metadata update.
+     * [flatCategories] replaces duplicate Compose-side [buildGuideGroupCategories] calls.
+     */
+    val organizedGuideGroups: StateFlow<GuideCategoryProcessor.OrganizedGuideGroups> = combine(
+        groupMetadata,
+        hideAdultContent
+    ) { metadata, hideAdult -> metadata to hideAdult }
+        .flatMapLatest { (metadata, hideAdult) ->
+            flow {
+                if (metadata.groups.isEmpty()) {
+                    emit(GuideCategoryProcessor.OrganizedGuideGroups.EMPTY)
+                    return@flow
+                }
+                val startNs = System.nanoTime()
+                val organized = withContext(Dispatchers.Default) {
+                    GuideCategoryProcessor.organizeGroups(
+                        channelGroups = metadata.groups,
+                        groupChannelCounts = metadata.counts,
+                        hideAdult = hideAdult
+                    )
+                }
+                val durationMs = (System.nanoTime() - startNs) / 1_000_000L
+                GroupsTrace.logOrganize(
+                    rawGroupCount = metadata.groups.size,
+                    durationMs = durationMs,
+                    flatCategoryCount = organized.flatCategories.size
+                )
+                emit(organized)
+            }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            GuideCategoryProcessor.OrganizedGuideGroups.EMPTY
+        )
 
     /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
     val hasCatalogChannels: StateFlow<Boolean> = repository.hasChannels()
@@ -273,9 +319,6 @@ class HomeEpgViewModel @Inject constructor(
     private var channelDbOffset = 0
     private var loadingChannels = false
     private var channelLoadJob: Job? = null
-
-    private val _hideAdultContent = MutableStateFlow(true)
-    val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
     private val _guidePosition = MutableStateFlow(EpgGuidePosition())
     val guidePosition: StateFlow<EpgGuidePosition> = _guidePosition.asStateFlow()
