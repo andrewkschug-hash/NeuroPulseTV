@@ -38,27 +38,14 @@ data class GuideGroupCategory(
 
 fun buildGuideGroupCategories(
     channelGroups: List<String>,
-    groupChannelCounts: Map<String, Int> = emptyMap()
+    groupChannelCounts: Map<String, Int> = emptyMap(),
+    hideAdult: Boolean = true
 ): List<GuideGroupCategory> {
-    val grouped = linkedMapOf<String, MutableList<String>>()
-    channelGroups.forEach { key ->
-        val groupName = com.grid.tv.domain.model.ChannelGroupIdentity.groupName(key)
-        val parent = resolveParentGroup(groupName)
-        grouped.getOrPut(parent) { mutableListOf() }.add(key)
-    }
-    return grouped.entries
-        .map { (parent, groups) ->
-            GuideGroupCategory(
-                displayName = parent,
-                groups = groups.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) {
-                    com.grid.tv.domain.model.ChannelGroupIdentity.groupName(it)
-                }),
-                channelCount = groups.sumOf { groupChannelCounts[it] ?: 0 }
-            )
-        }
-        .sortedWith(
-            compareBy({ parentGroupSortIndex(it.displayName) }, { it.displayName })
-        )
+    return com.grid.tv.feature.guide.GuideCategoryProcessor.organizeGroups(
+        channelGroups = channelGroups,
+        groupChannelCounts = groupChannelCounts,
+        hideAdult = hideAdult
+    ).flatCategories
 }
 
 fun expandedCategoriesForSelection(

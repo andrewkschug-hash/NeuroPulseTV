@@ -30,6 +30,9 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
+import androidx.compose.ui.Alignment
+import com.grid.tv.ui.component.GuideNavDrawer
+import com.grid.tv.feature.guide.GuideCategoryProcessor
 import com.grid.tv.ui.component.buildGuideGroupCategories
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
@@ -42,56 +45,42 @@ import com.grid.tv.ui.viewmodel.SearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 
-internal enum class EpgFocusZone { TOP_BAR, CONTINUE_WATCHING, PREVIEW, GRID_FILTER, GRID }
+internal enum class EpgFocusZone { NAV_DRAWER, CONTINUE_WATCHING, PREVIEW, GRID }
+
+internal enum class GuideSubScreen { Search, Groups }
 
 internal fun epgZoneAbove(
     from: EpgFocusZone,
     showPreview: Boolean,
     hasContinueWatching: Boolean,
-    showGroupFilter: Boolean = true
+    showGroupFilter: Boolean = false
 ): EpgFocusZone? = when (from) {
-    EpgFocusZone.GRID -> if (showGroupFilter) {
-        EpgFocusZone.GRID_FILTER
-    } else {
-        when {
-            showPreview -> EpgFocusZone.PREVIEW
-            hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
-            else -> EpgFocusZone.TOP_BAR
-        }
-    }
-    EpgFocusZone.GRID_FILTER -> when {
+    EpgFocusZone.GRID -> when {
         showPreview -> EpgFocusZone.PREVIEW
         hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
-        else -> EpgFocusZone.TOP_BAR
+        else -> null
     }
     EpgFocusZone.PREVIEW -> when {
         hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
-        else -> EpgFocusZone.TOP_BAR
+        else -> null
     }
-    EpgFocusZone.CONTINUE_WATCHING -> EpgFocusZone.TOP_BAR
-    EpgFocusZone.TOP_BAR -> null
+    EpgFocusZone.CONTINUE_WATCHING -> null
+    EpgFocusZone.NAV_DRAWER -> null
 }
 
 internal fun epgZoneBelow(
     from: EpgFocusZone,
     showPreview: Boolean,
     hasContinueWatching: Boolean,
-    showGroupFilter: Boolean = true
+    showGroupFilter: Boolean = false
 ): EpgFocusZone? = when (from) {
-    EpgFocusZone.TOP_BAR -> when {
-        hasContinueWatching -> EpgFocusZone.CONTINUE_WATCHING
-        showPreview -> EpgFocusZone.PREVIEW
-        showGroupFilter -> EpgFocusZone.GRID_FILTER
-        else -> EpgFocusZone.GRID
-    }
     EpgFocusZone.CONTINUE_WATCHING -> when {
         showPreview -> EpgFocusZone.PREVIEW
-        showGroupFilter -> EpgFocusZone.GRID_FILTER
         else -> EpgFocusZone.GRID
     }
-    EpgFocusZone.PREVIEW -> if (showGroupFilter) EpgFocusZone.GRID_FILTER else EpgFocusZone.GRID
-    EpgFocusZone.GRID_FILTER -> EpgFocusZone.GRID
+    EpgFocusZone.PREVIEW -> EpgFocusZone.GRID
     EpgFocusZone.GRID -> null
+    EpgFocusZone.NAV_DRAWER -> null
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -102,6 +91,7 @@ fun HomeEpgScreen(
     onNavigateRecordings: () -> Unit = {},
     onNavigateSettings: () -> Unit = {},
     onNavigateProfile: () -> Unit = {},
+    onNavigateMultiview: () -> Unit = {},
     onNavigateVod: (Int) -> Unit = {},
     onNavigateSeries: (playlistId: Long, seriesId: Long) -> Unit = { _, _ -> },
     onPlayVod: (String, String, Boolean) -> Unit = { _, _, _ -> },
@@ -242,8 +232,13 @@ fun HomeEpgScreen(
         }
     }
 
-    val guideGroupCategories = remember(channelGroups, groupChannelCounts) {
-        buildGuideGroupCategories(channelGroups, groupChannelCounts)
+    val hideAdultContent by viewModel.hideAdultContent.collectAsStateWithLifecycle()
+
+    val guideGroupCategories = remember(channelGroups, groupChannelCounts, hideAdultContent) {
+        buildGuideGroupCategories(channelGroups, groupChannelCounts, hideAdultContent)
+    }
+    val organizedGuideGroups = remember(channelGroups, groupChannelCounts, hideAdultContent) {
+        GuideCategoryProcessor.organizeGroups(channelGroups, groupChannelCounts, hideAdultContent)
     }
 
     val hScroll = rememberScrollState()
@@ -251,7 +246,7 @@ fun HomeEpgScreen(
     val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
     val gridFilterFocusRequester = remember { FocusRequester() }
-    val topNavFocusRequester = remember { FocusRequester() }
+    val navDrawerFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
@@ -401,7 +396,9 @@ fun HomeEpgScreen(
             ui.showGuideGroupPicker = false
             return@LaunchedEffect
         }
-        ui.showGuideGroupPicker = hasCatalogChannels && channelGroups.isNotEmpty()
+        if (hasCatalogChannels && channelGroups.isNotEmpty()) {
+            ui.guideSubScreen = GuideSubScreen.Groups
+        }
     }
 
     LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex) {
@@ -454,7 +451,7 @@ fun HomeEpgScreen(
         density = density,
         gridFocusRequester = gridFocusRequester,
         gridFilterFocusRequester = gridFilterFocusRequester,
-        topNavFocusRequester = topNavFocusRequester,
+        navDrawerFocusRequester = navDrawerFocusRequester,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
         previewFocusRequester = previewFocusRequester,
         previewChannel = previewChannel,
@@ -474,6 +471,8 @@ fun HomeEpgScreen(
         onPlayCatchup = onPlayCatchup,
         onNavigateRecordings = onNavigateRecordings,
         onNavigateSettings = onNavigateSettings,
+        onNavigateProfile = onNavigateProfile,
+        onNavigateMultiview = onNavigateMultiview,
         onNavigateVod = onNavigateVod,
         onNavigateSeries = onNavigateSeries,
         onPlayVod = onPlayVod,
@@ -497,22 +496,15 @@ fun HomeEpgScreen(
     val liveScrollTargetPx = controller.liveScrollTarget()
     val scrolledAwayFromLive = kotlin.math.abs(hScroll.value - liveScrollTargetPx) > 80
 
-    LaunchedEffect(displayChannels.isEmpty(), ui.selectedTab, ui.showGuideGroupPicker) {
-        if (ui.showGuideGroupPicker) return@LaunchedEffect
+    LaunchedEffect(displayChannels.isEmpty(), ui.selectedTab, ui.guideSubScreen) {
+        if (ui.guideSubScreen != null) return@LaunchedEffect
         if (!displayChannels.isEmpty() || ui.focusZone != EpgFocusZone.GRID) return@LaunchedEffect
-        if (ui.selectedTab == EpgNavTab.Favorites) {
-            controller.focusEpgZone(EpgFocusZone.TOP_BAR)
-        } else {
-            controller.focusEpgZone(EpgFocusZone.GRID_FILTER)
-        }
+        controller.focusEpgZone(EpgFocusZone.GRID)
     }
 
     LaunchedEffect(ui.selectedTab) {
         if (ui.selectedTab == EpgNavTab.Favorites) {
             ui.showCategoryFilterMenu = false
-            if (ui.focusZone == EpgFocusZone.GRID_FILTER) {
-                controller.focusEpgZone(EpgFocusZone.GRID)
-            }
         }
     }
 
@@ -528,41 +520,76 @@ fun HomeEpgScreen(
             .background(EpgColors.Background)
             .onPreviewKeyEvent { false }
     ) {
-        HomeEpgScreenMainColumn(
-            ui = ui,
-            controller = controller,
-            deps = deps,
-            context = context,
-            profileInitials = profileInitials,
-            profileAvatarColor = profileAvatarColor,
-            profileAccessMessage = profileAccessMessage,
-            recordingViewModel = recordingViewModel,
-            onNavigateRecordings = onNavigateRecordings,
-            onNavigateProfile = onNavigateProfile,
-            onNavigateSettings = onNavigateSettings,
-            livePlayerManager = livePlayerManager,
-            previewSurfaceAttached = previewSurfaceAttached && !fullscreenActive,
-            channelGroups = channelGroups,
-            viewModel = viewModel,
-            timelineWidth = timelineWidth,
-            scrolledAwayFromLive = scrolledAwayFromLive,
-            showFilteredEmptyState = showFilteredEmptyState,
-            hScroll = hScroll,
-            listState = listState,
-        )
+        when (ui.guideSubScreen) {
+            GuideSubScreen.Search -> {
+                HomeEpgSearchScreenHost(
+                    ui = ui,
+                    controller = controller,
+                    searchViewModel = searchViewModel,
+                    context = context
+                )
+            }
+            GuideSubScreen.Groups -> {
+                GuideGroupsScreen(
+                    organized = organizedGuideGroups,
+                    selectedGroups = guideFilter.selectedGroups,
+                    hideAdult = hideAdultContent,
+                    onApplyFilter = { filter ->
+                        viewModel.setGuideFilter(filter, markConfigured = true)
+                    },
+                    onBack = {
+                        ui.guideSubScreen = null
+                        controller.focusEpgZone(EpgFocusZone.GRID)
+                    }
+                )
+            }
+            null -> {
+                HomeEpgScreenMainColumn(
+                    ui = ui,
+                    controller = controller,
+                    deps = deps,
+                    context = context,
+                    profileInitials = profileInitials,
+                    profileAvatarColor = profileAvatarColor,
+                    profileAccessMessage = profileAccessMessage,
+                    recordingViewModel = recordingViewModel,
+                    onNavigateRecordings = onNavigateRecordings,
+                    onNavigateProfile = onNavigateProfile,
+                    onNavigateSettings = onNavigateSettings,
+                    livePlayerManager = livePlayerManager,
+                    previewSurfaceAttached = previewSurfaceAttached && !fullscreenActive,
+                    channelGroups = channelGroups,
+                    viewModel = viewModel,
+                    timelineWidth = timelineWidth,
+                    scrolledAwayFromLive = scrolledAwayFromLive,
+                    showFilteredEmptyState = showFilteredEmptyState,
+                    hScroll = hScroll,
+                    listState = listState,
+                )
+            }
+        }
 
-        HomeEpgSearchOverlayHost(
-            modifier = Modifier.fillMaxSize(),
+        if (ui.guideSubScreen == null) {
+            GuideNavDrawer(
+                expanded = ui.navDrawerOpen,
+                focusedIndex = ui.navDrawerFocusIndex,
+                drawerFocusRequester = navDrawerFocusRequester,
+                onItemFocused = { ui.navDrawerFocusIndex = it },
+                onItemSelected = controller::selectDrawerItem,
+                onPreviewKey = controller::handleNavDrawerKey,
+                modifier = Modifier.align(Alignment.CenterStart)
+            )
+        }
+
+        HomeEpgScreenOverlaysOnly(
             ui = ui,
             controller = controller,
             deps = deps,
-            context = context,
             channelGroups = channelGroups,
             groupChannelCounts = groupChannelCounts,
             favoriteGroups = favoriteGroups,
             favoriteSavedMessage = favoriteSavedMessage,
             recordingViewModel = recordingViewModel,
-            searchViewModel = searchViewModel,
         )
     }
 }

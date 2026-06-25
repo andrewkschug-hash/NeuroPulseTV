@@ -23,6 +23,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
+import com.grid.tv.feature.vod.VodLanguageFilterOptions
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
@@ -86,6 +87,9 @@ class SeriesViewModel @Inject constructor(
     val preferredLanguages: StateFlow<Set<String>> = languagePreferenceStore.preferredLanguages
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    val includeUntaggedContent: StateFlow<Boolean> = languagePreferenceStore.includeUntaggedContent
+        .stateIn(viewModelScope, SharingStarted.Eagerly, VodLanguagePreferenceStore.DEFAULT_INCLUDE_UNTAGGED)
+
     val categories: StateFlow<List<VodCategory>> = repository.seriesCategories()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -103,15 +107,15 @@ class SeriesViewModel @Inject constructor(
         repository.vodCatalogRevision(),
         debouncedSearchQuery,
         selectedSeriesCategoryFilter,
-        languagePreferenceStore.preferredLanguages,
+        languagePreferenceStore.filterOptions,
         categories
-    ) { _, query, categoryFilter, languages, categoryList ->
+    ) { _, query, categoryFilter, filterOptions, categoryList ->
         val (categoryFilterIds, playlistId) = categoryFilter
         SeriesLanguageFilterParams(
             query = query,
             categoryFilterIds = categoryFilterIds,
             playlistId = playlistId,
-            languages = languages,
+            filterOptions = filterOptions,
             categoryNames = categoryList.associate { it.id to it.name }
         )
     }.combine(_hubSearchMode) { params, hubSearchMode ->
@@ -126,11 +130,11 @@ class SeriesViewModel @Inject constructor(
                 playlistId = params.playlistId
             )
                 .map { pagingData ->
-                    if (params.languages.isEmpty()) {
+                    if (!params.filterOptions.isActive) {
                         pagingData
                     } else {
                         pagingData.filter {
-                            it.matchesLanguageFilter(params.languages, params.categoryNames)
+                            it.matchesLanguageFilter(params.filterOptions, params.categoryNames)
                         }
                     }
                 }
@@ -164,26 +168,32 @@ class SeriesViewModel @Inject constructor(
     val catalogTotalCount: StateFlow<Int> = repository.seriesShowCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
-        repository.vodCatalogRevision(),
-        repository.seriesShowCount(),
-        languagePreferenceStore.preferredLanguages,
-        categories
-    ) { _, seriesCount, languages, categoryList ->
-        Triple(seriesCount, languages, categoryList.associate { it.id to it.name })
-    }
-        .debounce(350L)
-        .flatMapLatest { (seriesCount, languages, categoryNames) ->
-            flow {
-                if (seriesCount <= 0) {
-                    emit(emptyList())
-                    return@flow
-                }
-                val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
-                emit(filterBrowseRows(rows, languages, seriesCategoryNames = categoryNames))
-            }
+    private val rawSeriesBrowseRows: StateFlow<List<VodBrowseRow>> =
+        combine(
+            repository.vodCatalogRevision(),
+            repository.seriesShowCount()
+        ) { _, seriesCount ->
+            seriesCount
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .flatMapLatest { seriesCount ->
+                flow {
+                    if (seriesCount <= 0) {
+                        emit(emptyList())
+                        return@flow
+                    }
+                    val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
+                    emit(rows)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val browseRows: StateFlow<List<VodBrowseRow>> = combine(
+        rawSeriesBrowseRows,
+        languagePreferenceStore.filterOptions,
+        categories
+    ) { raw, filterOptions, categoryList ->
+        filterBrowseRows(raw, filterOptions, seriesCategoryNames = categoryList.associate { it.id to it.name })
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()
@@ -499,7 +509,7 @@ private data class SeriesLanguageFilterParams(
     val query: String,
     val categoryFilterIds: Set<String>?,
     val playlistId: Long?,
-    val languages: Set<String>,
+    val filterOptions: VodLanguageFilterOptions,
     val categoryNames: Map<String, String>,
     val hubSearchMode: Boolean = false
 )

@@ -147,6 +147,8 @@ class HomeEpgViewModel @Inject constructor(
     private val _favoriteGroupFilter = MutableStateFlow<Long?>(null)
     val favoriteGroupFilter: StateFlow<Long?> = _favoriteGroupFilter.asStateFlow()
 
+    private val _recentChannelsOnly = MutableStateFlow(false)
+
     /** Demo-mode favorites for placeholder channels (negative IDs). */
     private val _demoFavoriteIds = MutableStateFlow<Set<Long>>(emptySet())
     val demoFavoriteIds: StateFlow<Set<Long>> = _demoFavoriteIds.asStateFlow()
@@ -460,7 +462,7 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent) { _, _, _ -> }
+            combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent, _recentChannelsOnly) { _, _, _, _ -> }
                 .collectLatest {
                     if (!guideBootstrapComplete) return@collectLatest
                     reloadChannels()
@@ -557,7 +559,14 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     fun setFavoriteGroupFilter(groupId: Long?) {
+        _recentChannelsOnly.value = false
         _favoriteGroupFilter.value = groupId
+    }
+
+    fun showRecentChannelsOnly() {
+        _recentChannelsOnly.value = true
+        _favoriteGroupFilter.value = null
+        reloadChannels()
     }
 
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
@@ -957,6 +966,19 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private suspend fun fetchFilteredChannelPage(offset: Int): List<Channel> {
+        if (_recentChannelsOnly.value) {
+            if (offset > 0) return emptyList()
+            val recent = repository.recentChannels(limit = 80).first()
+            return recent
+                .let { list ->
+                    if (_hideAdultContent.value) {
+                        list.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
+                    } else {
+                        list
+                    }
+                }
+                .filter { _guideFilter.value.appliesTo(it) }
+        }
         val favoriteFilter = _favoriteGroupFilter.value
         val groups = _guideFilter.value.selectedGroups
         val page = repository.channelsPage(

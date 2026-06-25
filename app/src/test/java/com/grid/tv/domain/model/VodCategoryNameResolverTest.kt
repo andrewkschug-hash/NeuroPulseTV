@@ -53,7 +53,7 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
-    fun prepareSeriesCategoriesForSidebar_keepsDistinctPlaylistScopedCategories() {
+    fun prepareSeriesCategoriesForSidebar_collapsesSameDisplayNameWithinPlaylist() {
         val categories = listOf(
             VodCategory(id = "1006", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
             VodCategory(id = "1040", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
@@ -62,14 +62,11 @@ class VodCategoryNameResolverTest {
         )
         val (streamBacked, _) = VodCategoryGuards.partitionStreamBacked(categories)
         val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(streamBacked)
-        assertEquals(4, sidebar.displayCategories.size)
+        assertEquals(3, sidebar.displayCategories.size)
         assertEquals(
-            setOf("1006"),
+            setOf("1006", "1040"),
             sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1006")]
-        )
-        assertEquals(
-            setOf("1040"),
-            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
+                ?: sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
         )
         assertEquals(
             setOf("1006"),
@@ -132,5 +129,57 @@ class VodCategoryNameResolverTest {
         )
         assertEquals("Provider A Action", lookup["1_1006"])
         assertEquals("Provider B Action", lookup["2_1006"])
+    }
+
+    @Test
+    fun prepareMovieCategoriesForSidebar_collapsesDuplicateLabels() {
+        val categories = listOf(
+            VodCategory(id = "1006", name = "Action & Adventure", playlistId = 1L),
+            VodCategory(id = "1040", name = "Action & Adventure", playlistId = 1L),
+            VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
+        )
+        val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories)
+        assertEquals(2, sidebar.displayCategories.size)
+        assertEquals(
+            setOf("Action & Adventure", "Comedy"),
+            sidebar.displayCategories.map { it.name }.toSet()
+        )
+        val actionKey = sidebar.displayCategories
+            .first { it.name == "Action & Adventure" }
+            .let { VodCategoryNameResolver.categoryKey(it.playlistId, it.id) }
+        assertEquals(setOf("1006", "1040"), sidebar.filterIdsByRepresentativeId[actionKey])
+    }
+
+    @Test
+    fun prepareMovieCategoriesForSidebar_mergesNormalizedGenreNameVariants() {
+        val categories = listOf(
+            VodCategory(id = "1006", name = "ACTION & ADVENTURE", playlistId = 1L),
+            VodCategory(id = "1040", name = "Action and Adventure", playlistId = 1L),
+            VodCategory(id = "1055", name = "  Action   &   Adventure  ", playlistId = 1L),
+            VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
+        )
+        val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories)
+        assertEquals(2, sidebar.displayCategories.size)
+        assertEquals("Action & Adventure", sidebar.displayCategories.first { it.name != "Comedy" }.name)
+        val actionKey = sidebar.displayCategories
+            .first { it.name == "Action & Adventure" }
+            .let { VodCategoryNameResolver.categoryKey(it.playlistId, it.id) }
+        assertEquals(setOf("1006", "1040", "1055"), sidebar.filterIdsByRepresentativeId[actionKey])
+    }
+
+    @Test
+    fun prepareMovieCategoriesForSidebar_keepsQualitySuffixCategoriesSeparate() {
+        val categories = listOf(
+            VodCategory(id = "1001", name = "Movies", playlistId = 1L),
+            VodCategory(id = "1002", name = "Movies HD", playlistId = 1L),
+            VodCategory(id = "1003", name = "Movies FHD", playlistId = 1L),
+            VodCategory(id = "1004", name = "Movies 4K", playlistId = 1L)
+        )
+        val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories)
+        assertEquals(4, sidebar.displayCategories.size)
+        assertEquals(
+            setOf("Movies", "Movies HD", "Movies FHD", "Movies 4K"),
+            sidebar.displayCategories.map { it.name }.toSet()
+        )
     }
 }

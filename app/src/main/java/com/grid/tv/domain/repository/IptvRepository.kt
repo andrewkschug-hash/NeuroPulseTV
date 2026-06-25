@@ -134,7 +134,7 @@ interface IptvRepository {
         offset: Int
     ): List<VodItem>
     fun vodMoviesPaging(
-        categoryId: String? = null,
+        categoryIds: Set<String>? = null,
         search: String = "",
         playlistId: Long? = null
     ): Flow<PagingData<VodItem>>
@@ -144,7 +144,7 @@ interface IptvRepository {
         playlistId: Long? = null
     ): Flow<PagingData<SeriesShow>>
     suspend fun vodFilteredCount(
-        categoryId: String? = null,
+        categoryIds: Set<String>? = null,
         search: String = "",
         playlistId: Long? = null
     ): Int

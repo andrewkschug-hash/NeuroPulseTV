@@ -16,7 +16,9 @@ class VodCatalogOnboardingTest {
         categoryCount: Int = 0,
         wallRowCount: Int = 0,
         nonPersonalWallRowCount: Int = 0,
-        pagedItemCount: Int = 0
+        wallItemCount: Int = 0,
+        pagedItemCount: Int = 0,
+        catalogTotalCount: Int = 0
     ) = VodCatalogOnboardingInputs(
         catalogLoading = catalogLoading,
         progress = progress,
@@ -25,7 +27,9 @@ class VodCatalogOnboardingTest {
         categoryCount = categoryCount,
         wallRowCount = wallRowCount,
         nonPersonalWallRowCount = nonPersonalWallRowCount,
-        pagedItemCount = pagedItemCount
+        wallItemCount = wallItemCount,
+        pagedItemCount = pagedItemCount,
+        catalogTotalCount = catalogTotalCount
     )
 
     @Test
@@ -44,27 +48,31 @@ class VodCatalogOnboardingTest {
     }
 
     @Test
-    fun allTab_readyWhenWallHasDiscoveryRows() {
+    fun allTab_readyWhenWallHasInteractableCards() {
         assertFalse(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
-                    wallRowCount = 3,
-                    nonPersonalWallRowCount = 2
+                    wallRowCount = 1,
+                    wallItemCount = 12
                 )
             )
         )
     }
 
     @Test
-    fun allTab_notReadyWhenOnlyPersonalRows() {
+    fun allTab_notReadyWhenRowsExistButEmpty() {
         assertTrue(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
-                    wallRowCount = 3,
-                    nonPersonalWallRowCount = 1,
-                    progress = VodCatalogProgress(isLoading = true)
+                    wallRowCount = 2,
+                    wallItemCount = 0,
+                    catalogTotalCount = 500,
+                    progress = VodCatalogProgress(
+                        moviesPhaseFinished = true,
+                        seriesPhaseFinished = true
+                    )
                 )
             )
         )
@@ -77,6 +85,40 @@ class VodCatalogOnboardingTest {
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
                     progress = VodCatalogProgress(
+                        moviesPhaseFinished = true,
+                        seriesPhaseFinished = true
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun allTab_staysOnboardingWhileBuildingRecommendations() {
+        assertTrue(
+            shouldShowVodCatalogOnboarding(
+                inputs(
+                    tab = VodCatalogOnboardingTab.ALL,
+                    catalogTotalCount = 1200,
+                    progress = VodCatalogProgress(
+                        moviesPhaseFinished = true,
+                        seriesPhaseFinished = true
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun allTab_staysOnboardingWhenUiCountLagsProgress() {
+        assertTrue(
+            shouldShowVodCatalogOnboarding(
+                inputs(
+                    tab = VodCatalogOnboardingTab.ALL,
+                    catalogTotalCount = 0,
+                    progress = VodCatalogProgress(
+                        moviesLoaded = 800,
+                        seriesLoaded = 400,
                         moviesPhaseFinished = true,
                         seriesPhaseFinished = true
                     )

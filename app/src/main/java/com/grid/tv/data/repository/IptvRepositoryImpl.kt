@@ -3659,11 +3659,13 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun vodMoviesPaging(
-        categoryId: String?,
+        categoryIds: Set<String>?,
         search: String,
         playlistId: Long?
     ): Flow<PagingData<VodItem>> {
         val trimmedSearch = search.trim()
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
         val resolvedPlaylistId = scopedPlaylistId(playlistId)
         return Pager(
             config = PagingConfig(
@@ -3674,9 +3676,14 @@ class IptvRepositoryImpl @Inject constructor(
             ),
             pagingSourceFactory = {
                 if (resolvedPlaylistId.isPlaylistScoped()) {
-                    vodStreamDao.vodPagingSourceForPlaylist(resolvedPlaylistId!!, categoryId, trimmedSearch)
+                    vodStreamDao.vodPagingSourceByIdsForPlaylist(
+                        resolvedPlaylistId!!,
+                        matchAll,
+                        ids,
+                        trimmedSearch
+                    )
                 } else {
-                    vodStreamDao.vodPagingSource(categoryId, trimmedSearch)
+                    vodStreamDao.vodPagingSourceByIds(matchAll, ids, trimmedSearch)
                 }
             }
         ).flow.map { pagingData -> pagingData.map { it.toDomain() } }
@@ -3714,16 +3721,18 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun vodFilteredCount(
-        categoryId: String?,
+        categoryIds: Set<String>?,
         search: String,
         playlistId: Long?
     ): Int = withContext(Dispatchers.IO) {
         val trimmedSearch = search.trim()
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
         val resolvedPlaylistId = scopedPlaylistId(playlistId)
         if (resolvedPlaylistId.isPlaylistScoped()) {
-            vodStreamDao.countFilteredForPlaylist(resolvedPlaylistId!!, categoryId, trimmedSearch)
+            vodStreamDao.countFilteredByIdsForPlaylist(resolvedPlaylistId!!, matchAll, ids, trimmedSearch)
         } else {
-            vodStreamDao.countFiltered(categoryId, trimmedSearch)
+            vodStreamDao.countFilteredByIds(matchAll, ids, trimmedSearch)
         }
     }
 

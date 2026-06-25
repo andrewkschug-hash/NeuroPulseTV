@@ -244,6 +244,60 @@ interface VodStreamDao {
 
     @Query(
         """
+        SELECT COUNT(*) FROM vod_streams
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+        """
+    )
+    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, search: String): Int
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM vod_streams
+        WHERE playlistId = :playlistId
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+        """
+    )
+    suspend fun countFilteredByIdsForPlaylist(
+        playlistId: Long,
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): Int
+
+    @Query(
+        """
+        SELECT * FROM vod_streams
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+        ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
+        """
+    )
+    fun vodPagingSourceByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): PagingSource<Int, VodStreamEntity>
+
+    @Query(
+        """
+        SELECT * FROM vod_streams
+        WHERE playlistId = :playlistId
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+        ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
+        """
+    )
+    fun vodPagingSourceByIdsForPlaylist(
+        playlistId: Long,
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String
+    ): PagingSource<Int, VodStreamEntity>
+
+    @Query(
+        """
         SELECT DISTINCT playlistId, categoryId FROM vod_streams
         WHERE categoryId IS NOT NULL AND TRIM(categoryId) != ''
         ORDER BY categoryId COLLATE NOCASE
