@@ -119,6 +119,10 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            installation {
+                // Avoid INSTALL_BASELINE_PROFILE_FAILED on x86 emulators / sideload installs.
+                enableBaselineProfile = false
+            }
             val releaseSigning = signingConfigs.getByName("release")
             val keystoreFile = releaseSigning.storeFile
             if (keystoreFile == null || !keystoreFile.exists()) {
