@@ -32,6 +32,8 @@ import com.grid.tv.ui.component.GuideGroupVisibleRow
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideFilterRowAction
+import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
+import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
@@ -423,38 +425,54 @@ internal class HomeEpgGuideController(
     }
 
     fun openNavDrawer() {
-        ui.focusZone = EpgFocusZone.NAV_DRAWER
-        boundDeps.scope.launch {
-            boundDeps.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
-        }
+        focusNavDrawerItem(GuideNavDrawerItem.LiveView)
     }
 
     fun closeNavDrawer(restoreGrid: Boolean = true) {
         if (restoreGrid) {
-            ui.focusZone = EpgFocusZone.GRID
-            boundDeps.scope.launch {
-                boundDeps.gridFocusRequester.requestFocusSafelyAfterLayout()
-            }
+            focusEpgZone(EpgFocusZone.GRID)
         }
     }
 
-    private fun showChannelGroupsPanel(): Boolean =
+    private fun canShowChannelGroupsPanel(): Boolean =
         isLiveViewLayoutActive(ui.selectedTab, ui.guideSubScreen) &&
             boundDeps.channelGroups.isNotEmpty()
 
-    fun handleChannelGroupsCategoryToggle(index: Int) {
+    private fun showChannelGroupsPanel(): Boolean =
+        canShowChannelGroupsPanel() && ui.channelGroupsPanelVisible
+
+    fun focusNavDrawerItem(item: GuideNavDrawerItem) {
+        ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(item)
+        focusEpgZone(EpgFocusZone.NAV_DRAWER)
+    }
+
+    fun collapseChannelGroupsPanel(focusGrid: Boolean = true) {
+        ui.channelGroupsPanelVisible = false
+        if (!focusGrid) return
+        ui.focusOnChannelColumn = true
+        focusEpgZone(EpgFocusZone.GRID)
+        scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.NEUTRAL)
+    }
+
+    fun applyChannelGroupFilter(filter: GuideChannelFilter) {
+        boundDeps.viewModel.setGuideFilter(filter, markConfigured = true)
+        ui.focusChannelIndex = 0
+        ui.hasRequestedInitialGridFocus = false
+        collapseChannelGroupsPanel(focusGrid = true)
+    }
+
+    fun handleChannelGroupsCategoryToggle(categoryIndex: Int) {
         val expanded = ui.channelGroupsExpandedCategories.ifEmpty {
             expandedCategoriesForSelection(boundDeps.guideGroupCategories, boundDeps.guideFilter.selectedGroups)
         }
-        val visibleRows = buildVisibleGuideGroupRows(boundDeps.guideGroupCategories, expanded)
-        val row = visibleRows.getOrNull(index) ?: return
-        if (row is GuideGroupVisibleRow.Category) {
-            ui.channelGroupsExpandedCategories = toggleCategoryExpansion(
-                ui.channelGroupsExpandedCategories.ifEmpty { expanded },
-                row.categoryIndex
-            )
-            ui.channelGroupsFocusIndex = index
-        }
+        ui.channelGroupsExpandedCategories = toggleCategoryExpansion(
+            ui.channelGroupsExpandedCategories.ifEmpty { expanded },
+            categoryIndex
+        )
+        val visibleRows = buildVisibleGuideGroupRows(boundDeps.guideGroupCategories, ui.channelGroupsExpandedCategories)
+        ui.channelGroupsFocusIndex = visibleRows.indexOfFirst { row ->
+            row is GuideGroupVisibleRow.Category && row.categoryIndex == categoryIndex
+        }.coerceAtLeast(0)
     }
 
     fun handleChannelGroupsKey(event: KeyEvent): Boolean {
@@ -467,11 +485,11 @@ internal class HomeEpgGuideController(
         if (visibleRows.isEmpty()) return false
         return when (event.key) {
             Key.Back, Key.Escape -> {
-                focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                 true
             }
             Key.DirectionLeft -> {
-                focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                 true
             }
             Key.DirectionRight -> {
@@ -493,21 +511,16 @@ internal class HomeEpgGuideController(
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
                 when (row) {
-                    is GuideGroupVisibleRow.Category -> handleChannelGroupsCategoryToggle(ui.channelGroupsFocusIndex)
+                    is GuideGroupVisibleRow.Category -> handleChannelGroupsCategoryToggle(row.categoryIndex)
                     GuideGroupVisibleRow.AllChannels -> {
-                        boundDeps.viewModel.setGuideFilter(GuideChannelFilter.All, markConfigured = true)
-                        ui.focusChannelIndex = 0
+                        applyChannelGroupFilter(GuideChannelFilter.All)
                     }
                     is GuideGroupVisibleRow.Group -> {
-                        boundDeps.viewModel.setGuideFilter(
-                            GuideChannelFilter(setOf(row.fullName)),
-                            markConfigured = true
-                        )
-                        ui.focusChannelIndex = 0
+                        applyChannelGroupFilter(GuideChannelFilter(setOf(row.fullName)))
                     }
                     is GuideGroupVisibleRow.SelectAll -> {
                         val next = guideFilterRowAction(row, boundDeps.guideFilter.selectedGroups) ?: return true
-                        boundDeps.viewModel.setGuideFilter(next, markConfigured = true)
+                        applyChannelGroupFilter(next)
                     }
                 }
                 true
@@ -526,6 +539,7 @@ internal class HomeEpgGuideController(
                 ui.guideSubScreen = null
                 ui.selectedTab = EpgNavTab.Guide
                 boundDeps.viewModel.setFavoriteGroupFilter(null)
+                ui.channelGroupsPanelVisible = true
                 focusEpgZone(
                     if (showChannelGroupsPanel()) EpgFocusZone.CHANNEL_GROUPS else EpgFocusZone.GRID
                 )
@@ -570,7 +584,8 @@ internal class HomeEpgGuideController(
                 if (ui.navDrawerFocusIndex == com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
                     ui.profileMenuOpen = true
                     ui.profileMenuFocusIndex = 0
-                } else if (showChannelGroupsPanel() && ui.selectedTab == EpgNavTab.Guide) {
+                } else if (canShowChannelGroupsPanel() && ui.selectedTab == EpgNavTab.Guide) {
+                    ui.channelGroupsPanelVisible = true
                     focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
                 } else {
                     focusEpgZone(EpgFocusZone.GRID)
@@ -613,7 +628,7 @@ internal class HomeEpgGuideController(
         }
         d.scope.launch {
             when (zone) {
-                EpgFocusZone.NAV_DRAWER -> d.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
+                EpgFocusZone.NAV_DRAWER -> Unit
                 EpgFocusZone.CHANNEL_GROUPS -> if (showChannelGroupsPanel()) {
                     d.channelGroupsPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
@@ -817,7 +832,7 @@ internal class HomeEpgGuideController(
         if (boundDeps.displayChannels.isEmpty()) {
             return when (event.key) {
                 Key.DirectionUp -> {
-                    focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                    focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                     true
                 }
                 else -> false
@@ -848,7 +863,7 @@ internal class HomeEpgGuideController(
                     scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
-                    focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                    focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                     true
                 }
             }
@@ -883,12 +898,12 @@ internal class HomeEpgGuideController(
                 } else if (showChannelGroupsPanel()) {
                     focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
                 } else {
-                    focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                    focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                 }
                 true
             }
             Key.Menu -> {
-                focusEpgZone(EpgFocusZone.NAV_DRAWER)
+                focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                 true
             }
             Key.PageDown -> {

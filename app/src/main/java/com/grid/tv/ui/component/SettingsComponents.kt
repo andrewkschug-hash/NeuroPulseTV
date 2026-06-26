@@ -69,6 +69,7 @@ fun SettingsSidebar(
     focusedIndex: Int,
     sidebarFocused: Boolean,
     itemFocusRequesters: List<FocusRequester>,
+    sectionEntryFocusRequesters: List<FocusRequester>,
     onItemFocused: (Int) -> Unit,
     onSectionSelected: (Int) -> Unit = {},
     modifier: Modifier = Modifier
@@ -111,7 +112,10 @@ fun SettingsSidebar(
                         itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
                             ?: Modifier
                     )
-                    .focusProperties { canFocus = true }
+                    .focusProperties {
+                        canFocus = true
+                        sectionEntryFocusRequesters.getOrNull(index)?.let { right = it }
+                    }
                     .focusable()
                     .onFocusChanged { if (it.isFocused) onItemFocused(index) }
             ) {
@@ -160,23 +164,14 @@ fun SettingsSidebar(
 fun SettingsPanel(
     title: String,
     description: String? = null,
-    cardIndex: Int? = null,
-    focus: SettingsContentFocus? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    // A card is highlighted when one of its controls currently holds focus. Scroll-into-view
-    // is handled natively by `focusable()` inside the vertical scroll container, so the card
-    // itself no longer drives scrolling (which used to fight the focused control's own scroll).
-    val sectionHighlighted = cardIndex != null && focus != null && focus.isSectionHighlighted(cardIndex)
-    val borderWidth = if (sectionHighlighted) 2.dp else 0.dp
-    val borderColor = if (sectionHighlighted) EpgColors.Accent else Color.Transparent
-    val backgroundColor = EpgColors.DetailPanelBg.copy(alpha = if (sectionHighlighted) 0.58f else 0.38f)
+    val backgroundColor = EpgColors.DetailPanelBg.copy(alpha = 0.38f)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(backgroundColor, RoundedCornerShape(10.dp))
-            .border(borderWidth, borderColor, RoundedCornerShape(10.dp))
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -243,14 +238,14 @@ fun SettingsToggleRow(
             .fillMaxWidth()
             .then(
                 if (focused) {
-                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
+                    Modifier.border(2.dp, EpgColors.FocusBorder, SettingsRowShape)
                 } else {
                     Modifier
                 }
             )
             .background(
                 if (focused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg,
-                RoundedCornerShape(8.dp)
+                SettingsRowShape
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -342,11 +337,11 @@ fun SettingsListRow(
             .fillMaxWidth()
             .background(
                 if (isFocused) EpgColors.ChannelRowFocusBg else Color(0xFF252836),
-                RoundedCornerShape(8.dp)
+                SettingsRowShape
             )
             .then(
                 if (isFocused) {
-                    Modifier.border(2.dp, EpgColors.FocusBorder, RoundedCornerShape(8.dp))
+                    Modifier.border(2.dp, EpgColors.FocusBorder, SettingsRowShape)
                 } else {
                     Modifier
                 }
@@ -380,6 +375,131 @@ fun SettingsListRow(
 }
 
 @Composable
+fun SettingsActiveProfileRow(
+    initials: String,
+    avatarColorHex: String,
+    title: String,
+    subtitle: String,
+    actionLabel: String = "Manage profiles",
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    GridFocusSurface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(SettingsRowShape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color(0xFF252836),
+            focusedContainerColor = EpgColors.ChannelRowFocusBg,
+            pressedContainerColor = EpgColors.ChannelRowFocusBg.copy(alpha = 0.85f)
+        ),
+        modifier = modifier
+            .fillMaxWidth()
+            .settingsInteractiveFocus(
+                focusRequester = focusRequester,
+                onFocusChanged = { isFocused = it }
+            )
+            .then(
+                if (isFocused) {
+                    Modifier.border(2.dp, EpgColors.FocusBorder, SettingsRowShape)
+                } else {
+                    Modifier
+                }
+            )
+            .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                        if (isFocused) {
+                            onClick()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    else -> false
+                }
+            }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ProfileAvatarBadge(
+                initials = initials,
+                colorHex = avatarColorHex,
+                size = 40
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = EpgColors.TextPrimary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Text(
+                text = actionLabel,
+                color = EpgColors.Accent,
+                fontFamily = DmSansFamily,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsConnectionRow(
+    title: String,
+    subtitle: String,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var editFocused by remember { mutableStateOf(false) }
+    var removeFocused by remember { mutableStateOf(false) }
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        isFocused = editFocused || removeFocused,
+        modifier = modifier.padding(vertical = 4.dp),
+        trailing = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsFocusButton(
+                    text = "Edit",
+                    onClick = onEdit,
+                    onFocusChanged = { editFocused = it }
+                )
+                SettingsFocusButton(
+                    text = "Remove",
+                    onClick = onRemove,
+                    destructive = true,
+                    onFocusChanged = { removeFocused = it }
+                )
+            }
+        }
+    )
+}
+
+@Composable
 fun ProfileAvatarBadge(
     initials: String,
     colorHex: String,
@@ -410,22 +530,17 @@ fun ProfileColorPicker(
     colors: List<Color>,
     selectedHex: String,
     onColorSelected: (String) -> Unit,
-    swatchStartIndex: Int,
-    focus: SettingsContentFocus,
     modifier: Modifier = Modifier
 ) {
     val normalizedSelected = selectedHex.trim().uppercase()
     Column(modifier = modifier.focusGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        colors.chunked(4).forEachIndexed { rowIndex, rowColors ->
+        colors.chunked(4).forEach { rowColors ->
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                rowColors.forEachIndexed { colIndex, color ->
+                rowColors.forEach { color ->
                     val hex = colorToHex(color)
-                    val chainIndex = swatchStartIndex + rowIndex * 4 + colIndex
                     ProfileColorSwatch(
                         color = color,
                         selected = hex.uppercase() == normalizedSelected,
-                        chainIndex = chainIndex,
-                        focus = focus,
                         onClick = { onColorSelected(hex) }
                     )
                 }
@@ -438,13 +553,10 @@ fun ProfileColorPicker(
 private fun ProfileColorSwatch(
     color: Color,
     selected: Boolean,
-    chainIndex: Int,
-    focus: SettingsContentFocus,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val highlighted = focus.isFocused(chainIndex)
-    val canReceiveFocus = focus.isIndexInActiveCard(chainIndex)
+    var highlighted by remember { mutableStateOf(false) }
     val ringColor = when {
         highlighted -> Color.White
         selected -> Color.White.copy(alpha = 0.6f)
@@ -460,8 +572,7 @@ private fun ProfileColorSwatch(
         onClick = onClick,
         modifier = modifier
             .size(52.dp)
-            .then(settingsFocusModifier(chainIndex, focus, enabled = canReceiveFocus))
-            .focusable(enabled = canReceiveFocus)
+            .settingsInteractiveFocus(onFocusChanged = { highlighted = it })
             .onPreviewKeyEvent { event ->
                 if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

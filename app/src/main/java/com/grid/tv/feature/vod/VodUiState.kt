@@ -84,7 +84,8 @@ data class VodUiState(
     val enrichmentMap: Map<String, TitleEnrichmentEntity> = emptyMap(),
     val vodProgress: Map<Pair<Long, Long>, Long> = emptyMap(),
     val movieBrowseRows: List<VodBrowseRow> = emptyList(),
-    val seriesBrowseRows: List<VodBrowseRow> = emptyList()
+    val seriesBrowseRows: List<VodBrowseRow> = emptyList(),
+    val catalogPartitions: VodCatalogPartitions = VodCatalogPartitions.EMPTY
 )
 
 /** Raw inputs gathered from repository / internal flows before building [VodUiState]. */
@@ -116,6 +117,5 @@ data class VodHubUiBuildInputs(
     val seriesFilteredTotalCount: Int,
     val catalogLoading: Boolean,
     val catalogProgress: VodCatalogProgress,
-    val movieSidebarBundle: VodCategoryNameResolver.SeriesSidebarCategories,
-    val seriesSidebarBundle: VodCategoryNameResolver.SeriesSidebarCategories
+    val catalogPartitions: VodCatalogPartitions,
 )

@@ -8,13 +8,15 @@ import com.grid.tv.data.db.dao.ChannelDao
 import com.grid.tv.data.db.dao.StreamHealthDao
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.feature.health.StreamHealthEngine
+import com.grid.tv.feature.scanner.ChannelProbe
+import com.grid.tv.feature.scanner.ChannelScanner
+import com.grid.tv.feature.scanner.ProbeResult
+import com.grid.tv.feature.scanner.ScanConcurrencyLimiter
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import com.grid.tv.data.network.AppHttpClient
-import com.grid.tv.feature.scanner.ChannelScanner
-import okhttp3.Request
 
 @HiltWorker
 class ChannelHealthProbeWorker @AssistedInject constructor(
@@ -22,7 +24,7 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
     @Assisted params: WorkerParameters,
     private val channelDao: ChannelDao,
     private val streamHealthDao: StreamHealthDao,
-    private val appHttpClient: AppHttpClient,
+    private val channelProbe: ChannelProbe,
     private val channelScanner: ChannelScanner
 ) : CoroutineWorker(appContext, params) {
 
@@ -36,7 +38,7 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
         val channels = channelDao.all().take(40)
         channels.forEach { channel ->
             val started = System.currentTimeMillis()
-            val success = probe(channel.streamUrl)
+            val success = channelProbe.probe(channel.streamUrl).result == ProbeResult.LIVE
             val loadMs = (System.currentTimeMillis() - started).coerceAtLeast(1)
             val previous = streamHealthDao.get(channel.id)?.let {
                 com.grid.tv.domain.model.StreamHealth(
@@ -59,20 +61,8 @@ class ChannelHealthProbeWorker @AssistedInject constructor(
                     sessions = (streamHealthDao.get(channel.id)?.sessions ?: 0) + 1
                 )
             )
+            delay(ScanConcurrencyLimiter.INTER_PROBE_DELAY_MS)
         }
         Result.success()
-    }
-
-    private fun probe(url: String): Boolean {
-        if (url.isBlank()) return false
-        return runCatching {
-            val request = Request.Builder().url(url).head().build()
-            appHttpClient.client().newCall(request).execute().use { it.isSuccessful }
-        }.getOrElse {
-            runCatching {
-                val request = Request.Builder().url(url).get().header("Range", "bytes=0-1").build()
-                appHttpClient.client().newCall(request).execute().use { it.isSuccessful || it.code == 206 }
-            }.getOrDefault(false)
-        }
     }
 }

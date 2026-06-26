@@ -51,6 +51,28 @@ class ScanMetricsLogger @Inject constructor(
         Log.w(TAG, "FAILED_503 url=${url.take(120)} ACTIVE_REQUESTS=$activeRequests")
     }
 
+    fun logHttp403(url: String, code: Int = 403) {
+        Log.w(TAG, "FAILED_403 code=$code url=${url.take(120)} ACTIVE_REQUESTS=$activeRequests")
+    }
+
+    fun logHttp429(url: String, code: Int = 429) {
+        Log.w(TAG, "FAILED_429 code=$code url=${url.take(120)} ACTIVE_REQUESTS=$activeRequests — rate limited")
+    }
+
+    fun logProbeHttpFailure(url: String, code: Int, reason: String) {
+        Log.w(
+            TAG,
+            "PROBE_HTTP_REJECT code=$code reason=$reason url=${url.take(120)} ACTIVE_REQUESTS=$activeRequests"
+        )
+    }
+
+    fun logManifestRejected(url: String, code: Int, reason: String) {
+        Log.w(
+            TAG,
+            "PROBE_MANIFEST_REJECT code=$code reason=$reason url=${url.take(120)} ACTIVE_REQUESTS=$activeRequests"
+        )
+    }
+
     fun logHostBlacklisted(hostname: String, failureCount: Int) {
         Log.w(TAG, "HOST_BLACKLISTED host=$hostname failures=$failureCount")
     }

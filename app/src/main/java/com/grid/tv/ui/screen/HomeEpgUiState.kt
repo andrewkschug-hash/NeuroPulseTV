@@ -38,4 +38,6 @@ internal class HomeEpgUiState {
     var pendingPreviewFocus by mutableStateOf(false)
     var channelGroupsFocusIndex by mutableIntStateOf(0)
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
+    /** Column-2 channel group tree; collapsed after a group/channel is selected. */
+    var channelGroupsPanelVisible by mutableStateOf(true)
 }

@@ -35,9 +35,8 @@ import io.github.jan.supabase.compose.auth.composable.rememberSignInWithGoogle
 fun SettingsGoogleSignInButton(
     supabaseClient: SupabaseClient,
     viewModel: AuthViewModel,
-    chainIndex: Int,
-    focus: SettingsContentFocus,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null
 ) {
     val googleSignIn = supabaseClient.composeAuth.rememberSignInWithGoogle(
         onResult = { result ->
@@ -61,8 +60,7 @@ fun SettingsGoogleSignInButton(
             viewModel.onGoogleSignInStarted()
             googleSignIn.startFlow()
         },
-        chainIndex = chainIndex,
-        focus = focus,
+        focusRequester = focusRequester,
         modifier = modifier,
         enabled = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
     )

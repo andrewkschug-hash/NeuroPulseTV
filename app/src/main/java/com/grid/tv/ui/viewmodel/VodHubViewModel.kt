@@ -13,7 +13,10 @@ import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.vod.VodCatalogPartitionInputs
+import com.grid.tv.feature.vod.VodCatalogPartitions
 import com.grid.tv.feature.vod.VodCatalogSessionStore
+import com.grid.tv.feature.vod.buildVodCatalogPartitions
 import com.grid.tv.feature.vod.VodHubUiBuildInputs
 import com.grid.tv.feature.vod.VodHubUiStateBuilder
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
@@ -21,8 +24,6 @@ import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.VodUiState
 import com.grid.tv.feature.vod.filterBrowseRows
 import com.grid.tv.feature.vod.matchesLanguageFilter
-import com.grid.tv.feature.vod.prepareMovieSidebarCategories
-import com.grid.tv.feature.vod.prepareSeriesSidebarCategories
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCategory
@@ -301,87 +302,135 @@ class VodHubViewModel @Inject constructor(
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Pre-split catalogs and wall rows — rebuilt when browse data changes, not on tab switch. */
+    val catalogPartitions: StateFlow<VodCatalogPartitions> = combine(
+        combine(
+            hubMovieBrowseRows,
+            hubSeriesBrowseRows,
+            movieCategories,
+            seriesCategories
+        ) { movieRows, seriesRows, movieCats, seriesCats ->
+            VodCatalogPartitionBrowseSlice(movieRows, seriesRows, movieCats, seriesCats)
+        },
+        combine(
+            continueWatchingItems,
+            trendingNow,
+            recommendedForYou
+        ) { cw, trending, recommended ->
+            Triple(cw, trending, recommended)
+        }
+    ) { browseSlice, personalized ->
+        val (cw, trending, recommended) = personalized
+        VodCatalogPartitionInputs(
+            movieBrowseRows = browseSlice.movieBrowseRows,
+            seriesBrowseRows = browseSlice.seriesBrowseRows,
+            movieCategories = browseSlice.movieCategories,
+            seriesCategories = browseSlice.seriesCategories,
+            continueWatching = cw,
+            trendingMovies = trending,
+            recommendedMovies = recommended
+        )
+    }
+        .map { inputs ->
+            VodPerfLogger.trace("buildVodCatalogPartitions", "movies=${inputs.movieBrowseRows.size}") {
+                buildVodCatalogPartitions(inputs)
+            }
+        }
+        .flowOn(Dispatchers.Default)
+        .distinctUntilChanged { previous, next -> previous.revision == next.revision }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            vodCatalogSessionStore.cachedPartitions()
+        )
+
     /** Stable hub content — catalog, filters, wall rows, sidebar (no focus / hero index). */
     val contentState: StateFlow<VodUiState> = combine(
         combine(
-            recommendationSample,
-            languageFilteredCatalog,
-            continueWatchingItems,
-            recommendedForYou,
-            trendingNow
-        ) { sample, filtered, cw, recs, trend ->
-            VodCatalogUiSlice(sample, filtered, cw, recs, trend)
-        },
-        combine(
-            _contentFilter,
-            _searchQuery,
-            languagePreferenceStore.preferredLanguages,
-            languagePreferenceStore.includeUntaggedContent,
-            _availableVodLanguages
-        ) { filter, query, langs, untagged, available ->
-            VodChromeUiSlice(filter, query, langs, untagged, available)
-        },
-        combine(
-            featuredCarousel,
-            enrichmentByKey,
-            vodProgress
-        ) { carousel, enrichMap, progress ->
-            VodHeroUiSlice(carousel, enrichMap, progress)
-        },
-        combine(
             combine(
-                hubMovieBrowseRows,
-                hubSeriesBrowseRows,
+                recommendationSample,
+                languageFilteredCatalog,
+                continueWatchingItems,
+                recommendedForYou,
+                trendingNow
+            ) { sample, filtered, cw, recs, trend ->
+                VodCatalogUiSlice(sample, filtered, cw, recs, trend)
+            },
+            combine(
+                _contentFilter,
+                _searchQuery,
+                languagePreferenceStore.preferredLanguages,
+                languagePreferenceStore.includeUntaggedContent,
+                _availableVodLanguages
+            ) { filter, query, langs, untagged, available ->
+                VodChromeUiSlice(filter, query, langs, untagged, available)
+            },
+            combine(
+                featuredCarousel,
+                enrichmentByKey,
+                vodProgress
+            ) { carousel, enrichMap, progress ->
+                VodHeroUiSlice(carousel, enrichMap, progress)
+            }
+        ) { catalogSlice, chromeSlice, heroSlice ->
+            Triple(catalogSlice, chromeSlice, heroSlice)
+        },
+        combine(
+            catalogPartitions,
+            combine(
                 movieCategories,
-                seriesCategories
-            ) { movieRows, seriesRows, movieCats, seriesCats ->
+                seriesCategories,
+                combine(
+                    _selectedMovieCategoryId,
+                    _selectedMovieCategoryPlaylistId,
+                    _selectedSeriesCategoryId,
+                    _selectedSeriesCategoryPlaylistId
+                ) { movieCatId, movieCatPl, seriesCatId, seriesCatPl ->
+                    VodCategorySelectionSlice(movieCatId, movieCatPl, seriesCatId, seriesCatPl)
+                }
+            ) { movieCats, seriesCats, selection ->
                 VodBrowseUiSlice(
-                    movieRows, seriesRows, movieCats, seriesCats,
-                    null, null, null, null
+                    movieBrowseRows = emptyList(),
+                    seriesBrowseRows = emptyList(),
+                    movieCategories = movieCats,
+                    seriesCategories = seriesCats,
+                    selectedMovieCategoryId = selection.movieCategoryId,
+                    selectedMovieCategoryPlaylistId = selection.movieCategoryPlaylistId,
+                    selectedSeriesCategoryId = selection.seriesCategoryId,
+                    selectedSeriesCategoryPlaylistId = selection.seriesCategoryPlaylistId
                 )
             },
             combine(
-                _selectedMovieCategoryId,
-                _selectedMovieCategoryPlaylistId,
-                _selectedSeriesCategoryId,
-                _selectedSeriesCategoryPlaylistId
-            ) { movieCatId, movieCatPl, seriesCatId, seriesCatPl ->
-                VodCategorySelectionSlice(movieCatId, movieCatPl, seriesCatId, seriesCatPl)
+                combine(
+                    catalogTotalCount,
+                    seriesCatalogTotalCount,
+                    _movieFilteredTotalCount
+                ) { movieTotal, seriesTotal, movieFiltered ->
+                    Triple(movieTotal, seriesTotal, movieFiltered)
+                },
+                combine(
+                    _seriesFilteredTotalCount,
+                    catalogLoading,
+                    catalogProgress
+                ) { seriesFiltered, loading, progress ->
+                    Triple(seriesFiltered, loading, progress)
+                }
+            ) { counts, status ->
+                VodCatalogMetaSlice(
+                    catalogTotalCount = counts.first,
+                    seriesCatalogTotalCount = counts.second,
+                    movieFilteredTotalCount = counts.third,
+                    seriesFilteredTotalCount = status.first,
+                    catalogLoading = status.second,
+                    catalogProgress = status.third
+                )
             }
-        ) { browseBase, selection ->
-            browseBase.copy(
-                selectedMovieCategoryId = selection.movieCategoryId,
-                selectedMovieCategoryPlaylistId = selection.movieCategoryPlaylistId,
-                selectedSeriesCategoryId = selection.seriesCategoryId,
-                selectedSeriesCategoryPlaylistId = selection.seriesCategoryPlaylistId
-            )
-        },
-        combine(
-            combine(
-                catalogTotalCount,
-                seriesCatalogTotalCount,
-                _movieFilteredTotalCount
-            ) { movieTotal, seriesTotal, movieFiltered ->
-                Triple(movieTotal, seriesTotal, movieFiltered)
-            },
-            combine(
-                _seriesFilteredTotalCount,
-                catalogLoading,
-                catalogProgress
-            ) { seriesFiltered, loading, progress ->
-                Triple(seriesFiltered, loading, progress)
-            }
-        ) { counts, status ->
-            VodCatalogMetaSlice(
-                catalogTotalCount = counts.first,
-                seriesCatalogTotalCount = counts.second,
-                movieFilteredTotalCount = counts.third,
-                seriesFilteredTotalCount = status.first,
-                catalogLoading = status.second,
-                catalogProgress = status.third
-            )
+        ) { partitions, browseSlice, metaSlice ->
+            Triple(partitions, browseSlice, metaSlice)
         }
-    ) { catalogSlice, chromeSlice, heroSlice, browseSlice, metaSlice ->
+    ) { topSlices, bottomSlices ->
+        val (catalogSlice, chromeSlice, heroSlice) = topSlices
+        val (partitions, browseSlice, metaSlice) = bottomSlices
         VodHubUiStateBuilder.build(
             VodHubUiBuildInputs(
                 catalogSample = catalogSlice.sample,
@@ -397,8 +446,8 @@ class VodHubViewModel @Inject constructor(
                 featuredCarousel = heroSlice.carousel,
                 enrichmentMap = heroSlice.enrichmentMap,
                 vodProgress = heroSlice.vodProgress,
-                movieBrowseRows = browseSlice.movieBrowseRows,
-                seriesBrowseRows = browseSlice.seriesBrowseRows,
+                movieBrowseRows = partitions.movieBrowseRows,
+                seriesBrowseRows = partitions.seriesBrowseRows,
                 movieCategories = browseSlice.movieCategories,
                 seriesCategories = browseSlice.seriesCategories,
                 selectedMovieCategoryId = browseSlice.selectedMovieCategoryId,
@@ -411,14 +460,7 @@ class VodHubViewModel @Inject constructor(
                 seriesFilteredTotalCount = metaSlice.seriesFilteredTotalCount,
                 catalogLoading = metaSlice.catalogLoading,
                 catalogProgress = metaSlice.catalogProgress,
-                movieSidebarBundle = prepareMovieSidebarCategories(
-                    browseSlice.movieCategories,
-                    browseSlice.movieBrowseRows
-                ),
-                seriesSidebarBundle = prepareSeriesSidebarCategories(
-                    browseSlice.seriesCategories,
-                    browseSlice.seriesBrowseRows
-                )
+                catalogPartitions = partitions
             )
         )
     }
@@ -508,6 +550,18 @@ class VodHubViewModel @Inject constructor(
         }
         viewModelScope.launch {
             contentState.collect { state -> vodCatalogSessionStore.publishUiState(state) }
+        }
+        viewModelScope.launch {
+            catalogPartitions.collect { partitions ->
+                vodCatalogSessionStore.publishPartitions(partitions)
+            }
+        }
+        viewModelScope.launch {
+            combine(rawMovieBrowseRows, rawSeriesBrowseRows) { movies, series ->
+                movies to series
+            }.collect { (movies, series) ->
+                vodCatalogSessionStore.publishRawBrowseRows(movies, series)
+            }
         }
         viewModelScope.launch {
             if (!playlistImportCoordinator.isImportActive()) {
@@ -892,6 +946,13 @@ class VodHubViewModel @Inject constructor(
         val carousel: List<VodItem>,
         val enrichmentMap: Map<String, TitleEnrichmentEntity>,
         val vodProgress: Map<Pair<Long, Long>, Long>
+    )
+
+    private data class VodCatalogPartitionBrowseSlice(
+        val movieBrowseRows: List<VodBrowseRow>,
+        val seriesBrowseRows: List<VodBrowseRow>,
+        val movieCategories: List<VodCategory>,
+        val seriesCategories: List<VodCategory>,
     )
 
     private data class VodCategorySelectionSlice(

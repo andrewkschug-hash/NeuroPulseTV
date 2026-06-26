@@ -35,6 +35,13 @@ sealed class GuideGroupVisibleRow {
     ) : GuideGroupVisibleRow()
 }
 
+fun guideGroupVisibleRowKey(row: GuideGroupVisibleRow): String = when (row) {
+    GuideGroupVisibleRow.AllChannels -> "all"
+    is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
+    is GuideGroupVisibleRow.SelectAll -> "select_all_${row.categoryIndex}"
+    is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
+}
+
 data class GuideGroupCategory(
     val displayName: String,
     val groups: List<String>,

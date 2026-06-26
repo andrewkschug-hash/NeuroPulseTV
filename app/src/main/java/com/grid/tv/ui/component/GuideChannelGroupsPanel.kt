@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,19 +53,19 @@ fun GuideChannelGroupsPanel(
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
     val listState = rememberLazyListState()
-    val rowFocusRequesters = remember(visibleRows.size) {
-        List(visibleRows.size) { FocusRequester() }
+    val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+
+    fun focusRequesterFor(row: GuideGroupVisibleRow): FocusRequester =
+        rowFocusRequesters.getOrPut(guideGroupVisibleRowKey(row)) { FocusRequester() }
+
+    LaunchedEffect(panelFocused, focusedIndex, visibleRows) {
+        if (!panelFocused || visibleRows.isEmpty()) return@LaunchedEffect
+        val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
+        onFocusedIndexChange(index)
+        focusRequesterFor(visibleRows[index]).requestFocusSafelyAfterLayout()
     }
 
-    LaunchedEffect(panelFocused, visibleRows.size) {
-        if (panelFocused && visibleRows.isNotEmpty()) {
-            val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
-            onFocusedIndexChange(index)
-            rowFocusRequesters.getOrNull(index)?.requestFocusSafelyAfterLayout()
-        }
-    }
-
-    LaunchedEffect(focusedIndex) {
+    LaunchedEffect(focusedIndex, visibleRows) {
         if (visibleRows.isNotEmpty()) {
             listState.scrollToItem(focusedIndex.coerceIn(0, visibleRows.lastIndex))
         }
@@ -102,21 +101,15 @@ fun GuideChannelGroupsPanel(
         ) {
             itemsIndexed(
                 visibleRows,
-                key = { _, row ->
-                    when (row) {
-                        GuideGroupVisibleRow.AllChannels -> "all"
-                        is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
-                        is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
-                        is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
-                    }
-                }
+                key = { _, row -> guideGroupVisibleRowKey(row) }
             ) { index, row ->
                 val selected = isGuideGroupRowSelected(row, selectedGroups)
+                val rowFocusRequester = focusRequesterFor(row)
                 when (row) {
                     GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                         checked = selected,
                         onClick = { onFilterChange(GuideChannelFilter.All) },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = rowFocusRequester,
                         onFocused = { onFocusedIndexChange(index) }
                     )
                     is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
@@ -124,8 +117,8 @@ fun GuideChannelGroupsPanel(
                         channelCount = row.channelCount,
                         subGroupCount = row.subGroupCount,
                         expanded = row.expanded,
-                        onClick = { onToggleCategory(index) },
-                        focusRequester = rowFocusRequesters[index],
+                        onClick = { onToggleCategory(row.categoryIndex) },
+                        focusRequester = rowFocusRequester,
                         onFocused = { onFocusedIndexChange(index) }
                     )
                     is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
@@ -137,7 +130,7 @@ fun GuideChannelGroupsPanel(
                                 GuideChannelFilter(toggleSelectAllGroups(row.groupNames, selectedGroups))
                             )
                         },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = rowFocusRequester,
                         onFocused = { onFocusedIndexChange(index) }
                     )
                     is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
@@ -146,7 +139,7 @@ fun GuideChannelGroupsPanel(
                         onClick = {
                             onFilterChange(GuideChannelFilter(setOf(row.fullName)))
                         },
-                        focusRequester = rowFocusRequesters[index],
+                        focusRequester = rowFocusRequester,
                         onFocused = { onFocusedIndexChange(index) }
                     )
                 }

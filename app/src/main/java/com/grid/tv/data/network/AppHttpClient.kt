@@ -189,8 +189,8 @@ class AppHttpClient(
         const val SHORT_EPG_CALL_TIMEOUT_SECONDS = 10L
         const val SHORT_EPG_READ_TIMEOUT_SECONDS = 8L
         const val SHORT_EPG_WRITE_TIMEOUT_SECONDS = 8L
-        const val PROBE_MAX_REQUESTS = 8
-        const val PROBE_MAX_REQUESTS_PER_HOST = 4
+        const val PROBE_MAX_REQUESTS = 1
+        const val PROBE_MAX_REQUESTS_PER_HOST = 1
         const val PLAYBACK_WRITE_TIMEOUT_SECONDS = 30L
         /** Fail dead IPTV origins quickly so ExoPlayer/load-error policy can retry or failover. */
         const val PLAYBACK_CONNECT_TIMEOUT_SECONDS = 30

@@ -10,7 +10,6 @@ import com.grid.tv.data.db.dao.ProfileFavoriteDao
 import com.grid.tv.data.db.dao.ProfileWatchHistoryDao
 import com.grid.tv.data.db.entity.ChannelScanEntity
 import com.grid.tv.data.db.model.ChannelScanProbeRow
-import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ChannelScanStatus
 import com.grid.tv.domain.model.ScannerRuntimeState
@@ -19,8 +18,6 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
-import com.grid.tv.player.IptvStreamFormatRegistry
-import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.player.PlaybackActivityGate
 import com.grid.tv.util.cache.AppCacheRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -31,9 +28,6 @@ import dagger.Lazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,22 +47,19 @@ class ChannelScanner @Inject constructor(
     private val profileFavoriteDao: ProfileFavoriteDao,
     private val profileWatchHistoryDao: ProfileWatchHistoryDao,
     private val repository: Lazy<IptvRepository>,
-    private val appHttpClient: AppHttpClient,
     private val epgJobCoordinator: EpgJobCoordinator,
     private val hostFailureTracker: HostFailureTracker,
     private val epgDownloadTracker: EpgDownloadTracker,
     private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val scanMetrics: ScanMetricsLogger,
-    private val streamFormatRegistry: IptvStreamFormatRegistry,
+    private val channelProbe: ChannelProbe,
     private val startupSafety: StartupSafety,
     appCacheRegistry: AppCacheRegistry
 ) : ChannelScanGate {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val probe by lazy {
-        ChannelProbe(appHttpClient.probeClient(), hostFailureTracker, scanMetrics, streamFormatRegistry)
-    }
-    private val limiter = ScanConcurrencyLimiter(ScanConcurrencyLimiter.MAX_CONCURRENCY)
+    private val probe: ChannelProbe = channelProbe
+    private val limiter = ScanConcurrencyLimiter(ScanConcurrencyLimiter.DEFAULT_CONCURRENCY)
     private val stateMutex = Mutex()
     private val statusCache = ChannelScanStatusCache(registry = appCacheRegistry)
 
@@ -200,11 +191,8 @@ class ChannelScanner @Inject constructor(
         limiter.updateLimit(effectiveConcurrentChecks(newSettings))
     }
 
-    private fun effectiveConcurrentChecks(settings: ScannerSettings): Int {
-        val requested = settings.concurrentChecks
-        if (!LowEndDeviceMode.isActive(context)) return requested
-        return requested.coerceAtMost(LOW_END_MAX_CONCURRENT_CHECKS)
-    }
+    private fun effectiveConcurrentChecks(@Suppress("UNUSED_PARAMETER") settings: ScannerSettings): Int =
+        ScanConcurrencyLimiter.DEFAULT_CONCURRENCY
 
     fun scanNow() {
         if (scansSuspendedForPlayback) {
@@ -297,12 +285,12 @@ class ChannelScanner @Inject constructor(
             rows.chunked(SCAN_BATCH_SIZE).forEachIndexed { batchIndex, batch ->
                 if (scansSuspendedForPlayback) return@forEachIndexed
                 scanMetrics.logBatchStart(batchIndex, batch.size, rows.size - batchIndex * SCAN_BATCH_SIZE)
-                coroutineScope {
-                    batch.map { row ->
-                        async {
-                            limiter.withPermit { checkChannel(row.id, row.streamUrl) }
-                        }
-                    }.awaitAll()
+                for (row in batch) {
+                    if (scansSuspendedForPlayback) break
+                    limiter.withPermit {
+                        checkChannel(row.id, row.streamUrl)
+                        delay(ScanConcurrencyLimiter.INTER_PROBE_DELAY_MS)
+                    }
                 }
                 scanMetrics.logBatchEnd(batchIndex, batch.size)
                 yield()
@@ -461,12 +449,12 @@ class ChannelScanner @Inject constructor(
             if (scansSuspendedForPlayback) return@forEachIndexed
             val remaining = (probeList.size - (batchIndex * SCAN_BATCH_SIZE)).coerceAtLeast(0)
             scanMetrics.logBatchStart(batchIndex, batch.size, remaining)
-            coroutineScope {
-                batch.map { row ->
-                    async {
-                        limiter.withPermit { checkChannel(row.id, row.streamUrl) }
-                    }
-                }.awaitAll()
+            for (row in batch) {
+                if (scansSuspendedForPlayback) break
+                limiter.withPermit {
+                    checkChannel(row.id, row.streamUrl)
+                    delay(ScanConcurrencyLimiter.INTER_PROBE_DELAY_MS)
+                }
             }
             scanMetrics.logBatchEnd(batchIndex, batch.size)
             yield()
@@ -639,7 +627,7 @@ class ChannelScanner @Inject constructor(
     }
 
     private companion object {
-        private const val LOW_END_MAX_CONCURRENT_CHECKS = 4
+        private const val LOW_END_MAX_CONCURRENT_CHECKS = 1
         private const val TAG = "ChannelScanner"
         private const val SCAN_TICK_MS = 2_000L
         private const val SETTINGS_POLL_MS = 5_000L

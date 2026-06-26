@@ -1,7 +1,6 @@
 package com.grid.tv.feature.vod
 
 import com.grid.tv.domain.model.VodContentFilter
-import com.grid.tv.domain.model.buildVodWallRows
 import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
 import com.grid.tv.ui.component.countNonPersonalWallRows
@@ -20,23 +19,21 @@ object VodHubUiStateBuilder {
         val languageFilterActive = inputs.preferredLanguages.isNotEmpty()
         val showInlineSearch = inputs.contentFilter == VodContentFilter.SEARCH
         val searchBlank = inputs.searchQuery.isBlank()
+        val partitions = inputs.catalogPartitions
 
         val wallRows = if (inputs.searchQuery.isNotBlank()) {
             emptyList()
         } else {
-            buildVodWallRows(
-                filter = inputs.contentFilter,
-                continueWatching = inputs.continueWatching,
-                trendingMovies = inputs.trendingNow,
-                recommendedMovies = inputs.recommendedForYou,
-                movieBrowseRows = inputs.movieBrowseRows,
-                seriesBrowseRows = inputs.seriesBrowseRows
-            )
+            partitions.wallRowsFor(inputs.contentFilter)
         }
-        val wallRowsRevision = wallRows.joinToString("|") { row -> "${row.id}:${row.items.size}" }
+        val wallRowsRevision = if (inputs.searchQuery.isNotBlank()) {
+            "search"
+        } else {
+            partitions.wallRowsRevisionFor(inputs.contentFilter)
+        }
 
-        val sidebarMovie = inputs.movieSidebarBundle.displayCategories
-        val sidebarSeries = inputs.seriesSidebarBundle.displayCategories
+        val sidebarMovie = partitions.movieSidebarBundle.displayCategories
+        val sidebarSeries = partitions.seriesSidebarBundle.displayCategories
         val genreLabels = when (inputs.contentFilter) {
             VodContentFilter.MOVIES -> listOf("All") + sidebarMovie.map { it.name }
             VodContentFilter.SERIES -> listOf("All") + sidebarSeries.map { it.name }
@@ -62,9 +59,9 @@ object VodHubUiStateBuilder {
                 else -> VodCatalogOnboardingTab.ALL
             },
             browseRowCount = when (inputs.contentFilter) {
-                VodContentFilter.MOVIES -> inputs.movieBrowseRows.size
-                VodContentFilter.SERIES -> inputs.seriesBrowseRows.size
-                VodContentFilter.ALL -> inputs.movieBrowseRows.size + inputs.seriesBrowseRows.size
+                VodContentFilter.MOVIES -> partitions.movieBrowseRows.size
+                VodContentFilter.SERIES -> partitions.seriesBrowseRows.size
+                VodContentFilter.ALL -> partitions.movieBrowseRows.size + partitions.seriesBrowseRows.size
                 VodContentFilter.SEARCH -> 0
             },
             categoryCount = when (inputs.contentFilter) {
@@ -136,8 +133,8 @@ object VodHubUiStateBuilder {
             sidebar = VodSidebarUiState(
                 movieCategories = sidebarMovie,
                 seriesCategories = sidebarSeries,
-                movieFilterIdsByRepresentativeId = inputs.movieSidebarBundle.filterIdsByRepresentativeId,
-                seriesFilterIdsByRepresentativeId = inputs.seriesSidebarBundle.filterIdsByRepresentativeId,
+                movieFilterIdsByRepresentativeId = partitions.movieSidebarBundle.filterIdsByRepresentativeId,
+                seriesFilterIdsByRepresentativeId = partitions.seriesSidebarBundle.filterIdsByRepresentativeId,
                 genreLabels = genreLabels,
                 selectedGenreIndex = selectedGenreIndex,
                 selectedMovieCategoryId = inputs.selectedMovieCategoryId,
@@ -162,8 +159,9 @@ object VodHubUiStateBuilder {
             onboardingInputs = onboardingInputs,
             enrichmentMap = inputs.enrichmentMap,
             vodProgress = inputs.vodProgress,
-            movieBrowseRows = inputs.movieBrowseRows,
-            seriesBrowseRows = inputs.seriesBrowseRows
+            movieBrowseRows = partitions.movieBrowseRows,
+            seriesBrowseRows = partitions.seriesBrowseRows,
+            catalogPartitions = partitions
         )
     }
 

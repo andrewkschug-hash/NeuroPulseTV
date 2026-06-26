@@ -1,19 +1,16 @@
 package com.grid.tv.ui.component
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,10 +26,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
@@ -41,7 +38,7 @@ import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 
 enum class GuideNavDrawerItem(val label: String) {
     Search("Search"),
-    LiveView("Live View"),
+    LiveView("Live"),
     Vod("VODs"),
     Favorites("Favourites"),
     Recordings("Recordings")
@@ -56,7 +53,7 @@ fun guideNavDrawerItemFocusIndex(item: GuideNavDrawerItem): Int =
     GuideNavDrawerItems.indexOf(item) + 1
 
 /** Icon rail width — keep in sync with layout padding. */
-val GuideNavDrawerCollapsedWidth = 52.dp
+val GuideNavDrawerCollapsedWidth = 68.dp
 
 /** @deprecated Expanded rail removed — icon-only sidebar is always used. */
 val GuideNavDrawerExpandedWidth = GuideNavDrawerCollapsedWidth
@@ -104,11 +101,21 @@ private fun DrawerIconButton(
         else -> EpgColors.TextSecondary
     }
 
-    Box(modifier = modifier) {
+    val labelColor = when {
+        showFocused -> EpgColors.Accent
+        selected -> EpgColors.TextPrimary
+        else -> EpgColors.TextSecondary
+    }
+
+    Column(
+        modifier = modifier
+            .width(GuideNavDrawerCollapsedWidth - 12.dp)
+            .padding(vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         GridFocusSurface(
             onClick = onClick,
             modifier = Modifier
-                .padding(vertical = 3.dp)
                 .onFocusChanged { isFocused = it.isFocused }
                 .tvFocusBorder(
                     focused = showFocused,
@@ -133,36 +140,25 @@ private fun DrawerIconButton(
                 )
             }
         }
-
-        AnimatedVisibility(
-            visible = showFocused,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = DrawerIconSize + 6.dp)
-                .zIndex(1f)
-        ) {
-            Text(
-                text = item.label,
-                color = EpgColors.TextPrimary,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .wrapContentWidth(unbounded = true)
-                    .background(Color(0xFF1A1A28), RoundedCornerShape(12.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            )
-        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = item.label,
+            color = labelColor,
+            fontFamily = DmSansFamily,
+            fontSize = 10.sp,
+            fontWeight = if (showFocused) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
 @Composable
 fun GuideNavDrawer(
     focusedIndex: Int,
+    drawerActive: Boolean,
     drawerFocusRequester: FocusRequester,
     profileInitials: String,
     profileAvatarColor: String = DEFAULT_PROFILE_AVATAR_COLOR,
@@ -186,7 +182,8 @@ fun GuideNavDrawer(
         else -> trailingRequesters.getOrElse(index - 1) { drawerFocusRequester }
     }
 
-    LaunchedEffect(focusedIndex) {
+    LaunchedEffect(focusedIndex, drawerActive) {
+        if (!drawerActive) return@LaunchedEffect
         requesterFor(focusedIndex.coerceAtLeast(GuideNavDrawerProfileFocusIndex))
             .requestFocusSafelyAfterLayout()
     }

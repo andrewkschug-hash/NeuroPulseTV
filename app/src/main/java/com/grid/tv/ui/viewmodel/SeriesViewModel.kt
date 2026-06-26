@@ -23,6 +23,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.recording.SeriesRuleScheduler
+import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
@@ -64,7 +65,8 @@ class SeriesViewModel @Inject constructor(
     private val profileDao: ProfileDao,
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
-    private val playlistContext: PlaylistContext
+    private val playlistContext: PlaylistContext,
+    private val vodCatalogSessionStore: VodCatalogSessionStore
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -183,11 +185,19 @@ class SeriesViewModel @Inject constructor(
                         emit(emptyList())
                         return@flow
                     }
-                    val rows = withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() }
-                    emit(rows)
+                    val cached = vodCatalogSessionStore.cachedRawSeriesBrowseRows()
+                    if (cached.isNotEmpty()) {
+                        emit(cached)
+                        return@flow
+                    }
+                    emit(withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() })
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                vodCatalogSessionStore.cachedRawSeriesBrowseRows()
+            )
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         rawSeriesBrowseRows,

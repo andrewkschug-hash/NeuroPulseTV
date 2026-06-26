@@ -4,7 +4,6 @@ import android.util.Log
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
-import com.grid.tv.domain.model.buildVodWallRows
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import javax.inject.Inject
@@ -26,14 +25,42 @@ class VodCatalogSessionStore @Inject constructor(
     @Volatile
     private var cachedUiState: VodUiState = VodUiState()
 
+    @Volatile
+    private var cachedPartitions: VodCatalogPartitions = VodCatalogPartitions.EMPTY
+
+    @Volatile
+    private var rawMovieBrowseRows: List<VodBrowseRow> = emptyList()
+
+    @Volatile
+    private var rawSeriesBrowseRows: List<VodBrowseRow> = emptyList()
+
     private val warmMutex = Mutex()
     private var shellWarmed = false
 
     fun cachedUiState(): VodUiState = cachedUiState
 
+    fun cachedPartitions(): VodCatalogPartitions = cachedPartitions
+
     fun cachedMovieBrowseRows(): List<VodBrowseRow> = cachedUiState.movieBrowseRows
 
     fun cachedSeriesBrowseRows(): List<VodBrowseRow> = cachedUiState.seriesBrowseRows
+
+    fun cachedRawMovieBrowseRows(): List<VodBrowseRow> = rawMovieBrowseRows
+
+    fun cachedRawSeriesBrowseRows(): List<VodBrowseRow> = rawSeriesBrowseRows
+
+    fun publishRawBrowseRows(
+        movieBrowseRows: List<VodBrowseRow> = emptyList(),
+        seriesBrowseRows: List<VodBrowseRow> = emptyList(),
+    ) {
+        if (movieBrowseRows.isNotEmpty()) rawMovieBrowseRows = movieBrowseRows
+        if (seriesBrowseRows.isNotEmpty()) rawSeriesBrowseRows = seriesBrowseRows
+    }
+
+    fun publishPartitions(partitions: VodCatalogPartitions) {
+        if (partitions == VodCatalogPartitions.EMPTY) return
+        cachedPartitions = partitions
+    }
 
     fun cachedFeaturedCarousel(): List<VodItem> = cachedUiState.hero.featuredCarousel
 
@@ -83,22 +110,29 @@ class VodCatalogSessionStore @Inject constructor(
         } else {
             emptyList()
         }
-        val wallRows = buildVodWallRows(
-            filter = VodContentFilter.ALL,
-            continueWatching = emptyList(),
-            trendingMovies = emptyList(),
-            recommendedMovies = emptyList(),
-            movieBrowseRows = movieBrowseRows,
-            seriesBrowseRows = seriesBrowseRows
+        publishRawBrowseRows(movieBrowseRows, seriesBrowseRows)
+        val partitions = buildVodCatalogPartitions(
+            VodCatalogPartitionInputs(
+                movieBrowseRows = movieBrowseRows,
+                seriesBrowseRows = seriesBrowseRows,
+                movieCategories = emptyList(),
+                seriesCategories = emptyList(),
+                continueWatching = emptyList(),
+                trendingMovies = emptyList(),
+                recommendedMovies = emptyList()
+            )
         )
+        publishPartitions(partitions)
+        val wallRows = partitions.wallRowsFor(VodContentFilter.ALL)
         val featured = movieBrowseRows
             .flatMap { row -> row.movies }
             .take(8)
         cachedUiState = cachedUiState.copy(
             wallRows = wallRows,
-            wallRowsRevision = wallRows.joinToString("|") { "${it.id}:${it.items.size}" },
+            wallRowsRevision = partitions.wallRowsRevisionFor(VodContentFilter.ALL),
             movieBrowseRows = movieBrowseRows,
             seriesBrowseRows = seriesBrowseRows,
+            catalogPartitions = partitions,
             hero = cachedUiState.hero.copy(featuredCarousel = featured)
         )
         Log.i(

@@ -1,5 +1,10 @@
 package com.grid.tv.ui.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -540,6 +545,7 @@ fun HomeEpgScreen(
                 val liveViewActive = isLiveViewLayoutActive(ui.selectedTab, ui.guideSubScreen)
                 GuideNavDrawer(
                     focusedIndex = ui.navDrawerFocusIndex,
+                    drawerActive = ui.focusZone == EpgFocusZone.NAV_DRAWER,
                     drawerFocusRequester = navDrawerFocusRequester,
                     profileInitials = profileInitials,
                     profileAvatarColor = profileAvatarColor,
@@ -558,7 +564,11 @@ fun HomeEpgScreen(
                         else -> null
                     }
                 )
-                if (liveViewActive && channelGroups.isNotEmpty()) {
+                AnimatedVisibility(
+                    visible = liveViewActive && channelGroups.isNotEmpty() && ui.channelGroupsPanelVisible,
+                    enter = slideInHorizontally { -it } + fadeIn(),
+                    exit = slideOutHorizontally { -it } + fadeOut()
+                ) {
                     GuideChannelGroupsPanel(
                         channelGroups = channelGroups,
                         selectedGroups = guideFilter.selectedGroups,
@@ -571,11 +581,7 @@ fun HomeEpgScreen(
                         panelFocusRequester = channelGroupsPanelFocusRequester,
                         onFocusedIndexChange = { ui.channelGroupsFocusIndex = it },
                         onPreviewKey = controller::handleChannelGroupsKey,
-                        onFilterChange = { filter ->
-                            viewModel.setGuideFilter(filter, markConfigured = true)
-                            ui.focusChannelIndex = 0
-                            ui.hasRequestedInitialGridFocus = false
-                        },
+                        onFilterChange = controller::applyChannelGroupFilter,
                         onToggleCategory = controller::handleChannelGroupsCategoryToggle
                     )
                 }

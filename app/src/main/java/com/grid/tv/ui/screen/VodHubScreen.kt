@@ -595,10 +595,8 @@ fun VodHubScreen(
 
     fun openNavDrawer() {
         navDrawerOpen = true
+        navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
         focusZone = VodFocusZone.NAV_DRAWER
-        scope.launch {
-            navDrawerFocusRequester.requestFocusSafelyAfterLayout()
-        }
     }
 
     fun closeNavDrawer(restoreFilter: Boolean = true) {
@@ -1355,6 +1353,7 @@ fun VodHubScreen(
         ) {
             GuideNavDrawer(
                 focusedIndex = navDrawerFocusIndex,
+                drawerActive = focusZone == VodFocusZone.NAV_DRAWER,
                 drawerFocusRequester = navDrawerFocusRequester,
                 profileInitials = profileInitials,
                 profileAvatarColor = profileAvatarColor,

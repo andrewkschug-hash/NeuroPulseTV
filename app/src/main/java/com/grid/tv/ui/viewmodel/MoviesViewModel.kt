@@ -13,6 +13,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
+import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.filterBrowseRows
@@ -46,7 +47,8 @@ import kotlinx.coroutines.withContext
 class MoviesViewModel @Inject constructor(
     private val repository: IptvRepository,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
-    private val playlistContext: PlaylistContext
+    private val playlistContext: PlaylistContext,
+    private val vodCatalogSessionStore: VodCatalogSessionStore
 ) : ViewModel() {
 
     private companion object {
@@ -167,15 +169,25 @@ class MoviesViewModel @Inject constructor(
                     emit(emptyList())
                     return@flow
                 }
-                val rows = withContext(Dispatchers.IO) {
-                    repository.loadMovieBrowseRows(
-                        playlistId = playlistContext.resolveOrNull(playlistId)
-                    )
+                val cached = vodCatalogSessionStore.cachedRawMovieBrowseRows()
+                if (cached.isNotEmpty()) {
+                    emit(cached)
+                    return@flow
                 }
-                emit(rows)
+                emit(
+                    withContext(Dispatchers.IO) {
+                        repository.loadMovieBrowseRows(
+                            playlistId = playlistContext.resolveOrNull(playlistId)
+                        )
+                    }
+                )
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            vodCatalogSessionStore.cachedRawMovieBrowseRows()
+        )
 
     val browseRows: StateFlow<List<VodBrowseRow>> = combine(
         rawMovieBrowseRows,
