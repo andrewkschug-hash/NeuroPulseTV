@@ -52,6 +52,7 @@ import com.grid.tv.feature.network.introdb.IntroDbClient
 import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.feature.scanner.HostFailureTracker
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import com.grid.tv.util.cache.AppCacheRegistry
 import com.grid.tv.data.network.parser.M3uParser
 import com.grid.tv.data.network.parser.XtreamParser
@@ -66,6 +67,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Module
@@ -73,175 +75,224 @@ import javax.inject.Singleton
 object AppProvidesModule {
     @Provides
     @Singleton
-    fun provideDb(@ApplicationContext context: Context): AppDatabase {
-        com.grid.tv.feature.startup.StartupTiming.log("AppProvidesModule.provideDb — Creating AppDatabase...")
-        return com.grid.tv.feature.startup.StartupTiming.trace("AppProvidesModule.provideDb") {
-            AppDatabaseHolder.get(context)
+    fun provideDb(@ApplicationContext context: Context): AppDatabase =
+        StartupDependencyProbe.traceCreate("AppDatabase") {
+            com.grid.tv.feature.startup.StartupTiming.log("AppProvidesModule.provideDb — Creating AppDatabase...")
+            com.grid.tv.feature.startup.StartupTiming.trace("AppProvidesModule.provideDb") {
+                AppDatabaseHolder.get(context)
+            }
         }
-    }
 
     @Provides
-    fun provideM3uParser(): M3uParser = M3uParser()
+    fun provideM3uParser(): M3uParser =
+        StartupDependencyProbe.traceCreate("M3uParser") { M3uParser() }
 
     @Provides
-    fun provideXmlTvParser(): XmlTvParser = XmlTvParser()
+    fun provideXmlTvParser(): XmlTvParser =
+        StartupDependencyProbe.traceCreate("XmlTvParser") { XmlTvParser() }
 
     @Provides
-    fun provideXtreamParser(): XtreamParser = XtreamParser()
-
-    @Provides
-    @Singleton
-    fun provideWorkManager(@ApplicationContext context: Context): WorkManager = WorkManager.getInstance(context)
-
-    @Provides
-    @Singleton
-    fun provideAlarmManager(@ApplicationContext context: Context): AlarmManager {
-        return context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-    }
-
-    @Provides
-    fun providePlaylistDao(db: AppDatabase): PlaylistDao = db.playlistDao()
-
-    @Provides
-    fun provideChannelDao(db: AppDatabase): ChannelDao = db.channelDao()
-
-    @Provides
-    fun provideChannelScanDao(db: AppDatabase): ChannelScanDao = db.channelScanDao()
-
-    @Provides
-    fun provideSeriesRecordingRuleDao(db: AppDatabase): SeriesRecordingRuleDao = db.seriesRecordingRuleDao()
-
-    @Provides
-    fun provideProgramDao(db: AppDatabase): ProgramDao = db.programDao()
-
-    @Provides
-    fun provideRecordingDao(db: AppDatabase): RecordingDao = db.recordingDao()
-
-    @Provides
-    fun provideProfileDao(db: AppDatabase): ProfileDao = db.profileDao()
-
-    @Provides
-    fun provideFavoriteDao(db: AppDatabase): FavoriteDao = db.favoriteDao()
-
-    @Provides
-    fun provideWatchHistoryDao(db: AppDatabase): WatchHistoryDao = db.watchHistoryDao()
-
-    @Provides
-    fun provideProfileFavoriteDao(db: AppDatabase): ProfileFavoriteDao = db.profileFavoriteDao()
-
-    @Provides
-    fun provideProfileWatchHistoryDao(db: AppDatabase): ProfileWatchHistoryDao = db.profileWatchHistoryDao()
-
-    @Provides
-    fun provideProfileSettingsDao(db: AppDatabase): ProfileSettingsDao = db.profileSettingsDao()
-
-    @Provides
-    fun provideStreamHealthDao(db: AppDatabase): StreamHealthDao = db.streamHealthDao()
+    fun provideXtreamParser(): XtreamParser =
+        StartupDependencyProbe.traceCreate("XtreamParser") { XtreamParser() }
 
     @Provides
     @Singleton
-    fun provideStreamFailoverStatsDao(db: AppDatabase): StreamFailoverStatsDao = db.streamFailoverStatsDao()
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
+        StartupDependencyProbe.traceCreate("WorkManager") { WorkManager.getInstance(context) }
 
     @Provides
-    fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao = db.titleEnrichmentDao()
+    @Singleton
+    fun provideAlarmManager(@ApplicationContext context: Context): AlarmManager =
+        StartupDependencyProbe.traceCreate("AlarmManager") {
+            context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        }
 
     @Provides
-    fun provideMovieDetailsDao(db: AppDatabase): MovieDetailsDao = db.movieDetailsDao()
+    fun providePlaylistDao(db: AppDatabase): PlaylistDao =
+        StartupDependencyProbe.traceCreate("PlaylistDao") { db.playlistDao() }
 
     @Provides
-    fun provideSubtitleCacheDao(db: AppDatabase): SubtitleCacheDao = db.subtitleCacheDao()
+    fun provideChannelDao(db: AppDatabase): ChannelDao =
+        StartupDependencyProbe.traceCreate("ChannelDao") { db.channelDao() }
 
     @Provides
-    fun provideProfileTasteGenomeDao(db: AppDatabase): ProfileTasteGenomeDao = db.profileTasteGenomeDao()
+    fun provideChannelScanDao(db: AppDatabase): ChannelScanDao =
+        StartupDependencyProbe.traceCreate("ChannelScanDao") { db.channelScanDao() }
 
     @Provides
-    fun provideScheduledRecordingDao(db: AppDatabase): ScheduledRecordingDao = db.scheduledRecordingDao()
+    fun provideSeriesRecordingRuleDao(db: AppDatabase): SeriesRecordingRuleDao =
+        StartupDependencyProbe.traceCreate("SeriesRecordingRuleDao") { db.seriesRecordingRuleDao() }
 
     @Provides
-    fun provideRecordedMediaDao(db: AppDatabase): RecordedMediaDao = db.recordedMediaDao()
+    fun provideProgramDao(db: AppDatabase): ProgramDao =
+        StartupDependencyProbe.traceCreate("ProgramDao") { db.programDao() }
 
     @Provides
-    fun provideEpgSourceChannelDao(db: AppDatabase): EpgSourceChannelDao = db.epgSourceChannelDao()
+    fun provideRecordingDao(db: AppDatabase): RecordingDao =
+        StartupDependencyProbe.traceCreate("RecordingDao") { db.recordingDao() }
 
     @Provides
-    fun provideEpgResolutionSuggestionDao(db: AppDatabase): EpgResolutionSuggestionDao = db.epgResolutionSuggestionDao()
+    fun provideProfileDao(db: AppDatabase): ProfileDao =
+        StartupDependencyProbe.traceCreate("ProfileDao") { db.profileDao() }
 
     @Provides
-    fun provideFavoriteGroupDao(db: AppDatabase): FavoriteGroupDao = db.favoriteGroupDao()
+    fun provideFavoriteDao(db: AppDatabase): FavoriteDao =
+        StartupDependencyProbe.traceCreate("FavoriteDao") { db.favoriteDao() }
 
     @Provides
-    fun provideContinueWatchingDao(db: AppDatabase): ContinueWatchingDao = db.continueWatchingDao()
+    fun provideWatchHistoryDao(db: AppDatabase): WatchHistoryDao =
+        StartupDependencyProbe.traceCreate("WatchHistoryDao") { db.watchHistoryDao() }
 
     @Provides
-    fun provideCanonicalChannelDao(db: AppDatabase): CanonicalChannelDao = db.canonicalChannelDao()
+    fun provideProfileFavoriteDao(db: AppDatabase): ProfileFavoriteDao =
+        StartupDependencyProbe.traceCreate("ProfileFavoriteDao") { db.profileFavoriteDao() }
 
     @Provides
-    fun provideEpgLearnedMappingDao(db: AppDatabase): EpgLearnedMappingDao = db.epgLearnedMappingDao()
+    fun provideProfileWatchHistoryDao(db: AppDatabase): ProfileWatchHistoryDao =
+        StartupDependencyProbe.traceCreate("ProfileWatchHistoryDao") { db.profileWatchHistoryDao() }
 
     @Provides
-    fun provideEpgMatchAnalyticsDao(db: AppDatabase): EpgMatchAnalyticsDao = db.epgMatchAnalyticsDao()
+    fun provideProfileSettingsDao(db: AppDatabase): ProfileSettingsDao =
+        StartupDependencyProbe.traceCreate("ProfileSettingsDao") { db.profileSettingsDao() }
 
     @Provides
-    fun provideEpgAliasHitDao(db: AppDatabase): EpgAliasHitDao = db.epgAliasHitDao()
+    fun provideStreamHealthDao(db: AppDatabase): StreamHealthDao =
+        StartupDependencyProbe.traceCreate("StreamHealthDao") { db.streamHealthDao() }
+
+    @Provides
+    @Singleton
+    fun provideStreamFailoverStatsDao(db: AppDatabase): StreamFailoverStatsDao =
+        StartupDependencyProbe.traceCreate("StreamFailoverStatsDao") { db.streamFailoverStatsDao() }
+
+    @Provides
+    fun provideTitleEnrichmentDao(db: AppDatabase): TitleEnrichmentDao =
+        StartupDependencyProbe.traceCreate("TitleEnrichmentDao") { db.titleEnrichmentDao() }
+
+    @Provides
+    fun provideMovieDetailsDao(db: AppDatabase): MovieDetailsDao =
+        StartupDependencyProbe.traceCreate("MovieDetailsDao") { db.movieDetailsDao() }
+
+    @Provides
+    fun provideSubtitleCacheDao(db: AppDatabase): SubtitleCacheDao =
+        StartupDependencyProbe.traceCreate("SubtitleCacheDao") { db.subtitleCacheDao() }
+
+    @Provides
+    fun provideProfileTasteGenomeDao(db: AppDatabase): ProfileTasteGenomeDao =
+        StartupDependencyProbe.traceCreate("ProfileTasteGenomeDao") { db.profileTasteGenomeDao() }
+
+    @Provides
+    fun provideScheduledRecordingDao(db: AppDatabase): ScheduledRecordingDao =
+        StartupDependencyProbe.traceCreate("ScheduledRecordingDao") { db.scheduledRecordingDao() }
+
+    @Provides
+    fun provideRecordedMediaDao(db: AppDatabase): RecordedMediaDao =
+        StartupDependencyProbe.traceCreate("RecordedMediaDao") { db.recordedMediaDao() }
+
+    @Provides
+    fun provideEpgSourceChannelDao(db: AppDatabase): EpgSourceChannelDao =
+        StartupDependencyProbe.traceCreate("EpgSourceChannelDao") { db.epgSourceChannelDao() }
+
+    @Provides
+    fun provideEpgResolutionSuggestionDao(db: AppDatabase): EpgResolutionSuggestionDao =
+        StartupDependencyProbe.traceCreate("EpgResolutionSuggestionDao") { db.epgResolutionSuggestionDao() }
+
+    @Provides
+    fun provideFavoriteGroupDao(db: AppDatabase): FavoriteGroupDao =
+        StartupDependencyProbe.traceCreate("FavoriteGroupDao") { db.favoriteGroupDao() }
+
+    @Provides
+    fun provideContinueWatchingDao(db: AppDatabase): ContinueWatchingDao =
+        StartupDependencyProbe.traceCreate("ContinueWatchingDao") { db.continueWatchingDao() }
+
+    @Provides
+    fun provideCanonicalChannelDao(db: AppDatabase): CanonicalChannelDao =
+        StartupDependencyProbe.traceCreate("CanonicalChannelDao") { db.canonicalChannelDao() }
+
+    @Provides
+    fun provideEpgLearnedMappingDao(db: AppDatabase): EpgLearnedMappingDao =
+        StartupDependencyProbe.traceCreate("EpgLearnedMappingDao") { db.epgLearnedMappingDao() }
+
+    @Provides
+    fun provideEpgMatchAnalyticsDao(db: AppDatabase): EpgMatchAnalyticsDao =
+        StartupDependencyProbe.traceCreate("EpgMatchAnalyticsDao") { db.epgMatchAnalyticsDao() }
+
+    @Provides
+    fun provideEpgAliasHitDao(db: AppDatabase): EpgAliasHitDao =
+        StartupDependencyProbe.traceCreate("EpgAliasHitDao") { db.epgAliasHitDao() }
 
     @Provides
     fun providePlaybackSessionTelemetryDao(db: AppDatabase): PlaybackSessionTelemetryDao =
-        db.playbackSessionTelemetryDao()
+        StartupDependencyProbe.traceCreate("PlaybackSessionTelemetryDao") { db.playbackSessionTelemetryDao() }
 
     @Provides
-    fun provideStreamSourceHealthDao(db: AppDatabase): StreamSourceHealthDao = db.streamSourceHealthDao()
+    fun provideStreamSourceHealthDao(db: AppDatabase): StreamSourceHealthDao =
+        StartupDependencyProbe.traceCreate("StreamSourceHealthDao") { db.streamSourceHealthDao() }
 
     @Provides
     fun provideChannelHealthAggregateDao(db: AppDatabase): ChannelHealthAggregateDao =
-        db.channelHealthAggregateDao()
+        StartupDependencyProbe.traceCreate("ChannelHealthAggregateDao") { db.channelHealthAggregateDao() }
 
     @Provides
     fun provideProviderHealthAggregateDao(db: AppDatabase): ProviderHealthAggregateDao =
-        db.providerHealthAggregateDao()
+        StartupDependencyProbe.traceCreate("ProviderHealthAggregateDao") { db.providerHealthAggregateDao() }
 
     @Provides
-    fun provideVodWatchEventDao(db: AppDatabase): VodWatchEventDao = db.vodWatchEventDao()
+    fun provideVodWatchEventDao(db: AppDatabase): VodWatchEventDao =
+        StartupDependencyProbe.traceCreate("VodWatchEventDao") { db.vodWatchEventDao() }
 
     @Provides
-    fun provideSeriesFollowDao(db: AppDatabase): SeriesFollowDao = db.seriesFollowDao()
+    fun provideSeriesFollowDao(db: AppDatabase): SeriesFollowDao =
+        StartupDependencyProbe.traceCreate("SeriesFollowDao") { db.seriesFollowDao() }
 
     @Provides
-    fun provideVodCatalogEpisodeDao(db: AppDatabase): VodCatalogEpisodeDao = db.vodCatalogEpisodeDao()
+    fun provideVodCatalogEpisodeDao(db: AppDatabase): VodCatalogEpisodeDao =
+        StartupDependencyProbe.traceCreate("VodCatalogEpisodeDao") { db.vodCatalogEpisodeDao() }
 
     @Provides
-    fun provideVodUserNotificationDao(db: AppDatabase): VodUserNotificationDao = db.vodUserNotificationDao()
+    fun provideVodUserNotificationDao(db: AppDatabase): VodUserNotificationDao =
+        StartupDependencyProbe.traceCreate("VodUserNotificationDao") { db.vodUserNotificationDao() }
 
     @Provides
-    fun provideVodStreamDao(db: AppDatabase): VodStreamDao = db.vodStreamDao()
+    fun provideVodStreamDao(db: AppDatabase): VodStreamDao =
+        StartupDependencyProbe.traceCreate("VodStreamDao") { db.vodStreamDao() }
 
     @Provides
-    fun provideVodCategoryDao(db: AppDatabase): VodCategoryDao = db.vodCategoryDao()
+    fun provideVodCategoryDao(db: AppDatabase): VodCategoryDao =
+        StartupDependencyProbe.traceCreate("VodCategoryDao") { db.vodCategoryDao() }
 
     @Provides
-    fun provideSeriesShowDao(db: AppDatabase): SeriesShowDao = db.seriesShowDao()
+    fun provideSeriesShowDao(db: AppDatabase): SeriesShowDao =
+        StartupDependencyProbe.traceCreate("SeriesShowDao") { db.seriesShowDao() }
 
     @Provides
-    fun provideSeriesCategoryDao(db: AppDatabase): SeriesCategoryDao = db.seriesCategoryDao()
+    fun provideSeriesCategoryDao(db: AppDatabase): SeriesCategoryDao =
+        StartupDependencyProbe.traceCreate("SeriesCategoryDao") { db.seriesCategoryDao() }
 
     @Provides
-    fun provideFeaturedCurationDao(db: AppDatabase): FeaturedCurationDao = db.featuredCurationDao()
+    fun provideFeaturedCurationDao(db: AppDatabase): FeaturedCurationDao =
+        StartupDependencyProbe.traceCreate("FeaturedCurationDao") { db.featuredCurationDao() }
 
     @Provides
     @Singleton
     fun provideHostFailureTracker(registry: AppCacheRegistry): HostFailureTracker =
-        HostFailureTracker(registry = registry)
+        StartupDependencyProbe.traceCreate("HostFailureTracker") {
+            HostFailureTracker(registry = registry)
+        }
 
     @Provides
     @Singleton
-    fun provideIntroDbClient(): IntroDbClient = IntroDbClient()
+    fun provideIntroDbClient(): IntroDbClient =
+        StartupDependencyProbe.traceCreate("IntroDbClient") { IntroDbClient() }
+
+    @Provides
+    @Singleton
+    fun provideIptvRepository(implProvider: Provider<IptvRepositoryImpl>): IptvRepository =
+        StartupDependencyProbe.traceCreate("IptvRepositoryImpl") { implProvider.get() }
 }
 
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class AppBindsModule {
-    @Binds
-    abstract fun bindRepository(impl: IptvRepositoryImpl): IptvRepository
-
     @Binds
     @Singleton
     abstract fun bindMovieRepository(impl: MovieRepositoryImpl): MovieRepository

@@ -3,6 +3,7 @@ package com.grid.tv.player
 import android.net.Uri
 import android.util.Log
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,6 +45,10 @@ class PlaybackHealthMonitor @Inject constructor(
     private val metrics: PlaybackMetricsLogger,
     private val telemetry: PlaybackTelemetryCollector
 ) {
+    init {
+        StartupDependencyProbe.traceInjectedInit("PlaybackHealthMonitor")
+    }
+
     @Volatile
     private var lastSnapshot: PlaybackHealthSnapshot? = null
 

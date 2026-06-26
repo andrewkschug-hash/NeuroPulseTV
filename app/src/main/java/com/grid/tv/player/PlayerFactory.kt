@@ -13,6 +13,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.util.MediaAttribution
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,6 +22,9 @@ class PlayerFactory @Inject constructor(
     private val playbackHttpDataSourceFactory: PlaybackHttpDataSourceFactory,
     private val decoderPressureTracker: DecoderPressureTracker
 ) {
+    init {
+        StartupDependencyProbe.traceInjectedInit("PlayerFactory")
+    }
 
     @UnstableApi
     fun create(

@@ -4,8 +4,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.Choreographer
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * UI idle gate — debounce timer resets on activity; after 500ms quiet a Choreographer callback
@@ -13,8 +11,7 @@ import javax.inject.Singleton
  *
  * Choreographer is only accessed on the main looper — never during construction or from background threads.
  */
-@Singleton
-class UiIdleMonitor @Inject constructor() {
+class UiIdleMonitor {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @Volatile

@@ -17,6 +17,7 @@ import com.grid.tv.di.SupabaseEntryPoint
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.startup.StartupTiming
 import com.grid.tv.feature.startup.StartupUiIdleHook
@@ -81,8 +82,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         StartupTiming.log("MainActivity.onCreate() entry")
         StartupTiming.log("MainActivity.before super.onCreate() (Hilt field injection runs inside super)")
+        StartupDependencyProbe.beginActivityInjection()
         StartupTiming.trace("MainActivity.super.onCreate (Hilt Activity inject)") {
-            super.onCreate(savedInstanceState)
+            try {
+                super.onCreate(savedInstanceState)
+            } finally {
+                StartupDependencyProbe.endActivityInjection()
+            }
         }
         StartupTiming.log("MainActivity.after super.onCreate() (Hilt injection complete)")
         requestedOrientation = if (isTelevision()) {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.withContext
 import com.grid.tv.player.PlaybackNetworkCoordinator
 import android.util.Log
 import com.grid.tv.util.MediaAttribution
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,6 +30,10 @@ class MultiPanePlaybackPool @Inject constructor(
     private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
+    init {
+        StartupDependencyProbe.traceInjectedInit("MultiPanePlaybackPool")
+    }
+
     private val players = mutableMapOf<Int, ExoPlayer>()
     private val paneStreamUrls = mutableMapOf<Int, String>()
     private var activeAudioPaneIndex: Int = 0

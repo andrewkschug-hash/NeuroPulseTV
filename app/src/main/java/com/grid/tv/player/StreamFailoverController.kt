@@ -8,6 +8,7 @@ import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.allStreamUrls
 import com.grid.tv.domain.model.sourceIdForUrl
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +52,10 @@ class StreamFailoverController @Inject constructor(
     private val healthAggregator: com.grid.tv.feature.health.intelligence.StreamHealthAggregator,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
+    init {
+        StartupDependencyProbe.traceInjectedInit("StreamFailoverController")
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _uiState = MutableStateFlow(StreamFailoverUiState())

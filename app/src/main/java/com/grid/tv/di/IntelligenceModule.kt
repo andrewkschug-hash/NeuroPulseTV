@@ -1,6 +1,7 @@
 package com.grid.tv.di
 
 import com.grid.tv.feature.health.intelligence.StreamHealthScoringEngine
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -12,5 +13,8 @@ import javax.inject.Singleton
 object IntelligenceModule {
     @Provides
     @Singleton
-    fun provideStreamHealthScoringEngine(): StreamHealthScoringEngine = StreamHealthScoringEngine()
+    fun provideStreamHealthScoringEngine(): StreamHealthScoringEngine =
+        StartupDependencyProbe.traceCreate("StreamHealthScoringEngine") {
+            StreamHealthScoringEngine()
+        }
 }

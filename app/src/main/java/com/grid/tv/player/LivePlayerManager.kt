@@ -34,8 +34,6 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 data class TimeshiftUiState(
     val bufferStartMs: Long = 0L,
@@ -61,8 +59,7 @@ data class MultiPanePlayerHandoff(
     val streamUrl: String
 )
 
-@Singleton
-class LivePlayerManager @Inject constructor(
+class LivePlayerManager(
     private val playerFactory: PlayerFactory,
     private val playbackHttpDataSourceFactory: PlaybackHttpDataSourceFactory,
     private val streamFailover: StreamFailoverController,

@@ -2,6 +2,7 @@ package com.grid.tv.player
 
 import android.content.Context
 import android.util.Log
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -20,6 +21,10 @@ class PlaybackOrchestrator @Inject constructor(
     private val decoderPressureTracker: DecoderPressureTracker,
     private val multiPanePlaybackPool: MultiPanePlaybackPool
 ) {
+    init {
+        StartupDependencyProbe.traceInjectedInit("PlaybackOrchestrator")
+    }
+
     enum class PlaybackSession {
         NONE,
         LIVE_GUIDE,

@@ -4,6 +4,7 @@ import com.grid.tv.data.auth.SupabaseAuthRepository
 import com.grid.tv.data.auth.SupabaseClientProvider
 import com.grid.tv.domain.repository.AuthRepository
 import dagger.Binds
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.EntryPoint
@@ -30,8 +31,10 @@ object SupabaseModule {
     @Provides
     @Singleton
     fun provideSupabaseClient(provider: SupabaseClientProvider): SupabaseClient =
-        provider.clientOrNull()
-            ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to local.properties")
+        StartupDependencyProbe.traceCreate("SupabaseClient") {
+            provider.clientOrNull()
+                ?: error("Supabase is not configured. Add SUPABASE_URL and SUPABASE_ANON_KEY to local.properties")
+        }
 }
 
 @Module

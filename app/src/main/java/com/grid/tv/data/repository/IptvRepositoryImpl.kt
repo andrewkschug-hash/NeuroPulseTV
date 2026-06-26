@@ -66,6 +66,7 @@ import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.RecordQuality
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.player.LowEndDeviceMode
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.feature.startup.StartupTiming
@@ -225,9 +226,11 @@ class IptvRepositoryImpl @Inject constructor(
 ) : IptvRepository {
 
     init {
-        StartupTiming.log("IptvRepositoryImpl — @Inject constructor resolved, entering init blocks")
-        StartupTiming.trace("IptvRepositoryImpl.registerVodLoadFlusher") {
-            startupSafety.registerVodLoadFlusher { trigger -> loadVodStreamed(trigger) }
+        StartupDependencyProbe.traceInjectedInit("IptvRepositoryImpl.init") {
+            StartupTiming.log("IptvRepositoryImpl — @Inject constructor resolved, entering init blocks")
+            StartupTiming.trace("IptvRepositoryImpl.registerVodLoadFlusher") {
+                startupSafety.registerVodLoadFlusher { trigger -> loadVodStreamed(trigger) }
+            }
         }
     }
 
@@ -331,10 +334,12 @@ class IptvRepositoryImpl @Inject constructor(
     private val _channelCountFlow = MutableStateFlow(0)
 
     init {
-        StartupTiming.trace("IptvRepositoryImpl.restorePersistedCatalogCounts") {
-            restorePersistedCatalogCounts()
+        StartupDependencyProbe.traceInjectedInit("IptvRepositoryImpl.postFieldsInit") {
+            StartupTiming.trace("IptvRepositoryImpl.restorePersistedCatalogCounts") {
+                restorePersistedCatalogCounts()
+            }
+            StartupTiming.log("IptvRepositoryImpl construction complete")
         }
-        StartupTiming.log("IptvRepositoryImpl construction complete")
     }
 
     private fun restorePersistedCatalogCounts() {

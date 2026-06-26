@@ -5,8 +5,6 @@ import android.util.Log
 import com.grid.tv.data.io.DiskIoSerialExecutor
 import com.grid.tv.domain.model.VodRefreshTrigger
 import java.util.concurrent.ConcurrentLinkedQueue
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +16,7 @@ import kotlinx.coroutines.withContext
 /**
  * Single active-startup lock: disk I/O, network scheduling, and UI-idle input gating.
  */
-@Singleton
-class StartupSafety @Inject constructor(
+class StartupSafety(
     private val diskIoSerialExecutor: DiskIoSerialExecutor,
     private val uiIdleMonitor: UiIdleMonitor
 ) {

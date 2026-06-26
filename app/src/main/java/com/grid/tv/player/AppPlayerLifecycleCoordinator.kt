@@ -4,8 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.grid.tv.feature.preview.PreviewPlayerManager
 import com.grid.tv.player.multiview.MultiViewManager
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,8 +24,7 @@ import kotlinx.coroutines.launch
  * Split View pane players live in [MultiPanePlaybackPool], not in the composable — screen
  * [DisposableEffect] calls [PlaybackOrchestrator.releaseSession] on exit which clears the pool.
  */
-@Singleton
-class AppPlayerLifecycleCoordinator @Inject constructor(
+class AppPlayerLifecycleCoordinator(
     private val livePlayerManager: LivePlayerManager,
     private val previewPlayerManager: PreviewPlayerManager,
     private val pipController: PictureInPictureController,

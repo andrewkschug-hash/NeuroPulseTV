@@ -6,15 +6,12 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.URL
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 
-@Singleton
-class AppHttpClient @Inject constructor(
+class AppHttpClient(
     private val startupNetworkGate: StartupNetworkGateInterceptor
 ) {
     @Volatile
