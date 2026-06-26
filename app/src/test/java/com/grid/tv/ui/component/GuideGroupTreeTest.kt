@@ -37,7 +37,16 @@ class GuideGroupTreeTest {
         assertEquals(GuideGroupVisibleRow.AllChannels, rows.first())
         val category = rows[1] as GuideGroupVisibleRow.Category
         assertEquals("Africa", category.displayName)
-        val child = rows.last() as GuideGroupVisibleRow.Group
+        val child = rows.filterIsInstance<GuideGroupVisibleRow.Group>().first()
         assertEquals("AFR|", child.fullName)
+    }
+
+    @Test
+    fun `buildFlatProviderVisibleRows lists provider groups in display order`() {
+        val rows = buildFlatProviderVisibleRows(listOf("UK| SPORT", "CA| NEWS", "AFR|"))
+
+        assertEquals(GuideGroupVisibleRow.AllChannels, rows.first())
+        val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>().map { it.fullName }
+        assertEquals(listOf("AFR|", "CA| NEWS", "UK| SPORT"), groups)
     }
 }

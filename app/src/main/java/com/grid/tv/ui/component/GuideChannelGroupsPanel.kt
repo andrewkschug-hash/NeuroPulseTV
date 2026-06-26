@@ -22,18 +22,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import com.grid.tv.domain.model.ChannelGroupIdentity
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
-/** TiviMate-style column-2 channel group tree beside the icon rail. */
+/** TiviMate-style column-2 channel group list beside the icon rail. */
 val GuideChannelGroupsPanelWidth = 260.dp
 
 @Composable
 fun GuideChannelGroupsPanel(
     channelGroups: List<String>,
     selectedGroups: Set<String>,
-    expandedCategories: Set<Int>,
     groupChannelCounts: Map<String, Int>,
     focusedIndex: Int,
     panelFocused: Boolean,
@@ -41,16 +41,12 @@ fun GuideChannelGroupsPanel(
     onFocusedIndexChange: (Int) -> Unit,
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     onFilterChange: (GuideChannelFilter) -> Unit,
-    onToggleCategory: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (channelGroups.isEmpty()) return
 
-    val categories = remember(channelGroups, groupChannelCounts) {
-        buildGuideGroupCategories(channelGroups, groupChannelCounts)
-    }
-    val visibleRows = remember(categories, expandedCategories) {
-        buildVisibleGuideGroupRows(categories, expandedCategories)
+    val visibleRows = remember(channelGroups) {
+        buildFlatProviderVisibleRows(channelGroups)
     }
     val listState = rememberLazyListState()
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -112,36 +108,23 @@ fun GuideChannelGroupsPanel(
                         focusRequester = rowFocusRequester,
                         onFocused = { onFocusedIndexChange(index) }
                     )
-                    is GuideGroupVisibleRow.Category -> GuideGroupCategoryRow(
-                        displayName = row.displayName,
-                        channelCount = row.channelCount,
-                        subGroupCount = row.subGroupCount,
-                        expanded = row.expanded,
-                        onClick = { onToggleCategory(row.categoryIndex) },
-                        focusRequester = rowFocusRequester,
-                        onFocused = { onFocusedIndexChange(index) }
-                    )
-                    is GuideGroupVisibleRow.SelectAll -> GuideGroupSelectAllRow(
-                        displayName = row.displayName,
-                        childCount = row.groupNames.size,
-                        checked = selected,
-                        onClick = {
-                            onFilterChange(
-                                GuideChannelFilter(toggleSelectAllGroups(row.groupNames, selectedGroups))
-                            )
-                        },
-                        focusRequester = rowFocusRequester,
-                        onFocused = { onFocusedIndexChange(index) }
-                    )
-                    is GuideGroupVisibleRow.Group -> GuideGroupChildRow(
-                        label = com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(row.fullName),
-                        checked = selected,
-                        onClick = {
-                            onFilterChange(GuideChannelFilter(setOf(row.fullName)))
-                        },
-                        focusRequester = rowFocusRequester,
-                        onFocused = { onFocusedIndexChange(index) }
-                    )
+                    is GuideGroupVisibleRow.Group -> {
+                        val count = groupChannelCounts[row.fullName] ?: 0
+                        val label = buildString {
+                            append(ChannelGroupIdentity.displayLabel(row.fullName))
+                            if (count > 0) append(" ($count)")
+                        }
+                        GuideGroupChildRow(
+                            label = label,
+                            checked = selected,
+                            onClick = {
+                                onFilterChange(GuideChannelFilter(setOf(row.fullName)))
+                            },
+                            focusRequester = rowFocusRequester,
+                            onFocused = { onFocusedIndexChange(index) }
+                        )
+                    }
+                    else -> Unit
                 }
             }
         }

@@ -106,6 +106,42 @@ fun buildVisibleGuideGroupRows(
     }
 }
 
+/** Flat provider groups straight from M3U/Xtream (`group-title` / live categories). */
+fun buildFlatProviderVisibleRows(
+    channelGroups: List<String>,
+): List<GuideGroupVisibleRow> = buildList {
+    add(GuideGroupVisibleRow.AllChannels)
+    channelGroups
+        .sortedWith(
+            compareBy(String.CASE_INSENSITIVE_ORDER) {
+                com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(it)
+            }
+        )
+        .forEach { fullName ->
+            add(GuideGroupVisibleRow.Group(fullName = fullName, categoryIndex = -1))
+        }
+}
+
+fun visibleRowIndexForFlatSelection(
+    channelGroups: List<String>,
+    selectedGroups: Set<String>
+): Int {
+    if (selectedGroups.isEmpty()) return 0
+    val rows = buildFlatProviderVisibleRows(channelGroups)
+    val target = selectedGroups.first()
+    return rows.indexOfFirst { row ->
+        row is GuideGroupVisibleRow.Group && row.fullName == target
+    }.coerceAtLeast(0)
+}
+
+fun guideChannelFilterForVisibleRow(row: GuideGroupVisibleRow): com.grid.tv.feature.epg.GuideChannelFilter =
+    when (row) {
+        GuideGroupVisibleRow.AllChannels -> com.grid.tv.feature.epg.GuideChannelFilter.All
+        is GuideGroupVisibleRow.Group -> com.grid.tv.feature.epg.GuideChannelFilter(setOf(row.fullName))
+        is GuideGroupVisibleRow.SelectAll -> com.grid.tv.feature.epg.GuideChannelFilter(row.groupNames.toSet())
+        is GuideGroupVisibleRow.Category -> com.grid.tv.feature.epg.GuideChannelFilter.All
+    }
+
 fun visibleRowIndexForSelection(
     categories: List<GuideGroupCategory>,
     expandedCategories: Set<Int>,

@@ -572,17 +572,16 @@ fun HomeEpgScreen(
                     GuideChannelGroupsPanel(
                         channelGroups = channelGroups,
                         selectedGroups = guideFilter.selectedGroups,
-                        expandedCategories = ui.channelGroupsExpandedCategories.ifEmpty {
-                            expandedCategoriesForSelection(guideGroupCategories, guideFilter.selectedGroups)
-                        },
                         groupChannelCounts = groupChannelCounts,
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
                         panelFocusRequester = channelGroupsPanelFocusRequester,
-                        onFocusedIndexChange = { ui.channelGroupsFocusIndex = it },
+                        onFocusedIndexChange = { index ->
+                            ui.channelGroupsFocusIndex = index
+                            controller.previewChannelGroupForFocusedRow()
+                        },
                         onPreviewKey = controller::handleChannelGroupsKey,
-                        onFilterChange = controller::applyChannelGroupFilter,
-                        onToggleCategory = controller::handleChannelGroupsCategoryToggle
+                        onFilterChange = controller::applyChannelGroupFilter
                     )
                 }
             }

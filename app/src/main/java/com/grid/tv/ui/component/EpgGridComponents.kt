@@ -88,9 +88,10 @@ fun rememberEpgNowMillis(intervalMs: Long): Long {
 
 object EpgLayout {
     val TopBarHeight = 72.dp
-    val ChannelColumnWidth = 180.dp
-    val RowHeight = 80.dp
-    const val VisibleGuideRows = 6
+    val ChannelColumnWidth = 240.dp
+    val ChannelNumberWidth = 44.dp
+    val RowHeight = 56.dp
+    const val VisibleGuideRows = 9
     /** Minimum guide list height (~[VisibleGuideRows] rows); list expands to fill available space. */
     val GuideChannelListMinHeight = RowHeight * VisibleGuideRows
     val TimelineHeaderHeight = 36.dp
@@ -103,7 +104,7 @@ object EpgLayout {
     val DpPerMinute = 4f
     val ThirtyMinWidthDp = DpPerMinute * 30f
     val CellGap = 2.dp
-    val ChannelLogoSize = 36.dp
+    val ChannelLogoSize = 48.dp
     val NowLineWidth = 2.dp
     val NowMarkerWidth = 64.dp
 
@@ -378,15 +379,19 @@ fun EpgChannelCell(
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bgColor = if (isRowHighlighted) Color.Transparent else EpgColors.ChannelColumnBg
+    val bgColor = when {
+        isRowHighlighted -> EpgColors.LiveGuideFocusBg
+        else -> EpgColors.ChannelColumnBg
+    }
     val emphasized = isRowHighlighted
     val logoTint = if (emphasized) EpgColors.TextPrimary else EpgColors.TextSecondary
-    val nameColor = if (emphasized) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val nameColor = if (emphasized) EpgColors.LiveGuideFocus else EpgColors.TextPrimary
+    val numberColor = if (emphasized) EpgColors.LiveGuideFocus else EpgColors.TextSecondary
     val showAccentBar = isFocused
     val initials = channel.name.take(2).uppercase()
     val logoModel = remember(channel.id, channel.logoUrl) { channel.logoUrl }
     val context = LocalContext.current
-    val logoSizePx = remember(context) { TvImageSizing.channelLogoPx(context, 36) }
+    val logoSizePx = remember(context) { TvImageSizing.channelLogoPx(context, 48) }
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
     } else {
@@ -398,7 +403,18 @@ fun EpgChannelCell(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(bgColor),
+                .background(bgColor)
+                .then(
+                    if (isRowHighlighted) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = EpgColors.LiveGuideFocus,
+                            shape = RoundedCornerShape(0.dp)
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showAccentBar) {
@@ -406,77 +422,64 @@ fun EpgChannelCell(
                     modifier = Modifier
                         .width(3.dp)
                         .fillMaxHeight()
-                        .background(EpgColors.Accent)
+                        .background(EpgColors.LiveGuideFocus)
                 )
             }
-            Row(
+            Text(
+                text = channel.number.toString(),
+                color = numberColor,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .width(EpgLayout.ChannelNumberWidth)
+                    .padding(start = if (showAccentBar) 8.dp else 12.dp),
+                maxLines = 1
+            )
+            if (logoModel != null) {
+                AsyncImage(
+                    model = TvImageSizing.sizedRequest(
+                        context = context,
+                        data = logoModel,
+                        widthPx = logoSizePx,
+                        heightPx = logoSizePx
+                    ),
+                    contentDescription = channel.name,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .size(EpgLayout.ChannelLogoSize)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF1A1A22))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(EpgLayout.ChannelLogoSize)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF1A1A22)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = initials,
+                        color = logoTint,
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+            Text(
+                text = channel.name,
+                color = nameColor,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp,
+                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(start = 12.dp, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (logoModel != null) {
-                    AsyncImage(
-                        model = TvImageSizing.sizedRequest(
-                            context = context,
-                            data = logoModel,
-                            widthPx = logoSizePx,
-                            heightPx = logoSizePx
-                        ),
-                        contentDescription = channel.name,
-                        modifier = Modifier
-                            .size(EpgLayout.ChannelLogoSize)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF1A1A22))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(EpgLayout.ChannelLogoSize)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFF1A1A22)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = initials,
-                            color = logoTint,
-                            fontFamily = DmSansFamily,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-                ChannelHealthDot(
-                    reliabilityScore = channel.reliabilityScore,
-                    sessions = if (channel.reliabilityScore == 50) 0 else 1,
-                    scanStatus = scanStatus
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = channel.name,
-                        color = nameColor,
-                        fontFamily = DmSansFamily,
-                        fontSize = 13.sp,
-                        fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val subtitleText = when {
-                        isFocused && lastCheckedLabel != null -> lastCheckedLabel
-                        !channel.playlistName.isNullOrBlank() -> channel.playlistName
-                        else -> channel.number.toString()
-                    }
-                    Text(
-                        text = subtitleText,
-                        color = EpgColors.TextDimmed,
-                        fontFamily = DmSansFamily,
-                        fontSize = if (!channel.playlistName.isNullOrBlank() && lastCheckedLabel == null) 10.sp else 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+                    .padding(start = 10.dp, end = 8.dp)
+            )
         }
         if (showBottomSeparator) {
             Box(

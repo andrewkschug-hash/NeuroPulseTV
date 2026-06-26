@@ -36,9 +36,9 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 
-enum class GuideNavDrawerItem(val label: String) {
-    Search("Search"),
-    LiveView("Live"),
+enum class GuideNavDrawerItem(val label: String, val showLabel: Boolean = true) {
+    Search("Search", showLabel = false),
+    LiveView("Live", showLabel = false),
     Vod("VODs"),
     Favorites("Favourites"),
     Recordings("Recordings")
@@ -96,13 +96,13 @@ private fun DrawerIconButton(
     val showFocused = isFocused || focused
     val iconTint = when {
         item == GuideNavDrawerItem.Recordings && selected -> Color(0xFFFF5252)
-        showFocused -> EpgColors.Accent
+        showFocused -> EpgColors.LiveGuideFocus
         selected -> EpgColors.TextPrimary
         else -> EpgColors.TextSecondary
     }
 
     val labelColor = when {
-        showFocused -> EpgColors.Accent
+        showFocused -> EpgColors.LiveGuideFocus
         selected -> EpgColors.TextPrimary
         else -> EpgColors.TextSecondary
     }
@@ -140,18 +140,20 @@ private fun DrawerIconButton(
                 )
             }
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = item.label,
-            color = labelColor,
-            fontFamily = DmSansFamily,
-            fontSize = 10.sp,
-            fontWeight = if (showFocused) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (item.showLabel) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = item.label,
+                color = labelColor,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp,
+                fontWeight = if (showFocused) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 

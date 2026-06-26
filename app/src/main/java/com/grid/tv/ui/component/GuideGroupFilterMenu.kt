@@ -433,8 +433,16 @@ internal fun GuideGroupCategoryRow(
     onFocused: () -> Unit = {},
 ) {
     var rowFocused by remember { mutableStateOf(false) }
-    val background = if (rowFocused) EpgColors.ChannelRowFocusBg else EpgColors.GridBg
-    val textColor = if (rowFocused) EpgColors.TextPrimary else EpgColors.TextSecondary
+    val background = when {
+        rowFocused -> EpgColors.LiveGuideFocusBg
+        expanded -> Color(0xFF2A2818)
+        else -> EpgColors.GridBg
+    }
+    val textColor = when {
+        rowFocused -> EpgColors.LiveGuideFocus
+        expanded -> EpgColors.LiveGuideFocusDim
+        else -> EpgColors.TextSecondary
+    }
     val shape = RoundedCornerShape(6.dp)
     val countLabel = categoryCountLabel(channelCount, subGroupCount)
     GridFocusSurface(
@@ -464,10 +472,10 @@ internal fun GuideGroupCategoryRow(
                 .fillMaxWidth()
                 .border(
                     width = 2.dp,
-                    color = if (rowFocused) EpgColors.FocusBorder else Color.Transparent,
+                    color = if (rowFocused) EpgColors.LiveGuideFocus else Color.Transparent,
                     shape = shape
                 )
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -524,7 +532,7 @@ internal fun GuideGroupChildRow(
         label = label,
         checked = checked,
         onClick = onClick,
-        startPadding = 36.dp,
+        startPadding = 16.dp,
         modifier = modifier,
         focusRequester = focusRequester,
         onFocused = onFocused
@@ -544,13 +552,13 @@ private fun GuideGroupTreeRowShell(
 ) {
     var rowFocused by remember { mutableStateOf(false) }
     val background = when {
-        rowFocused -> EpgColors.ChannelRowFocusBg
-        checked -> Color(0xFF16161E)
+        rowFocused -> EpgColors.LiveGuideFocusBg
+        checked -> Color(0xFF2A2818)
         else -> EpgColors.GridBg
     }
     val textColor = when {
-        rowFocused -> EpgColors.TextPrimary
-        checked -> EpgColors.TextDimmed
+        rowFocused -> EpgColors.LiveGuideFocus
+        checked -> EpgColors.LiveGuideFocusDim
         else -> EpgColors.TextSecondary
     }
     val shape = RoundedCornerShape(6.dp)
@@ -581,10 +589,10 @@ private fun GuideGroupTreeRowShell(
                 .fillMaxWidth()
                 .border(
                     width = 2.dp,
-                    color = if (rowFocused) EpgColors.FocusBorder else Color.Transparent,
+                    color = if (rowFocused) EpgColors.LiveGuideFocus else Color.Transparent,
                     shape = shape
                 )
-                .padding(start = startPadding, end = 20.dp, top = 12.dp, bottom = 12.dp),
+                .padding(start = startPadding, end = 20.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -602,7 +610,7 @@ private fun GuideGroupTreeRowShell(
             if (checked) {
                 Text(
                     text = "✓",
-                    color = if (rowFocused) EpgColors.Accent else EpgColors.TextDimmed,
+                    color = if (rowFocused) EpgColors.LiveGuideFocus else EpgColors.LiveGuideFocusDim,
                     fontFamily = DmSansFamily,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
