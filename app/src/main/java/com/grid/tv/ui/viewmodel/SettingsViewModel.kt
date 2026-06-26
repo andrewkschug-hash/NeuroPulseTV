@@ -28,6 +28,8 @@ import com.grid.tv.feature.recording.RecordingStorageManager
 import com.grid.tv.feature.recording.StorageOption
 import com.grid.tv.domain.model.ScannerSettings
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
+import com.grid.tv.data.preferences.PlaybackPreferences
+import com.grid.tv.player.ExternalPlayerId
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -74,8 +76,25 @@ class SettingsViewModel @Inject constructor(
     private val livePlayerManager: LivePlayerManager,
     private val streamHealthAnalytics: com.grid.tv.feature.health.intelligence.StreamHealthAnalyticsService,
     private val vodLanguagePreferenceStore: VodLanguagePreferenceStore,
+    private val playbackPreferences: PlaybackPreferences,
     @ApplicationContext private val appContext: Context
 ) : ViewModel() {
+
+    val externalPlayer: ExternalPlayerId get() = playbackPreferences.externalPlayer
+    val nextUpAutoPlay: Boolean get() = playbackPreferences.nextUpAutoPlay
+    val vodSyncIntervalHours: Int get() = playbackPreferences.vodSyncIntervalHours
+
+    fun setExternalPlayer(player: ExternalPlayerId) {
+        playbackPreferences.externalPlayer = player
+    }
+
+    fun setNextUpAutoPlay(enabled: Boolean) {
+        playbackPreferences.nextUpAutoPlay = enabled
+    }
+
+    fun setVodSyncIntervalHours(hours: Int) {
+        playbackPreferences.vodSyncIntervalHours = hours
+    }
 
     val scannerRuntime = channelScanner.runtime
 

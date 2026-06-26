@@ -49,7 +49,11 @@ class StartupOrchestrator @Inject constructor(
 
         safety.runNetworkExclusive("schedule_epg_workers") {
             epgScheduler.scheduleAtLaunch()
-            epgScheduler.scheduleStartupEpg()
+            if (!LowEndDeviceMode.current().deferStartupEpg) {
+                epgScheduler.scheduleStartupEpg()
+            } else {
+                Log.i(TAG, "Skipping startup EPG — low-end survival mode (guide-open refresh)")
+            }
         }
         if (!LowEndDeviceMode.current().deferChannelHealthProbe) {
             safety.runNetworkExclusive("schedule_channel_health") {
@@ -60,7 +64,11 @@ class StartupOrchestrator @Inject constructor(
             vodCatalogSyncScheduler.schedulePeriodicSync()
         }
         safety.runNetworkExclusive("phase3_vod_maintenance") {
-            coordinator.runPhase3VodMaintenance()
+            if (!LowEndDeviceMode.current().deferStartupVod) {
+                coordinator.runPhase3VodMaintenance()
+            } else {
+                Log.i(TAG, "Skipping phase-3 VOD maintenance — low-end survival mode")
+            }
         }
 
         diskQueue.run("phase2b_counts") {

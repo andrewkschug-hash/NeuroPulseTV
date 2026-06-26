@@ -10,6 +10,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.component.buildMovieSearchSecondaryLine
 import com.grid.tv.ui.component.cleanVodDisplayTitle
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import javax.inject.Inject
@@ -42,6 +43,10 @@ class UnifiedSearchEngine @Inject constructor(
 
     init {
         scope.launch {
+            if (LowEndDeviceMode.isEnabled()) {
+                // Defer index build until first search on constrained devices.
+                return@launch
+            }
             combine(
                 repository.vodCatalogRevision(),
                 repository.playlists()
@@ -54,6 +59,7 @@ class UnifiedSearchEngine @Inject constructor(
     }
 
     suspend fun search(query: String): UnifiedSearchResults = withContext(Dispatchers.Default) {
+        ensureIndexReady()
         val recent = historyStore.recentSearches()
         val trending = buildTrending()
         val base = index.search(
@@ -121,6 +127,12 @@ class UnifiedSearchEngine @Inject constructor(
 
     suspend fun clearRecentHistory() {
         historyStore.clearRecent()
+    }
+
+    private suspend fun ensureIndexReady() {
+        if (_indexReady.value) return
+        val hasPlaylists = repository.playlists().first().isNotEmpty()
+        rebuildIndex(hasPlaylists)
     }
 
     private suspend fun rebuildIndex(hasPlaylists: Boolean) {

@@ -27,7 +27,11 @@ object LowEndDeviceMode {
         val watchdogPollIntervalMs: Long,
         val watchDurationTickMs: Long,
         val decodeOnlyMultiPaneAudio: Boolean,
-        val deferChannelHealthProbe: Boolean
+        val deferChannelHealthProbe: Boolean,
+        /** Skip cold-start EPG worker — refresh on guide open instead. */
+        val deferStartupEpg: Boolean = false,
+        /** Skip phase-3 VOD maintenance until user opens VOD hub. */
+        val deferStartupVod: Boolean = false
     )
 
     @Volatile
@@ -93,7 +97,9 @@ object LowEndDeviceMode {
             watchdogPollIntervalMs = 4_000L,
             watchDurationTickMs = 10_000L,
             decodeOnlyMultiPaneAudio = true,
-            deferChannelHealthProbe = true
+            deferChannelHealthProbe = true,
+            deferStartupEpg = true,
+            deferStartupVod = true
         )
     }
 
@@ -112,7 +118,9 @@ object LowEndDeviceMode {
         watchdogPollIntervalMs = 2_000L,
         watchDurationTickMs = 5_000L,
         decodeOnlyMultiPaneAudio = false,
-        deferChannelHealthProbe = false
+        deferChannelHealthProbe = false,
+        deferStartupEpg = false,
+        deferStartupVod = false
     )
 
     private const val TAG = "LowEndDeviceMode"

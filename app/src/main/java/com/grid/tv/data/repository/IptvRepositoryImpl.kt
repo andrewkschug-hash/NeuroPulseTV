@@ -853,7 +853,7 @@ class IptvRepositoryImpl @Inject constructor(
                 stalkerMacAddress = it.stalkerMacAddress
             )
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun hasActiveConnection(): Boolean = playlistDao.all().isNotEmpty()
 
@@ -861,10 +861,10 @@ class IptvRepositoryImpl @Inject constructor(
         secureCredentialStore.getXtreamPassword(playlist.id) ?: playlist.xtreamPassword
 
     override fun groups(): Flow<List<String>> =
-        observeGroupMetadata().map { it.groups }
+        observeGroupMetadata().map { it.groups }.flowOn(Dispatchers.IO)
 
     override fun groupChannelCounts(): Flow<Map<String, Int>> =
-        observeGroupMetadata().map { it.counts }
+        observeGroupMetadata().map { it.counts }.flowOn(Dispatchers.IO)
 
     override fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata> =
         channelDao.observeGroupChannelCounts().map { rows ->
@@ -879,7 +879,7 @@ class IptvRepositoryImpl @Inject constructor(
                 counts[key] = row.channelCount
             }
             com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun channels(
         group: String?,
@@ -1033,7 +1033,7 @@ class IptvRepositoryImpl @Inject constructor(
     override fun programs(playlistId: Long, epgIds: List<String>, fromTime: Long): Flow<List<Program>> =
         programDao.observeGrid(playlistId, epgIds, fromTime).map { rows ->
             rows.map(::programFromEntity)
-        }
+        }.flowOn(Dispatchers.IO)
 
     override fun searchPrograms(query: String): Flow<List<Program>> =
         programDao.observeSearch(query).map { rows ->
@@ -1042,7 +1042,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun recordings(): Flow<List<String>> = recordingDao.observeAll().map { rows ->
         rows.map { "${it.programTitle} (${it.status})" }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override fun recommendedChannels(limit: Int): Flow<List<Recommendation>> {
         return combine(
@@ -1588,7 +1588,7 @@ class IptvRepositoryImpl @Inject constructor(
                     it.allowedEndMinutes
                 )
             }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun activeProfile(): UserProfile? =
         profileDao.getProfile(activeProfileId)?.let {
@@ -1729,11 +1729,11 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun healthBest(limit: Int): Flow<List<StreamHealth>> = streamHealthDao.best(limit).map { rows ->
         rows.map { StreamHealth(it.channelId, it.reliabilityScore, it.averageLoadTimeMs, it.bufferEventsPerSession, it.lastSuccessfulLoad) }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override fun healthWorst(limit: Int): Flow<List<StreamHealth>> = streamHealthDao.worst(limit).map { rows ->
         rows.map { StreamHealth(it.channelId, it.reliabilityScore, it.averageLoadTimeMs, it.bufferEventsPerSession, it.lastSuccessfulLoad) }
-    }
+    }.flowOn(Dispatchers.IO)
 
     override suspend fun reportStreamSession(channelId: Long, loadMs: Long, bufferEvents: Int, success: Boolean) {
         val previous = streamHealthDao.get(channelId)?.let {
@@ -4294,7 +4294,7 @@ class IptvRepositoryImpl @Inject constructor(
     override fun favoriteGroups(): Flow<List<FavoriteGroup>> =
         favoriteGroupDao.observeForProfile(activeProfileId).map { rows ->
             rows.map { FavoriteGroup(it.id, it.name, it.sortOrder) }
-        }
+        }.flowOn(Dispatchers.IO)
 
     override suspend fun createFavoriteGroup(name: String): Long {
         ensureDefaultProfile()
@@ -4369,7 +4369,7 @@ class IptvRepositoryImpl @Inject constructor(
                 val key = com.grid.tv.domain.model.VodProgressKeys.decode(row.channelId)
                 key.asPair() to row.lastPosition
             }
-        }
+        }.flowOn(Dispatchers.IO)
 
     private suspend fun mapChannelEntity(entity: com.grid.tv.data.db.entity.ChannelEntity): Channel? =
         mapChannelEntities(listOf(entity)).firstOrNull()

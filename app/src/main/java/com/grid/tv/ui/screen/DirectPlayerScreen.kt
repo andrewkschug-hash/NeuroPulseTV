@@ -35,7 +35,9 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.grid.tv.ui.component.CatchupPlayerControlsOverlay
+import com.grid.tv.ui.component.SkipIntroOverlay
 import com.grid.tv.ui.component.VodInlineSubtitlePanel
+import com.grid.tv.ui.component.VodNextUpOverlay
 import com.grid.tv.ui.component.VodPlayerFocusZone
 import com.grid.tv.ui.component.VodPlayerHudOverlay
 import com.grid.tv.ui.component.RecordedPlayerControlsOverlay
@@ -49,7 +51,8 @@ import com.grid.tv.domain.model.SubtitleFontSize
 import com.grid.tv.domain.model.SubtitlePosition
 import com.grid.tv.domain.model.VodPlaybackContext
 import com.grid.tv.domain.model.VodPlaybackMeta
-import com.grid.tv.player.PictureInPictureController
+import com.grid.tv.player.ExternalPlayerId
+import com.grid.tv.player.ExternalPlayerLauncher
 import com.grid.tv.player.devicePlaybackCapabilities
 import com.grid.tv.player.playbackErrorMessage
 import com.grid.tv.player.PlaybackHttpFailure
@@ -120,6 +123,16 @@ fun DirectPlayerScreen(
         mutableStateOf(isRecordedPlayback || isCatchupPlayback)
     }
 
+    LaunchedEffect(url, isVodPlayback, title) {
+        if (!isVodPlayback) return@LaunchedEffect
+        val playerId = viewModel.preferredExternalPlayer()
+        if (playerId != ExternalPlayerId.NONE &&
+            ExternalPlayerLauncher.launch(context, playerId, url, title)
+        ) {
+            onBack()
+        }
+    }
+
     LaunchedEffect(url, pendingVodMeta, streamId, resumePositionMs, isRecordedPlayback, isCatchupPlayback) {
         if (!isVodPlayback) {
             vodResumeMs = 0L
@@ -153,10 +166,23 @@ fun DirectPlayerScreen(
     val recordedMedia by viewModel.recordedMedia.collectAsStateWithLifecycle()
     val subtitleSettings by viewModel.settings.collectAsStateWithLifecycle()
     val activeSubtitle by viewModel.activeSubtitle.collectAsStateWithLifecycle()
+    val introWindow by viewModel.introWindow.collectAsStateWithLifecycle()
+    val nextUpItem by viewModel.nextUpItem.collectAsStateWithLifecycle()
+    var showNextUp by remember(url) { mutableStateOf(false) }
     var subtitlesAttached by remember(url) { mutableStateOf(false) }
 
     var durationMs by remember(url) { mutableLongStateOf(0L) }
     var positionMs by remember(url) { mutableLongStateOf(0L) }
+
+    LaunchedEffect(positionMs, durationMs, isVodPlayback, showNextUp) {
+        if (!isVodPlayback || showNextUp) return@LaunchedEffect
+        if (viewModel.shouldOfferNextUp(positionMs, durationMs)) {
+            showNextUp = true
+        }
+    }
+
+    val skipIntroVisible = introWindow?.isInSkipWindow(positionMs / 1000.0) == true && isVodPlayback
+
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume, url) { mutableStateOf(false) }
@@ -920,6 +946,44 @@ fun DirectPlayerScreen(
                 }
             }
         }
+
+        SkipIntroOverlay(
+            visible = skipIntroVisible && !showOverlay,
+            label = if (introWindow?.recapStartSec != null &&
+                positionMs / 1000.0 in (introWindow?.recapStartSec ?: 0.0)..(introWindow?.recapEndSec ?: 0.0)
+            ) "Skip Recap" else "Skip Intro",
+            onSkip = {
+                val targetSec = introWindow?.skipTargetAt(positionMs / 1000.0) ?: return@SkipIntroOverlay
+                player.seekTo((targetSec * 1000).toLong())
+            },
+            modifier = Modifier.align(Alignment.TopEnd)
+        )
+
+        VodNextUpOverlay(
+            visible = showNextUp && isVodPlayback,
+            nextItem = nextUpItem,
+            autoPlay = viewModel.nextUpAutoPlay,
+            onPlayNext = {
+                val next = nextUpItem ?: return@VodNextUpOverlay
+                com.grid.tv.domain.model.VodPlaybackContext.stageSeriesEpisode(
+                    posterUrl = next.posterUrl,
+                    streamId = next.streamId,
+                    seriesId = pendingVodMeta.seriesId ?: return@VodNextUpOverlay,
+                    seasonNumber = next.seasonNumber,
+                    episodeNumber = next.episodeNumber,
+                    title = next.title,
+                    playlistId = pendingVodMeta.playlistId
+                )
+                viewModel.clearNextUp()
+                showNextUp = false
+                leaveScreen()
+            },
+            onDismiss = {
+                showNextUp = false
+                viewModel.clearNextUp()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
 
         if (playbackError != null) {
             Column(

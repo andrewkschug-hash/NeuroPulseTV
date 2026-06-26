@@ -11,6 +11,7 @@ import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.ContinueWatchingKeys
 import com.grid.tv.domain.model.PlaylistIdentityGuards
 import com.grid.tv.domain.model.VodProgressKeys
+import com.grid.tv.domain.model.VodProgressPolicy
 import com.grid.tv.feature.vod.StoredResumeProgress
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +31,8 @@ class ContinueWatchingRepository @Inject constructor(
     private val vodStreamDao: VodStreamDao
 ) {
     companion object {
-        const val COMPLETION_THRESHOLD = 0.95
+        /** Remove from continue-watching when this fraction of runtime is reached. */
+        val COMPLETION_THRESHOLD = VodProgressPolicy.WATCHED_FRACTION
         private const val DEFAULT_LIMIT = 12
 
         fun movieContentKey(playlistId: Long, streamId: Long): String =

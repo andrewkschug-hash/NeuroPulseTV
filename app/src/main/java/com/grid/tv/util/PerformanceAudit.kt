@@ -578,6 +578,13 @@ object PerformanceAudit {
         }
     }
 
+    fun logSlowMainThreadWork(label: String, elapsedMs: Long, thresholdMs: Long = 32L) {
+        if (!isActive()) return
+        if (isMainThread() && elapsedMs >= thresholdMs) {
+            Log.w(TAG, "slowMainThread label=$label elapsedMs=$elapsedMs thresholdMs=$thresholdMs")
+        }
+    }
+
     /** Test-only reset for unit tests. */
     internal fun resetJsonParseMetricsForTests() {
         jsonParseCounts.clear()

@@ -48,6 +48,7 @@ import com.grid.tv.data.db.dao.TitleEnrichmentDao
 import com.grid.tv.data.db.dao.MovieDetailsDao
 import com.grid.tv.data.sync.CloudSyncClient
 import com.grid.tv.data.sync.LocalOnlyCloudSyncClient
+import com.grid.tv.feature.network.introdb.IntroDbClient
 import com.grid.tv.feature.scanner.ChannelScanGate
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.feature.scanner.HostFailureTracker
@@ -225,6 +226,10 @@ object AppProvidesModule {
     @Singleton
     fun provideHostFailureTracker(registry: AppCacheRegistry): HostFailureTracker =
         HostFailureTracker(registry = registry)
+
+    @Provides
+    @Singleton
+    fun provideIntroDbClient(): IntroDbClient = IntroDbClient()
 }
 
 @Module

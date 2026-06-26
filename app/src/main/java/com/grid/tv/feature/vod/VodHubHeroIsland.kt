@@ -18,8 +18,10 @@ import androidx.compose.ui.input.key.type
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.domain.model.VodItem
-import com.grid.tv.ui.component.VodAmbientBackdrop
+import com.grid.tv.ui.component.VodHeroBackdrop
 import com.grid.tv.ui.component.VodHeroSection
+import com.grid.tv.util.TvImagePipeline
+import com.grid.tv.util.TvImageSizing
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.viewmodel.VodHubViewModel
 import com.grid.tv.util.TvTextInputSession
@@ -125,12 +127,33 @@ fun VodHubHeroAmbientPoster(
     hubViewModel: VodHubViewModel,
     featuredCarousel: List<VodItem>,
     posterUrlFor: (VodItem) -> String?,
+    backdropUrlFor: (VodItem, TitleEnrichmentEntity?) -> String? = { _, enrichment ->
+        enrichment?.backdropUrl ?: enrichment?.posterUrl
+    },
+    enrichmentMap: Map<String, TitleEnrichmentEntity> = emptyMap(),
     modifier: Modifier = Modifier.fillMaxSize()
 ) {
     if (featuredCarousel.isEmpty()) return
+    val context = androidx.compose.ui.platform.LocalContext.current
     val heroIndex by hubViewModel.heroIndex.collectAsStateWithLifecycle()
-    val posterUrl = remember(featuredCarousel, heroIndex) {
-        VodHubHeroResolver.itemAt(featuredCarousel, heroIndex)?.let(posterUrlFor)
+    val hero = remember(featuredCarousel, heroIndex) {
+        VodHubHeroResolver.itemAt(featuredCarousel, heroIndex)
     }
-    VodAmbientBackdrop(posterUrl = posterUrl, modifier = modifier)
+    val enrichment = remember(hero, enrichmentMap) {
+        VodHubHeroResolver.enrichmentFor(hero, enrichmentMap)
+    }
+    val posterUrl = remember(hero) { hero?.let(posterUrlFor) }
+    val backdropUrl = remember(hero, enrichment) {
+        hero?.let { backdropUrlFor(it, enrichment) }
+    }
+    val (bw, bh) = TvImageSizing.vodBackdropSize(context)
+    LaunchedEffect(heroIndex, featuredCarousel) {
+        val urls = featuredCarousel.map { posterUrlFor(it) }
+        TvImagePipeline.prefetchHeroNeighbors(context, urls, heroIndex, bw, bh)
+    }
+    VodHeroBackdrop(
+        backdropUrl = backdropUrl,
+        posterUrl = posterUrl,
+        modifier = modifier
+    )
 }

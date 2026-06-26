@@ -2,12 +2,18 @@ package com.grid.tv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+/**
+ * VOD surface colors — delegates to the active [EpgColors] / [AppThemePalette]
+ * so Live guide and VOD hub share one visual system.
+ */
 object VodNetflixColors {
-    val Background = Color(0xFF000000)
-    val TextPrimary = Color.White
-    val TextSecondary = Color.White.copy(alpha = 0.72f)
-    val Accent = Color(0xFFE50914)
-    val FocusBorder = Accent
-    val CardPlaceholder = Color(0xFF141414)
-    val HeroGradientEnd = Color(0xFF000000)
+    val Background: Color get() = EpgColors.Background
+    val TextPrimary: Color get() = EpgColors.TextPrimary
+    val TextSecondary: Color get() = EpgColors.TextSecondary
+    val Accent: Color get() = EpgColors.Accent
+    val FocusBorder: Color get() = EpgColors.FocusBorder
+    val CardPlaceholder: Color get() = EpgColors.DetailPanelBg
+    val HeroGradientEnd: Color get() = EpgColors.Background
+    val SurfaceElevated: Color get() = EpgColors.DetailPanelBg
+    val BorderSubtle: Color get() = EpgColors.BorderSubtle
 }

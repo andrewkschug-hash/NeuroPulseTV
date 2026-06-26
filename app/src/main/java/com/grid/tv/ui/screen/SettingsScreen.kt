@@ -61,6 +61,7 @@ import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.PlaylistType
 import com.grid.tv.domain.model.UserProfile
+import com.grid.tv.ui.component.VodPlaybackSettingsSection
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.EpgNavTab
@@ -811,6 +812,12 @@ fun SettingsScreen(
                         SettingsSection.Playback -> PlaybackSettingsContent(
                             settings = settings,
                             focus = contentFocus,
+                            externalPlayer = viewModel.externalPlayer,
+                            nextUpAutoPlay = viewModel.nextUpAutoPlay,
+                            vodSyncIntervalHours = viewModel.vodSyncIntervalHours,
+                            onExternalPlayerChange = viewModel::setExternalPlayer,
+                            onNextUpAutoPlayChange = viewModel::setNextUpAutoPlay,
+                            onSyncIntervalChange = viewModel::setVodSyncIntervalHours,
                             onRetries = { viewModel.updateRetries(it) },
                             onDefaultQuality = { viewModel.updateDefaultStreamQuality(it) },
                             onBufferSize = { viewModel.updateBufferSize(it) },
@@ -1816,6 +1823,12 @@ private fun GuideSettingsContent(
 private fun PlaybackSettingsContent(
     settings: com.grid.tv.domain.model.AppSettings,
     focus: SettingsContentFocus,
+    externalPlayer: com.grid.tv.player.ExternalPlayerId,
+    nextUpAutoPlay: Boolean,
+    vodSyncIntervalHours: Int,
+    onExternalPlayerChange: (com.grid.tv.player.ExternalPlayerId) -> Unit,
+    onNextUpAutoPlayChange: (Boolean) -> Unit,
+    onSyncIntervalChange: (Int) -> Unit,
     onRetries: (Int) -> Unit,
     onDefaultQuality: (StreamQuality) -> Unit,
     onBufferSize: (BufferSize) -> Unit,
@@ -1903,6 +1916,20 @@ private fun PlaybackSettingsContent(
             chainIndex = 11,
             focus = focus,
             modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+    SettingsPanel(
+        title = "VOD & external playback",
+        cardIndex = 2,
+        focus = focus
+    ) {
+        VodPlaybackSettingsSection(
+            externalPlayer = externalPlayer,
+            nextUpAutoPlay = nextUpAutoPlay,
+            vodSyncIntervalHours = vodSyncIntervalHours,
+            onExternalPlayerChange = onExternalPlayerChange,
+            onNextUpAutoPlayChange = onNextUpAutoPlayChange,
+            onSyncIntervalChange = onSyncIntervalChange
         )
     }
     SettingsPanel(

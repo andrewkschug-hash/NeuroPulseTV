@@ -178,6 +178,12 @@ fun MovieDetailOverlay(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                RatingChipsRow(
+                    chips = buildRatingChips(
+                        providerRating = movie.rating,
+                        tmdbRating = enrichment?.rating
+                    )
+                )
 
                 if (metadataItems.isNotEmpty()) {
                     MovieDetailMetadataRow(items = metadataItems)

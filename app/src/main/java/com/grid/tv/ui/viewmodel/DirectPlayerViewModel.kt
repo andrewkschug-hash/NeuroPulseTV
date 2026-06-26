@@ -12,6 +12,7 @@ import com.grid.tv.feature.vod.VodResumeResolver
 import com.grid.tv.feature.subtitles.ActiveSubtitle
 import com.grid.tv.feature.subtitles.SubtitleManager
 import com.grid.tv.feature.subtitles.SubtitleRequest
+import com.grid.tv.player.ExternalPlayerId
 import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.player.IptvOnDemandContentKind
 import com.grid.tv.player.IptvOnDemandMediaItem
@@ -29,6 +30,14 @@ import androidx.media3.common.util.UnstableApi
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.SubtitleFontSize
 import com.grid.tv.domain.model.SubtitlePosition
+import com.grid.tv.data.preferences.PlaybackPreferences
+import com.grid.tv.data.sync.CloudSyncProgressUploader
+import com.grid.tv.data.sync.WatchProgressSyncPayload
+import com.grid.tv.domain.model.VodProgressPolicy
+import com.grid.tv.feature.network.introdb.IntroDbClient
+import com.grid.tv.feature.network.introdb.IntroSkipWindow
+import com.grid.tv.feature.vod.VodNextUpItem
+import com.grid.tv.feature.vod.VodNextUpResolver
 import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.domain.repository.IptvRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -54,7 +63,10 @@ class DirectPlayerViewModel @Inject constructor(
     val pipController: PictureInPictureController,
     private val playerFactory: PlayerFactory,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
-    private val streamTypePreflightSniffer: StreamTypePreflightSniffer
+    private val streamTypePreflightSniffer: StreamTypePreflightSniffer,
+    private val introDbClient: IntroDbClient,
+    private val playbackPreferences: PlaybackPreferences,
+    private val cloudSyncProgressUploader: CloudSyncProgressUploader
 ) : ViewModel() {
 
     companion object {
@@ -73,7 +85,41 @@ class DirectPlayerViewModel @Inject constructor(
     val recordedMedia: StateFlow<RecordedMediaEntity?> = _recordedMedia.asStateFlow()
 
     private var vodMeta: VodPlaybackMeta = VodPlaybackMeta()
+    private val _introWindow = MutableStateFlow<IntroSkipWindow?>(null)
+    val introWindow: StateFlow<IntroSkipWindow?> = _introWindow.asStateFlow()
+
+    private val _nextUpItem = MutableStateFlow<VodNextUpItem?>(null)
+    val nextUpItem: StateFlow<VodNextUpItem?> = _nextUpItem.asStateFlow()
+
+    val nextUpAutoPlay: Boolean get() = playbackPreferences.nextUpAutoPlay
+
     private var enrichmentRequestedForKey: String? = null
+
+    fun preferredExternalPlayer(): ExternalPlayerId = playbackPreferences.externalPlayer
+
+    fun loadIntroWindow(meta: VodPlaybackMeta, enrichment: com.grid.tv.data.db.entity.TitleEnrichmentEntity?) {
+        if (!meta.isSeries) return
+        viewModelScope.launch {
+            _introWindow.value = introDbClient.lookup(
+                tmdbId = enrichment?.tmdbId,
+                imdbId = enrichment?.imdbId,
+                season = meta.seasonNumber,
+                episode = meta.episodeNumber
+            )
+        }
+    }
+
+    fun loadNextUp(meta: VodPlaybackMeta) {
+        if (!meta.isSeries || meta.seriesId == null || meta.playlistId == null) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val detail = repository.loadSeriesDetail(meta.playlistId, meta.seriesId)
+            _nextUpItem.value = VodNextUpResolver.resolve(meta, detail)
+        }
+    }
+
+    fun clearNextUp() {
+        _nextUpItem.value = null
+    }
 
     fun setVodMetadata(meta: VodPlaybackMeta) {
         vodMeta = meta
@@ -83,6 +129,9 @@ class DirectPlayerViewModel @Inject constructor(
         viewModelScope.launch {
             titleEnrichmentRepository.enrichFromPlaybackMeta(meta)
             _settings.value = repository.loadSettings()
+            loadNextUp(meta)
+            val enrichment = titleEnrichmentRepository.getCached(key)
+            loadIntroWindow(meta, enrichment)
         }
     }
 
@@ -294,8 +343,30 @@ class DirectPlayerViewModel @Inject constructor(
                 )
             }
             repository.saveVodWatchPosition(id, positionMs, title, durationMs, playlistId)
+            val contentKey = if (meta.isSeries && meta.seriesId != null && meta.seasonNumber != null && meta.episodeNumber != null) {
+                ContinueWatchingRepository.seriesContentKey(
+                    playlistId, meta.seriesId, meta.seasonNumber, meta.episodeNumber
+                )
+            } else {
+                ContinueWatchingRepository.movieContentKey(playlistId, id)
+            }
+            cloudSyncProgressUploader.uploadIfSignedIn(
+                profileId,
+                WatchProgressSyncPayload(
+                    contentKey = contentKey,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    watchedAt = System.currentTimeMillis()
+                )
+            )
         }
     }
+
+    fun isWatched(positionMs: Long, durationMs: Long): Boolean =
+        VodProgressPolicy.isWatched(positionMs, durationMs)
+
+    fun shouldOfferNextUp(positionMs: Long, durationMs: Long): Boolean =
+        VodProgressPolicy.shouldOfferNextUp(positionMs, durationMs)
 
     fun saveRecordingPosition(recordingId: Long, positionMs: Long) {
         if (recordingId <= 0L) return

@@ -1,12 +1,16 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -18,6 +22,7 @@ import coil.request.ImageRequest
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
+import com.grid.tv.util.TvImagePipeline
 import com.grid.tv.util.TvImageSizing
 
 enum class PosterImageKind {
@@ -74,12 +79,27 @@ fun TvPosterImage(
         else -> TvImageSizing.vodPosterSize(context)
     }
 
+    val thumbUrl = TvImageSizing.posterThumbnailUrl(url, context)
+    val cachedDrawable = remember(thumbUrl, targetW, targetH) {
+        TvImagePipeline.peekCached(context, thumbUrl, targetW, targetH)
+    }
+
     val request = TvImageSizing.sizedRequest(
         context = context,
-        data = TvImageSizing.posterThumbnailUrl(url, context),
+        data = thumbUrl,
         widthPx = targetW,
         heightPx = targetH
     )
+
+    if (cachedDrawable != null) {
+        Image(
+            painter = remember(cachedDrawable) { BitmapPainter(cachedDrawable.bitmap.asImageBitmap()) },
+            contentDescription = contentDescription,
+            contentScale = contentScale,
+            modifier = modifier
+        )
+        return
+    }
 
     SubcomposeAsyncImage(
         model = request,

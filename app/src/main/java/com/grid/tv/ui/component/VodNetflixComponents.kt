@@ -271,6 +271,7 @@ fun NetflixCategoryRow(
     modifier: Modifier = Modifier,
     seeAllLabel: String? = null,
     onSeeAll: (() -> Unit)? = null,
+    titleTrailing: @Composable (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Column(
@@ -302,6 +303,7 @@ fun NetflixCategoryRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
+            titleTrailing?.invoke()
             if (seeAllLabel != null && onSeeAll != null) {
                 GridFocusSurface(
                     onClick = onSeeAll,
@@ -856,7 +858,9 @@ fun NetflixContentWallRow(
     overviewForSeries: (SeriesShow) -> String?,
     onActivateItem: (VodWallItem) -> Unit,
     modifier: Modifier = Modifier,
-    firstItemFocusRequester: FocusRequester? = null
+    firstItemFocusRequester: FocusRequester? = null,
+    recommendationVote: com.grid.tv.feature.vod.personalization.RecommendationVote? = null,
+    onRecommendationVote: ((com.grid.tv.feature.vod.personalization.RecommendationVote) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(rowFocused, focusedColumn) {
@@ -865,7 +869,21 @@ fun NetflixContentWallRow(
         }
     }
 
-    NetflixCategoryRow(title = row.title, modifier = modifier) {
+    NetflixCategoryRow(
+        title = row.title,
+        modifier = modifier,
+        titleTrailing = if (onRecommendationVote != null) {
+            {
+                RecommendationFeedbackButtons(
+                    contentKey = "",
+                    currentVote = recommendationVote,
+                    onVote = onRecommendationVote
+                )
+            }
+        } else {
+            null
+        }
+    ) {
         LazyRow(
             state = listState,
             modifier = Modifier.fillMaxWidth(),

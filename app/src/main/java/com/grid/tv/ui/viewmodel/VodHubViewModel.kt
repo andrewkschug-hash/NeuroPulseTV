@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.repository.ContinueWatchingRepository
+import com.grid.tv.feature.vod.personalization.RecommendationFeedbackStore
+import com.grid.tv.feature.vod.personalization.RecommendationVote
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
@@ -35,6 +37,7 @@ import com.grid.tv.util.runVodPipelineCatching
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,7 +61,8 @@ class VodHubViewModel @Inject constructor(
     private val playlistImportCoordinator: PlaylistImportCoordinator,
     private val featuredCurationRepository: FeaturedCurationRepository,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
-    private val playlistContext: PlaylistContext
+    private val playlistContext: PlaylistContext,
+    private val recommendationFeedbackStore: RecommendationFeedbackStore
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
     private val featuredContentRanker = FeaturedContentRanker()
@@ -133,10 +137,24 @@ class VodHubViewModel @Inject constructor(
         languageFilteredCatalog.map { it.size }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    private val _recommendationFeedbackRevision = MutableStateFlow(0)
+    val recommendationFeedbackRevision: StateFlow<Int> = _recommendationFeedbackRevision.asStateFlow()
+
+    private val activeProfileId = featuredCurationRepository.observeActiveProfileId()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     val recommendedForYou: StateFlow<List<VodItem>> =
-        combine(languageFilteredCatalog, continueWatchingItems, enrichmentByKey) { catalog, cw, enrichment ->
+        combine(
+            languageFilteredCatalog,
+            continueWatchingItems,
+            enrichmentByKey,
+            activeProfileId,
+            _recommendationFeedbackRevision
+        ) { catalog, cw, enrichment, profileId, _ ->
+            val profile = profileId ?: return@combine emptyList()
             VodPerfLogger.trace("topPicks", "catalog=${catalog.size}") {
-                tasteGenomeEngine.topPicks(catalog, cw, enrichment, limit = 24)
+                val picks = tasteGenomeEngine.topPicks(catalog, cw, enrichment, limit = 24)
+                applyRecommendationFeedback(picks, profile)
             }
         }
             .flowOn(Dispatchers.Default)
@@ -794,6 +812,32 @@ class VodHubViewModel @Inject constructor(
     private fun parseYear(value: String): Int? {
         val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
         return match.value.toIntOrNull()
+    }
+
+    fun recommendationVoteFor(movie: VodItem): RecommendationVote? {
+        val profileId = activeProfileId.value ?: return null
+        val key = ContinueWatchingRepository.movieContentKey(movie.playlistId, movie.streamId)
+        return recommendationFeedbackStore.voteFor(profileId, key)
+    }
+
+    fun voteRecommendation(movie: VodItem, vote: RecommendationVote) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val profileId = activeProfileId.value ?: return@launch
+            val key = ContinueWatchingRepository.movieContentKey(movie.playlistId, movie.streamId)
+            recommendationFeedbackStore.vote(profileId, key, vote)
+            _recommendationFeedbackRevision.update { it + 1 }
+        }
+    }
+
+    private fun applyRecommendationFeedback(items: List<VodItem>, profileId: Long): List<VodItem> {
+        if (items.isEmpty()) return items
+        return items
+            .map { item ->
+                val key = ContinueWatchingRepository.movieContentKey(item.playlistId, item.streamId)
+                item to recommendationFeedbackStore.scoreBoost(profileId, key)
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
     }
 
     private fun filterMoviesByLanguage(

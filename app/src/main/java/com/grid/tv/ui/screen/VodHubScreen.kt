@@ -38,6 +38,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.unit.dp
@@ -70,9 +71,11 @@ import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogOnboardingPanel
 import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.VodEmptyState
+import com.grid.tv.feature.vod.VodHubFoldMetrics
 import com.grid.tv.feature.vod.VodHubHeroIsland
 import com.grid.tv.feature.vod.VodHubHeroAmbientPoster
 import com.grid.tv.feature.vod.handleVodHubHeroKeyEvent
+import com.grid.tv.feature.vod.rememberVodHubFoldScroller
 import com.grid.tv.feature.vod.resolveVodWallFocus
 import com.grid.tv.feature.vod.vodWallItemKey
 import com.grid.tv.ui.component.movieMetaSubtitle
@@ -176,6 +179,7 @@ fun VodHubScreen(
 
     /** Stable catalog/filter/wall snapshot — does not include hero carousel index. */
     val contentState by hubViewModel.contentState.collectAsStateWithLifecycle()
+    val recommendationFeedbackRevision by hubViewModel.recommendationFeedbackRevision.collectAsStateWithLifecycle()
 
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
@@ -289,6 +293,9 @@ fun VodHubScreen(
     val scope = rememberCoroutineScope()
     val columnListState = rememberLazyListState()
     val browseGridState = rememberLazyGridState()
+    val density = LocalDensity.current
+    val heroExpandedPx = with(density) { VodHubFoldMetrics.HeroExpandedHeight.toPx() }
+    val vodFoldScroller = rememberVodHubFoldScroller(columnListState, heroExpandedPx)
 
     LaunchedEffect(initialTab) {
         hubViewModel.setContentFilter(
@@ -1257,7 +1264,8 @@ fun VodHubScreen(
             VodHubHeroAmbientPoster(
                 hubViewModel = hubViewModel,
                 featuredCarousel = featuredCarousel,
-                posterUrlFor = ::posterFor
+                posterUrlFor = ::posterFor,
+                enrichmentMap = enrichmentMap
             )
         } else {
             VodAmbientBackdrop(posterUrl = contentAmbientPosterUrl)
@@ -1498,6 +1506,7 @@ fun VodHubScreen(
                                                 openMovieDetail(hero)
                                             },
                                             onNavigateDown = {
+                                                vodFoldScroller.snapDownFromHero()
                                                 focusZone = VodFocusZone.CONTENT
                                                 contentRowIndex = 0
                                                 contentColIndex = 0
@@ -1513,15 +1522,26 @@ fun VodHubScreen(
                                 }
                                 itemsIndexed(wallRows, key = { _, row -> row.id }) { index, row ->
                                     val rowListState = remember(row.id) { LazyListState() }
+                                    val rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index
+                                    val focusedColumn = if (rowFocused) contentColIndex else -1
+                                    val focusedRecommendationMovie = if (
+                                        row.id == "recommended" &&
+                                        rowFocused &&
+                                        focusedColumn in row.items.indices
+                                    ) {
+                                        (row.items[focusedColumn] as? com.grid.tv.domain.model.VodWallItem.MovieItem)?.movie
+                                    } else {
+                                        null
+                                    }
+                                    val recommendationVote = focusedRecommendationMovie?.let { movie ->
+                                        recommendationFeedbackRevision
+                                        hubViewModel.recommendationVoteFor(movie)
+                                    }
                                     NetflixContentWallRow(
                                         row = row,
                                         rowIndex = index,
-                                        focusedColumn = if (focusZone == VodFocusZone.CONTENT && contentRowIndex == index) {
-                                            contentColIndex
-                                        } else {
-                                            -1
-                                        },
-                                        rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index,
+                                        focusedColumn = focusedColumn,
+                                        rowFocused = rowFocused,
                                         listState = rowListState,
                                         progressByKey = vodProgress,
                                         posterUrlForMovie = ::posterFor,
@@ -1530,7 +1550,11 @@ fun VodHubScreen(
                                         overviewForMovie = ::overviewForMovie,
                                         overviewForSeries = ::overviewForSeries,
                                         onActivateItem = ::activateWallItem,
-                                        firstItemFocusRequester = if (index == 0) contentFocusRequester else null
+                                        firstItemFocusRequester = if (index == 0) contentFocusRequester else null,
+                                        recommendationVote = recommendationVote,
+                                        onRecommendationVote = focusedRecommendationMovie?.let { movie ->
+                                            { vote -> hubViewModel.voteRecommendation(movie, vote) }
+                                        }
                                     )
                                 }
                             }

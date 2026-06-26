@@ -23,6 +23,7 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.grid.tv.util.TvImageSizing
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 private val DefaultCenter = Color(0xFF1A1A2E)
@@ -40,6 +41,7 @@ fun VodAmbientBackdrop(
         extractedCenter = if (posterUrl.isNullOrBlank()) {
             null
         } else {
+            delay(150)
             VodPosterColorExtractor.extract(context, posterUrl)
         }
     }
