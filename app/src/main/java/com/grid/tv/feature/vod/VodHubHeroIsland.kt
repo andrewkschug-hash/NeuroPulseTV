@@ -20,6 +20,7 @@ import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.component.VodHeroBackdrop
 import com.grid.tv.ui.component.VodHeroSection
+import com.grid.tv.ui.component.VodHeroSkeleton
 import com.grid.tv.util.TvImagePipeline
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
@@ -95,7 +96,12 @@ fun VodHubHeroIsland(
         VodPerfLogger.logEmission("VodHubHeroIsland", "index=$heroIndex carousel=${featuredCarousel.size}")
     }
 
-    val hero = heroMovie ?: return
+    if (heroMovie == null) {
+        VodHeroSkeleton(modifier = modifier)
+        return
+    }
+
+    val hero = heroMovie
 
     Box(
         modifier = modifier.onPreviewKeyEvent { event ->

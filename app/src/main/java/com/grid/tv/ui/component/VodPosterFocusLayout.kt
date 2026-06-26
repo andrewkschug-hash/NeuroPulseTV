@@ -64,6 +64,15 @@ object VodPosterFocusLayout {
             POSTER_TITLE_GAP +
             POSTER_TITLE_HEIGHT
 
+    /** Conservative height for one Netflix-style wall row (title + scaled poster row). */
+    val estimatedWallRowHeight: Dp
+        get() = categoryRowTopPadding +
+            22.dp +
+            categoryTitleBottomGap +
+            lazyRowVerticalPadding * 2 +
+            netflixCardHeight +
+            categoryRowBottomPadding
+
     fun dpToPx(densityDpi: Int, dp: Dp): Int =
         kotlin.math.round(dp.value * densityDpi / 160f).toInt()
 }

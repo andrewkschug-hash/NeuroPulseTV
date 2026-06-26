@@ -1,7 +1,7 @@
 package com.grid.tv.di
 
 import com.grid.tv.data.io.DiskIoSerialExecutor
-import com.grid.tv.domain.repository.IptvRepository
+import dagger.Lazy
 import com.grid.tv.feature.preview.PreviewPlayerManager
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.startup.StartupDependencyProbe
@@ -38,9 +38,9 @@ object ActivityInjectionTracingModule {
 
     @Provides
     @Singleton
-    fun provideThemeManager(repositoryProvider: Provider<IptvRepository>): ThemeManager =
+    fun provideThemeManager(repository: Lazy<com.grid.tv.domain.repository.IptvRepository>): ThemeManager =
         StartupDependencyProbe.traceCreate("ThemeManager") {
-            ThemeManager(repositoryProvider.get())
+            ThemeManager(repository)
         }
 
     @Provides

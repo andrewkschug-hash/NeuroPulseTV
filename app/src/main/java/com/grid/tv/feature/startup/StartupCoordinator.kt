@@ -3,12 +3,14 @@ package com.grid.tv.feature.startup
 import android.util.Log
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
+import com.grid.tv.feature.vod.VodCatalogSessionStore
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class StartupCoordinator @Inject constructor(
-    private val repository: IptvRepository
+    private val repository: IptvRepository,
+    private val vodCatalogSessionStore: VodCatalogSessionStore
 ) {
     suspend fun runPhase1Minimal() {
         runCatching {
@@ -36,6 +38,7 @@ class StartupCoordinator @Inject constructor(
         runCatching {
             StartupProfiler.mark("startup_phase2b_start")
             repository.updateCountsInBackground()
+            vodCatalogSessionStore.warmShell(repository)
             StartupProfiler.mark("startup_phase2b_complete")
         }.onFailure {
             Log.w(TAG, "runPhase2BackgroundCounts failed: ${it.message}", it)

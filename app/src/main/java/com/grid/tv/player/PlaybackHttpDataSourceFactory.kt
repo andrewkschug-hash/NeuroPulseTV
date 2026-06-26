@@ -16,8 +16,6 @@ import com.grid.tv.data.network.toNetworkPlaybackConfig
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.util.PerformanceAudit
 import okhttp3.OkHttpClient
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * App-lifetime playback network stack for ExoPlayer.
@@ -26,8 +24,7 @@ import javax.inject.Singleton
  * per OkHttp playback client generation and reused across channel zaps and ExoPlayer instances.
  * Recreated only when proxy/connect-timeout settings change (via [syncNetworkSettings]).
  */
-@Singleton
-class PlaybackHttpDataSourceFactory @Inject constructor(
+class PlaybackHttpDataSourceFactory(
     private val appHttpClient: AppHttpClient,
     private val playbackMetricsLogger: PlaybackMetricsLogger,
     private val streamFormatRegistry: IptvStreamFormatRegistry

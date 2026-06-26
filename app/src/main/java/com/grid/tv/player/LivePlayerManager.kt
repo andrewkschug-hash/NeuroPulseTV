@@ -13,11 +13,13 @@ import com.grid.tv.data.catalog.CatalogHydrationGuard
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.BufferSize
 import com.grid.tv.data.network.toNetworkPlaybackConfig
+import com.grid.tv.feature.startup.StartupDependencyProbe
 import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.sourceIdForUrl
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import com.grid.tv.util.PerformanceAudit
+import dagger.Lazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,7 +64,7 @@ data class MultiPanePlayerHandoff(
 class LivePlayerManager(
     private val playerFactory: PlayerFactory,
     private val playbackHttpDataSourceFactory: PlaybackHttpDataSourceFactory,
-    private val streamFailover: StreamFailoverController,
+    private val streamFailoverLazy: Lazy<StreamFailoverController>,
     private val catalogHydrationGuard: CatalogHydrationGuard,
     private val decoderPressureTracker: DecoderPressureTracker,
     private val playbackMetrics: PlaybackMetricsLogger,
@@ -109,39 +111,102 @@ class LivePlayerManager(
     private var bufferStartupStartedAtMs = 0L
 
     private val _timeshiftState = MutableStateFlow(TimeshiftUiState())
+    private val _failoverUiState = MutableStateFlow(StreamFailoverUiState())
 
-    private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val playbackMonitor = StreamPlaybackMonitor(monitorScope, playbackMetrics)
-
+    private val monitorScope: CoroutineScope
+    private val ioScope: CoroutineScope
+    private val playbackMonitor: StreamPlaybackMonitor
     /** Combined UI snapshot — prefer this over collecting individual flows in Compose. */
-    val playbackUiState: StateFlow<LivePlaybackUiState> = combine(
-        playbackMonitor.status,
-        streamFailover.uiState,
-        _timeshiftState,
-        _activeChannelId,
-        _activeStreamUrl
-    ) { status, failover, timeshift, channelId, streamUrl ->
-        LivePlaybackUiState(
-            status = status,
-            failover = failover,
-            timeshift = timeshift,
-            activeChannelId = channelId,
-            activeStreamUrl = streamUrl
-        )
+    val playbackUiState: StateFlow<LivePlaybackUiState>
+
+    @Volatile
+    private var failoverGraphWired = false
+
+    private var pendingAutoReconnect: Boolean? = null
+    private var pendingStreamRetries: Int? = null
+
+    private fun streamFailover(): StreamFailoverController = streamFailoverLazy.get()
+
+    /** Failover + scanner isolation graph — first live/VOD tune only. */
+    private fun ensureFailoverGraph() {
+        if (failoverGraphWired) return
+        failoverGraphWired = true
+        val failover = streamFailover()
+        pendingAutoReconnect?.let { failover.setAutoReconnectEnabled(it) }
+        pendingStreamRetries?.let { failover.setStreamRetries(it) }
+        monitorScope.launch {
+            failover.uiState.collect { _failoverUiState.value = it }
+        }
     }
-        .distinctUntilChanged()
-        .stateIn(
-            scope = monitorScope,
-            started = SharingStarted.Eagerly,
-            initialValue = LivePlaybackUiState()
-        )
+
+    init {
+        monitorScope = StartupDependencyProbe.traceInitPhase(
+            "LivePlayerManager",
+            "coroutine_scopes",
+            blockingHints = setOf("coroutine_launch", "main_immediate_scope", "looper_access")
+        ) {
+            CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        }
+        ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        playbackMonitor = StreamPlaybackMonitor(monitorScope, playbackMetrics)
+        playbackUiState = StartupDependencyProbe.traceInitPhase(
+            "LivePlayerManager",
+            "playbackUiState_stateIn",
+            blockingHints = setOf("coroutine_launch", "flow_combine", "stateIn_eager")
+        ) {
+            combine(
+                playbackMonitor.status,
+                _failoverUiState,
+                _timeshiftState,
+                _activeChannelId,
+                _activeStreamUrl
+            ) { status, failover, timeshift, channelId, streamUrl ->
+                LivePlaybackUiState(
+                    status = status,
+                    failover = failover,
+                    timeshift = timeshift,
+                    activeChannelId = channelId,
+                    activeStreamUrl = streamUrl
+                )
+            }
+                .distinctUntilChanged()
+                .stateIn(
+                    scope = monitorScope,
+                    started = SharingStarted.WhileSubscribed(5_000),
+                    initialValue = LivePlaybackUiState()
+                )
+        }
+        StartupDependencyProbe.traceInitPhase(
+            "LivePlayerManager",
+            "flow_collectors_launch",
+            blockingHints = setOf("coroutine_launch", "main_immediate_scope")
+        ) {
+            playbackMonitor.status
+                .onEach { status ->
+                    PerformanceAudit.recordPlaybackStatusEmission(status)
+                    if (failoverGraphWired) {
+                        streamFailover().onPlaybackStatus(status)
+                        if (status == StreamPlaybackStatus.ERROR || status == StreamPlaybackStatus.UNAVAILABLE) {
+                            playbackTelemetry.onPlaybackError()
+                        }
+                    }
+                }
+                .launchIn(monitorScope)
+            monitorScope.launch {
+                playbackUiState.collect { ui ->
+                    PerformanceAudit.recordPlaybackUiEmission(ui)
+                }
+            }
+        }
+    }
 
     /** @deprecated Prefer [playbackUiState] — kept for non-UI side-effect wiring. */
-    val playbackStatus: StateFlow<StreamPlaybackStatus> = playbackMonitor.status
+    val playbackStatus: StateFlow<StreamPlaybackStatus>
+        get() = playbackMonitor.status
 
     /** @deprecated Prefer [playbackUiState]. */
-    val failoverUiState: StateFlow<StreamFailoverUiState> = streamFailover.uiState
+    val failoverUiState: StateFlow<StreamFailoverUiState>
+        get() = if (failoverGraphWired) streamFailover().uiState else _failoverUiState
 
     /** @deprecated Prefer [playbackUiState]. */
     val timeshiftStateFlow: StateFlow<TimeshiftUiState> = _timeshiftState.asStateFlow()
@@ -224,23 +289,6 @@ class LivePlayerManager(
     private var playerReleasedForBackground = false
     private val tuneGuard = TunePipelineGuard()
 
-    init {
-        playbackMonitor.status
-            .onEach { status ->
-                PerformanceAudit.recordPlaybackStatusEmission(status)
-                streamFailover.onPlaybackStatus(status)
-                if (status == StreamPlaybackStatus.ERROR || status == StreamPlaybackStatus.UNAVAILABLE) {
-                    playbackTelemetry.onPlaybackError()
-                }
-            }
-            .launchIn(monitorScope)
-        monitorScope.launch {
-            playbackUiState.collect { ui ->
-                PerformanceAudit.recordPlaybackUiEmission(ui)
-            }
-        }
-    }
-
     fun isFullscreenActive(): Boolean = _fullscreenActive.value
 
     private fun syncFullscreenActive() {
@@ -271,7 +319,7 @@ class LivePlayerManager(
                             channelId = currentChannelId,
                             streamUrl = currentStreamUrl,
                             startupTimeMs = elapsed,
-                            failoverCount = streamFailover.sessionFailoverCount()
+                            failoverCount = streamFailover().sessionFailoverCount()
                         )
                     }
                     pendingZapChannelId?.let { channelId ->
@@ -419,11 +467,17 @@ class LivePlayerManager(
     }
 
     fun setAutoReconnectOnDrop(enabled: Boolean) {
-        streamFailover.setAutoReconnectEnabled(enabled)
+        pendingAutoReconnect = enabled
+        if (failoverGraphWired) {
+            streamFailover().setAutoReconnectEnabled(enabled)
+        }
     }
 
     fun setStreamRetries(count: Int) {
-        streamFailover.setStreamRetries(count)
+        pendingStreamRetries = count
+        if (failoverGraphWired) {
+            streamFailover().setStreamRetries(count)
+        }
     }
 
     fun hasPlayerInstance(): Boolean = player != null
@@ -605,11 +659,12 @@ class LivePlayerManager(
 
         streamTransitionJob?.cancel()
         val generation = ++tuneGeneration
+        ensureFailoverGraph()
         streamTransitionJob = monitorScope.launch {
             tuneGuard.runPipeline(key) {
                 if (generation != tuneGeneration) return@runPipeline
                 PerformanceAudit.logTunePipelineStart(channelId, streamUrl, configureFailover)
-                streamFailover.onStreamTuneStarted()
+                streamFailover().onStreamTuneStarted()
                 resetPlayerForMediaSwap()
                 if (generation != tuneGeneration) return@runPipeline
                 loadStream(
@@ -755,8 +810,8 @@ class LivePlayerManager(
         if (tuneGeneration != this.tuneGeneration) return
 
         playbackMonitor.attach(exo)
-        streamFailover.attach(exo, failoverActions)
-        failoverChannel?.let { streamFailover.configure(it, streamUrl) }
+        streamFailover().attach(exo, failoverActions)
+        failoverChannel?.let { streamFailover().configure(it, streamUrl) }
 
         playbackNetworkCoordinator.markSingleRequestAllowed(streamUrl, tuneGeneration)
         TuneLatencyTracker.logEvent("MEDIA_SOURCE_CREATED", "format=${streamDetection.format}")
@@ -790,7 +845,7 @@ class LivePlayerManager(
         ioScope.launch {
             if (configureFailover && failoverChannel != null) {
                 runCatching {
-                    streamFailover.configureWithHealthRanking(failoverChannel, streamUrl)
+                    streamFailover().configureWithHealthRanking(failoverChannel, streamUrl)
                 }.onFailure { error ->
                     Log.w(TAG, "Deferred health-ranked failover configure failed", error)
                 }
@@ -803,9 +858,9 @@ class LivePlayerManager(
         }
 
         if (configureFailover) {
-            streamFailover.onStreamSwitched(streamUrl)
+            streamFailover().onStreamSwitched(streamUrl)
         } else {
-            streamFailover.onSuccessfulUrlSwitch(streamUrl)
+            streamFailover().onSuccessfulUrlSwitch(streamUrl)
         }
         syncCatalogHydrationGuard()
     }
@@ -849,7 +904,7 @@ class LivePlayerManager(
         finalizeActiveTelemetrySession(success = playbackReadySeen)
         stopWatchDurationTicker()
         PerformanceAudit.logPlayerLifecycle("SWAP_RESET", exo, _playerGeneration.value, currentChannelId)
-        streamFailover.detach()
+        streamFailover().detach()
         exo.playWhenReady = false
         exo.stop()
         exo.clearMediaItems()
@@ -876,7 +931,7 @@ class LivePlayerManager(
             channelId = currentChannelId
         )
         PlaybackHttpFailure.logHttpFailure(error, currentStreamUrl)
-        streamFailover.cancelRecoveryAndBlockSession()
+        streamFailover().cancelRecoveryAndBlockSession()
         val exo = player ?: return
         exo.playWhenReady = false
         exo.stop()
@@ -893,7 +948,7 @@ class LivePlayerManager(
         stopWatchDurationTicker()
         PerformanceAudit.logPlayerLifecycle("RELEASE", exo, _playerGeneration.value, currentChannelId)
         playbackMonitor.detach()
-        streamFailover.detach()
+        streamFailover().detach()
         exo.removeListener(timeshiftListener)
         exo.playWhenReady = false
         exo.stop()
@@ -1038,7 +1093,7 @@ class LivePlayerManager(
         streamTransitionJob?.cancel()
         exo.clearVideoSurface()
         playbackMonitor.detach()
-        streamFailover.detach()
+        streamFailover().detach()
         exo.removeListener(timeshiftListener)
         decoderPressureTracker.unregisterPlayer(exo)
         player = null
@@ -1189,7 +1244,7 @@ class LivePlayerManager(
     fun stopGuidePreview() {
         mode = Mode.IDLE
         playbackMonitor.onPlaybackPaused()
-        streamFailover.onPlaybackPaused()
+        streamFailover().onPlaybackPaused()
         player?.playWhenReady = false
         player?.pause()
         player?.clearVideoSurface()
@@ -1213,7 +1268,7 @@ class LivePlayerManager(
             return
         }
         playbackMonitor.onPreviewResumed()
-        streamFailover.onPlaybackResumed()
+        streamFailover().onPlaybackResumed()
         currentStreamUrl?.let { playbackNetworkExclusivity.registerStream(it) }
         exo.playWhenReady = true
         when (exo.playbackState) {

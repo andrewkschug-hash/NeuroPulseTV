@@ -204,10 +204,12 @@ fun epgProgramTitleDisplay(
     cellWidthDp: Dp,
     horizontalPaddingDp: Dp = 16.dp,
     minCharsToShow: Int = 4,
-    charWidthDp: Float = 7.5f
+    charWidthDp: Float = 7.5f,
+    maxWidthDp: Dp? = null,
 ): EpgProgramTitleDisplay {
     if (title.isBlank()) return EpgProgramTitleDisplay(null, isTruncated = false)
-    val availableDp = (cellWidthDp - horizontalPaddingDp).value.coerceAtLeast(0f)
+    val cappedWidth = maxWidthDp?.let { minOf(cellWidthDp.value, it.value).dp } ?: cellWidthDp
+    val availableDp = (cappedWidth - horizontalPaddingDp).value.coerceAtLeast(0f)
     val maxChars = (availableDp / charWidthDp).toInt()
     return when {
         maxChars < minCharsToShow -> EpgProgramTitleDisplay(null, isTruncated = true)
@@ -495,6 +497,7 @@ fun EpgProgramCell(
     isFocused: Boolean,
     isSelected: Boolean,
     windowDurationMs: Long,
+    windowStart: Long = program.startTime,
     canReplay: Boolean = false,
     isFuture: Boolean = false,
     onClick: (() -> Unit)? = null,
@@ -536,7 +539,14 @@ fun EpgProgramCell(
     )
     val safeWidth = EpgLayout.safeCellWidth(width.coerceAtLeast(1.dp), windowDurationMs)
     val showTime = safeWidth.value >= 100f
-    val titleDisplay = epgProgramTitleDisplay(program.title, safeWidth)
+    val titleMaxWidth = if (isAiring && program.endTime > program.startTime) {
+        val programOffset = EpgLayout.offsetForTime(program.startTime, windowStart, windowDurationMs)
+        val nowOffset = EpgLayout.offsetForTime(now, windowStart, windowDurationMs)
+        (nowOffset - programOffset).coerceIn(0.dp, safeWidth)
+    } else {
+        null
+    }
+    val titleDisplay = epgProgramTitleDisplay(program.title, safeWidth, maxWidthDp = titleMaxWidth)
     val showTitleTooltip = isFocused && titleDisplay.isTruncated
     val touchModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick).touchTarget()
@@ -746,7 +756,7 @@ fun EpgTimelineHeader(
     val slotCount = (windowDurationMs / slotMs).toInt()
     val showNow = now in windowStart..(windowStart + windowDurationMs)
     val nowOffset = if (showNow) {
-        EpgLayout.offsetForLocalNow(windowStart, windowDurationMs, now)
+        EpgLayout.offsetForTime(now, windowStart, windowDurationMs)
     } else {
         0.dp
     }
@@ -770,6 +780,9 @@ fun EpgTimelineHeader(
                         color = EpgColors.TextSecondary,
                         fontFamily = DmSansFamily,
                         fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier.padding(start = 4.dp)
                     )
                 }
@@ -815,7 +828,7 @@ fun EpgNowLine(
 ) {
     val now = rememberEpgNowMillis(EpgNowTicker.CLOCK_INTERVAL_MS)
     if (now !in windowStart..(windowStart + windowDurationMs)) return
-    val nowOffset = EpgLayout.offsetForLocalNow(windowStart, windowDurationMs, now)
+    val nowOffset = EpgLayout.offsetForTime(now, windowStart, windowDurationMs)
     val scrollOffsetDp = with(LocalDensity.current) { scrollOffsetPx.toDp() }
     Box(modifier = modifier) {
         Box(
@@ -823,7 +836,7 @@ fun EpgNowLine(
                 .offset(x = nowOffset - scrollOffsetDp - EpgLayout.NowLineWidth / 2)
                 .width(EpgLayout.NowLineWidth)
                 .fillMaxHeight()
-                .background(EpgColors.Accent)
+                .background(EpgColors.NowLine)
         )
     }
 }

@@ -36,4 +36,6 @@ internal class HomeEpgUiState {
     var hasRequestedInitialGridFocus by mutableStateOf(false)
     /** True while opening preview; blocks spurious filter focus during grid→preview transition. */
     var pendingPreviewFocus by mutableStateOf(false)
+    var channelGroupsFocusIndex by mutableIntStateOf(0)
+    var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
 }

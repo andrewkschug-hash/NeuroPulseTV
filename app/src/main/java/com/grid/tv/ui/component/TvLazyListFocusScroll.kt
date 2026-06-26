@@ -111,41 +111,54 @@ suspend fun LazyListState.animateScrollEpgChannelIntoView(
 }
 
 /**
- * VOD wall rows use mixed heights (hero + category rows). Always pin the focused row when
- * moving up so upper rows are not left scrolled off-screen.
+ * VOD wall rows use mixed heights (hero + category rows). Re-scroll when a nominally
+ * visible row is still clipped (scaled poster focus ring, title band, bottom safe area).
  */
 suspend fun LazyListState.animateScrollVodWallRowIntoView(
     index: Int,
-    direction: TvLazyFocusScrollDirection
+    direction: TvLazyFocusScrollDirection,
+    safePaddingPx: Int = 48,
+    fallbackItemHeightPx: Int = 280
 ) {
     if (index < 0) return
     val layoutInfo = layoutInfo
     if (layoutInfo.totalItemsCount == 0) return
 
     val targetIndex = index.coerceIn(0, layoutInfo.totalItemsCount - 1)
+    val viewportStart = layoutInfo.viewportStartOffset
+    val viewportEnd = layoutInfo.viewportEndOffset
+    val viewportHeight = (viewportEnd - viewportStart).coerceAtLeast(1)
+    val padding = safePaddingPx.coerceAtLeast(0)
+    val safeTop = viewportStart + padding
+    val safeBottom = viewportEnd - padding
+
+    val visibleItem = layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+    if (visibleItem != null) {
+        val itemTop = visibleItem.offset
+        val itemBottom = itemTop + visibleItem.size
+        val fullyVisible = itemTop >= safeTop && itemBottom <= safeBottom
+        if (fullyVisible) return
+
+        when {
+            itemBottom > safeBottom || direction == TvLazyFocusScrollDirection.DOWN -> {
+                val scrollOffset = (viewportHeight - visibleItem.size - padding).coerceAtLeast(0)
+                animateScrollToItem(targetIndex, scrollOffset)
+            }
+            itemTop < safeTop || direction == TvLazyFocusScrollDirection.UP -> {
+                animateScrollToItem(targetIndex, scrollOffset = padding)
+            }
+        }
+        return
+    }
+
+    val itemHeight = fallbackItemHeightPx.coerceAtLeast(1)
     when (direction) {
         TvLazyFocusScrollDirection.UP -> {
-            animateScrollToItem(targetIndex, scrollOffset = 0)
+            animateScrollToItem(targetIndex, scrollOffset = padding)
         }
         TvLazyFocusScrollDirection.DOWN -> {
-            val visible = layoutInfo.visibleItemsInfo
-            if (visible.isEmpty()) {
-                animateScrollToItem(targetIndex)
-                return
-            }
-            val firstVisible = visible.first().index
-            val lastVisible = visible.last().index
-            if (targetIndex > lastVisible) {
-                val viewportHeight = (layoutInfo.viewportEndOffset - layoutInfo.viewportStartOffset)
-                    .coerceAtLeast(1)
-                val estimatedItemSize = visible.last().size.coerceAtLeast(1)
-                val scrollOffset = (viewportHeight - estimatedItemSize).coerceAtLeast(0)
-                animateScrollToItem(targetIndex, scrollOffset)
-            } else if (targetIndex < firstVisible) {
-                animateScrollToItem(targetIndex, scrollOffset = 0)
-            } else if (targetIndex == lastVisible && targetIndex < layoutInfo.totalItemsCount - 1) {
-                animateScrollToItem(firstVisible + 1, scrollOffset = 0)
-            }
+            val scrollOffset = (viewportHeight - itemHeight - padding).coerceAtLeast(0)
+            animateScrollToItem(targetIndex, scrollOffset)
         }
         TvLazyFocusScrollDirection.NEUTRAL -> {
             animateScrollToItemIfNeeded(targetIndex, direction)

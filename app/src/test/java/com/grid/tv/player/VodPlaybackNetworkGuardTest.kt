@@ -4,6 +4,7 @@ import com.grid.tv.feature.scanner.ChannelScanner
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import javax.inject.Provider
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -20,7 +21,7 @@ class VodPlaybackNetworkGuardTest {
     fun setUp() {
         channelScanner = mockk(relaxed = true)
         every { channelScanner.isPlaybackScanSuspended } returns false
-        scannerIsolation = PlaybackScannerIsolation(channelScanner).apply {
+        scannerIsolation = PlaybackScannerIsolation(Provider { channelScanner }).apply {
             executorOverride = PlaybackScannerIsolation.QueuedTestExecutor()
         }
         liveExclusivity = PlaybackNetworkExclusivity(scannerIsolation)

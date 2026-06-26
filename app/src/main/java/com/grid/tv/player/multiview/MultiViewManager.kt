@@ -6,17 +6,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.player.MultiPanePlaybackPool
 import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /** MultiView facade — delegates to shared [MultiPanePlaybackPool]. */
-@Singleton
-class MultiViewManager @Inject constructor(
+class MultiViewManager(
     private val multiPanePlaybackPool: MultiPanePlaybackPool
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("MultiViewManager")
-    }
 
     private companion object {
         const val OWNER = "multiview"

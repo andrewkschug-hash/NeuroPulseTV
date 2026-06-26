@@ -47,6 +47,7 @@ import coil.request.ImageRequest
 import coil.size.Size
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.feature.vod.personalization.RecommendationVote
 import com.grid.tv.ui.component.GlassFocusButton
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.DmSansFamily
@@ -67,7 +68,9 @@ fun MovieDetailOverlay(
     onWatchNow: () -> Unit,
     onBack: () -> Unit,
     watchFocusRequester: FocusRequester,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    recommendationVote: RecommendationVote? = null,
+    onRecommendationVote: ((RecommendationVote) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
@@ -204,20 +207,30 @@ fun MovieDetailOverlay(
                         .verticalScroll(scrollState)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     GlassFocusButton(
                         onClick = onWatchNow,
                         primary = true,
                         modifier = Modifier.focusRequester(watchFocusRequester),
-                        contentDescription = "Watch Now"
+                        contentDescription = "Play"
                     ) {
-                        Text("Watch Now", fontFamily = DmSansFamily, fontSize = 15.sp)
+                        Text("Play", fontFamily = DmSansFamily, fontSize = 15.sp)
                     }
                     GlassFocusButton(
                         onClick = onBack,
                         contentDescription = "Back"
                     ) {
                         Text("Back", fontFamily = DmSansFamily, fontSize = 15.sp)
+                    }
+                    if (onRecommendationVote != null) {
+                        RecommendationFeedbackButtons(
+                            contentKey = movie.streamId.toString(),
+                            currentVote = recommendationVote,
+                            onVote = onRecommendationVote
+                        )
                     }
                 }
             }

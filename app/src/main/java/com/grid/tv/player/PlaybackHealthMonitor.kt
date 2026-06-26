@@ -4,8 +4,6 @@ import android.net.Uri
 import android.util.Log
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /** Session health tier for live playback telemetry (does not affect playback decisions). */
 enum class PlaybackSessionHealthTier(val label: String) {
@@ -40,14 +38,10 @@ data class PlaybackHealthSnapshot(
  * Computes a rolling 0–100 playback health score from session telemetry.
  * Logs score changes; does not alter playback behavior.
  */
-@Singleton
-class PlaybackHealthMonitor @Inject constructor(
+class PlaybackHealthMonitor(
     private val metrics: PlaybackMetricsLogger,
     private val telemetry: PlaybackTelemetryCollector
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("PlaybackHealthMonitor")
-    }
 
     @Volatile
     private var lastSnapshot: PlaybackHealthSnapshot? = null

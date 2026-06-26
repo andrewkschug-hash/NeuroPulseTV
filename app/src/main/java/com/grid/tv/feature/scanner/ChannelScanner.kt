@@ -27,6 +27,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import dagger.Lazy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,7 +52,7 @@ class ChannelScanner @Inject constructor(
     private val channelScanDao: ChannelScanDao,
     private val profileFavoriteDao: ProfileFavoriteDao,
     private val profileWatchHistoryDao: ProfileWatchHistoryDao,
-    private val repository: IptvRepository,
+    private val repository: Lazy<IptvRepository>,
     private val appHttpClient: AppHttpClient,
     private val epgJobCoordinator: EpgJobCoordinator,
     private val hostFailureTracker: HostFailureTracker,
@@ -265,7 +266,7 @@ class ChannelScanner @Inject constructor(
 
     private suspend fun collectPriorityChannelIds(limit: Int): LinkedHashSet<Long> {
         val ordered = LinkedHashSet<Long>(limit)
-        val profileId = repository.activeProfile()?.id ?: 1L
+        val profileId = repository.get().activeProfile()?.id ?: 1L
 
         profileFavoriteDao.allChannelIdsForProfile(profileId).forEach { id ->
             if (ordered.size >= limit) return@forEach
@@ -333,14 +334,14 @@ class ChannelScanner @Inject constructor(
         maybeEvictStatuses(includeOrphanCheck = true)
         publishStatusesNow()
         refreshRuntimeCounts()
-        _runtime.update { it.copy(lastFullScanAt = repository.lastFullScanAt()) }
+        _runtime.update { it.copy(lastFullScanAt = repository.get().lastFullScanAt()) }
     }
 
     private suspend fun refreshSettingsLoop() {
         var backoffMs = SETTINGS_POLL_MS
         while (true) {
             val ok = runSafely("refreshSettings") {
-                val appSettings = repository.loadSettings()
+                val appSettings = repository.get().loadSettings()
                 updateSettings(
                     ScannerSettings(
                         autoScanEnabled = appSettings.autoScanEnabled,
@@ -444,7 +445,7 @@ class ChannelScanner @Inject constructor(
         if (toProbe.isEmpty()) {
             if (forceFullScan) {
                 forceFullScan = false
-                repository.updateLastFullScanAt(now)
+                repository.get().updateLastFullScanAt(now)
                 _runtime.update { it.copy(lastFullScanAt = now, isScanning = false) }
             }
             _validationActive.value = false

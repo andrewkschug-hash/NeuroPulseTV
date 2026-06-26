@@ -1,12 +1,9 @@
 package com.grid.tv.player
 
 import java.util.concurrent.ConcurrentHashMap
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /** Cached stream-format hints from probes and content-type HEAD checks. */
-@Singleton
-class IptvStreamFormatRegistry @Inject constructor() {
+class IptvStreamFormatRegistry() {
 
     private data class Entry(
         val format: IptvStreamFormat,

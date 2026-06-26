@@ -3,16 +3,16 @@ package com.grid.tv.player
 import com.grid.tv.feature.scanner.ChannelScanner
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import javax.inject.Inject
-import javax.inject.Singleton
+import javax.inject.Provider
 
 /**
  * Ref-counted, asynchronous channel-scanner suspension for playback sessions.
  * Registry updates stay on the caller thread; scanner suspend/resume runs off the hot path.
+ *
+ * [ChannelScanner] is resolved only on first acquire/release — not during construction.
  */
-@Singleton
-class PlaybackScannerIsolation @Inject constructor(
-    private val channelScanner: ChannelScanner
+class PlaybackScannerIsolation(
+    private val channelScannerProvider: Provider<ChannelScanner>
 ) {
     private val lock = Any()
 
@@ -27,6 +27,9 @@ class PlaybackScannerIsolation @Inject constructor(
 
     private fun executor(): Executor = executorOverride ?: defaultExecutor
 
+    /** Resolves the scanner on first playback isolation — never at graph construction time. */
+    fun getScanner(): ChannelScanner = channelScannerProvider.get()
+
     internal fun runPendingIsolationTasksForTests() {
         val direct = executorOverride as? QueuedTestExecutor ?: return
         direct.runPending()
@@ -40,7 +43,7 @@ class PlaybackScannerIsolation @Inject constructor(
             scheduleSuspend = acquireCount == 1
         }
         if (scheduleSuspend) {
-            executor().execute { channelScanner.setPlaybackScanSuspended(true) }
+            executor().execute { getScanner().setPlaybackScanSuspended(true) }
         }
     }
 
@@ -53,7 +56,7 @@ class PlaybackScannerIsolation @Inject constructor(
             scheduleResume = acquireCount == 0
         }
         if (scheduleResume) {
-            executor().execute { channelScanner.setPlaybackScanSuspended(false) }
+            executor().execute { getScanner().setPlaybackScanSuspended(false) }
         }
     }
 

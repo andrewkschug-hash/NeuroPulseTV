@@ -2,15 +2,12 @@ package com.grid.tv.player
 
 import android.util.Log
 import com.grid.tv.data.network.AppHttpClient
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Global playback network pipeline: one active stream session, immediate HTTP cancellation on
  * tune/switch, tune-lock window blocking probes/scanner/failover overlap, and diagnostics.
  */
-@Singleton
-class PlaybackNetworkCoordinator @Inject constructor(
+class PlaybackNetworkCoordinator(
     private val appHttpClient: AppHttpClient,
     private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
     private val vodPlaybackNetworkGuard: VodPlaybackNetworkGuard,

@@ -8,11 +8,8 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import com.grid.tv.util.isTelevision
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class PictureInPictureController @Inject constructor() {
+class PictureInPictureController() {
     @Volatile
     var playbackActive: Boolean = false
         private set

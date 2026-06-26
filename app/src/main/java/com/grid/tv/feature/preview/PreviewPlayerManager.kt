@@ -6,20 +6,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.grid.tv.player.LivePlayerManager
 import com.grid.tv.player.PlaybackOrchestrator
 import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Channel-browser preview facade — delegates to [LivePlayerManager] MINI mode (single ExoPlayer stack).
  */
-@Singleton
-class PreviewPlayerManager @Inject constructor(
+class PreviewPlayerManager(
     private val livePlayerManager: LivePlayerManager,
     private val playbackOrchestrator: PlaybackOrchestrator
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("PreviewPlayerManager")
-    }
 
     private var currentChannelId: Long? = null
 

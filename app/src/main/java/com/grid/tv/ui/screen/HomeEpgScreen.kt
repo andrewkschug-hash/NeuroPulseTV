@@ -34,10 +34,14 @@ import com.grid.tv.feature.startup.StartupTierPolicy
 import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
+import com.grid.tv.ui.component.GuideChannelGroupsPanel
 import com.grid.tv.ui.component.GuideNavDrawer
+import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
+import com.grid.tv.ui.component.ProfileMenuDropdown
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.quitAppToHome
 import com.grid.tv.ui.viewmodel.EpgGuidePosition
 import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.util.PerformanceAudit
@@ -46,7 +50,7 @@ import com.grid.tv.ui.viewmodel.SearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 
-internal enum class EpgFocusZone { NAV_DRAWER, CONTINUE_WATCHING, PREVIEW, GRID }
+internal enum class EpgFocusZone { NAV_DRAWER, CHANNEL_GROUPS, CONTINUE_WATCHING, PREVIEW, GRID }
 
 internal enum class GuideSubScreen { Search, Groups }
 
@@ -66,6 +70,7 @@ internal fun epgZoneAbove(
         else -> null
     }
     EpgFocusZone.CONTINUE_WATCHING -> null
+    EpgFocusZone.CHANNEL_GROUPS -> null
     EpgFocusZone.NAV_DRAWER -> null
 }
 
@@ -81,8 +86,14 @@ internal fun epgZoneBelow(
     }
     EpgFocusZone.PREVIEW -> EpgFocusZone.GRID
     EpgFocusZone.GRID -> null
+    EpgFocusZone.CHANNEL_GROUPS -> null
     EpgFocusZone.NAV_DRAWER -> null
 }
+
+internal fun isLiveViewLayoutActive(
+    selectedTab: EpgNavTab,
+    guideSubScreen: GuideSubScreen?,
+): Boolean = selectedTab == EpgNavTab.Guide && guideSubScreen == null
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -245,6 +256,7 @@ fun HomeEpgScreen(
     val gridFocusRequester = remember { FocusRequester() }
     val gridFilterFocusRequester = remember { FocusRequester() }
     val navDrawerFocusRequester = remember { FocusRequester() }
+    val channelGroupsPanelFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
@@ -453,6 +465,8 @@ fun HomeEpgScreen(
         gridFocusRequester = gridFocusRequester,
         gridFilterFocusRequester = gridFilterFocusRequester,
         navDrawerFocusRequester = navDrawerFocusRequester,
+        channelGroupsPanelFocusRequester = channelGroupsPanelFocusRequester,
+        channelGroups = channelGroups,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
         previewFocusRequester = previewFocusRequester,
         previewChannel = previewChannel,
@@ -523,15 +537,48 @@ fun HomeEpgScreen(
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
             if (ui.guideSubScreen == null) {
+                val liveViewActive = isLiveViewLayoutActive(ui.selectedTab, ui.guideSubScreen)
                 GuideNavDrawer(
-                    expanded = ui.navDrawerOpen,
                     focusedIndex = ui.navDrawerFocusIndex,
                     drawerFocusRequester = navDrawerFocusRequester,
+                    profileInitials = profileInitials,
+                    profileAvatarColor = profileAvatarColor,
+                    profileFocused = ui.profileMenuOpen,
+                    onProfileClick = {
+                        ui.profileMenuOpen = true
+                        ui.profileMenuFocusIndex = 0
+                    },
                     onItemFocused = { ui.navDrawerFocusIndex = it },
                     onItemSelected = controller::selectDrawerItem,
-                    onExpandRequest = controller::openNavDrawer,
-                    onPreviewKey = controller::handleNavDrawerKey
+                    onPreviewKey = controller::handleNavDrawerKey,
+                    liveViewActive = liveViewActive,
+                    selectedItem = when {
+                        ui.selectedTab == EpgNavTab.Favorites -> GuideNavDrawerItem.Favorites
+                        ui.selectedTab == EpgNavTab.Vod -> GuideNavDrawerItem.Vod
+                        else -> null
+                    }
                 )
+                if (liveViewActive && channelGroups.isNotEmpty()) {
+                    GuideChannelGroupsPanel(
+                        channelGroups = channelGroups,
+                        selectedGroups = guideFilter.selectedGroups,
+                        expandedCategories = ui.channelGroupsExpandedCategories.ifEmpty {
+                            expandedCategoriesForSelection(guideGroupCategories, guideFilter.selectedGroups)
+                        },
+                        groupChannelCounts = groupChannelCounts,
+                        focusedIndex = ui.channelGroupsFocusIndex,
+                        panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
+                        panelFocusRequester = channelGroupsPanelFocusRequester,
+                        onFocusedIndexChange = { ui.channelGroupsFocusIndex = it },
+                        onPreviewKey = controller::handleChannelGroupsKey,
+                        onFilterChange = { filter ->
+                            viewModel.setGuideFilter(filter, markConfigured = true)
+                            ui.focusChannelIndex = 0
+                            ui.hasRequestedInitialGridFocus = false
+                        },
+                        onToggleCategory = controller::handleChannelGroupsCategoryToggle
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -599,6 +646,24 @@ fun HomeEpgScreen(
             favoriteGroups = favoriteGroups,
             favoriteSavedMessage = favoriteSavedMessage,
             recordingViewModel = recordingViewModel,
+        )
+
+        ProfileMenuDropdown(
+            expanded = ui.profileMenuOpen,
+            focusedIndex = ui.profileMenuFocusIndex,
+            profileDisplayName = profileDisplayName,
+            onDismiss = { ui.profileMenuOpen = false },
+            onSwitchAccounts = {
+                ui.profileMenuOpen = false
+                onNavigateProfile()
+            },
+            onOpenSettings = {
+                ui.profileMenuOpen = false
+                onNavigateSettings()
+            },
+            onQuitApp = { context.quitAppToHome() },
+            showSwitchAccounts = false,
+            anchorFromSidebar = true
         )
     }
 }

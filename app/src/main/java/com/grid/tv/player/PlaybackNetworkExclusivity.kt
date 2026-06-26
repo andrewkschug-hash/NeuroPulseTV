@@ -1,7 +1,5 @@
 package com.grid.tv.player
 
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Ensures live playback is not competing with channel scanning, HEAD preflight probes,
@@ -9,8 +7,7 @@ import javax.inject.Singleton
  *
  * Stream registration is synchronous and lightweight; scanner suspension is deferred.
  */
-@Singleton
-class PlaybackNetworkExclusivity @Inject constructor(
+class PlaybackNetworkExclusivity(
     private val playbackScannerIsolation: PlaybackScannerIsolation
 ) {
     private val lock = Any()

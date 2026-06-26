@@ -200,26 +200,6 @@ internal fun HomeEpgScreenMainColumn(
             activeRecordingTitle = activeRecordingTitle,
             recordingHealth = recordingHealth ?: RecordingHealth.RECORDING,
             onRecordingIndicatorClick = onNavigateRecordings,
-            profileInitials = profileInitials,
-            profileAvatarColor = profileAvatarColor,
-            profileDisplayName = profileDisplayName,
-            profileFocused = ui.profileMenuOpen,
-            profileMenuExpanded = ui.profileMenuOpen,
-            profileMenuFocusIndex = ui.profileMenuFocusIndex,
-            onProfileClick = {
-                ui.profileMenuOpen = true
-                ui.profileMenuFocusIndex = 0
-            },
-            onProfileMenuDismiss = { ui.profileMenuOpen = false },
-            onSwitchAccounts = {
-                ui.profileMenuOpen = false
-                onNavigateProfile()
-            },
-            onOpenSettings = {
-                ui.profileMenuOpen = false
-                onNavigateSettings()
-            },
-            onQuitApp = { context.quitAppToHome() }
         )
 
         if (profileAccessMessage != null) {
@@ -262,7 +242,7 @@ internal fun HomeEpgScreenMainColumn(
             gridFilterFocusRequester = deps.gridFilterFocusRequester,
             previewFocusRequester = deps.previewFocusRequester,
             continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-            topNavFocusRequester = deps.navDrawerFocusRequester,
+            topNavFocusRequester = deps.channelGroupsPanelFocusRequester,
             showPreviewSection = deps.showPreviewSection,
             hasContinueWatching = deps.hasContinueWatching,
             onOpenCategoryFilter = { controller.openNavDrawer() },
@@ -1178,6 +1158,7 @@ private fun EpgChannelTimelineRow(
                 isFocused = isFocused,
                 isSelected = isSelected,
                 windowDurationMs = windowDurationMs,
+                windowStart = windowStart,
                 canReplay = replayState.canReplay,
                 isFuture = replayState.timeState == com.grid.tv.ui.component.ProgramTimeState.FUTURE,
                 onClick = if (touchGesturesEnabled) {

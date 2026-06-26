@@ -35,6 +35,7 @@ import com.grid.tv.util.TvTextInputSession
 import com.grid.tv.util.isTelevision
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import dagger.Lazy
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -44,7 +45,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     @Inject lateinit var micSearchTrigger: MicSearchTrigger
     @Inject lateinit var themeManager: ThemeManager
-    @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
+    @Inject lateinit var appPlayerLifecycle: Lazy<AppPlayerLifecycleCoordinator>
     @Inject lateinit var startupSafety: StartupSafety
 
     init {
@@ -183,19 +184,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        appPlayerLifecycle.onActivityStarted(this)
+        StartupDependencyProbe.beginPlaybackGraph("MainActivity.onStart")
+        try {
+            appPlayerLifecycle.get().onActivityStarted(this)
+        } finally {
+            StartupDependencyProbe.endPlaybackGraph()
+        }
     }
 
     override fun onStop() {
         if (!isChangingConfigurations) {
-            appPlayerLifecycle.onActivityStopped(this)
+            appPlayerLifecycle.get().onActivityStopped(this)
         }
         super.onStop()
     }
 
     override fun onDestroy() {
         if (isFinishing) {
-            appPlayerLifecycle.onActivityDestroyFinishing(applicationContext)
+            appPlayerLifecycle.get().onActivityDestroyFinishing(applicationContext)
         }
         super.onDestroy()
     }

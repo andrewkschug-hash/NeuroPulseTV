@@ -1,14 +1,11 @@
 package com.grid.tv.player
 
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * VOD-only playback network isolation. URL registration is immediate; scanner suspension
  * is deferred so ExoPlayer can start its first request without waiting on scan teardown.
  */
-@Singleton
-class VodPlaybackNetworkGuard @Inject constructor(
+class VodPlaybackNetworkGuard(
     private val liveNetworkExclusivity: PlaybackNetworkExclusivity,
     private val playbackScannerIsolation: PlaybackScannerIsolation
 ) {

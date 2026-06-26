@@ -3,8 +3,6 @@ package com.grid.tv.player
 import android.content.Context
 import android.util.Log
 import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -15,15 +13,11 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * Priority (highest first): LIVE_FULLSCREEN > VOD > SPLIT_VIEW / MULTIVIEW > PREVIEW > LIVE_GUIDE
  */
-@Singleton
-class PlaybackOrchestrator @Inject constructor(
+class PlaybackOrchestrator(
     private val livePlayerManager: LivePlayerManager,
     private val decoderPressureTracker: DecoderPressureTracker,
     private val multiPanePlaybackPool: MultiPanePlaybackPool
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("PlaybackOrchestrator")
-    }
 
     enum class PlaybackSession {
         NONE,

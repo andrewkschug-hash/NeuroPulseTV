@@ -12,15 +12,12 @@ import com.grid.tv.player.PlaybackNetworkCoordinator
 import android.util.Log
 import com.grid.tv.util.MediaAttribution
 import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Shared ExoPlayer pool for Split View and MultiView (max 4 pane slots).
  * Owned by [PlaybackOrchestrator]; released on session exit and background teardown.
  */
-@Singleton
-class MultiPanePlaybackPool @Inject constructor(
+class MultiPanePlaybackPool(
     private val playerFactory: PlayerFactory,
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val streamFormatProber: IptvStreamFormatProber,
@@ -30,9 +27,6 @@ class MultiPanePlaybackPool @Inject constructor(
     private val playbackNetworkExclusivity: PlaybackNetworkExclusivity,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("MultiPanePlaybackPool")
-    }
 
     private val players = mutableMapOf<Int, ExoPlayer>()
     private val paneStreamUrls = mutableMapOf<Int, String>()

@@ -58,6 +58,9 @@ import com.grid.tv.ui.component.EpgGuideHeader
 import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.GuideNavDrawerItems
+import com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex
+import com.grid.tv.ui.component.ProfileMenuDropdown
+import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
 import com.grid.tv.ui.component.MovieDetailOverlay
 import com.grid.tv.ui.component.NetflixContentWallRow
 import com.grid.tv.ui.component.resolveMovieOverview
@@ -66,6 +69,11 @@ import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodContentFilterTabBar
+import com.grid.tv.ui.component.VodPosterFocusLayout
+import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
+import com.grid.tv.ui.component.VodHubTabFilters
+import com.grid.tv.ui.component.vodHubTabFilterIndex
+import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogOnboardingPanel
@@ -113,8 +121,6 @@ private enum class VodFocusZone {
     CONTENT
 }
 
-private const val LanguageFilterFocusIndex = 4
-
 private val vodManualFocusZones = setOf(
     VodFocusZone.NAV_DRAWER,
     VodFocusZone.FILTER_PANEL,
@@ -152,7 +158,7 @@ fun VodHubScreen(
     var focusZone by remember { mutableStateOf(VodFocusZone.FILTER_PANEL) }
     var navDrawerOpen by remember { mutableStateOf(false) }
     var navDrawerFocusIndex by remember {
-        mutableIntStateOf(GuideNavDrawerItems.indexOf(GuideNavDrawerItem.Vod).coerceAtLeast(0))
+        mutableIntStateOf(guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod))
     }
     var filterFocusIndex by remember { mutableIntStateOf(0) }
     var contentRowIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -286,6 +292,7 @@ fun VodHubScreen(
     val showBrowseGrid = searchQuery.isNotBlank() ||
         contentFilter == VodContentFilter.MOVIES ||
         contentFilter == VodContentFilter.SERIES
+    val showHeroIsland = contentFilter == VodContentFilter.ALL && searchQuery.isBlank() && !showBrowseGrid
     val requestHeroPlayFocus = focusZone == VodFocusZone.HERO &&
         hasHero &&
         searchQuery.isBlank() &&
@@ -296,6 +303,12 @@ fun VodHubScreen(
     val density = LocalDensity.current
     val heroExpandedPx = with(density) { VodHubFoldMetrics.HeroExpandedHeight.toPx() }
     val vodFoldScroller = rememberVodHubFoldScroller(columnListState, heroExpandedPx)
+    val vodWallScrollSafePaddingPx = remember(density) {
+        with(density) { 40.dp.roundToPx() }
+    }
+    val vodWallRowHeightPx = remember(density) {
+        with(density) { VodPosterFocusLayout.estimatedWallRowHeight.roundToPx() }
+    }
 
     LaunchedEffect(initialTab) {
         hubViewModel.setContentFilter(
@@ -358,6 +371,8 @@ fun VodHubScreen(
 
     val showVodOnboarding = contentFilter != VodContentFilter.SEARCH &&
         rememberVodCatalogOnboardingVisible(onboardingInputs)
+    val showVodOnboardingFull = showVodOnboarding && wallRows.isEmpty()
+    val showVodOnboardingStrip = showVodOnboarding && wallRows.isNotEmpty() && !showVodOnboardingFull
 
     fun syncFocusedWallItemKey() {
         val key = wallRows.getOrNull(contentRowIndex)?.items?.getOrNull(contentColIndex)?.key
@@ -403,17 +418,24 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(focusZone, contentRowIndex, hasHero, showBrowseGrid, searchQuery, wallRows.size, showInlineSearch) {
+    LaunchedEffect(focusZone, contentRowIndex, showHeroIsland, showBrowseGrid, searchQuery, wallRows.size, showInlineSearch) {
         if (searchQuery.isNotBlank() || showBrowseGrid || showInlineSearch) return@LaunchedEffect
         when (focusZone) {
             VodFocusZone.HERO -> {
-                columnListState.animateScrollVodWallRowIntoView(0, TvLazyFocusScrollDirection.UP)
+                columnListState.animateScrollVodWallRowIntoView(
+                    index = 0,
+                    direction = TvLazyFocusScrollDirection.UP,
+                    safePaddingPx = vodWallScrollSafePaddingPx,
+                    fallbackItemHeightPx = vodWallRowHeightPx
+                )
             }
             VodFocusZone.CONTENT -> {
-                val heroOffset = if (hasHero) 1 else 0
+                val heroOffset = if (showHeroIsland) 1 else 0
                 columnListState.animateScrollVodWallRowIntoView(
                     index = (contentRowIndex + heroOffset).coerceAtLeast(0),
-                    direction = contentScrollDirection
+                    direction = contentScrollDirection,
+                    safePaddingPx = vodWallScrollSafePaddingPx,
+                    fallbackItemHeightPx = vodWallRowHeightPx
                 )
             }
             VodFocusZone.FILTER_PANEL, VodFocusZone.NAV_DRAWER -> {
@@ -530,7 +552,7 @@ fun VodHubScreen(
 
     fun focusFilterPanelFromGenre() {
         focusZone = VodFocusZone.FILTER_PANEL
-        filterFocusIndex = VodContentFilter.entries.indexOf(contentFilter).coerceAtLeast(0)
+        filterFocusIndex = vodHubTabFilterIndex(contentFilter)
     }
 
     fun focusBrowseGridFromSidebar() {
@@ -595,7 +617,7 @@ fun VodHubScreen(
                 closeNavDrawer(restoreFilter = false)
                 openGlobalSearch()
             }
-            GuideNavDrawerItem.ChannelGroups -> {
+            GuideNavDrawerItem.LiveView -> {
                 closeNavDrawer(restoreFilter = false)
                 onNavigateHome()
             }
@@ -604,50 +626,58 @@ fun VodHubScreen(
                 closeNavDrawer(restoreFilter = false)
                 onOpenFavorites()
             }
-            GuideNavDrawerItem.RecentChannels -> {
-                closeNavDrawer(restoreFilter = false)
-                onNavigateHome()
-            }
             GuideNavDrawerItem.Recordings -> {
                 closeNavDrawer(restoreFilter = false)
                 onNavigateRecordings()
-            }
-            GuideNavDrawerItem.MultiView -> {
-                closeNavDrawer(restoreFilter = false)
-                onNavigateHome()
-            }
-            GuideNavDrawerItem.Settings -> {
-                closeNavDrawer(restoreFilter = false)
-                onNavigateSettings()
             }
         }
     }
 
     fun handleNavDrawerKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
+        if (profileMenuOpen) {
+            return when (event.key) {
+                Key.Back, Key.Escape -> {
+                    profileMenuOpen = false
+                    true
+                }
+                else -> false
+            }
+        }
+        val lastIndex = GuideNavDrawerItems.size
         return when (event.key) {
             Key.Back, Key.Escape -> {
                 closeNavDrawer()
                 true
             }
             Key.DirectionRight -> {
-                closeNavDrawer()
+                if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
+                } else {
+                    closeNavDrawer()
+                }
                 true
             }
             Key.DirectionDown -> {
-                if (navDrawerFocusIndex < GuideNavDrawerItems.lastIndex) {
+                if (navDrawerFocusIndex < lastIndex) {
                     navDrawerFocusIndex += 1
                 }
                 true
             }
             Key.DirectionUp -> {
-                if (navDrawerFocusIndex > 0) {
+                if (navDrawerFocusIndex > GuideNavDrawerProfileFocusIndex) {
                     navDrawerFocusIndex -= 1
                 }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                selectVodDrawerItem(GuideNavDrawerItems[navDrawerFocusIndex])
+                if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
+                } else {
+                    selectVodDrawerItem(GuideNavDrawerItems[navDrawerFocusIndex - 1])
+                }
                 true
             }
             else -> false
@@ -715,7 +745,7 @@ fun VodHubScreen(
         vodSearchFocused = false
         if (contentFilter == VodContentFilter.SEARCH) {
             hubViewModel.setContentFilter(VodContentFilter.ALL)
-            filterFocusIndex = VodContentFilter.entries.indexOf(VodContentFilter.ALL)
+            filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.ALL)
         }
         focusZone = VodFocusZone.FILTER_PANEL
     }
@@ -740,11 +770,11 @@ fun VodHubScreen(
     }
 
     fun applyContentFilter(index: Int) {
-        if (index == LanguageFilterFocusIndex) {
+        if (index == VodHubLanguageFilterFocusIndex) {
             openLanguagePreferenceDialog()
             return
         }
-        val filter = VodContentFilter.entries.getOrNull(index) ?: VodContentFilter.ALL
+        val filter = VodHubTabFilters.getOrNull(index) ?: VodContentFilter.ALL
         if (filter != VodContentFilter.SEARCH && contentFilter == VodContentFilter.SEARCH) {
             hubViewModel.setSearchQuery("")
             vodSearchFocused = false
@@ -836,7 +866,7 @@ fun VodHubScreen(
                         VodFocusZone.FILTER_PANEL
                     }
                     if (!showGenrePanel) {
-                        filterFocusIndex = VodContentFilter.entries.indexOf(contentFilter).coerceAtLeast(0)
+                        filterFocusIndex = vodHubTabFilterIndex(contentFilter)
                     }
                 } else {
                     browseGridFocusIndex -= 1
@@ -907,9 +937,50 @@ fun VodHubScreen(
             ?: show.genre?.takeIf { it.isNotBlank() }
     }
 
+    fun openContinueWatchingDetail(item: ContinueWatchingItem) {
+        when (item.contentType) {
+            ContinueWatchingContentType.MOVIE -> {
+                scope.launch {
+                    val movie = item.streamId?.let { streamId ->
+                        moviesViewModel.resolveMovie(item.playlistId, streamId)
+                    } ?: VodItem(
+                        id = 0L,
+                        title = item.title,
+                        streamId = item.streamId ?: 0L,
+                        streamUrl = item.streamUrl,
+                        posterUrl = item.posterUrl,
+                        plot = null,
+                        cast = null,
+                        director = null,
+                        genre = null,
+                        rating = null,
+                        duration = null,
+                        playlistId = item.playlistId
+                    )
+                    openMovieDetail(movie)
+                }
+            }
+            ContinueWatchingContentType.SERIES -> {
+                item.seriesId?.let { seriesId ->
+                    seriesViewModel.selectShow(
+                        showId = seriesId,
+                        playlistId = item.playlistId,
+                        preferredSeason = item.seasonNumber,
+                        preview = SeriesShow(
+                            id = seriesId,
+                            name = item.title,
+                            coverUrl = item.posterUrl,
+                            playlistId = item.playlistId
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     fun activateWallItem(item: VodWallItem) {
         when (item) {
-            is VodWallItem.ContinueItem -> resumeItem(item.item)
+            is VodWallItem.ContinueItem -> openContinueWatchingDetail(item.item)
             is VodWallItem.MovieItem -> openMovieDetail(item.movie)
             is VodWallItem.SeriesItem -> seriesViewModel.selectShow(
                 item.show.id,
@@ -934,7 +1005,7 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionRight -> {
-                if (filterFocusIndex < LanguageFilterFocusIndex) {
+                if (filterFocusIndex < VodHubLanguageFilterFocusIndex) {
                     filterFocusIndex += 1
                 } else {
                     when {
@@ -1105,7 +1176,7 @@ fun VodHubScreen(
                     contentColIndex -= 1
                 } else {
                     focusZone = VodFocusZone.FILTER_PANEL
-                    filterFocusIndex = VodContentFilter.entries.indexOf(contentFilter).coerceAtLeast(0)
+                    filterFocusIndex = vodHubTabFilterIndex(contentFilter)
                 }
                 true
             }
@@ -1283,12 +1354,17 @@ fun VodHubScreen(
                 )
         ) {
             GuideNavDrawer(
-                expanded = navDrawerOpen,
                 focusedIndex = navDrawerFocusIndex,
                 drawerFocusRequester = navDrawerFocusRequester,
+                profileInitials = profileInitials,
+                profileAvatarColor = profileAvatarColor,
+                profileFocused = profileMenuOpen,
+                onProfileClick = {
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
+                },
                 onItemFocused = { navDrawerFocusIndex = it },
                 onItemSelected = ::selectVodDrawerItem,
-                onExpandRequest = ::openNavDrawer,
                 onPreviewKey = ::handleNavDrawerKey,
                 selectedItem = GuideNavDrawerItem.Vod
             )
@@ -1298,26 +1374,6 @@ fun VodHubScreen(
                     .fillMaxHeight()
             ) {
             EpgGuideHeader(
-                profileInitials = profileInitials,
-                profileAvatarColor = profileAvatarColor,
-                profileDisplayName = profileDisplayName,
-                profileFocused = profileMenuOpen,
-                profileMenuExpanded = profileMenuOpen,
-                profileMenuFocusIndex = profileMenuFocusIndex,
-                onProfileClick = {
-                    profileMenuOpen = true
-                    profileMenuFocusIndex = 0
-                },
-                onSwitchAccounts = {
-                    profileMenuOpen = false
-                    onNavigateProfile()
-                },
-                onOpenSettings = {
-                    profileMenuOpen = false
-                    onNavigateSettings()
-                },
-                onQuitApp = { context.quitAppToHome() },
-                onProfileMenuDismiss = { profileMenuOpen = false },
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
                 onRecordingIndicatorClick = onNavigateRecordings,
@@ -1326,14 +1382,14 @@ fun VodHubScreen(
 
             VodContentFilterTabBar(
                 selectedFilter = contentFilter,
-                focusedFilter = VodContentFilter.entries.getOrNull(filterFocusIndex) ?: contentFilter,
+                focusedFilter = VodHubTabFilters.getOrNull(filterFocusIndex) ?: contentFilter,
                 barFocused = focusZone == VodFocusZone.FILTER_PANEL,
                 languageFilterActive = languageFilterActive,
                 languageFilterFocused = focusZone == VodFocusZone.FILTER_PANEL &&
-                    filterFocusIndex == LanguageFilterFocusIndex,
+                    filterFocusIndex == VodHubLanguageFilterFocusIndex,
                 onLanguageFilterClick = ::openLanguagePreferenceDialog,
                 onFilterSelected = { filter ->
-                    applyContentFilter(VodContentFilter.entries.indexOf(filter).coerceAtLeast(0))
+                    applyContentFilter(vodHubTabFilterIndex(filter))
                 }
             )
 
@@ -1348,7 +1404,7 @@ fun VodHubScreen(
                         }
                     )
             ) {
-                if (showGenrePanel && !showInlineSearch && !showVodOnboarding) {
+                if (showGenrePanel && !showInlineSearch && !showVodOnboardingFull) {
                     VodGenreSidePanel(
                         genres = genreLabels,
                         selectedIndex = selectedGenreIndex,
@@ -1369,7 +1425,7 @@ fun VodHubScreen(
                         .padding(top = 4.dp)
                 ) {
                     when {
-                        showVodOnboarding -> {
+                        showVodOnboardingFull -> {
                             VodCatalogOnboardingPanel(
                                 progress = catalogProgress,
                                 onboardingInputs = onboardingInputs,
@@ -1481,13 +1537,26 @@ fun VodHubScreen(
                             }
                         }
                         else -> {
-                            val showHero = !showBrowseGrid && searchQuery.isBlank() && hasHero
-                            LazyColumn(
+                            val showHero = showHeroIsland
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                if (showVodOnboardingStrip) {
+                                    VodCatalogOnboardingPanel(
+                                        progress = catalogProgress,
+                                        onboardingInputs = onboardingInputs,
+                                        compact = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                LazyColumn(
                                 state = columnListState,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth(),
-                                contentPadding = PaddingValues(bottom = 48.dp, top = 4.dp)
+                                contentPadding = PaddingValues(bottom = 64.dp, top = 4.dp)
                             ) {
                                 if (showHero) {
                                     item(key = "vod_hero") {
@@ -1524,19 +1593,6 @@ fun VodHubScreen(
                                     val rowListState = remember(row.id) { LazyListState() }
                                     val rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index
                                     val focusedColumn = if (rowFocused) contentColIndex else -1
-                                    val focusedRecommendationMovie = if (
-                                        row.id == "recommended" &&
-                                        rowFocused &&
-                                        focusedColumn in row.items.indices
-                                    ) {
-                                        (row.items[focusedColumn] as? com.grid.tv.domain.model.VodWallItem.MovieItem)?.movie
-                                    } else {
-                                        null
-                                    }
-                                    val recommendationVote = focusedRecommendationMovie?.let { movie ->
-                                        recommendationFeedbackRevision
-                                        hubViewModel.recommendationVoteFor(movie)
-                                    }
                                     NetflixContentWallRow(
                                         row = row,
                                         rowIndex = index,
@@ -1550,13 +1606,10 @@ fun VodHubScreen(
                                         overviewForMovie = ::overviewForMovie,
                                         overviewForSeries = ::overviewForSeries,
                                         onActivateItem = ::activateWallItem,
-                                        firstItemFocusRequester = if (index == 0) contentFocusRequester else null,
-                                        recommendationVote = recommendationVote,
-                                        onRecommendationVote = focusedRecommendationMovie?.let { movie ->
-                                            { vote -> hubViewModel.voteRecommendation(movie, vote) }
-                                        }
+                                        firstItemFocusRequester = if (index == 0) contentFocusRequester else null
                                     )
                                 }
+                            }
                             }
                         }
                     }
@@ -1567,6 +1620,8 @@ fun VodHubScreen(
 
         selectedMovie?.let { movie ->
             val enrichment = hubViewModel.enrichmentFor(movie, enrichmentMap)
+            recommendationFeedbackRevision
+            val movieVote = hubViewModel.recommendationVoteFor(movie)
             LaunchedEffect(movie.streamId) {
                 hubViewModel.enrichOnBrowse(movie)
                 hubViewModel.awaitEnrichment(movie)
@@ -1586,7 +1641,9 @@ fun VodHubScreen(
                 ),
                 onWatchNow = ::watchSelectedMovie,
                 onBack = ::closeMovieDetail,
-                watchFocusRequester = movieWatchFocusRequester
+                watchFocusRequester = movieWatchFocusRequester,
+                recommendationVote = movieVote,
+                onRecommendationVote = { vote -> hubViewModel.voteRecommendation(movie, vote) }
             )
         }
 
@@ -1636,5 +1693,23 @@ fun VodHubScreen(
                 onClearHistory = searchViewModel::clearRecentHistory
             )
         }
+
+        ProfileMenuDropdown(
+            expanded = profileMenuOpen,
+            focusedIndex = profileMenuFocusIndex,
+            profileDisplayName = profileDisplayName,
+            onDismiss = { profileMenuOpen = false },
+            onSwitchAccounts = {
+                profileMenuOpen = false
+                onNavigateProfile()
+            },
+            onOpenSettings = {
+                profileMenuOpen = false
+                onNavigateSettings()
+            },
+            onQuitApp = { context.quitAppToHome() },
+            showSwitchAccounts = false,
+            anchorFromSidebar = true
+        )
     }
 }

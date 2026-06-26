@@ -8,9 +8,6 @@ import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.allStreamUrls
 import com.grid.tv.domain.model.sourceIdForUrl
-import com.grid.tv.feature.startup.StartupDependencyProbe
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,17 +41,13 @@ enum class PlaybackFailureCategory {
  * Automatic stream failover: reconnect → alternate URLs, bounded by [AppSettings.streamRetries].
  * Monitors errors, stalls, excessive buffering, and tune timeouts.
  */
-@Singleton
-class StreamFailoverController @Inject constructor(
+class StreamFailoverController(
     private val analytics: StreamFailoverAnalytics,
     private val playbackMetrics: PlaybackMetricsLogger,
     private val playbackTelemetry: PlaybackTelemetryCollector,
     private val healthAggregator: com.grid.tv.feature.health.intelligence.StreamHealthAggregator,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator
 ) {
-    init {
-        StartupDependencyProbe.traceInjectedInit("StreamFailoverController")
-    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 

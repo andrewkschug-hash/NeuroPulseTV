@@ -34,5 +34,8 @@ object EpgColors {
     val FocusBorder: Color get() = palette.focusBorder
     val SelectedFill: Color get() = palette.selectedFill
 
+    val SidebarRailBg: Color get() = Color(0xFF101018)
+    val SidebarPanelBg: Color get() = palette.detailPanelBg
+
     val TextDimmedStatic: Color get() = palette.textDimmed
 }

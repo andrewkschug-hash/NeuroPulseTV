@@ -11,6 +11,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import javax.inject.Provider
 
 class PlaybackNetworkCoordinatorTest {
 
@@ -31,7 +32,7 @@ class PlaybackNetworkCoordinatorTest {
         every { appHttpClient.cancelInFlightPlaybackRequests() } returns 0
         every { appHttpClient.cancelInFlightProbeRequests() } returns 0
         channelScanner = mockk(relaxed = true)
-        scannerIsolation = PlaybackScannerIsolation(channelScanner).apply {
+        scannerIsolation = PlaybackScannerIsolation(Provider { channelScanner }).apply {
             executorOverride = PlaybackScannerIsolation.QueuedTestExecutor()
         }
         liveExclusivity = PlaybackNetworkExclusivity(scannerIsolation)

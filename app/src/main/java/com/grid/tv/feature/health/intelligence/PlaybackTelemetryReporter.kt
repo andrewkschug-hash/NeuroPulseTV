@@ -2,14 +2,11 @@ package com.grid.tv.feature.health.intelligence
 
 import android.util.Log
 import com.grid.tv.player.LowEndDeviceMode
-import javax.inject.Inject
-import javax.inject.Singleton
 
 /**
  * Structured logcat output when playback sessions complete.
  */
-@Singleton
-class PlaybackTelemetryReporter @Inject constructor(
+class PlaybackTelemetryReporter(
     private val scoringEngine: StreamHealthScoringEngine
 ) {
     fun logSessionCompleted(record: PlaybackSessionRecord) {

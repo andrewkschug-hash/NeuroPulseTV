@@ -2,8 +2,6 @@ package com.grid.tv.player
 
 import com.grid.tv.data.network.AppHttpClient
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -13,8 +11,7 @@ import okhttp3.Request
  *
  * Live: UNKNOWN is fatal. VOD sniff returns raw detection; final override is applied in [VodStreamResolver].
  */
-@Singleton
-class StreamTypePreflightSniffer @Inject constructor(
+class StreamTypePreflightSniffer(
     private val appHttpClient: AppHttpClient
 ) {
     private val client by lazy {

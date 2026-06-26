@@ -3,8 +3,6 @@ package com.grid.tv.player
 import android.util.Log
 import com.grid.tv.data.network.AppHttpClient
 import java.util.concurrent.TimeUnit
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -13,8 +11,7 @@ import okhttp3.Request
  * Runtime HEAD/manifest sniff at tune time for URLs with unknown format.
  * Populates [IptvStreamFormatRegistry] before ExoPlayer [prepare].
  */
-@Singleton
-class IptvStreamFormatProber @Inject constructor(
+class IptvStreamFormatProber(
     private val appHttpClient: AppHttpClient,
     private val registry: IptvStreamFormatRegistry,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator

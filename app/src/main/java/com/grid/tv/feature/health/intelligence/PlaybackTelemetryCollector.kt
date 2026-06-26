@@ -1,7 +1,5 @@
 package com.grid.tv.feature.health.intelligence
 
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -9,8 +7,7 @@ import kotlinx.coroutines.sync.withLock
  * Collects playback session telemetry from the player layer.
  * Call [beginSession] when tuning begins and [endSession] when playback stops or errors.
  */
-@Singleton
-class PlaybackTelemetryCollector @Inject constructor(
+class PlaybackTelemetryCollector(
     private val aggregator: StreamHealthAggregator,
     private val reporter: PlaybackTelemetryReporter
 ) {

@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.tv.material3.ClickableSurfaceDefaults
-import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
@@ -41,18 +40,24 @@ fun ProfileMenuDropdown(
     onQuitApp: () -> Unit,
     modifier: Modifier = Modifier,
     profileDisplayName: String? = null,
-    @Suppress("UNUSED_PARAMETER") focusedIndex: Int = 0
+    @Suppress("UNUSED_PARAMETER") focusedIndex: Int = 0,
+    showSwitchAccounts: Boolean = true,
+    anchorFromSidebar: Boolean = false,
 ) {
     if (!expanded) return
     Popup(
-        alignment = Alignment.TopEnd,
+        alignment = if (anchorFromSidebar) Alignment.TopStart else Alignment.TopEnd,
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)
     ) {
         Column(
             modifier = modifier
                 .width(MenuWidth)
-                .padding(top = EpgLayout.TopBarHeight + 4.dp, end = 16.dp)
+                .padding(
+                    top = if (anchorFromSidebar) 12.dp else EpgLayout.TopBarHeight + 4.dp,
+                    start = if (anchorFromSidebar) GuideNavDrawerCollapsedWidth + 4.dp else 0.dp,
+                    end = if (anchorFromSidebar) 0.dp else 16.dp
+                )
                 .background(MenuBg, MenuShape)
                 .border(1.dp, EpgColors.BorderSubtle, MenuShape)
                 .padding(vertical = 4.dp)
@@ -69,13 +74,15 @@ fun ProfileMenuDropdown(
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 )
             }
-            ProfileMenuDropdownItem(
-                label = "Switch accounts",
-                onClick = {
-                    onDismiss()
-                    onSwitchAccounts()
-                }
-            )
+            if (showSwitchAccounts) {
+                ProfileMenuDropdownItem(
+                    label = "Switch accounts",
+                    onClick = {
+                        onDismiss()
+                        onSwitchAccounts()
+                    }
+                )
+            }
             ProfileMenuDropdownItem(
                 label = "Settings",
                 onClick = {

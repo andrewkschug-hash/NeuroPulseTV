@@ -12,11 +12,8 @@ import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.StreamSourceHealthEntity
 import com.grid.tv.domain.model.allStreamUrls
 import com.grid.tv.domain.model.orderStreamUrlsByHealthScores
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class StreamHealthAggregator @Inject constructor(
+class StreamHealthAggregator(
     private val telemetryDao: PlaybackSessionTelemetryDao,
     private val streamSourceHealthDao: StreamSourceHealthDao,
     private val channelHealthDao: ChannelHealthAggregateDao,

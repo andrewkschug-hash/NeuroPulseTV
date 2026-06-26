@@ -9,8 +9,6 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import com.grid.tv.util.PerformanceAudit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
-import javax.inject.Inject
-import javax.inject.Singleton
 
 enum class DecoderPressureLevel {
     NORMAL,
@@ -22,8 +20,7 @@ enum class DecoderPressureLevel {
  * Tracks concurrent ExoPlayer / MediaCodec sessions and PlayerView surface bindings.
  * Logs when Chromecast-class devices approach hardware decoder exhaustion.
  */
-@Singleton
-class DecoderPressureTracker @Inject constructor() {
+class DecoderPressureTracker() {
     private val profile = DeviceDecoderLimits.profile()
     private val lock = Any()
 

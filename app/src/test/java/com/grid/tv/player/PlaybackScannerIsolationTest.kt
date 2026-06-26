@@ -3,6 +3,7 @@ package com.grid.tv.player
 import com.grid.tv.feature.scanner.ChannelScanner
 import io.mockk.mockk
 import io.mockk.verify
+import javax.inject.Provider
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -15,7 +16,7 @@ class PlaybackScannerIsolationTest {
     @Before
     fun setUp() {
         channelScanner = mockk(relaxed = true)
-        isolation = PlaybackScannerIsolation(channelScanner).apply {
+        isolation = PlaybackScannerIsolation(Provider { channelScanner }).apply {
             executorOverride = PlaybackScannerIsolation.QueuedTestExecutor()
         }
     }

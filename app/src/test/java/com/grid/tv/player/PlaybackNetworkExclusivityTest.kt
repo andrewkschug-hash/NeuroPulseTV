@@ -3,6 +3,7 @@ package com.grid.tv.player
 import com.grid.tv.feature.scanner.ChannelScanner
 import io.mockk.mockk
 import io.mockk.verify
+import javax.inject.Provider
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -15,7 +16,7 @@ class PlaybackNetworkExclusivityTest {
     @Before
     fun setUp() {
         channelScanner = mockk(relaxed = true)
-        val isolation = PlaybackScannerIsolation(channelScanner).apply {
+        val isolation = PlaybackScannerIsolation(Provider { channelScanner }).apply {
             executorOverride = PlaybackScannerIsolation.QueuedTestExecutor()
         }
         exclusivity = PlaybackNetworkExclusivity(isolation)

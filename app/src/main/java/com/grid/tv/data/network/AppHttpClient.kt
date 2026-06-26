@@ -14,65 +14,87 @@ import okhttp3.logging.HttpLoggingInterceptor
 class AppHttpClient(
     private val startupNetworkGate: StartupNetworkGateInterceptor
 ) {
+    private val clientLock = Any()
+
     @Volatile
-    private var client: OkHttpClient = buildClient(AppSettings())
+    private var settingsSnapshot: AppSettings = AppSettings()
+
+    @Volatile
+    private var client: OkHttpClient? = null
 
     /** Long-running client for large XMLTV downloads (100MB+). */
     @Volatile
-    private var epgClient: OkHttpClient = buildEpgClient(AppSettings())
+    private var epgClient: OkHttpClient? = null
 
     /** Long-running client for large Xtream VOD/series catalog JSON. */
     @Volatile
-    private var vodClient: OkHttpClient = buildVodClient(AppSettings())
+    private var vodClient: OkHttpClient? = null
 
     /** Tight timeouts for Xtream get_short_epg viewport hydration — must not block the guide. */
     @Volatile
-    private var shortEpgClient: OkHttpClient = buildShortEpgClient(AppSettings())
+    private var shortEpgClient: OkHttpClient? = null
 
     /** Bounded-concurrency client for IPTV channel HEAD/range probes. */
     @Volatile
-    private var probeClient: OkHttpClient = buildProbeClient(AppSettings())
+    private var probeClient: OkHttpClient? = null
 
     /** Long-lived reads for live/VOD ExoPlayer streams — shares proxy, DNS, and connect timeout with AppHttpClient. */
     @Volatile
-    private var playbackClient: OkHttpClient = buildPlaybackClient(AppSettings())
+    private var playbackClient: OkHttpClient? = null
 
-    fun client(): OkHttpClient = client
+    fun client(): OkHttpClient = client ?: synchronized(clientLock) {
+        client ?: buildClient(settingsSnapshot).also { client = it }
+    }
 
-    fun probeClient(): OkHttpClient = probeClient
+    fun probeClient(): OkHttpClient = probeClient ?: synchronized(clientLock) {
+        probeClient ?: buildProbeClient(settingsSnapshot).also { probeClient = it }
+    }
 
-    fun epgClient(): OkHttpClient = epgClient
+    fun epgClient(): OkHttpClient = epgClient ?: synchronized(clientLock) {
+        epgClient ?: buildEpgClient(settingsSnapshot).also { epgClient = it }
+    }
 
     /** ExoPlayer stream segments — honors proxy, [IptvDns], and connection timeout from settings. */
-    fun playbackClient(): OkHttpClient = playbackClient
+    fun playbackClient(): OkHttpClient = playbackClient ?: synchronized(clientLock) {
+        playbackClient ?: buildPlaybackClient(settingsSnapshot).also { playbackClient = it }
+    }
 
     /** Large Xtream VOD/series catalog JSON can be tens of MB — use extended timeouts. */
-    fun vodClient(): OkHttpClient = vodClient
+    fun vodClient(): OkHttpClient = vodClient ?: synchronized(clientLock) {
+        vodClient ?: buildVodClient(settingsSnapshot).also { vodClient = it }
+    }
 
     /** Viewport get_short_epg — fail fast so Cloudflare 522s do not stall the guide. */
-    fun shortEpgClient(): OkHttpClient = shortEpgClient
+    fun shortEpgClient(): OkHttpClient = shortEpgClient ?: synchronized(clientLock) {
+        shortEpgClient ?: buildShortEpgClient(settingsSnapshot).also { shortEpgClient = it }
+    }
 
     /** Cancel in-flight playback HTTP so a new tune does not overlap with the previous stream. */
     fun cancelInFlightPlaybackRequests(): Int {
-        val inFlight = playbackClient.dispatcher.runningCallsCount()
-        playbackClient.dispatcher.cancelAll()
+        val playback = playbackClient ?: return 0
+        val inFlight = playback.dispatcher.runningCallsCount()
+        playback.dispatcher.cancelAll()
         return inFlight
     }
 
     /** Cancel in-flight channel HEAD/range probes during playback tune. */
     fun cancelInFlightProbeRequests(): Int {
-        val inFlight = probeClient.dispatcher.runningCallsCount()
-        probeClient.dispatcher.cancelAll()
+        val probe = probeClient ?: return 0
+        val inFlight = probe.dispatcher.runningCallsCount()
+        probe.dispatcher.cancelAll()
         return inFlight
     }
 
     fun applySettings(settings: AppSettings) {
-        client = buildClient(settings)
-        probeClient = buildProbeClient(settings)
-        epgClient = buildEpgClient(settings)
-        vodClient = buildVodClient(settings)
-        shortEpgClient = buildShortEpgClient(settings)
-        playbackClient = buildPlaybackClient(settings)
+        synchronized(clientLock) {
+            settingsSnapshot = settings
+            client = buildClient(settings)
+            probeClient = buildProbeClient(settings)
+            epgClient = buildEpgClient(settings)
+            vodClient = buildVodClient(settings)
+            shortEpgClient = buildShortEpgClient(settings)
+            playbackClient = buildPlaybackClient(settings)
+        }
     }
 
     private fun buildProbeClient(settings: AppSettings): OkHttpClient {

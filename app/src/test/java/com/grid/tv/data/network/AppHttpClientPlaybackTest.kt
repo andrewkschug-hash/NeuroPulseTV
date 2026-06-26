@@ -9,7 +9,7 @@ class AppHttpClientPlaybackTest {
 
     @Test
     fun applySettings_rebuildsPlaybackClient() {
-        val client = AppHttpClient()
+        val client = testAppHttpClient()
         val direct = client.playbackClient()
         client.applySettings(AppSettings(useProxy = true, proxyUrl = "http://127.0.0.1:8888"))
         val proxied = client.playbackClient()

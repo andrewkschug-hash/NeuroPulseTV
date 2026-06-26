@@ -13,6 +13,7 @@ import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.VodHubUiBuildInputs
 import com.grid.tv.feature.vod.VodHubUiStateBuilder
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
@@ -62,7 +63,8 @@ class VodHubViewModel @Inject constructor(
     private val featuredCurationRepository: FeaturedCurationRepository,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
     private val playlistContext: PlaylistContext,
-    private val recommendationFeedbackStore: RecommendationFeedbackStore
+    private val recommendationFeedbackStore: RecommendationFeedbackStore,
+    private val vodCatalogSessionStore: VodCatalogSessionStore
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
     private val featuredContentRanker = FeaturedContentRanker()
@@ -178,7 +180,7 @@ class VodHubViewModel @Inject constructor(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _featuredCarousel = MutableStateFlow<List<VodItem>>(emptyList())
+    private val _featuredCarousel = MutableStateFlow(vodCatalogSessionStore.cachedFeaturedCarousel())
     val featuredCarousel: StateFlow<List<VodItem>> = _featuredCarousel.asStateFlow()
 
     private val _heroIndex = MutableStateFlow(0)
@@ -247,7 +249,11 @@ class VodHubViewModel @Inject constructor(
                 )
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            vodCatalogSessionStore.cachedMovieBrowseRows()
+        )
 
     private val rawSeriesBrowseRows: StateFlow<List<VodBrowseRow>> = combine(
         catalogRevisionFlow,
@@ -265,7 +271,11 @@ class VodHubViewModel @Inject constructor(
                 emit(withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() })
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            vodCatalogSessionStore.cachedSeriesBrowseRows()
+        )
 
     private val hubMovieBrowseRows: StateFlow<List<VodBrowseRow>> = combine(
         rawMovieBrowseRows,
@@ -414,7 +424,11 @@ class VodHubViewModel @Inject constructor(
     }
         .flowOn(Dispatchers.Default)
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodUiState())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            vodCatalogSessionStore.cachedUiState()
+        )
 
     fun setContentFilter(filter: VodContentFilter) {
         _contentFilter.value = filter
@@ -490,7 +504,16 @@ class VodHubViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            vodCatalogSessionStore.warmShell(repository)
+        }
+        viewModelScope.launch {
+            contentState.collect { state -> vodCatalogSessionStore.publishUiState(state) }
+        }
+        viewModelScope.launch {
             if (!playlistImportCoordinator.isImportActive()) {
+                if (vodCatalogSessionStore.hasInstantShell()) {
+                    delay(StartupTierPolicy.deferredVodRefreshDelayMs(VodRefreshTrigger.VOD_HUB_MOUNT))
+                }
                 repository.loadVodStreamed(VodRefreshTrigger.VOD_HUB_MOUNT)
             }
         }

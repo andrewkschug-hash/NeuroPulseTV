@@ -225,6 +225,9 @@ class IptvRepositoryImpl @Inject constructor(
     private val playlistContext: PlaylistContext
 ) : IptvRepository {
 
+    @Volatile
+    private var repositoryBootstrapComplete = false
+
     init {
         StartupDependencyProbe.traceInjectedInit("IptvRepositoryImpl.init") {
             StartupTiming.log("IptvRepositoryImpl — @Inject constructor resolved, entering init blocks")
@@ -333,12 +336,15 @@ class IptvRepositoryImpl @Inject constructor(
     private val _seriesShowCountFlow = MutableStateFlow(0)
     private val _channelCountFlow = MutableStateFlow(0)
 
-    init {
-        StartupDependencyProbe.traceInjectedInit("IptvRepositoryImpl.postFieldsInit") {
+    private fun ensureRepositoryBootstrap() {
+        if (repositoryBootstrapComplete) return
+        synchronized(this) {
+            if (repositoryBootstrapComplete) return
             StartupTiming.trace("IptvRepositoryImpl.restorePersistedCatalogCounts") {
                 restorePersistedCatalogCounts()
             }
-            StartupTiming.log("IptvRepositoryImpl construction complete")
+            repositoryBootstrapComplete = true
+            StartupTiming.log("IptvRepositoryImpl construction bootstrap complete")
         }
     }
 
@@ -2617,6 +2623,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override suspend fun warmLocalUiCacheMinimal() {
+        ensureRepositoryBootstrap()
         StartupProfiler.mark("repository_warm_minimal_start")
         ensureDefaultProfile()
         loadSettings()
@@ -2657,6 +2664,7 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     override fun applyCachedCatalogCountsAtStartup() {
+        ensureRepositoryBootstrap()
         val cached = getCachedCatalogCounts()
         StartupProfiler.mark(
             "phase2_cache_used",

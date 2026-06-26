@@ -1,7 +1,11 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -86,6 +90,26 @@ private val PosterWidth = VodPosterFocusLayout.POSTER_WIDTH
 private val PosterHeight = VodPosterFocusLayout.POSTER_HEIGHT
 private val PosterTitleHeight = VodPosterFocusLayout.POSTER_TITLE_HEIGHT
 private val PosterShape = RoundedCornerShape(6.dp)
+
+/** Hub top bar tabs — search lives in the left nav rail, not here. */
+val VodHubTabFilters = listOf(
+    VodContentFilter.ALL,
+    VodContentFilter.MOVIES,
+    VodContentFilter.SERIES
+)
+
+fun vodHubTabFilterIndex(filter: VodContentFilter): Int =
+    VodHubTabFilters.indexOf(filter).coerceAtLeast(0)
+
+fun vodHubTabFilterLabel(filter: VodContentFilter): String = when (filter) {
+    VodContentFilter.ALL -> "All"
+    VodContentFilter.MOVIES -> "Movies"
+    VodContentFilter.SERIES -> "Series"
+    VodContentFilter.SEARCH -> "Search"
+}
+
+/** Focus index for the Languages control (after [VodHubTabFilters]). */
+val VodHubLanguageFilterFocusIndex = VodHubTabFilters.size
 
 fun vodBrowseRowDisplayTitle(rowId: String, title: String): String = when (rowId) {
     "top_imdb" -> "Top IMDB picks"
@@ -645,79 +669,119 @@ fun VodContentFilterTabBar(
     onLanguageFilterClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val filters = VodContentFilter.entries
+    val filters = VodHubTabFilters
+    val density = LocalDensity.current
+    var tabOffsetsPx by remember { mutableStateOf(List(filters.size) { 0f }) }
+    var tabWidthsPx by remember { mutableStateOf(List(filters.size) { 0f }) }
+    val selectedIndex = filters.indexOf(selectedFilter).coerceAtLeast(0)
+    val focusedIndex = filters.indexOf(focusedFilter).coerceAtLeast(0)
+    val indicatorOffset by animateDpAsState(
+        targetValue = with(density) { tabOffsetsPx.getOrElse(selectedIndex) { 0f }.toDp() },
+        animationSpec = tween(durationMillis = 300),
+        label = "vodTabIndicatorOffset"
+    )
+    val indicatorWidth by animateDpAsState(
+        targetValue = with(density) { tabWidthsPx.getOrElse(selectedIndex) { 0f }.toDp() },
+        animationSpec = tween(durationMillis = 300),
+        label = "vodTabIndicatorWidth"
+    )
+    val segmentShape = RoundedCornerShape(10.dp)
+    val indicatorShape = RoundedCornerShape(8.dp)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
             .focusProperties { canFocus = false },
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        filters.forEach { filter ->
-            val selected = filter == selectedFilter
-            val focused = barFocused && filter == focusedFilter && !languageFilterFocused
-            val label = when (filter) {
-                VodContentFilter.ALL -> "All"
-                VodContentFilter.MOVIES -> "Movies"
-                VodContentFilter.SERIES -> "Series"
-                VodContentFilter.SEARCH -> "Search"
-            }
-            val shape = RoundedCornerShape(999.dp)
-            val backgroundColor = when {
-                selected -> Color(0xFF2A2A2A)
-                focused -> Color(0xFF333333)
-                else -> Color.Transparent
-            }
-            val borderColor = when {
-                focused -> VodNetflixColors.Accent
-                selected -> Color.White.copy(alpha = 0.35f)
-                else -> Color.White.copy(alpha = 0.18f)
-            }
-            val borderWidth = if (focused) 2.dp else 1.dp
-            Box(
-                modifier = Modifier
-                    .clip(shape)
-                    .background(backgroundColor, shape)
-                    .border(borderWidth, borderColor, shape)
-                    .clickable { onFilterSelected(filter) }
-                    .focusProperties { canFocus = false }
-                    .padding(horizontal = 18.dp, vertical = 8.dp)
-            ) {
-                Text(
-                    text = label,
-                    color = if (selected || focused) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
-                    fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        Box(
+            modifier = Modifier
+                .background(Color(0xFF1A1A1A), segmentShape)
+                .border(1.dp, Color.White.copy(alpha = 0.08f), segmentShape)
+                .padding(4.dp)
+        ) {
+            if (tabWidthsPx.getOrElse(selectedIndex) { 0f } > 0f) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = indicatorOffset)
+                        .width(indicatorWidth.coerceAtLeast(1.dp))
+                        .height(36.dp)
+                        .background(VodNetflixColors.Accent.copy(alpha = 0.22f), indicatorShape)
+                        .border(1.dp, VodNetflixColors.Accent.copy(alpha = 0.55f), indicatorShape)
                 )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                filters.forEachIndexed { index, filter ->
+                    val selected = filter == selectedFilter
+                    val focused = barFocused && filter == focusedFilter && !languageFilterFocused
+                    val label = vodHubTabFilterLabel(filter)
+                    Box(
+                        modifier = Modifier
+                            .onGloballyPositioned { coordinates ->
+                                val offset = coordinates.positionInParent().x
+                                val width = coordinates.size.width.toFloat()
+                                if (tabOffsetsPx.getOrNull(index) != offset || tabWidthsPx.getOrNull(index) != width) {
+                                    tabOffsetsPx = tabOffsetsPx.toMutableList().also {
+                                        if (index < it.size) it[index] = offset
+                                    }
+                                    tabWidthsPx = tabWidthsPx.toMutableList().also {
+                                        if (index < it.size) it[index] = width
+                                    }
+                                }
+                            }
+                            .clip(indicatorShape)
+                            .clickable { onFilterSelected(filter) }
+                            .focusProperties { canFocus = false }
+                            .padding(horizontal = 20.dp, vertical = 10.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            color = when {
+                                selected || focused -> VodNetflixColors.TextPrimary
+                                else -> VodNetflixColors.TextSecondary
+                            },
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
             }
         }
 
         Spacer(modifier = Modifier.weight(1f))
 
-        val languageShape = RoundedCornerShape(999.dp)
+        val languageShape = RoundedCornerShape(10.dp)
         val languageFocused = barFocused && languageFilterFocused
         val languageBackground = when {
-            languageFilterActive -> Color(0xFF2A2A2A)
-            languageFocused -> Color(0xFF333333)
-            else -> Color.Transparent
+            languageFilterActive -> Color(0xFF243040)
+            languageFocused -> Color(0xFF2A2A2A)
+            else -> Color(0xFF1A1A1A)
         }
         val languageBorder = when {
             languageFocused -> VodNetflixColors.Accent
-            languageFilterActive -> VodNetflixColors.Accent.copy(alpha = 0.65f)
-            else -> Color.White.copy(alpha = 0.18f)
+            languageFilterActive -> VodNetflixColors.Accent.copy(alpha = 0.7f)
+            else -> Color.White.copy(alpha = 0.14f)
         }
-        Box(
+        Row(
             modifier = Modifier
                 .clip(languageShape)
                 .background(languageBackground, languageShape)
                 .border(if (languageFocused) 2.dp else 1.dp, languageBorder, languageShape)
                 .clickable(onClick = onLanguageFilterClick)
                 .focusProperties { canFocus = false }
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Text(
+                text = "🌐",
+                fontSize = 16.sp
+            )
             Text(
                 text = if (languageFilterActive) "Languages ●" else "Languages",
                 color = if (languageFilterActive || languageFocused) {
@@ -727,7 +791,9 @@ fun VodContentFilterTabBar(
                 },
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
-                fontWeight = if (languageFilterActive) FontWeight.SemiBold else FontWeight.Medium
+                fontWeight = if (languageFilterActive) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -858,9 +924,7 @@ fun NetflixContentWallRow(
     overviewForSeries: (SeriesShow) -> String?,
     onActivateItem: (VodWallItem) -> Unit,
     modifier: Modifier = Modifier,
-    firstItemFocusRequester: FocusRequester? = null,
-    recommendationVote: com.grid.tv.feature.vod.personalization.RecommendationVote? = null,
-    onRecommendationVote: ((com.grid.tv.feature.vod.personalization.RecommendationVote) -> Unit)? = null
+    firstItemFocusRequester: FocusRequester? = null
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(rowFocused, focusedColumn) {
@@ -871,18 +935,7 @@ fun NetflixContentWallRow(
 
     NetflixCategoryRow(
         title = row.title,
-        modifier = modifier,
-        titleTrailing = if (onRecommendationVote != null) {
-            {
-                RecommendationFeedbackButtons(
-                    contentKey = "",
-                    currentVote = recommendationVote,
-                    onVote = onRecommendationVote
-                )
-            }
-        } else {
-            null
-        }
+        modifier = modifier
     ) {
         LazyRow(
             state = listState,

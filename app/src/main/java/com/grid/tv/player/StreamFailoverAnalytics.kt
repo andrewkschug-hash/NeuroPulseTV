@@ -3,16 +3,13 @@ package com.grid.tv.player
 import android.util.Log
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
-@Singleton
-class StreamFailoverAnalytics @Inject constructor(
+class StreamFailoverAnalytics(
     private val dao: StreamFailoverStatsDao
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

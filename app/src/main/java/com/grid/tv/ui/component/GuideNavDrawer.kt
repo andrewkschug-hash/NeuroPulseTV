@@ -1,15 +1,13 @@
 package com.grid.tv.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -39,43 +37,39 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 
 enum class GuideNavDrawerItem(val label: String) {
     Search("Search"),
-    ChannelGroups("Channel Groups"),
-    Vod("On Demand"),
-    Favorites("Favorites"),
-    RecentChannels("Recent Channels"),
-    Recordings("Recordings"),
-    MultiView("MultiView"),
-    Settings("Settings")
+    LiveView("Live View"),
+    Vod("VODs"),
+    Favorites("Favourites"),
+    Recordings("Recordings")
 }
 
 val GuideNavDrawerItems = GuideNavDrawerItem.entries
 
-/** Collapsed rail width — keep in sync with [GuideNavDrawer] animation targets. */
-val GuideNavDrawerCollapsedWidth = 48.dp
+/** Profile sits above nav icons at focus index 0. */
+const val GuideNavDrawerProfileFocusIndex = 0
 
-/** Expanded icon-rail width — keep in sync with [GuideNavDrawer] animation targets. */
-val GuideNavDrawerExpandedWidth = 96.dp
+fun guideNavDrawerItemFocusIndex(item: GuideNavDrawerItem): Int =
+    GuideNavDrawerItems.indexOf(item) + 1
+
+/** Icon rail width — keep in sync with layout padding. */
+val GuideNavDrawerCollapsedWidth = 52.dp
+
+/** @deprecated Expanded rail removed — icon-only sidebar is always used. */
+val GuideNavDrawerExpandedWidth = GuideNavDrawerCollapsedWidth
 
 private val DrawerButtonShape = RoundedCornerShape(8.dp)
 private val DrawerIconSize = NavIconHitSize
 
 private fun GuideNavDrawerItem.navTabIcon(): EpgNavTab? = when (this) {
     GuideNavDrawerItem.Search -> EpgNavTab.Search
+    GuideNavDrawerItem.LiveView -> EpgNavTab.Guide
     GuideNavDrawerItem.Vod -> EpgNavTab.Vod
     GuideNavDrawerItem.Favorites -> EpgNavTab.Favorites
     GuideNavDrawerItem.Recordings -> EpgNavTab.Recordings
-    GuideNavDrawerItem.Settings -> EpgNavTab.Settings
-    else -> null
-}
-
-private fun GuideNavDrawerItem.glyphIcon(): String = when (this) {
-    GuideNavDrawerItem.ChannelGroups -> "☰"
-    GuideNavDrawerItem.RecentChannels -> "◷"
-    GuideNavDrawerItem.MultiView -> "⊞"
-    else -> "•"
 }
 
 @Composable
@@ -85,23 +79,12 @@ private fun GuideNavDrawerIcon(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val navTab = item.navTabIcon()
-    if (navTab != null) {
-        GridNavTabIcon(
-            tab = navTab,
-            tint = tint,
-            selected = selected && item == GuideNavDrawerItem.Recordings,
-            modifier = modifier
-        )
-    } else {
-        Text(
-            text = item.glyphIcon(),
-            color = tint,
-            fontFamily = DmSansFamily,
-            fontSize = 18.sp,
-            modifier = modifier
-        )
-    }
+    GridNavTabIcon(
+        tab = item.navTabIcon() ?: EpgNavTab.Guide,
+        tint = tint,
+        selected = selected && item == GuideNavDrawerItem.Recordings,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -115,6 +98,7 @@ private fun DrawerIconButton(
     var isFocused by remember { mutableStateOf(false) }
     val showFocused = isFocused || focused
     val iconTint = when {
+        item == GuideNavDrawerItem.Recordings && selected -> Color(0xFFFF5252)
         showFocused -> EpgColors.Accent
         selected -> EpgColors.TextPrimary
         else -> EpgColors.TextSecondary
@@ -124,7 +108,7 @@ private fun DrawerIconButton(
         GridFocusSurface(
             onClick = onClick,
             modifier = Modifier
-                .padding(vertical = 4.dp)
+                .padding(vertical = 3.dp)
                 .onFocusChanged { isFocused = it.isFocused }
                 .tvFocusBorder(
                     focused = showFocused,
@@ -139,8 +123,7 @@ private fun DrawerIconButton(
             )
         ) {
             Box(
-                modifier = Modifier
-                    .size(DrawerIconSize),
+                modifier = Modifier.size(DrawerIconSize),
                 contentAlignment = Alignment.Center
             ) {
                 GuideNavDrawerIcon(
@@ -157,7 +140,7 @@ private fun DrawerIconButton(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = DrawerIconSize + 4.dp)
+                .padding(start = DrawerIconSize + 6.dp)
                 .zIndex(1f)
         ) {
             Text(
@@ -179,84 +162,81 @@ private fun DrawerIconButton(
 
 @Composable
 fun GuideNavDrawer(
-    expanded: Boolean,
     focusedIndex: Int,
     drawerFocusRequester: FocusRequester,
+    profileInitials: String,
+    profileAvatarColor: String = DEFAULT_PROFILE_AVATAR_COLOR,
+    profileFocused: Boolean = false,
+    onProfileClick: () -> Unit,
     onItemFocused: (Int) -> Unit,
     onItemSelected: (GuideNavDrawerItem) -> Unit,
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
-    onExpandRequest: () -> Unit = {},
     selectedItem: GuideNavDrawerItem? = null,
-    modifier: Modifier = Modifier
+    liveViewActive: Boolean = false,
+    modifier: Modifier = Modifier,
+    @Suppress("UNUSED_PARAMETER") expanded: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") onExpandRequest: () -> Unit = {},
 ) {
-    val width by animateDpAsState(
-        targetValue = if (expanded) GuideNavDrawerExpandedWidth else GuideNavDrawerCollapsedWidth,
-        animationSpec = tween(durationMillis = 180),
-        label = "guideNavDrawerWidth"
-    )
-    val collapsed = !expanded
     val trailingRequesters = remember {
-        List((GuideNavDrawerItems.size - 1).coerceAtLeast(0)) { FocusRequester() }
+        List(GuideNavDrawerItems.size) { FocusRequester() }
     }
 
-    fun requesterFor(index: Int): FocusRequester = when {
-        index == 0 -> drawerFocusRequester
-        index - 1 in trailingRequesters.indices -> trailingRequesters[index - 1]
-        else -> drawerFocusRequester
+    fun requesterFor(index: Int): FocusRequester = when (index) {
+        GuideNavDrawerProfileFocusIndex -> drawerFocusRequester
+        else -> trailingRequesters.getOrElse(index - 1) { drawerFocusRequester }
     }
 
-    LaunchedEffect(focusedIndex, expanded) {
-        if (expanded && GuideNavDrawerItems.isNotEmpty()) {
-            val index = focusedIndex.coerceIn(0, GuideNavDrawerItems.lastIndex)
-            requesterFor(index).requestFocusSafelyAfterLayout()
-        }
+    LaunchedEffect(focusedIndex) {
+        requesterFor(focusedIndex.coerceAtLeast(GuideNavDrawerProfileFocusIndex))
+            .requestFocusSafelyAfterLayout()
     }
 
     Box(
         modifier = modifier
-            .width(width)
+            .width(GuideNavDrawerCollapsedWidth)
             .fillMaxHeight()
-            .background(EpgColors.DetailPanelBg.copy(alpha = 0.98f))
+            .background(EpgColors.SidebarRailBg)
             .onPreviewKeyEvent(onPreviewKey)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(vertical = 12.dp, horizontal = if (collapsed) 4.dp else 8.dp)
-                .focusGroup(),
+                .padding(vertical = 10.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            if (collapsed) {
-                GlowFocusButton(
-                    onClick = onExpandRequest,
+            GridProfileAvatar(
+                initials = profileInitials,
+                focused = profileFocused || focusedIndex == GuideNavDrawerProfileFocusIndex,
+                onClick = onProfileClick,
+                avatarColorHex = profileAvatarColor,
+                modifier = Modifier
+                    .focusRequester(drawerFocusRequester)
+                    .onFocusChanged {
+                        if (it.isFocused) onItemFocused(GuideNavDrawerProfileFocusIndex)
+                    }
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            GuideNavDrawerItems.forEachIndexed { index, item ->
+                val focusIndex = index + 1
+                val focused = focusedIndex == focusIndex
+                val selected = when (item) {
+                    GuideNavDrawerItem.LiveView -> liveViewActive
+                    else -> selectedItem == item
+                }
+                DrawerIconButton(
+                    item = item,
+                    focused = focused,
+                    selected = selected,
+                    onClick = { onItemSelected(item) },
                     modifier = Modifier
-                        .focusRequester(drawerFocusRequester)
-                        .onFocusChanged { if (it.isFocused) onItemFocused(0) },
-                    contentDescription = "Open menu"
-                ) {
-                    Text(
-                        text = "☰",
-                        color = EpgColors.TextPrimary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 20.sp
-                    )
-                }
-            } else {
-                GuideNavDrawerItems.forEachIndexed { index, item ->
-                    val focused = focusedIndex == index
-                    DrawerIconButton(
-                        item = item,
-                        focused = focused,
-                        selected = selectedItem == item,
-                        onClick = { onItemSelected(item) },
-                        modifier = Modifier
-                            .focusRequester(requesterFor(index))
-                            .onFocusChanged {
-                                if (it.isFocused) onItemFocused(index)
-                            }
-                    )
-                }
+                        .focusRequester(requesterFor(focusIndex))
+                        .onFocusChanged {
+                            if (it.isFocused) onItemFocused(focusIndex)
+                        }
+                )
             }
         }
     }

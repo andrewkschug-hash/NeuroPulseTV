@@ -5,8 +5,6 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import java.util.concurrent.ConcurrentHashMap
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,8 +17,7 @@ import kotlinx.coroutines.launch
  * Lightweight shared watchdog for Split View / MultiView pane players.
  * Retries stalled panes (re-prepare same URL) without full live-guide failover.
  */
-@Singleton
-class MultiPanePlaybackWatchdog @Inject constructor(
+class MultiPanePlaybackWatchdog(
     private val streamFormatRegistry: IptvStreamFormatRegistry,
     private val streamFormatProber: IptvStreamFormatProber,
     private val playbackNetworkCoordinator: PlaybackNetworkCoordinator

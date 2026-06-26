@@ -1,15 +1,18 @@
 package com.grid.tv.ui.component
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -73,6 +76,8 @@ private const val MIN_PAGED_ITEMS_WITH_CATEGORY = 16
 private const val MIN_PAGED_ITEMS_PHASE_COMPLETE = 8
 private const val MIN_BROWSE_ROWS = 2
 private const val READINESS_STABILIZATION_MS = 400L
+private val OnboardingStepHeight = 44.dp
+private val OnboardingStepSpacing = 8.dp
 
 /**
  * Rows that reflect watch history rather than catalog discovery content.
@@ -215,6 +220,7 @@ fun shouldShowVodCatalogEmptyState(
  */
 fun shouldShowVodCatalogOnboarding(inputs: VodCatalogOnboardingInputs): Boolean {
     if (isVodCatalogContentReady(inputs)) return false
+    if (inputs.wallRowCount > 0 && inputs.tab == VodCatalogOnboardingTab.ALL) return false
     if (isVodCatalogPipelineStillRunning(inputs.tab, inputs.catalogLoading, inputs.progress)) return true
     if (isBuildingRecommendationsPhase(inputs)) return true
     return false
@@ -272,7 +278,8 @@ fun rememberVodCatalogOnboardingVisible(
 fun VodCatalogOnboardingPanel(
     modifier: Modifier = Modifier,
     progress: VodCatalogProgress? = null,
-    onboardingInputs: VodCatalogOnboardingInputs? = null
+    onboardingInputs: VodCatalogOnboardingInputs? = null,
+    compact: Boolean = false
 ) {
     val inputs = onboardingInputs ?: VodCatalogOnboardingInputs(
         catalogLoading = progress?.isLoading == true,
@@ -294,31 +301,42 @@ fun VodCatalogOnboardingPanel(
             displayedStepIndex = currentStep.ordinal
         }
     }
+    val highlightOffset by animateDpAsState(
+        targetValue = (OnboardingStepHeight + OnboardingStepSpacing) * currentStep.ordinal,
+        animationSpec = tween(durationMillis = 300),
+        label = "vodOnboardingHighlight"
+    )
 
     Column(
         modifier = modifier
-            .fillMaxSize()
-            .background(VodNetflixColors.Background)
-            .padding(horizontal = 40.dp, vertical = 32.dp),
+            .fillMaxWidth()
+            .then(if (compact) Modifier else Modifier.fillMaxSize())
+            .background(if (compact) Color.Transparent else VodNetflixColors.Background)
+            .padding(
+                horizontal = if (compact) 20.dp else 40.dp,
+                vertical = if (compact) 12.dp else 32.dp
+            ),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = if (compact) Arrangement.Top else Arrangement.Center
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(48.dp),
-            color = VodNetflixColors.Accent,
-            strokeWidth = 4.dp
-        )
-        Spacer(modifier = Modifier.height(28.dp))
-        Text(
-            text = "Getting your movies and series ready",
-            color = VodNetflixColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.widthIn(max = 480.dp)
-        )
-        Spacer(modifier = Modifier.height(20.dp))
+        if (!compact) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(48.dp),
+                color = VodNetflixColors.Accent,
+                strokeWidth = 4.dp
+            )
+            Spacer(modifier = Modifier.height(28.dp))
+            Text(
+                text = "Getting your movies and series ready",
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 480.dp)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+        }
         LinearProgressIndicator(
             progress = { animatedFraction },
             modifier = Modifier
@@ -328,19 +346,30 @@ fun VodCatalogOnboardingPanel(
             color = VodNetflixColors.Accent,
             trackColor = Color.White.copy(alpha = 0.12f)
         )
-        Spacer(modifier = Modifier.height(24.dp))
-        Column(
-            modifier = Modifier.widthIn(max = 420.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Spacer(modifier = Modifier.height(if (compact) 12.dp else 24.dp))
+        Box(
+            modifier = Modifier.widthIn(max = 420.dp)
         ) {
-            VodOnboardingStep.entries.forEachIndexed { index, step ->
-                val reached = index <= displayedStepIndex
-                val active = step == currentStep
-                OnboardingStepRow(
-                    label = step.label,
-                    reached = reached,
-                    active = active
-                )
+            Box(
+                modifier = Modifier
+                    .offset(y = highlightOffset)
+                    .fillMaxWidth()
+                    .height(OnboardingStepHeight)
+                    .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(10.dp))
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(OnboardingStepSpacing)) {
+                VodOnboardingStep.entries.forEachIndexed { index, step ->
+                    val reached = index < displayedStepIndex || (index == displayedStepIndex && step != currentStep)
+                    val completed = index < currentStep.ordinal ||
+                        (index == currentStep.ordinal && isVodCatalogContentReady(inputs))
+                    val active = step == currentStep
+                    OnboardingStepRow(
+                        label = step.label,
+                        reached = reached || completed,
+                        active = active,
+                        completed = completed
+                    )
+                }
             }
         }
         progress?.let { p ->
@@ -364,36 +393,56 @@ fun VodCatalogOnboardingPanel(
 private fun OnboardingStepRow(
     label: String,
     reached: Boolean,
-    active: Boolean
+    active: Boolean,
+    completed: Boolean
 ) {
-    val alpha = when {
-        active -> 1f
-        reached -> 0.65f
-        else -> 0.28f
-    }
+    val alpha by animateFloatAsState(
+        targetValue = when {
+            active -> 1f
+            completed -> 0.5f
+            reached -> 0.65f
+            else -> 0.28f
+        },
+        animationSpec = tween(durationMillis = 300),
+        label = "vodOnboardingStepAlpha"
+    )
+    val checkAlpha by animateFloatAsState(
+        targetValue = if (completed) 1f else 0f,
+        animationSpec = tween(durationMillis = 300),
+        label = "vodOnboardingCheckAlpha"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(OnboardingStepHeight)
             .alpha(alpha)
-            .background(
-                if (active) Color.White.copy(alpha = 0.06f) else Color.Transparent,
-                RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = if (reached) "●" else "○",
-            color = if (active) VodNetflixColors.Accent else VodNetflixColors.TextSecondary,
-            fontSize = 12.sp
-        )
+        Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+            if (!completed) {
+                Text(
+                    text = if (reached || active) "●" else "○",
+                    color = if (active) VodNetflixColors.Accent else VodNetflixColors.TextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = "✓",
+                color = VodNetflixColors.Accent,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.alpha(checkAlpha)
+            )
+        }
         Text(
             text = label,
             color = if (active) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
             fontFamily = DmSansFamily,
             fontSize = 14.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
         )
     }
 }

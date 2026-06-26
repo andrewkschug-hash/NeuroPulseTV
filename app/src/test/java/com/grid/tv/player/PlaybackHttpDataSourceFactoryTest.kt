@@ -1,6 +1,6 @@
 package com.grid.tv.player
 
-import com.grid.tv.data.network.AppHttpClient
+import com.grid.tv.data.network.testAppHttpClient
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.feature.health.intelligence.PlaybackTelemetryCollector
 import io.mockk.every
@@ -33,7 +33,7 @@ class PlaybackHttpDataSourceFactoryTest {
         PlaybackMetricsLogger(mockk<PlaybackTelemetryCollector>(relaxed = true))
 
     private fun factory(): PlaybackHttpDataSourceFactory =
-        PlaybackHttpDataSourceFactory(AppHttpClient(), metricsLogger(), IptvStreamFormatRegistry())
+        PlaybackHttpDataSourceFactory(testAppHttpClient(), metricsLogger(), IptvStreamFormatRegistry())
 
     @Test
     fun mediaSourceFactory_isSingletonAcrossCalls() {
@@ -59,7 +59,7 @@ class PlaybackHttpDataSourceFactoryTest {
 
     @Test
     fun syncNetworkSettings_rebuildsStackWhenProxyChanges() {
-        val httpClient = AppHttpClient()
+        val httpClient = testAppHttpClient()
         val factory = PlaybackHttpDataSourceFactory(httpClient, metricsLogger(), IptvStreamFormatRegistry())
         val before = factory.mediaSourceFactory()
         factory.syncNetworkSettings(AppSettings(useProxy = true, proxyUrl = "http://127.0.0.1:8888"))
@@ -81,7 +81,7 @@ class PlaybackHttpDataSourceFactoryTest {
     @Test
     fun multiplePlayerFactoryCreates_shareMediaSourceFactory() {
         val httpFactory = PlaybackHttpDataSourceFactory(
-            AppHttpClient(),
+            testAppHttpClient(),
             metricsLogger(),
             IptvStreamFormatRegistry()
         )
