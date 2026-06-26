@@ -1,6 +1,7 @@
 package com.grid.tv.ui.component
 
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -64,6 +65,7 @@ fun GridFocusSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    interactionSource: MutableInteractionSource? = null,
     shape: ClickableSurfaceShape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
     colors: ClickableSurfaceColors = ClickableSurfaceDefaults.colors(),
     content: @Composable BoxScope.() -> Unit
@@ -71,6 +73,7 @@ fun GridFocusSurface(
     val keyboard = LocalSoftwareKeyboardController.current
     val view = LocalView.current
     var lastActivationUptime by remember { mutableLongStateOf(0L) }
+    val resolvedInteractionSource = interactionSource ?: remember { MutableInteractionSource() }
     fun dispatchClick() {
         if (!enabled) return
         val now = android.os.SystemClock.uptimeMillis()
@@ -96,6 +99,7 @@ fun GridFocusSurface(
         enabled = enabled,
         shape = shape,
         colors = colors,
+        interactionSource = resolvedInteractionSource,
         scale = TvFocusDefaults.NoScale,
         border = TvFocusDefaults.noBorder(),
         glow = TvFocusDefaults.noGlow(),

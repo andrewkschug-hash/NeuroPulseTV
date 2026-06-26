@@ -8,8 +8,8 @@ class VodPosterFocusLayoutTest {
 
     @Test
     fun scaleOverflow_matchesFocusScale() {
-        assertEquals(4.48f, VodPosterFocusLayout.scaleOverflowX.value, 0.01f)
-        assertEquals(6.72f, VodPosterFocusLayout.scaleOverflowY.value, 0.01f)
+        assertEquals(5.6f, VodPosterFocusLayout.scaleOverflowX.value, 0.01f)
+        assertEquals(8.4f, VodPosterFocusLayout.scaleOverflowY.value, 0.01f)
     }
 
     @Test
@@ -41,13 +41,13 @@ class VodPosterFocusLayoutTest {
     fun focusSafePixels_atCommonTvDensities() {
         val edgeV = VodPosterFocusLayout.netflixEdgePaddingVertical
         // 720p-class mdpi
-        assertEquals(10, VodPosterFocusLayout.dpToPx(160, edgeV))
+        assertEquals(11, VodPosterFocusLayout.dpToPx(160, edgeV))
         // Android TV 1080p tvdpi
-        assertEquals(13, VodPosterFocusLayout.dpToPx(213, edgeV))
+        assertEquals(15, VodPosterFocusLayout.dpToPx(213, edgeV))
         // 720p hdpi
-        assertEquals(15, VodPosterFocusLayout.dpToPx(240, edgeV))
+        assertEquals(17, VodPosterFocusLayout.dpToPx(240, edgeV))
         // 1080p xhdpi
-        assertEquals(19, VodPosterFocusLayout.dpToPx(320, edgeV))
+        assertEquals(23, VodPosterFocusLayout.dpToPx(320, edgeV))
     }
 
     @Test
@@ -82,7 +82,7 @@ class VodPosterFocusLayoutTest {
             dpi,
             VodPosterFocusLayout.POSTER_HEIGHT * VodPosterFocusLayout.POSTER_FOCUS_SCALE
         )
-        assertEquals(161, scaledW)
-        assertEquals(242, scaledH)
+        assertEquals(164, scaledW)
+        assertEquals(246, scaledH)
     }
 }

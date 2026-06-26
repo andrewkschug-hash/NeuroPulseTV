@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,14 +109,13 @@ private fun DrawerIconButton(
     }
 
     Column(
-        modifier = modifier
-            .width(GuideNavDrawerCollapsedWidth - 12.dp)
-            .padding(vertical = 2.dp),
+        modifier = modifier.padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         GridFocusSurface(
             onClick = onClick,
             modifier = Modifier
+                .size(NavIconHitSize)
                 .onFocusChanged { isFocused = it.isFocused }
                 .tvFocusBorder(
                     focused = showFocused,
@@ -130,7 +130,7 @@ private fun DrawerIconButton(
             )
         ) {
             Box(
-                modifier = Modifier.size(DrawerIconSize),
+                modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
                 GuideNavDrawerIcon(
@@ -201,8 +201,7 @@ fun GuideNavDrawer(
             modifier = Modifier
                 .fillMaxHeight()
                 .padding(vertical = 10.dp, horizontal = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             GridProfileAvatar(
                 initials = profileInitials,
@@ -216,26 +215,36 @@ fun GuideNavDrawer(
                     }
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            GuideNavDrawerItems.forEachIndexed { index, item ->
-                val focusIndex = index + 1
-                val focused = focusedIndex == focusIndex
-                val selected = when (item) {
-                    GuideNavDrawerItem.LiveView -> liveViewActive
-                    else -> selectedItem == item
-                }
-                DrawerIconButton(
-                    item = item,
-                    focused = focused,
-                    selected = selected,
-                    onClick = { onItemSelected(item) },
-                    modifier = Modifier
-                        .focusRequester(requesterFor(focusIndex))
-                        .onFocusChanged {
-                            if (it.isFocused) onItemFocused(focusIndex)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    GuideNavDrawerItems.forEachIndexed { index, item ->
+                        val focusIndex = index + 1
+                        val focused = focusedIndex == focusIndex
+                        val selected = when (item) {
+                            GuideNavDrawerItem.LiveView -> liveViewActive
+                            else -> selectedItem == item
                         }
-                )
+                        DrawerIconButton(
+                            item = item,
+                            focused = focused,
+                            selected = selected,
+                            onClick = { onItemSelected(item) },
+                            modifier = Modifier
+                                .focusRequester(requesterFor(focusIndex))
+                                .onFocusChanged {
+                                    if (it.isFocused) onItemFocused(focusIndex)
+                                }
+                        )
+                    }
+                }
             }
         }
     }

@@ -583,7 +583,12 @@ class HomeEpgViewModel @Inject constructor(
                 if (!current.isActive) return@collectLatest
                 val valid = current.selectedGroups.intersect(groups.toSet())
                 if (valid == current.selectedGroups) return@collectLatest
-                if (valid.isEmpty()) return@collectLatest
+                if (valid.isEmpty()) {
+                    _guideFilter.value = GuideChannelFilter.All
+                    persistGuideFilter(GuideChannelFilter.All, configured = true)
+                    reloadChannels()
+                    return@collectLatest
+                }
                 val updated = GuideChannelFilter(valid)
                 _guideFilter.value = updated
                 persistGuideFilter(updated, configured = true)
@@ -676,7 +681,12 @@ class HomeEpgViewModel @Inject constructor(
         if (available.isEmpty()) return
         val valid = groups.intersect(available.toSet())
         if (valid == groups) return
-        if (valid.isEmpty()) return
+        if (valid.isEmpty()) {
+            Log.w(TAG, "Saved guide filter groups no longer exist — resetting to all channels")
+            _guideFilter.value = GuideChannelFilter.All
+            repository.saveGuideChannelFilter(emptySet(), configured = true)
+            return
+        }
         Log.w(
             TAG,
             "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
@@ -697,7 +707,13 @@ class HomeEpgViewModel @Inject constructor(
         if (available.isEmpty()) return GuideChannelFilter(groups)
         val valid = groups.intersect(available.toSet())
         if (valid == groups) return GuideChannelFilter(groups)
-        if (valid.isEmpty()) return GuideChannelFilter(groups)
+        if (valid.isEmpty()) {
+            Log.w(TAG, "Saved guide filter groups no longer exist — resetting to all channels")
+            if (configured) {
+                repository.saveGuideChannelFilter(emptySet(), configured = true)
+            }
+            return GuideChannelFilter.All
+        }
         Log.w(
             TAG,
             "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +

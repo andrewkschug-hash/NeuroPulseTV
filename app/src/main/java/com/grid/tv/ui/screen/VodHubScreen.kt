@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -550,8 +552,9 @@ fun VodHubScreen(
                 !vodSearchFocused ->
                 browseGridFocusRequester.requestFocusSafelyAfterLayout()
             requestHeroPlayFocus -> Unit
-            focusZone == VodFocusZone.FILTER_PANEL ||
-                focusZone == VodFocusZone.GENRE_PANEL ||
+            focusZone == VodFocusZone.FILTER_PANEL ->
+                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+            focusZone == VodFocusZone.GENRE_PANEL ||
                 focusZone == VodFocusZone.NAV_DRAWER ||
                 (focusZone == VodFocusZone.CONTENT && !showInlineSearch && (showBrowseGrid || wallRows.isEmpty())) ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
@@ -714,15 +717,7 @@ fun VodHubScreen(
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
-                    profileMenuOpen = true
-                    profileMenuFocusIndex = 0
-                } else {
-                    selectVodDrawerItem(GuideNavDrawerItems[navDrawerFocusIndex - 1])
-                }
-                true
-            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> false
             else -> false
         }
     }
@@ -1055,7 +1050,12 @@ fun VodHubScreen(
                         showInlineSearch -> focusInlineSearchField()
                         showGenrePanel -> focusGenrePanelFromFilter()
                         showBrowseGrid -> focusBrowseGridFromSidebar()
-                        hasHero && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
+                        hasHero && searchQuery.isBlank() -> {
+                            focusZone = VodFocusZone.HERO
+                            scope.launch {
+                                heroPlayFocusRequester.requestFocusSafelyAfterLayout()
+                            }
+                        }
                         wallRows.isNotEmpty() -> {
                             focusZone = VodFocusZone.CONTENT
                             contentRowIndex = 0
@@ -1071,7 +1071,12 @@ fun VodHubScreen(
                     showInlineSearch -> focusInlineSearchField()
                     showGenrePanel -> focusGenrePanelFromFilter()
                     showBrowseGrid -> focusBrowseGridFromSidebar()
-                    hasHero && searchQuery.isBlank() -> focusZone = VodFocusZone.HERO
+                    hasHero && searchQuery.isBlank() -> {
+                        focusZone = VodFocusZone.HERO
+                        scope.launch {
+                            heroPlayFocusRequester.requestFocusSafelyAfterLayout()
+                        }
+                    }
                     wallRows.isNotEmpty() -> {
                         focusZone = VodFocusZone.CONTENT
                         contentRowIndex = 0
@@ -1139,6 +1144,9 @@ fun VodHubScreen(
             },
             onNavigateUp = {
                 focusZone = VodFocusZone.FILTER_PANEL
+                scope.launch {
+                    filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                }
             }
         )
 
@@ -1202,7 +1210,7 @@ fun VodHubScreen(
         if (wallRows.isEmpty()) {
             return when (event.key) {
                 Key.DirectionLeft -> {
-                    focusZone = VodFocusZone.FILTER_PANEL
+                    openNavDrawer()
                     true
                 }
                 Key.DirectionUp -> {
@@ -1218,8 +1226,7 @@ fun VodHubScreen(
                 if (contentColIndex > 0) {
                     contentColIndex -= 1
                 } else {
-                    focusZone = VodFocusZone.FILTER_PANEL
-                    filterFocusIndex = vodHubTabFilterIndex(contentFilter)
+                    openNavDrawer()
                 }
                 true
             }
@@ -1235,6 +1242,9 @@ fun VodHubScreen(
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
                 } else if (hasHero && searchQuery.isBlank()) {
                     focusZone = VodFocusZone.HERO
+                    scope.launch {
+                        heroPlayFocusRequester.requestFocusSafelyAfterLayout()
+                    }
                 } else {
                     focusZone = VodFocusZone.FILTER_PANEL
                 }
@@ -1333,7 +1343,8 @@ fun VodHubScreen(
                     !imeTypingActive &&
                     !(showInlineSearch && vodSearchFocused) &&
                     !showGlobalSearchOverlay &&
-                    focusZone != VodFocusZone.HERO
+                    focusZone != VodFocusZone.HERO &&
+                    focusZone != VodFocusZone.FILTER_PANEL
             )
             .focusProperties {
                 if (seriesDetailOpen || movieDetailOpen) {
@@ -1419,7 +1430,11 @@ fun VodHubScreen(
                     profileMenuOpen = true
                     profileMenuFocusIndex = 0
                 },
-                onItemFocused = { navDrawerFocusIndex = it },
+                onItemFocused = { index ->
+                    navDrawerFocusIndex = index
+                    navDrawerOpen = true
+                    focusZone = VodFocusZone.NAV_DRAWER
+                },
                 onItemSelected = ::selectVodDrawerItem,
                 onPreviewKey = ::handleNavDrawerKey,
                 selectedItem = GuideNavDrawerItem.Vod
@@ -1446,7 +1461,12 @@ fun VodHubScreen(
                 onLanguageFilterClick = ::openLanguagePreferenceDialog,
                 onFilterSelected = { filter ->
                     applyContentFilter(vodHubTabFilterIndex(filter))
-                }
+                },
+                tabBarFocusRequester = filterPanelFocusRequester,
+                heroPlayFocusRequester = heroPlayFocusRequester,
+                sidebarFocusRequester = navDrawerFocusRequester,
+                onBarFocused = { focusZone = VodFocusZone.FILTER_PANEL },
+                onPreviewKey = ::handleFilterPanelKey
             )
 
             Row(
@@ -1639,9 +1659,17 @@ fun VodHubScreen(
                                             },
                                             onNavigateUp = {
                                                 focusZone = VodFocusZone.FILTER_PANEL
+                                                scope.launch {
+                                                    filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                                                }
                                             },
                                             playFocusRequester = heroPlayFocusRequester,
-                                            moreInfoFocusRequester = heroMoreInfoFocusRequester
+                                            moreInfoFocusRequester = heroMoreInfoFocusRequester,
+                                            topTabsFocusRequester = filterPanelFocusRequester,
+                                            firstRowCardFocusRequester = contentFocusRequester,
+                                            sidebarFocusRequester = navDrawerFocusRequester,
+                                            onPlayFocused = { focusZone = VodFocusZone.HERO },
+                                            onMoreInfoFocused = { focusZone = VodFocusZone.HERO }
                                         )
                                     }
                                 }
@@ -1649,21 +1677,30 @@ fun VodHubScreen(
                                     val rowListState = remember(row.id) { LazyListState() }
                                     val rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index
                                     val focusedColumn = if (rowFocused) contentColIndex else -1
-                                    NetflixContentWallRow(
-                                        row = row,
-                                        rowIndex = index,
-                                        focusedColumn = focusedColumn,
-                                        rowFocused = rowFocused,
-                                        listState = rowListState,
-                                        progressByKey = vodProgress,
-                                        posterUrlForMovie = ::posterFor,
-                                        ratingForMovie = ::ratingFor,
-                                        metaForMovie = ::metaFor,
-                                        overviewForMovie = ::overviewForMovie,
-                                        overviewForSeries = ::overviewForSeries,
-                                        onActivateItem = ::activateWallItem,
-                                        firstItemFocusRequester = if (index == 0) contentFocusRequester else null
-                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = VodPosterFocusLayout.estimatedWallRowHeight)
+                                            .graphicsLayer { clip = false }
+                                    ) {
+                                        NetflixContentWallRow(
+                                            row = row,
+                                            rowIndex = index,
+                                            focusedColumn = focusedColumn,
+                                            rowFocused = rowFocused,
+                                            listState = rowListState,
+                                            progressByKey = vodProgress,
+                                            posterUrlForMovie = ::posterFor,
+                                            ratingForMovie = ::ratingFor,
+                                            metaForMovie = ::metaFor,
+                                            overviewForMovie = ::overviewForMovie,
+                                            overviewForSeries = ::overviewForSeries,
+                                            onActivateItem = ::activateWallItem,
+                                            firstItemFocusRequester = if (index == 0) contentFocusRequester else null,
+                                            heroPlayFocusRequester = heroPlayFocusRequester,
+                                            sidebarFocusRequester = navDrawerFocusRequester
+                                        )
+                                    }
                                 }
                             }
                             }

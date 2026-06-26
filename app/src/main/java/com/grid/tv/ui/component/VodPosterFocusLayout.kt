@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
  * | 320 xhdpi| 1080p panels   | 20px            |
  */
 object VodPosterFocusLayout {
-    const val POSTER_FOCUS_SCALE = 1.10f
+    const val POSTER_FOCUS_SCALE = VodCardDefaults.FOCUS_SCALE
 
     val POSTER_WIDTH = 112.dp
     val POSTER_HEIGHT = 168.dp
@@ -64,14 +64,20 @@ object VodPosterFocusLayout {
             POSTER_TITLE_GAP +
             POSTER_TITLE_HEIGHT
 
+    val categoryTitleBandHeight = 22.dp
+
     /** Conservative height for one Netflix-style wall row (title + scaled poster row). */
     val estimatedWallRowHeight: Dp
         get() = categoryRowTopPadding +
-            22.dp +
+            categoryTitleBandHeight +
             categoryTitleBottomGap +
             lazyRowVerticalPadding * 2 +
             netflixCardHeight +
             categoryRowBottomPadding
+
+    /** LazyRow slot height — poster card band plus vertical focus overflow padding. */
+    val wallRowLazyRowHeight: Dp
+        get() = lazyRowVerticalPadding * 2 + netflixCardHeight
 
     fun dpToPx(densityDpi: Int, dp: Dp): Int =
         kotlin.math.round(dp.value * densityDpi / 160f).toInt()

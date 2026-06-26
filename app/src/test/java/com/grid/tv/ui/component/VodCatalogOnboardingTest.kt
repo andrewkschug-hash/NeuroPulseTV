@@ -33,8 +33,22 @@ class VodCatalogOnboardingTest {
     )
 
     @Test
+    fun skipsOnboardingWhenCatalogAlreadyPopulated() {
+        assertFalse(
+            shouldShowVodCatalogOnboarding(
+                inputs(
+                    tab = VodCatalogOnboardingTab.ALL,
+                    catalogLoading = true,
+                    progress = VodCatalogProgress(isLoading = true),
+                    catalogTotalCount = 500
+                )
+            )
+        )
+    }
+
+    @Test
     fun allTab_ignoresSparsePagingItems() {
-        assertTrue(
+        assertFalse(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
@@ -62,7 +76,7 @@ class VodCatalogOnboardingTest {
 
     @Test
     fun allTab_notReadyWhenRowsExistButEmpty() {
-        assertTrue(
+        assertFalse(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
@@ -95,7 +109,7 @@ class VodCatalogOnboardingTest {
 
     @Test
     fun allTab_staysOnboardingWhileBuildingRecommendations() {
-        assertTrue(
+        assertFalse(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,

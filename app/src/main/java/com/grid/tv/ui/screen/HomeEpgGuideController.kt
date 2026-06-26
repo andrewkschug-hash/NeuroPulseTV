@@ -607,6 +607,16 @@ internal class HomeEpgGuideController(
         }
         val lastIndex = com.grid.tv.ui.component.GuideNavDrawerItems.size
         return when (event.key) {
+            Key.DirectionLeft -> {
+                if (ui.navDrawerFocusIndex == guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView) &&
+                    canShowChannelGroupsPanel()
+                ) {
+                    openChannelGroupsPanel()
+                    true
+                } else {
+                    false
+                }
+            }
             Key.Back, Key.Escape -> {
                 if (ui.navDrawerFocusIndex > com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
                     ui.navDrawerFocusIndex = com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex
@@ -619,7 +629,11 @@ internal class HomeEpgGuideController(
                     ui.profileMenuFocusIndex = 0
                 } else {
                     ui.channelGroupsPanelVisible = false
-                    focusEpgZone(EpgFocusZone.GRID)
+                    if (boundDeps.displayChannels.isEmpty() && canShowChannelGroupsPanel()) {
+                        openChannelGroupsPanel()
+                    } else {
+                        focusEpgZone(EpgFocusZone.GRID)
+                    }
                 }
                 true
             }
@@ -635,18 +649,7 @@ internal class HomeEpgGuideController(
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (ui.navDrawerFocusIndex == com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
-                    ui.profileMenuOpen = true
-                    ui.profileMenuFocusIndex = 0
-                } else {
-                    val itemIndex = ui.navDrawerFocusIndex - 1
-                    val item = com.grid.tv.ui.component.GuideNavDrawerItems.getOrNull(itemIndex)
-                        ?: return true
-                    selectDrawerItem(item)
-                }
-                true
-            }
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> false
             else -> false
         }
     }

@@ -221,6 +221,8 @@ fun shouldShowVodCatalogEmptyState(
 fun shouldShowVodCatalogOnboarding(inputs: VodCatalogOnboardingInputs): Boolean {
     if (isVodCatalogContentReady(inputs)) return false
     if (inputs.wallRowCount > 0 && inputs.tab == VodCatalogOnboardingTab.ALL) return false
+    // Returning users already have a catalog in the DB — show the hub immediately while refresh runs.
+    if (inputs.catalogTotalCount > 0) return false
     if (isVodCatalogPipelineStillRunning(inputs.tab, inputs.catalogLoading, inputs.progress)) return true
     if (isBuildingRecommendationsPhase(inputs)) return true
     return false

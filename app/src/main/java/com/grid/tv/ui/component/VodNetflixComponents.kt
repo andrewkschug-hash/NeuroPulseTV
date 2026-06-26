@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -140,13 +141,7 @@ fun NetflixPosterCard(
     val languageBadge = remember(rawTitle) { parseVodLanguageBadge(rawTitle) }
     val resolutionBadge = remember(rawTitle) { parseVodResolutionBadge(rawTitle) }
     val interactionSource = remember { MutableInteractionSource() }
-    val interactionFocused by interactionSource.collectIsFocusedAsState()
-    val focused = interactionFocused || externallyFocused
-    val scale by animateFloatAsState(
-        targetValue = if (focused) VodPosterFocusLayout.POSTER_FOCUS_SCALE else 1f,
-        animationSpec = spring(stiffness = 380f, dampingRatio = 0.72f),
-        label = "posterScale"
-    )
+    val focused = interactionSource.collectVodCardFocused(externallyFocused)
     val border = if (focused) {
         ClickableSurfaceDefaults.border(
             focusedBorder = Border(
@@ -180,7 +175,7 @@ fun NetflixPosterCard(
                     .padding(top = edgeV)
                     .width(PosterWidth)
                     .height(PosterHeight)
-                    .scale(scale)
+                    .vodCardFocusPop(interactionSource, externallyFocused)
                     .zIndex(if (focused) 1f else 0f),
                 interactionSource = interactionSource,
                 shape = ClickableSurfaceDefaults.shape(PosterShape),
@@ -668,6 +663,11 @@ fun VodContentFilterTabBar(
     languageFilterActive: Boolean = false,
     languageFilterFocused: Boolean = false,
     onLanguageFilterClick: () -> Unit = {},
+    tabBarFocusRequester: FocusRequester? = null,
+    heroPlayFocusRequester: FocusRequester? = null,
+    sidebarFocusRequester: FocusRequester? = null,
+    onBarFocused: () -> Unit = {},
+    onPreviewKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null,
     modifier: Modifier = Modifier
 ) {
     val filters = VodHubTabFilters
@@ -679,7 +679,21 @@ fun VodContentFilterTabBar(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 10.dp)
-            .focusProperties { canFocus = false },
+            .then(
+                if (tabBarFocusRequester != null) {
+                    Modifier
+                        .focusRequester(tabBarFocusRequester)
+                        .focusable(enabled = barFocused)
+                        .focusProperties {
+                            if (heroPlayFocusRequester != null) down = heroPlayFocusRequester
+                            if (sidebarFocusRequester != null) left = sidebarFocusRequester
+                        }
+                        .onFocusChanged { if (it.isFocused) onBarFocused() }
+                        .onPreviewKeyEvent { onPreviewKey?.invoke(it) ?: false }
+                } else {
+                    Modifier.focusProperties { canFocus = false }
+                }
+            ),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -893,6 +907,7 @@ fun VodContentFilterPanel(
     }
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun NetflixContentWallRow(
     row: VodWallRow,
@@ -908,22 +923,47 @@ fun NetflixContentWallRow(
     overviewForSeries: (SeriesShow) -> String?,
     onActivateItem: (VodWallItem) -> Unit,
     modifier: Modifier = Modifier,
-    firstItemFocusRequester: FocusRequester? = null
+    firstItemFocusRequester: FocusRequester? = null,
+    heroPlayFocusRequester: FocusRequester? = null,
+    sidebarFocusRequester: FocusRequester? = null
 ) {
-    val scope = rememberCoroutineScope()
     LaunchedEffect(rowFocused, focusedColumn) {
         if (rowFocused && focusedColumn in row.items.indices) {
             listState.animateScrollToItem(focusedColumn.coerceAtLeast(0))
         }
     }
 
-    NetflixCategoryRow(
-        title = row.title,
+    // Title + poster row share one Column so LazyColumn viewport passes cannot clip the header.
+    Column(
         modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = VodPosterFocusLayout.estimatedWallRowHeight)
+            .graphicsLayer { clip = false }
     ) {
+        Text(
+            text = row.title,
+            color = VodNetflixColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = VodPosterFocusLayout.categoryRowTopPadding,
+                    bottom = VodPosterFocusLayout.categoryTitleBottomGap
+                )
+                .heightIn(min = VodPosterFocusLayout.categoryTitleBandHeight)
+        )
         LazyRow(
             state = listState,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(VodPosterFocusLayout.wallRowLazyRowHeight)
+                .padding(bottom = VodPosterFocusLayout.categoryRowBottomPadding),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
@@ -935,7 +975,23 @@ fun NetflixContentWallRow(
             items(row.items.size, key = { row.items[it].key }) { index ->
                 val item = row.items[index]
                 val externallyFocused = rowFocused && index == focusedColumn
-                val itemModifier = Modifier.focusProperties { canFocus = false }
+                val itemModifier = Modifier
+                    .then(
+                        if (index == 0 && firstItemFocusRequester != null) {
+                            Modifier.focusRequester(firstItemFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .focusProperties {
+                        canFocus = false
+                        if (index == 0 && sidebarFocusRequester != null) {
+                            left = sidebarFocusRequester
+                        }
+                        if (rowIndex == 0 && index == 0 && heroPlayFocusRequester != null) {
+                            up = heroPlayFocusRequester
+                        }
+                    }
                 when (item) {
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item

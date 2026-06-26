@@ -39,13 +39,14 @@ fun handleVodHubHeroKeyEvent(
     if (event.type != KeyEventType.KeyDown) return false
     if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
     return when (event.key) {
-        Key.DirectionLeft -> {
-            if (carouselSize > 1) onStepCarousel(-1)
-            true
-        }
+        Key.DirectionLeft -> false
         Key.DirectionRight -> {
-            if (carouselSize > 1) onStepCarousel(1)
-            true
+            if (carouselSize > 1) {
+                onStepCarousel(1)
+                true
+            } else {
+                false
+            }
         }
         Key.DirectionDown -> {
             onNavigateDown()
@@ -76,6 +77,11 @@ fun VodHubHeroIsland(
     onNavigateUp: () -> Unit,
     playFocusRequester: FocusRequester,
     moreInfoFocusRequester: FocusRequester,
+    topTabsFocusRequester: FocusRequester? = null,
+    firstRowCardFocusRequester: FocusRequester? = null,
+    sidebarFocusRequester: FocusRequester? = null,
+    onPlayFocused: () -> Unit = {},
+    onMoreInfoFocused: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val heroIndex by hubViewModel.heroIndex.collectAsStateWithLifecycle()
@@ -122,7 +128,12 @@ fun VodHubHeroIsland(
             onPlay = { onPlay(hero) },
             onMoreInfo = { onMoreInfo(hero) },
             playFocusRequester = playFocusRequester,
-            moreInfoFocusRequester = moreInfoFocusRequester
+            moreInfoFocusRequester = moreInfoFocusRequester,
+            topTabsFocusRequester = topTabsFocusRequester,
+            firstRowCardFocusRequester = firstRowCardFocusRequester,
+            sidebarFocusRequester = sidebarFocusRequester,
+            onPlayFocused = onPlayFocused,
+            onMoreInfoFocused = onMoreInfoFocused
         )
     }
 }

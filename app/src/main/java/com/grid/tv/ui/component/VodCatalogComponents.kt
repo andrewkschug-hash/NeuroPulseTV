@@ -27,7 +27,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +38,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -93,25 +95,17 @@ fun VodPosterCard(
     val resolutionBadge = remember(title) {
         parseVodResolutionBadge(title) ?: if (showHdBadge) "HD" else null
     }
-    var focused by remember { mutableStateOf(false) }
-    val showFocused = focused || externallyFocused
-    val scale by animateFloatAsState(
-        targetValue = if (showFocused) VodPosterFocusLayout.POSTER_FOCUS_SCALE else 1f,
-        animationSpec = tween(150),
-        label = "gridPosterScale"
-    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val showFocused = interactionSource.collectVodCardFocused(externallyFocused)
     GridFocusSurface(
         onClick = onClick,
+        interactionSource = interactionSource,
         modifier = modifier
             .padding(VodPosterFocusLayout.gridEdgePadding)
             .width(VodPosterFocusLayout.POSTER_WIDTH)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .onFocusChanged { focused = it.isFocused }
+            .vodCardFocusPop(interactionSource, externallyFocused)
             .then(
-                if (externallyFocused) {
+                if (showFocused) {
                     Modifier.border(
                         VodPosterFocusLayout.GRID_FOCUS_BORDER,
                         EpgColors.FocusBorder,
@@ -584,6 +578,7 @@ fun VodEpisodeCard(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun VodHeroSection(
     movie: VodItem,
@@ -594,7 +589,12 @@ fun VodHeroSection(
     onMoreInfo: () -> Unit,
     modifier: Modifier = Modifier,
     playFocusRequester: FocusRequester? = null,
-    moreInfoFocusRequester: FocusRequester? = null
+    moreInfoFocusRequester: FocusRequester? = null,
+    topTabsFocusRequester: FocusRequester? = null,
+    firstRowCardFocusRequester: FocusRequester? = null,
+    sidebarFocusRequester: FocusRequester? = null,
+    onPlayFocused: () -> Unit = {},
+    onMoreInfoFocused: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val backdropUrl = enrichment?.backdropUrl ?: enrichment?.posterUrl ?: movie.posterUrl
@@ -722,11 +722,20 @@ fun VodHeroSection(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                val playModifier = if (playFocusRequester != null) {
-                    Modifier.focusRequester(playFocusRequester)
-                } else {
-                    Modifier
-                }
+                val playModifier = Modifier
+                    .then(
+                        if (playFocusRequester != null) {
+                            Modifier.focusRequester(playFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .focusProperties {
+                        if (topTabsFocusRequester != null) up = topTabsFocusRequester
+                        if (firstRowCardFocusRequester != null) down = firstRowCardFocusRequester
+                        if (sidebarFocusRequester != null) left = sidebarFocusRequester
+                    }
+                    .onFocusChanged { if (it.isFocused) onPlayFocused() }
                 GridFocusSurface(
                     onClick = onPlay,
                     modifier = playModifier,
@@ -745,11 +754,19 @@ fun VodHeroSection(
                         modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
                     )
                 }
-                val moreModifier = if (moreInfoFocusRequester != null) {
-                    Modifier.focusRequester(moreInfoFocusRequester)
-                } else {
-                    Modifier
-                }
+                val moreModifier = Modifier
+                    .then(
+                        if (moreInfoFocusRequester != null) {
+                            Modifier.focusRequester(moreInfoFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .focusProperties {
+                        if (topTabsFocusRequester != null) up = topTabsFocusRequester
+                        if (firstRowCardFocusRequester != null) down = firstRowCardFocusRequester
+                    }
+                    .onFocusChanged { if (it.isFocused) onMoreInfoFocused() }
                 GridFocusSurface(
                     onClick = onMoreInfo,
                     modifier = moreModifier.border(
