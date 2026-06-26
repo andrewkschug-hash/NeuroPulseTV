@@ -73,8 +73,12 @@ import javax.inject.Singleton
 object AppProvidesModule {
     @Provides
     @Singleton
-    fun provideDb(@ApplicationContext context: Context): AppDatabase =
-        AppDatabaseHolder.get(context)
+    fun provideDb(@ApplicationContext context: Context): AppDatabase {
+        com.grid.tv.feature.startup.StartupTiming.log("AppProvidesModule.provideDb — Creating AppDatabase...")
+        return com.grid.tv.feature.startup.StartupTiming.trace("AppProvidesModule.provideDb") {
+            AppDatabaseHolder.get(context)
+        }
+    }
 
     @Provides
     fun provideM3uParser(): M3uParser = M3uParser()

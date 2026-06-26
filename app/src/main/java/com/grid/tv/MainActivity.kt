@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
+import android.view.Choreographer
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,10 +18,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import io.github.jan.supabase.auth.handleDeeplinks
 import com.grid.tv.feature.startup.StartupSafety
+import com.grid.tv.feature.startup.StartupTiming
 import com.grid.tv.feature.startup.StartupUiIdleHook
 import com.grid.tv.feature.search.MicSearchTrigger
 import com.grid.tv.feature.search.VoiceSearchKeys
-import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.ui.theme.GridTheme
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.ui.navigation.AppRoot
@@ -44,6 +45,10 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var themeManager: ThemeManager
     @Inject lateinit var appPlayerLifecycle: AppPlayerLifecycleCoordinator
     @Inject lateinit var startupSafety: StartupSafety
+
+    init {
+        StartupTiming.log("MainActivity constructor")
+    }
 
     private val settingsViewModel: SettingsViewModel by viewModels()
     private var pickerMode: PickerMode = PickerMode.M3U
@@ -74,8 +79,12 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        StartupTrace.trace("MainActivity.onCreate") {
-        super.onCreate(savedInstanceState)
+        StartupTiming.log("MainActivity.onCreate() entry")
+        StartupTiming.log("MainActivity.before super.onCreate() (Hilt field injection runs inside super)")
+        StartupTiming.trace("MainActivity.super.onCreate (Hilt Activity inject)") {
+            super.onCreate(savedInstanceState)
+        }
+        StartupTiming.log("MainActivity.after super.onCreate() (Hilt injection complete)")
         requestedOrientation = if (isTelevision()) {
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         } else {
@@ -90,6 +99,7 @@ class MainActivity : ComponentActivity() {
 
         handleAuthDeepLink(intent)
 
+        StartupTiming.log("MainActivity.before setContent()")
         setContent {
             StartupUiIdleHook(startupSafety)
             val themeId by themeManager.themeId.collectAsStateWithLifecycle()
@@ -106,6 +116,17 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        StartupTiming.log("MainActivity.after setContent()")
+        scheduleFirstFrameTiming()
+    }
+
+    private fun scheduleFirstFrameTiming() {
+        window.decorView.post {
+            StartupTiming.log("MainActivity.decorView.post (composition scheduled)")
+            Choreographer.getInstance().postFrameCallback {
+                StartupTiming.log("MainActivity.first frame drawn (Choreographer callback)")
+                StartupTiming.dumpReportOnce("first_frame")
+            }
         }
     }
 

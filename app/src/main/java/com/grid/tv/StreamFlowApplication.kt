@@ -10,6 +10,7 @@ import coil.memory.MemoryCache
 import com.grid.tv.di.StartupEntryPoint
 import com.grid.tv.feature.startup.MemoryPressureMonitor
 import com.grid.tv.feature.startup.StartupProfiler
+import com.grid.tv.feature.startup.StartupTiming
 import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.util.PosterImageEventListener
@@ -25,46 +26,63 @@ class StreamFlowApplication : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     override fun onCreate() {
-        super.onCreate()
-        MemoryPressureMonitor.start()
-        StartupTrace.trace("Application.onCreate") {
+        StartupTiming.markProcessStart()
+        StartupTiming.log("Application.onCreate() start")
+        StartupTiming.trace("Application.super.onCreate (Hilt Application inject)") {
+            super.onCreate()
+        }
+        StartupTiming.trace("MemoryPressureMonitor.start") {
+            MemoryPressureMonitor.start()
+        }
         StartupProfiler.mark("app_onCreate")
-        LowEndDeviceMode.init(this)
-        com.grid.tv.util.PlaybackDiagnostics.logDeviceProfile(this)
+        StartupTiming.trace("LowEndDeviceMode.init") {
+            LowEndDeviceMode.init(this)
+        }
+        StartupTiming.trace("PlaybackDiagnostics.logDeviceProfile") {
+            com.grid.tv.util.PlaybackDiagnostics.logDeviceProfile(this)
+        }
         PerformanceAudit.lowEndModeActive = !LowEndDeviceMode.current().performanceAuditEnabled
         val imageProfile = LowEndDeviceMode.current()
-        registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
-            override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
-            override fun onLowMemory() = trimImageCaches()
-            override fun onTrimMemory(level: Int) {
-                LowEndDeviceMode.onTrimMemory(level)
-                if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-                    trimImageCaches()
+        StartupTiming.trace("registerComponentCallbacks") {
+            registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
+                override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
+                override fun onLowMemory() = trimImageCaches()
+                override fun onTrimMemory(level: Int) {
+                    LowEndDeviceMode.onTrimMemory(level)
+                    if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                        trimImageCaches()
+                    }
                 }
-            }
-        })
-        Thread({
-            runBlocking { runDeferredStartup() }
-        }, "app-deferred-startup").start()
-        Coil.setImageLoader(
-            ImageLoader.Builder(this)
-                .memoryCache {
-                    MemoryCache.Builder(this)
-                        .maxSizeBytes(imageProfile.coilMemoryCacheBytes.toInt())
-                        .build()
-                }
-                .diskCache {
-                    DiskCache.Builder()
-                        .directory(cacheDir.resolve("image_cache"))
-                        .maxSizeBytes(imageProfile.coilDiskCacheBytes)
-                        .build()
-                }
-                .crossfade(if (imageProfile.active) 0 else 200)
-                .allowRgb565(imageProfile.active)
-                .eventListenerFactory(PosterImageEventListener.Factory)
-                .build()
-        )
+            })
         }
+        StartupTiming.trace("Deferred startup thread launch") {
+            Thread({
+                StartupTiming.log("app-deferred-startup thread running")
+                runBlocking { runDeferredStartup() }
+            }, "app-deferred-startup").start()
+        }
+        StartupTiming.log("Deferred startup launched")
+        StartupTiming.trace("Coil initialization") {
+            Coil.setImageLoader(
+                ImageLoader.Builder(this)
+                    .memoryCache {
+                        MemoryCache.Builder(this)
+                            .maxSizeBytes(imageProfile.coilMemoryCacheBytes.toInt())
+                            .build()
+                    }
+                    .diskCache {
+                        DiskCache.Builder()
+                            .directory(cacheDir.resolve("image_cache"))
+                            .maxSizeBytes(imageProfile.coilDiskCacheBytes)
+                            .build()
+                    }
+                    .crossfade(if (imageProfile.active) 0 else 200)
+                    .allowRgb565(imageProfile.active)
+                    .eventListenerFactory(PosterImageEventListener.Factory)
+                    .build()
+            )
+        }
+        StartupTiming.log("Application.onCreate() complete")
     }
 
     private fun trimImageCaches() {
@@ -88,5 +106,4 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
-
 }

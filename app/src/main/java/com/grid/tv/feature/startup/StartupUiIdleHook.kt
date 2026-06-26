@@ -15,6 +15,7 @@ fun StartupUiIdleHook(startupSafety: StartupSafety) {
     val readyMarked = remember { AtomicBoolean(false) }
     SideEffect {
         if (readyMarked.compareAndSet(false, true)) {
+            StartupTiming.log("Compose first composition (StartupUiIdleHook SideEffect)")
             startupSafety.markUiReady()
         } else {
             startupSafety.signalUiActivity("recomposition")

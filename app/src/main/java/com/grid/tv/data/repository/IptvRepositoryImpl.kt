@@ -68,6 +68,7 @@ import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTierPolicy
+import com.grid.tv.feature.startup.StartupTiming
 import com.grid.tv.feature.startup.StartupTrace
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.feature.startup.PersistedCatalogCounts
@@ -224,7 +225,10 @@ class IptvRepositoryImpl @Inject constructor(
 ) : IptvRepository {
 
     init {
-        startupSafety.registerVodLoadFlusher { trigger -> loadVodStreamed(trigger) }
+        StartupTiming.log("IptvRepositoryImpl — @Inject constructor resolved, entering init blocks")
+        StartupTiming.trace("IptvRepositoryImpl.registerVodLoadFlusher") {
+            startupSafety.registerVodLoadFlusher { trigger -> loadVodStreamed(trigger) }
+        }
     }
 
     companion object {
@@ -327,11 +331,16 @@ class IptvRepositoryImpl @Inject constructor(
     private val _channelCountFlow = MutableStateFlow(0)
 
     init {
-        restorePersistedCatalogCounts()
+        StartupTiming.trace("IptvRepositoryImpl.restorePersistedCatalogCounts") {
+            restorePersistedCatalogCounts()
+        }
+        StartupTiming.log("IptvRepositoryImpl construction complete")
     }
 
     private fun restorePersistedCatalogCounts() {
-        val persisted = startupCatalogCountsStore.read()
+        val persisted = StartupTiming.trace("IptvRepositoryImpl.startupCatalogCountsStore.read") {
+            startupCatalogCountsStore.read()
+        }
         if (!persisted.isValid) return
         val snapshot = persisted.toSnapshot(CatalogCountSource.PERSISTED)
         sessionCatalogCounts = snapshot
