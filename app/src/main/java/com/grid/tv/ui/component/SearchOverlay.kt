@@ -155,7 +155,7 @@ fun SearchOverlay(
     BackHandler(onBack = onDismiss)
 
     LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
-    LaunchedEffect(searchBarState, unifiedResults, flatResults) {
+    LaunchedEffect(searchBarState) {
         when (focusZone) {
             SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
             SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
@@ -271,17 +271,12 @@ fun SearchOverlay(
         modifier = modifier
             .fillMaxSize()
             .zIndex(20f)
-            .background(Color.Black.copy(alpha = 0.75f))
+            .background(EpgColors.Background)
             .focusRequester(modalTrapFocusRequester)
-            .focusable(enabled = focusZone != SearchFocusZone.FIELD)
+            .focusable(enabled = focusZone != SearchFocusZone.FIELD && focusZone != SearchFocusZone.MIC)
             .onPreviewKeyEvent { event ->
                 if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
-                if (focusZone == SearchFocusZone.FIELD &&
-                    event.type == KeyEventType.KeyDown &&
-                    !TvImeKeyDispatcher.isImeNavigationKey(event.key) &&
-                    event.key != Key.Back &&
-                    event.key != Key.Escape
-                ) {
+                if (focusZone == SearchFocusZone.FIELD || focusZone == SearchFocusZone.MIC) {
                     return@onPreviewKeyEvent false
                 }
                 handleKey(event)
@@ -289,10 +284,8 @@ fun SearchOverlay(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(480.dp)
+                .fillMaxSize()
                 .align(Alignment.TopCenter)
-                .background(EpgColors.Background)
         ) {
             SearchInputRow(
                 query = query,

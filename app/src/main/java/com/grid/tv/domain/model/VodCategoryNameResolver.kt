@@ -186,7 +186,7 @@ object VodCategoryNameResolver {
             )
         }
 
-        val grouped = resolved.groupBy { VodSidebarGenreNormalizer.scopedComparisonKey(it.playlistId, it.name) }
+        val grouped = resolved.groupBy { VodSidebarGenreNormalizer.scopedPrimaryComparisonKey(it.playlistId, it.name) }
         VodSidebarGenreNormalizer.logMergedGenreGroups(source, grouped)
 
         val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
@@ -196,24 +196,27 @@ object VodCategoryNameResolver {
                 val canonicalName = VodSidebarGenreNormalizer.pickCanonicalDisplayName(
                     resolved.filter {
                         it.playlistId == representative.playlistId &&
-                            VodSidebarGenreNormalizer.comparisonKey(it.name) ==
-                            VodSidebarGenreNormalizer.comparisonKey(representative.name)
+                            VodSidebarGenreNormalizer.primaryComparisonKey(it.name) ==
+                            VodSidebarGenreNormalizer.primaryComparisonKey(representative.name)
                     }.map { it.name }
                 )
                 val displayCategory = representative.copy(name = canonicalName)
                 val repKey = categoryKey(displayCategory.playlistId, displayCategory.id)
-                val comparisonKey = VodSidebarGenreNormalizer.comparisonKey(canonicalName)
+                val comparisonKey = VodSidebarGenreNormalizer.primaryComparisonKey(canonicalName)
                 val siblingIds = resolved
                     .filter {
                         it.playlistId == displayCategory.playlistId &&
-                            VodSidebarGenreNormalizer.comparisonKey(it.name) == comparisonKey
+                            VodSidebarGenreNormalizer.primaryComparisonKey(it.name) == comparisonKey
                     }
                     .map { it.id }
                     .toSet()
                 filterIdsByRepresentativeId[repKey] = siblingIds
                 displayCategory
             }
-            .sortedBy { it.name.lowercase() }
+            .sortedWith(
+                compareBy<VodCategory> { VodSidebarGenreNormalizer.sidebarSortRank(it.name) }
+                    .thenBy { it.name.lowercase() }
+            )
 
         return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
     }

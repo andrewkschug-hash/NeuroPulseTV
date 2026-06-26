@@ -435,7 +435,7 @@ internal fun GuideGroupCategoryRow(
     var rowFocused by remember { mutableStateOf(false) }
     val background = when {
         rowFocused -> EpgColors.LiveGuideFocusBg
-        expanded -> Color(0xFF2A2818)
+        expanded -> EpgColors.LiveGuideFocusBg
         else -> EpgColors.GridBg
     }
     val textColor = when {
@@ -553,7 +553,7 @@ private fun GuideGroupTreeRowShell(
     var rowFocused by remember { mutableStateOf(false) }
     val background = when {
         rowFocused -> EpgColors.LiveGuideFocusBg
-        checked -> Color(0xFF2A2818)
+        checked -> EpgColors.LiveGuideFocusBg
         else -> EpgColors.GridBg
     }
     val textColor = when {

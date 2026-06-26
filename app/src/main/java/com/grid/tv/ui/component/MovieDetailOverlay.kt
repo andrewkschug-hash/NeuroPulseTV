@@ -85,7 +85,7 @@ fun MovieDetailOverlay(
     BackHandler(onBack = onBack)
 
     LaunchedEffect(movie.streamId, enrichment?.providerKey) {
-        watchFocusRequester.requestFocusSafelyAfterLayout()
+        modalTrapFocusRequester.requestFocusSafelyAfterLayout()
     }
 
     Box(

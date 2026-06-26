@@ -487,6 +487,25 @@ internal class HomeEpgGuideController(
         ui.hasRequestedInitialGridFocus = false
     }
 
+    /** Persist the focused group and optionally return focus to the live grid. */
+    fun commitChannelGroupSelection(focusGrid: Boolean) {
+        if (!canShowChannelGroupsPanel()) {
+            ui.channelGroupsPanelVisible = false
+            return
+        }
+        val visibleRows = flatVisibleGroupRows()
+        val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex)
+        if (row != null) {
+            applyChannelGroupFilter(guideChannelFilterForVisibleRow(row))
+        }
+        ui.channelGroupsPanelVisible = false
+        if (focusGrid) {
+            ui.focusOnChannelColumn = true
+            focusEpgZone(EpgFocusZone.GRID)
+            scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.NEUTRAL)
+        }
+    }
+
     fun handleChannelGroupsCategoryToggle(categoryIndex: Int) {
         val expanded = ui.channelGroupsExpandedCategories.ifEmpty {
             expandedCategoriesForSelection(boundDeps.guideGroupCategories, boundDeps.guideFilter.selectedGroups)
@@ -508,11 +527,12 @@ internal class HomeEpgGuideController(
         if (visibleRows.isEmpty()) return false
         return when (event.key) {
             Key.Back, Key.Escape -> {
-                collapseChannelGroupsPanel(focusGrid = true)
+                commitChannelGroupSelection(focusGrid = true)
                 true
             }
             Key.DirectionLeft -> {
-                collapseChannelGroupsPanel(focusGrid = true)
+                commitChannelGroupSelection(focusGrid = false)
+                focusEpgZone(EpgFocusZone.NAV_DRAWER)
                 true
             }
             Key.DirectionRight -> {

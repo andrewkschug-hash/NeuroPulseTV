@@ -483,7 +483,6 @@ private fun SeriesDetailPane(
         if (index >= 0) {
             episodeRow = index / episodeColumns
             episodeCol = index % episodeColumns
-            focusZone = SeriesDetailFocusZone.EPISODES
         }
     }
 

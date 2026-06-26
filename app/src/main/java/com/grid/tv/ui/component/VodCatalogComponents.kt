@@ -93,11 +93,23 @@ fun VodPosterCard(
     val resolutionBadge = remember(title) {
         parseVodResolutionBadge(title) ?: if (showHdBadge) "HD" else null
     }
+    var focused by remember { mutableStateOf(false) }
+    val showFocused = focused || externallyFocused
+    val scale by animateFloatAsState(
+        targetValue = if (showFocused) VodPosterFocusLayout.POSTER_FOCUS_SCALE else 1f,
+        animationSpec = tween(150),
+        label = "gridPosterScale"
+    )
     GridFocusSurface(
         onClick = onClick,
         modifier = modifier
             .padding(VodPosterFocusLayout.gridEdgePadding)
             .width(VodPosterFocusLayout.POSTER_WIDTH)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .onFocusChanged { focused = it.isFocused }
             .then(
                 if (externallyFocused) {
                     Modifier.border(

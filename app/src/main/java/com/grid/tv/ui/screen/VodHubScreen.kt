@@ -69,6 +69,7 @@ import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodContentFilterTabBar
+import com.grid.tv.domain.model.VodSidebarGenreNormalizer
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
 import com.grid.tv.ui.component.VodHubTabFilters
@@ -113,6 +114,8 @@ import com.grid.tv.util.VodPerfLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private val vodImmediateWallRowIds = setOf("continue_watching", "trending", "recommended")
+
 private enum class VodFocusZone {
     NAV_DRAWER,
     FILTER_PANEL,
@@ -128,8 +131,11 @@ private val vodManualFocusZones = setOf(
     VodFocusZone.HERO
 )
 
-private fun isVodTraversalKey(event: KeyEvent): Boolean =
-    TvImeKeyDispatcher.isImeNavigationKey(event.key)
+private fun isVodDirectionalKey(event: KeyEvent): Boolean =
+    event.key == Key.DirectionUp ||
+        event.key == Key.DirectionDown ||
+        event.key == Key.DirectionLeft ||
+        event.key == Key.DirectionRight
 
 @Composable
 fun VodHubScreen(
@@ -234,6 +240,23 @@ fun VodHubScreen(
     val trendingNow = contentState.trendingNow
     val wallRows = contentState.wallRows
     val wallRowsRevision = contentState.wallRowsRevision
+    val immediateWallRows = remember(wallRows) {
+        wallRows.filter { it.id in vodImmediateWallRowIds }
+    }
+    val deferredWallRows = remember(wallRows) {
+        wallRows.filter { it.id !in vodImmediateWallRowIds }
+            .sortedWith(
+                compareBy({ VodSidebarGenreNormalizer.sidebarSortRank(it.title) }, { it.title.lowercase() })
+            )
+    }
+    var loadedDeferredWallCount by rememberSaveable(wallRowsRevision) { mutableIntStateOf(0) }
+    val displayWallRows = remember(contentFilter, wallRows, immediateWallRows, deferredWallRows, loadedDeferredWallCount) {
+        if (contentFilter != VodContentFilter.ALL) {
+            wallRows
+        } else {
+            immediateWallRows + deferredWallRows.take(loadedDeferredWallCount)
+        }
+    }
     val onboardingInputs = contentState.onboardingInputs
     val showCatalogEmptyState = contentState.showCatalogEmptyState
     val showLanguageFilteredEmpty = contentState.showLanguageFilteredEmpty
@@ -304,7 +327,7 @@ fun VodHubScreen(
     val heroExpandedPx = with(density) { VodHubFoldMetrics.HeroExpandedHeight.toPx() }
     val vodFoldScroller = rememberVodHubFoldScroller(columnListState, heroExpandedPx)
     val vodWallScrollSafePaddingPx = remember(density) {
-        with(density) { 40.dp.roundToPx() }
+        with(density) { (VodPosterFocusLayout.categoryRowTopPadding + VodPosterFocusLayout.categoryTitleBottomGap + 8.dp).roundToPx() }
     }
     val vodWallRowHeightPx = remember(density) {
         with(density) { VodPosterFocusLayout.estimatedWallRowHeight.roundToPx() }
@@ -375,7 +398,7 @@ fun VodHubScreen(
     val showVodOnboardingStrip = showVodOnboarding && wallRows.isNotEmpty() && !showVodOnboardingFull
 
     fun syncFocusedWallItemKey() {
-        val key = wallRows.getOrNull(contentRowIndex)?.items?.getOrNull(contentColIndex)?.key
+        val key = displayWallRows.getOrNull(contentRowIndex)?.items?.getOrNull(contentColIndex)?.key
         focusedContentKey = key
         hubViewModel.rememberFocusedContentKey(key)
     }
@@ -383,7 +406,7 @@ fun VodHubScreen(
     fun restoreWallFocusAfterRebuild(focusBefore: String?) {
         val started = System.nanoTime()
         val (row, col) = resolveVodWallFocus(
-            wallRows = wallRows,
+            wallRows = displayWallRows,
             savedContentKey = focusBefore,
             fallbackRow = contentRowIndex,
             fallbackCol = contentColIndex
@@ -394,7 +417,7 @@ fun VodHubScreen(
         }
         contentRowIndex = row
         contentColIndex = col
-        val keyAfter = wallRows.getOrNull(row)?.items?.getOrNull(col)?.key
+        val keyAfter = displayWallRows.getOrNull(row)?.items?.getOrNull(col)?.key
         focusedContentKey = keyAfter
         hubViewModel.rememberFocusedContentKey(keyAfter)
         VodPerfLogger.logStage(
@@ -405,11 +428,20 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(wallRows.size) {
-        val maxRow = wallRows.lastIndex.coerceAtLeast(0)
-        if (wallRows.isEmpty()) return@LaunchedEffect
+        val maxRow = displayWallRows.lastIndex.coerceAtLeast(0)
+        if (displayWallRows.isEmpty()) return@LaunchedEffect
         contentRowIndex = contentRowIndex.coerceIn(0, maxRow)
-        val maxCol = wallRows.getOrNull(contentRowIndex)?.items?.lastIndex ?: 0
+        val maxCol = displayWallRows.getOrNull(contentRowIndex)?.items?.lastIndex ?: 0
         contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
+    }
+
+    LaunchedEffect(contentRowIndex, focusZone, contentFilter, deferredWallRows.size, immediateWallRows.size) {
+        if (contentFilter != VodContentFilter.ALL || showBrowseGrid || focusZone != VodFocusZone.CONTENT) return@LaunchedEffect
+        val neededDeferred = (contentRowIndex - immediateWallRows.size + 2)
+            .coerceIn(0, deferredWallRows.size)
+        if (neededDeferred > loadedDeferredWallCount) {
+            loadedDeferredWallCount = neededDeferred
+        }
     }
 
     LaunchedEffect(wallRows.size, hasHero, searchQuery) {
@@ -418,7 +450,7 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(focusZone, contentRowIndex, showHeroIsland, showBrowseGrid, searchQuery, wallRows.size, showInlineSearch) {
+    LaunchedEffect(focusZone, contentRowIndex, showHeroIsland, showBrowseGrid, searchQuery, displayWallRows.size, showInlineSearch) {
         if (searchQuery.isNotBlank() || showBrowseGrid || showInlineSearch) return@LaunchedEffect
         when (focusZone) {
             VodFocusZone.HERO -> {
@@ -456,7 +488,7 @@ fun VodHubScreen(
         val focusBefore = focusedContentKey
             ?: vodWallItemKey(wallRows.getOrNull(contentRowIndex)?.items?.getOrNull(contentColIndex))
         restoreWallFocusAfterRebuild(focusBefore)
-        if (focusZone == VodFocusZone.CONTENT && wallRows.isNotEmpty() && !showBrowseGrid && searchQuery.isBlank()) {
+        if (focusZone == VodFocusZone.CONTENT && displayWallRows.isNotEmpty() && !showBrowseGrid && searchQuery.isBlank()) {
             contentFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
@@ -1167,7 +1199,7 @@ fun VodHubScreen(
                 else -> false
             }
         }
-        val row = wallRows.getOrNull(contentRowIndex) ?: return false
+        val row = displayWallRows.getOrNull(contentRowIndex) ?: return false
         val handled = when (event.key) {
             Key.DirectionLeft -> {
                 if (contentColIndex > 0) {
@@ -1186,7 +1218,7 @@ fun VodHubScreen(
                 if (contentRowIndex > 0) {
                     contentScrollDirection = TvLazyFocusScrollDirection.UP
                     contentRowIndex -= 1
-                    val maxCol = wallRows[contentRowIndex].items.lastIndex
+                    val maxCol = displayWallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
                 } else if (hasHero && searchQuery.isBlank()) {
                     focusZone = VodFocusZone.HERO
@@ -1196,10 +1228,10 @@ fun VodHubScreen(
                 true
             }
             Key.DirectionDown -> {
-                if (contentRowIndex < wallRows.lastIndex) {
+                if (contentRowIndex < displayWallRows.lastIndex) {
                     contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                     contentRowIndex += 1
-                    val maxCol = wallRows[contentRowIndex].items.lastIndex
+                    val maxCol = displayWallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
                 }
                 true
@@ -1277,7 +1309,9 @@ fun VodHubScreen(
                 enabled = !seriesDetailOpen &&
                     !movieDetailOpen &&
                     !imeTypingActive &&
-                    !(showInlineSearch && vodSearchFocused)
+                    !(showInlineSearch && vodSearchFocused) &&
+                    !showGlobalSearchOverlay &&
+                    focusZone != VodFocusZone.HERO
             )
             .focusProperties {
                 if (seriesDetailOpen || movieDetailOpen) {
@@ -1285,6 +1319,7 @@ fun VodHubScreen(
                 }
             }
             .onPreviewKeyEvent { event ->
+                if (showGlobalSearchOverlay) return@onPreviewKeyEvent false
                 if (seriesDetailOpen || movieDetailOpen) {
                     return@onPreviewKeyEvent false
                 }
@@ -1323,7 +1358,7 @@ fun VodHubScreen(
                 }
                 if (handled) return@onPreviewKeyEvent true
                 if (imeTypingActive) return@onPreviewKeyEvent false
-                if (focusZone in vodManualFocusZones && isVodTraversalKey(event)) {
+                if (focusZone in vodManualFocusZones && isVodDirectionalKey(event)) {
                     return@onPreviewKeyEvent true
                 }
                 false
@@ -1588,7 +1623,7 @@ fun VodHubScreen(
                                         )
                                     }
                                 }
-                                itemsIndexed(wallRows, key = { _, row -> row.id }) { index, row ->
+                                itemsIndexed(displayWallRows, key = { _, row -> row.id }) { index, row ->
                                     val rowListState = remember(row.id) { LazyListState() }
                                     val rowFocused = focusZone == VodFocusZone.CONTENT && contentRowIndex == index
                                     val focusedColumn = if (rowFocused) contentColIndex else -1

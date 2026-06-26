@@ -34,10 +34,10 @@ object EpgColors {
     val FocusBorder: Color get() = palette.focusBorder
     val SelectedFill: Color get() = palette.selectedFill
 
-    /** TiviMate-style bright yellow focus for live guide channel list + group panel. */
-    val LiveGuideFocus: Color get() = Color(0xFFFFEB3B)
-    val LiveGuideFocusBg: Color get() = Color(0xFF4A4520)
-    val LiveGuideFocusDim: Color get() = Color(0xFFB8A832)
+    /** Live guide + sidebar focus — white box highlight. */
+    val LiveGuideFocus: Color get() = Color.White
+    val LiveGuideFocusBg: Color get() = Color.White.copy(alpha = 0.14f)
+    val LiveGuideFocusDim: Color get() = Color.White.copy(alpha = 0.72f)
 
     val SidebarRailBg: Color get() = Color(0xFF101018)
     val SidebarPanelBg: Color get() = palette.detailPanelBg

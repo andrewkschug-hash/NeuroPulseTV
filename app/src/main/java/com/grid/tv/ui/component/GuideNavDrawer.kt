@@ -36,9 +36,9 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR
 
-enum class GuideNavDrawerItem(val label: String, val showLabel: Boolean = true) {
-    Search("Search", showLabel = false),
-    LiveView("Live", showLabel = false),
+enum class GuideNavDrawerItem(val label: String, val showLabel: Boolean = false) {
+    Search("Search"),
+    LiveView("Live"),
     Vod("VODs"),
     Favorites("Favourites"),
     Recordings("Recordings")

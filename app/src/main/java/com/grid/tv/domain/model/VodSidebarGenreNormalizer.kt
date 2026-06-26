@@ -33,8 +33,33 @@ object VodSidebarGenreNormalizer {
     fun comparisonKey(name: String): String =
         formatDisplayName(name).lowercase(Locale.ROOT)
 
+    /** Case-insensitive key for the primary genre token (before comma/slash chains). */
+    fun primaryComparisonKey(name: String): String {
+        val formatted = formatDisplayName(name)
+        val primary = formatted
+            .substringBefore(',')
+            .substringBefore('/')
+            .trim()
+            .ifBlank { formatted }
+        return comparisonKey(primary)
+    }
+
+    fun scopedPrimaryComparisonKey(playlistId: Long, name: String): String =
+        "$playlistId:${primaryComparisonKey(name)}"
+
     fun scopedComparisonKey(playlistId: Long, name: String): String =
         "$playlistId:${comparisonKey(name)}"
+
+    /** Lower ranks sort earlier; subtitle/language buckets sink to the bottom. */
+    fun sidebarSortRank(name: String): Int {
+        val lower = name.lowercase(Locale.ROOT)
+        return when {
+            lower.contains("hindi") && lower.contains("sub") -> 3
+            lower.contains("subs") || lower.contains("subtitle") -> 2
+            lower.contains(" dubbed") || lower.endsWith(" dubbed") -> 2
+            else -> 0
+        }
+    }
 
     /**
      * Picks a readable canonical label from variants that share the same [comparisonKey].

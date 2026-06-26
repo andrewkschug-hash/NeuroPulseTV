@@ -670,125 +670,108 @@ fun VodContentFilterTabBar(
     modifier: Modifier = Modifier
 ) {
     val filters = VodHubTabFilters
-    val density = LocalDensity.current
-    var tabOffsetsPx by remember { mutableStateOf(List(filters.size) { 0f }) }
-    var tabWidthsPx by remember { mutableStateOf(List(filters.size) { 0f }) }
-    val selectedIndex = filters.indexOf(selectedFilter).coerceAtLeast(0)
-    val focusedIndex = filters.indexOf(focusedFilter).coerceAtLeast(0)
-    val indicatorOffset by animateDpAsState(
-        targetValue = with(density) { tabOffsetsPx.getOrElse(selectedIndex) { 0f }.toDp() },
-        animationSpec = tween(durationMillis = 300),
-        label = "vodTabIndicatorOffset"
-    )
-    val indicatorWidth by animateDpAsState(
-        targetValue = with(density) { tabWidthsPx.getOrElse(selectedIndex) { 0f }.toDp() },
-        animationSpec = tween(durationMillis = 300),
-        label = "vodTabIndicatorWidth"
-    )
-    val segmentShape = RoundedCornerShape(10.dp)
-    val indicatorShape = RoundedCornerShape(8.dp)
+    val pillShape = RoundedCornerShape(999.dp)
+    val chipShape = RoundedCornerShape(999.dp)
+    val accent = VodNetflixColors.Accent
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 24.dp, vertical = 10.dp)
             .focusProperties { canFocus = false },
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .background(Color(0xFF1A1A1A), segmentShape)
-                .border(1.dp, Color.White.copy(alpha = 0.08f), segmentShape)
-                .padding(4.dp)
+                .clip(pillShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.14f),
+                            Color(0xFF121820).copy(alpha = 0.72f)
+                        )
+                    ),
+                    pillShape
+                )
+                .border(1.dp, Color.White.copy(alpha = 0.22f), pillShape)
+                .padding(horizontal = 6.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            if (tabWidthsPx.getOrElse(selectedIndex) { 0f } > 0f) {
+            filters.forEach { filter ->
+                val selected = filter == selectedFilter
+                val focused = barFocused && filter == focusedFilter && !languageFilterFocused
+                val emphasized = selected || focused
+                val label = vodHubTabFilterLabel(filter)
                 Box(
                     modifier = Modifier
-                        .offset(x = indicatorOffset)
-                        .width(indicatorWidth.coerceAtLeast(1.dp))
-                        .height(36.dp)
-                        .background(VodNetflixColors.Accent.copy(alpha = 0.22f), indicatorShape)
-                        .border(1.dp, VodNetflixColors.Accent.copy(alpha = 0.55f), indicatorShape)
-                )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                filters.forEachIndexed { index, filter ->
-                    val selected = filter == selectedFilter
-                    val focused = barFocused && filter == focusedFilter && !languageFilterFocused
-                    val label = vodHubTabFilterLabel(filter)
-                    Box(
-                        modifier = Modifier
-                            .onGloballyPositioned { coordinates ->
-                                val offset = coordinates.positionInParent().x
-                                val width = coordinates.size.width.toFloat()
-                                if (tabOffsetsPx.getOrNull(index) != offset || tabWidthsPx.getOrNull(index) != width) {
-                                    tabOffsetsPx = tabOffsetsPx.toMutableList().also {
-                                        if (index < it.size) it[index] = offset
-                                    }
-                                    tabWidthsPx = tabWidthsPx.toMutableList().also {
-                                        if (index < it.size) it[index] = width
-                                    }
-                                }
+                        .clip(chipShape)
+                        .then(
+                            if (emphasized) {
+                                Modifier
+                                    .background(accent.copy(alpha = 0.28f), chipShape)
+                                    .border(
+                                        width = if (focused) 2.dp else 1.dp,
+                                        color = accent.copy(alpha = if (focused) 0.95f else 0.65f),
+                                        shape = chipShape
+                                    )
+                            } else {
+                                Modifier
                             }
-                            .clip(indicatorShape)
-                            .clickable { onFilterSelected(filter) }
-                            .focusProperties { canFocus = false }
-                            .padding(horizontal = 20.dp, vertical = 10.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            color = when {
-                                selected || focused -> VodNetflixColors.TextPrimary
-                                else -> VodNetflixColors.TextSecondary
-                            },
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            softWrap = false
                         )
-                    }
+                        .clickable { onFilterSelected(filter) }
+                        .focusProperties { canFocus = false }
+                        .padding(horizontal = 22.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        text = label,
+                        color = if (emphasized) Color.White else Color(0xFFB8BEC8),
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.width(14.dp))
 
-        val languageShape = RoundedCornerShape(10.dp)
         val languageFocused = barFocused && languageFilterFocused
-        val languageBackground = when {
-            languageFilterActive -> Color(0xFF243040)
-            languageFocused -> Color(0xFF2A2A2A)
-            else -> Color(0xFF1A1A1A)
-        }
-        val languageBorder = when {
-            languageFocused -> VodNetflixColors.Accent
-            languageFilterActive -> VodNetflixColors.Accent.copy(alpha = 0.7f)
-            else -> Color.White.copy(alpha = 0.14f)
-        }
+        val languageEmphasized = languageFilterActive || languageFocused
         Row(
             modifier = Modifier
-                .clip(languageShape)
-                .background(languageBackground, languageShape)
-                .border(if (languageFocused) 2.dp else 1.dp, languageBorder, languageShape)
+                .clip(pillShape)
+                .background(
+                    Brush.linearGradient(
+                        listOf(
+                            Color.White.copy(alpha = if (languageEmphasized) 0.16f else 0.10f),
+                            Color(0xFF121820).copy(alpha = 0.68f)
+                        )
+                    ),
+                    pillShape
+                )
+                .border(
+                    width = if (languageFocused) 2.dp else 1.dp,
+                    color = when {
+                        languageFocused -> accent.copy(alpha = 0.95f)
+                        languageFilterActive -> accent.copy(alpha = 0.65f)
+                        else -> Color.White.copy(alpha = 0.20f)
+                    },
+                    shape = pillShape
+                )
                 .clickable(onClick = onLanguageFilterClick)
                 .focusProperties { canFocus = false }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 18.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "🌐",
-                fontSize = 16.sp
-            )
+            Text(text = "🌐", fontSize = 16.sp)
             Text(
                 text = if (languageFilterActive) "Languages ●" else "Languages",
-                color = if (languageFilterActive || languageFocused) {
-                    VodNetflixColors.TextPrimary
-                } else {
-                    VodNetflixColors.TextSecondary
-                },
+                color = if (languageEmphasized) Color.White else Color(0xFFB8BEC8),
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
                 fontWeight = if (languageFilterActive) FontWeight.SemiBold else FontWeight.Medium,

@@ -47,10 +47,19 @@ class VodSidebarGenreNormalizerTest {
     }
 
     @Test
-    fun comparisonKey_normalizesSlashSpacing() {
-        assertEquals(
-            VodSidebarGenreNormalizer.comparisonKey("Action / Sci-Fi"),
-            VodSidebarGenreNormalizer.comparisonKey("Action/Sci-Fi")
+    fun primaryComparisonKey_collapsesCompoundGenreLists() {
+        val variants = listOf(
+            "Action & Adventure / Comedy / Drama",
+            "Action & Adventure / Sci-Fi",
+            "Action and Adventure, Comedy"
         )
+        val keys = variants.map { VodSidebarGenreNormalizer.primaryComparisonKey(it) }.toSet()
+        assertEquals(1, keys.size)
+    }
+
+    @Test
+    fun sidebarSortRank_deprioritizesSubtitleBuckets() {
+        assertEquals(0, VodSidebarGenreNormalizer.sidebarSortRank("Action & Adventure"))
+        assertEquals(3, VodSidebarGenreNormalizer.sidebarSortRank("HINDI subs"))
     }
 }

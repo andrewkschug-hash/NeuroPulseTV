@@ -575,6 +575,7 @@ class HomeEpgViewModel @Inject constructor(
                 if (!current.isActive) return@collectLatest
                 val valid = current.selectedGroups.intersect(groups.toSet())
                 if (valid == current.selectedGroups) return@collectLatest
+                if (valid.isEmpty()) return@collectLatest
                 val updated = GuideChannelFilter(valid)
                 _guideFilter.value = updated
                 persistGuideFilter(updated, configured = true)
@@ -667,6 +668,7 @@ class HomeEpgViewModel @Inject constructor(
         if (available.isEmpty()) return
         val valid = groups.intersect(available.toSet())
         if (valid == groups) return
+        if (valid.isEmpty()) return
         Log.w(
             TAG,
             "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
@@ -687,6 +689,7 @@ class HomeEpgViewModel @Inject constructor(
         if (available.isEmpty()) return GuideChannelFilter(groups)
         val valid = groups.intersect(available.toSet())
         if (valid == groups) return GuideChannelFilter(groups)
+        if (valid.isEmpty()) return GuideChannelFilter(groups)
         Log.w(
             TAG,
             "Pruned stale guide filter groups: kept ${valid.size} of ${groups.size} " +
@@ -726,10 +729,10 @@ class HomeEpgViewModel @Inject constructor(
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
         val changed = _guideFilter.value != filter
         _guideFilter.value = filter
-        if (markConfigured) {
+        if (markConfigured || filter.isActive) {
             _guideFiltersConfigured.value = true
         }
-        if (changed || markConfigured) {
+        if (changed || markConfigured || filter.isActive) {
             persistGuideFilter(filter, configured = _guideFiltersConfigured.value)
         }
     }
