@@ -57,13 +57,12 @@ fun GuideChannelGroupsPanel(
     LaunchedEffect(panelFocused, focusedIndex, visibleRows) {
         if (!panelFocused || visibleRows.isEmpty()) return@LaunchedEffect
         val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
-        onFocusedIndexChange(index)
         focusRequesterFor(visibleRows[index]).requestFocusSafelyAfterLayout()
     }
 
     LaunchedEffect(focusedIndex, visibleRows) {
         if (visibleRows.isNotEmpty()) {
-            listState.scrollToItem(focusedIndex.coerceIn(0, visibleRows.lastIndex))
+            listState.animateScrollToItem(focusedIndex.coerceIn(0, visibleRows.lastIndex))
         }
     }
 

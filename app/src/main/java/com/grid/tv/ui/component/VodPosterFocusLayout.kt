@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
  * | 320 xhdpi| 1080p panels   | 20px            |
  */
 object VodPosterFocusLayout {
-    const val POSTER_FOCUS_SCALE = 1.08f
+    const val POSTER_FOCUS_SCALE = 1.10f
 
     val POSTER_WIDTH = 112.dp
     val POSTER_HEIGHT = 168.dp

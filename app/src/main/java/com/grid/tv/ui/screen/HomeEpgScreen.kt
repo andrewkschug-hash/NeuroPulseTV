@@ -134,6 +134,7 @@ fun HomeEpgScreen(
     val isInitializing = chrome.isInitializing
     val hasConnection = chrome.hasConnection
     val guideFilter = chrome.guideFilter
+    val displayGuideFilter by viewModel.displayGuideFilter.collectAsStateWithLifecycle()
     val favoriteGroupFilter = chrome.favoriteGroupFilter
     val guideFiltersConfigured = chrome.guideFiltersConfigured
     val guideSettingsLoaded = chrome.guideSettingsLoaded
@@ -170,6 +171,7 @@ fun HomeEpgScreen(
                     previewSurfaceAttached = true
                     viewModel.reloadPlaybackSettings(context)
                     viewModel.reloadGuideSettings()
+                    viewModel.ensureChannelsLoadedIfEmpty()
                     viewModel.setScannerForeground(true)
                     if (guidePreviewEnabledState.value && !livePlayerManager.isFullscreenActive()) {
                         viewModel.resumeGuidePreviewIfEnabled(context)
@@ -197,23 +199,24 @@ fun HomeEpgScreen(
         showEmptyState,
         favoriteGroupFilter,
         demoFavoriteIds,
-        guideFilter
+        guideFilter,
+        displayGuideFilter
     ) {
         when {
             showEmptyState -> emptyList()
             usePlaceholder -> {
-                val all = EpgPlaceholderData.channels().filter { guideFilter.appliesTo(it) }
+                val all = EpgPlaceholderData.channels().filter { displayGuideFilter.appliesTo(it) }
                 when (favoriteGroupFilter) {
                     null -> all
                     HomeEpgViewModel.FAVORITES_FILTER -> all.filter { it.id in demoFavoriteIds }
                     else -> emptyList()
                 }
             }
-            else -> channels.filter { guideFilter.appliesTo(it) }
+            else -> channels.filter { displayGuideFilter.appliesTo(it) }
         }
     }
     val showFilteredEmptyState = !usePlaceholder && !showEmptyState &&
-        displayChannels.isEmpty() && (guideFilter.isActive || favoriteGroupFilter != null)
+        displayChannels.isEmpty() && (displayGuideFilter.isActive || favoriteGroupFilter != null)
 
     if (PerformanceAudit.ENABLED) {
         SideEffect {
@@ -480,7 +483,8 @@ fun HomeEpgScreen(
         previewProgram = previewProgram,
         previewNextProgram = previewNextProgram,
         guideGroupCategories = guideGroupCategories,
-        guideFilter = guideFilter,
+        guideFilter = displayGuideFilter,
+        committedGuideFilter = guideFilter,
         demoFavoriteIds = demoFavoriteIds,
         vodProgress = vodProgress,
         continueWatchingItems = emptyList(),
@@ -571,7 +575,7 @@ fun HomeEpgScreen(
                 ) {
                     GuideChannelGroupsPanel(
                         channelGroups = channelGroups,
-                        selectedGroups = guideFilter.selectedGroups,
+                        selectedGroups = displayGuideFilter.selectedGroups,
                         groupChannelCounts = groupChannelCounts,
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
@@ -602,7 +606,7 @@ fun HomeEpgScreen(
                     GuideSubScreen.Groups -> {
                         GuideGroupsScreen(
                             organized = organizedGuideGroups,
-                            selectedGroups = guideFilter.selectedGroups,
+                            selectedGroups = displayGuideFilter.selectedGroups,
                             hideAdult = hideAdultContent,
                             onApplyFilter = { filter ->
                                 viewModel.setGuideFilter(filter, markConfigured = true)
@@ -667,7 +671,7 @@ fun HomeEpgScreen(
                 onNavigateSettings()
             },
             onQuitApp = { context.quitAppToHome() },
-            showSwitchAccounts = false,
+            showSwitchAccounts = true,
             anchorFromSidebar = true
         )
     }

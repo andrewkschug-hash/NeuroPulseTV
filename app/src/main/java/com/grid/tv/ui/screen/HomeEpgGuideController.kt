@@ -81,6 +81,7 @@ internal data class HomeEpgGuideDeps(
     val previewNextProgram: Program?,
     val guideGroupCategories: List<GuideGroupCategory>,
     val guideFilter: GuideChannelFilter,
+    val committedGuideFilter: GuideChannelFilter,
     val demoFavoriteIds: Set<Long>,
     val vodProgress: Map<Pair<Long, Long>, Long>,
     val continueWatchingItems: List<ContinueWatchingItem>,
@@ -451,6 +452,7 @@ internal class HomeEpgGuideController(
 
     fun collapseChannelGroupsPanel(focusGrid: Boolean = true) {
         ui.channelGroupsPanelVisible = false
+        boundDeps.viewModel.clearPreviewGuideFilter(reloadCommitted = true)
         if (!focusGrid) return
         ui.focusOnChannelColumn = true
         focusEpgZone(EpgFocusZone.GRID)
@@ -461,7 +463,7 @@ internal class HomeEpgGuideController(
         if (!canShowChannelGroupsPanel()) return
         ui.channelGroupsFocusIndex = visibleRowIndexForFlatSelection(
             boundDeps.channelGroups,
-            boundDeps.guideFilter.selectedGroups
+            boundDeps.committedGuideFilter.selectedGroups
         )
         ui.channelGroupsPanelVisible = true
         focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
@@ -476,9 +478,7 @@ internal class HomeEpgGuideController(
         val row = flatVisibleGroupRows().getOrNull(ui.channelGroupsFocusIndex) ?: return
         val filter = guideChannelFilterForVisibleRow(row)
         if (filter == boundDeps.guideFilter) return
-        boundDeps.viewModel.setGuideFilter(filter, markConfigured = false)
-        ui.focusChannelIndex = 0
-        ui.hasRequestedInitialGridFocus = false
+        boundDeps.viewModel.previewGuideFilter(filter)
     }
 
     fun applyChannelGroupFilter(filter: GuideChannelFilter) {
@@ -640,9 +640,10 @@ internal class HomeEpgGuideController(
                     ui.profileMenuOpen = true
                     ui.profileMenuFocusIndex = 0
                 } else {
-                    selectDrawerItem(
-                        com.grid.tv.ui.component.GuideNavDrawerItems[ui.navDrawerFocusIndex - 1]
-                    )
+                    val itemIndex = ui.navDrawerFocusIndex - 1
+                    val item = com.grid.tv.ui.component.GuideNavDrawerItems.getOrNull(itemIndex)
+                        ?: return true
+                    selectDrawerItem(item)
                 }
                 true
             }
@@ -669,7 +670,7 @@ internal class HomeEpgGuideController(
                 EpgFocusZone.PREVIEW -> if (d.showPreviewSection) {
                     d.previewFocusRequester.requestFocusSafelyAfterLayout(150)
                 }
-                EpgFocusZone.GRID -> if (d.displayChannels.isNotEmpty()) {
+                EpgFocusZone.GRID -> {
                     d.gridFocusRequester.requestFocusSafelyAfterLayout()
                 }
             }
@@ -862,6 +863,14 @@ internal class HomeEpgGuideController(
         if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
         if (boundDeps.displayChannels.isEmpty()) {
             return when (event.key) {
+                Key.DirectionLeft -> {
+                    if (canShowChannelGroupsPanel()) {
+                        openChannelGroupsPanel()
+                    } else {
+                        focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+                    }
+                    true
+                }
                 Key.DirectionUp -> {
                     focusNavDrawerItem(GuideNavDrawerItem.LiveView)
                     true
@@ -919,13 +928,15 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.DirectionLeft -> {
-                val channel = boundDeps.displayChannels.getOrNull(ui.focusChannelIndex) ?: return false
-                val progs = programsForChannelTimed(channel, "DirectionLeft")
-                if (!ui.focusOnChannelColumn && ui.focusProgramIndex > 0) {
-                    ui.focusProgramIndex -= 1
-                    scrollToProgram(progs[ui.focusProgramIndex])
-                } else if (!ui.focusOnChannelColumn) {
-                    ui.focusOnChannelColumn = true
+                if (!ui.focusOnChannelColumn) {
+                    val channel = boundDeps.displayChannels.getOrNull(ui.focusChannelIndex)
+                    val progs = channel?.let { programsForChannelTimed(it, "DirectionLeft") }.orEmpty()
+                    if (ui.focusProgramIndex > 0) {
+                        ui.focusProgramIndex -= 1
+                        scrollToProgram(progs[ui.focusProgramIndex])
+                    } else {
+                        ui.focusOnChannelColumn = true
+                    }
                 } else if (canShowChannelGroupsPanel()) {
                     openChannelGroupsPanel()
                 } else {

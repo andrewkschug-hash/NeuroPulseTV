@@ -219,6 +219,14 @@ class HomeEpgViewModel @Inject constructor(
     private val _guideFilter = MutableStateFlow(GuideChannelFilter.All)
     val guideFilter: StateFlow<GuideChannelFilter> = _guideFilter.asStateFlow()
 
+    /** Temporary filter while browsing channel groups — does not persist or clear the grid. */
+    private val _previewGuideFilter = MutableStateFlow<GuideChannelFilter?>(null)
+
+    val displayGuideFilter: StateFlow<GuideChannelFilter> =
+        combine(_guideFilter, _previewGuideFilter) { committed, preview ->
+            preview ?: committed
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GuideChannelFilter.All)
+
     private val _isReloadingChannels = MutableStateFlow(false)
     val isReloadingChannels: StateFlow<Boolean> = _isReloadingChannels.asStateFlow()
 
@@ -728,14 +736,36 @@ class HomeEpgViewModel @Inject constructor(
 
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
         val changed = _guideFilter.value != filter
+        _previewGuideFilter.value = null
         _guideFilter.value = filter
-        if (markConfigured || filter.isActive) {
+        if (markConfigured) {
             _guideFiltersConfigured.value = true
-        }
-        if (changed || markConfigured || filter.isActive) {
-            persistGuideFilter(filter, configured = _guideFiltersConfigured.value)
+            persistGuideFilter(filter, configured = true)
         }
     }
+
+    /** Live-update the grid while browsing groups without clearing channels or resetting scroll. */
+    fun previewGuideFilter(filter: GuideChannelFilter) {
+        if (_previewGuideFilter.value == filter && effectiveGuideFilter() == filter) return
+        _previewGuideFilter.value = filter
+        reloadChannelsSoft()
+    }
+
+    fun clearPreviewGuideFilter(reloadCommitted: Boolean = false) {
+        if (_previewGuideFilter.value == null) return
+        _previewGuideFilter.value = null
+        if (reloadCommitted && guideBootstrapComplete) {
+            reloadChannelsSoft()
+        }
+    }
+
+    fun ensureChannelsLoadedIfEmpty() {
+        if (_channels.value.isNotEmpty() || !guideBootstrapComplete) return
+        reloadChannels()
+    }
+
+    private fun effectiveGuideFilter(): GuideChannelFilter =
+        _previewGuideFilter.value ?: _guideFilter.value
 
     fun saveGuideChannelGroups(groups: Set<String>, markConfigured: Boolean = true) {
         val filter = GuideChannelFilter(groups)
@@ -755,7 +785,10 @@ class HomeEpgViewModel @Inject constructor(
             _guideFilter.value = nextFilter
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
             _guideSettingsLoaded.value = true
+            _previewGuideFilter.value = null
             if (filterChanged && guideBootstrapComplete) {
+                reloadChannels()
+            } else if (guideBootstrapComplete && _channels.value.isEmpty()) {
                 reloadChannels()
             }
         }
@@ -1090,6 +1123,37 @@ class HomeEpgViewModel @Inject constructor(
         }
     }
 
+    /** Swap channel page in one shot — keeps the current list visible until new data arrives. */
+    private fun reloadChannelsSoft() {
+        channelLoadJob?.cancel()
+        val generation = ++channelFilterGeneration
+        channelLoadJob = viewModelScope.launch(Dispatchers.IO) {
+            channelDbOffset = 0
+            _hasMoreChannels.value = true
+            loadingChannels = true
+            try {
+                val pageLimit = CHANNEL_PAGE_SIZE
+                val page = fetchFilteredChannelPage(offset = 0, limit = pageLimit)
+                if (generation != channelFilterGeneration) return@launch
+                channelDbOffset = page.size
+                _hasMoreChannels.value = page.size >= pageLimit
+                withContext(Dispatchers.Main.immediate) {
+                    _channels.value = page
+                }
+                if (page.isNotEmpty()) {
+                    skipNextChannelWindowSchedule = true
+                    loadWindow()
+                } else {
+                    withContext(Dispatchers.Main.immediate) {
+                        _epgPrograms.value = emptyList()
+                    }
+                }
+            } finally {
+                loadingChannels = false
+            }
+        }
+    }
+
     private suspend fun reloadChannelsInternal() {
         StartupTrace.traceSuspend("HomeEpgViewModel.reloadChannels") {
             reloadChannels()
@@ -1141,10 +1205,10 @@ class HomeEpgViewModel @Inject constructor(
                         list
                     }
                 }
-                .filter { _guideFilter.value.appliesTo(it) }
+                .filter { effectiveGuideFilter().appliesTo(it) }
         }
         val favoriteFilter = _favoriteGroupFilter.value
-        val groups = _guideFilter.value.selectedGroups
+        val groups = effectiveGuideFilter().selectedGroups
         val page = repository.channelsPage(
             groups = groups,
             search = "",
@@ -1157,7 +1221,7 @@ class HomeEpgViewModel @Inject constructor(
             page.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         } else {
             page
-        }.filter { _guideFilter.value.appliesTo(it) }
+        }.filter { effectiveGuideFilter().appliesTo(it) }
     }
 
     private suspend fun appendProgramsForChannels(newChannels: List<Channel>) {

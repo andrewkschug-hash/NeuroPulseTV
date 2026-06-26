@@ -327,7 +327,14 @@ fun VodHubScreen(
     val heroExpandedPx = with(density) { VodHubFoldMetrics.HeroExpandedHeight.toPx() }
     val vodFoldScroller = rememberVodHubFoldScroller(columnListState, heroExpandedPx)
     val vodWallScrollSafePaddingPx = remember(density) {
-        with(density) { (VodPosterFocusLayout.categoryRowTopPadding + VodPosterFocusLayout.categoryTitleBottomGap + 8.dp).roundToPx() }
+        with(density) {
+            (
+                VodPosterFocusLayout.categoryRowTopPadding +
+                    24.dp +
+                    VodPosterFocusLayout.categoryTitleBottomGap +
+                    VodPosterFocusLayout.netflixEdgePaddingVertical
+                ).roundToPx()
+        }
     }
     val vodWallRowHeightPx = remember(density) {
         with(density) { VodPosterFocusLayout.estimatedWallRowHeight.roundToPx() }
@@ -433,6 +440,12 @@ fun VodHubScreen(
         contentRowIndex = contentRowIndex.coerceIn(0, maxRow)
         val maxCol = displayWallRows.getOrNull(contentRowIndex)?.items?.lastIndex ?: 0
         contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
+    }
+
+    LaunchedEffect(deferredWallRows.size, contentFilter) {
+        if (contentFilter == VodContentFilter.ALL && deferredWallRows.isNotEmpty() && loadedDeferredWallCount == 0) {
+            loadedDeferredWallCount = minOf(2, deferredWallRows.size)
+        }
     }
 
     LaunchedEffect(contentRowIndex, focusZone, contentFilter, deferredWallRows.size, immediateWallRows.size) {
@@ -1233,6 +1246,15 @@ fun VodHubScreen(
                     contentRowIndex += 1
                     val maxCol = displayWallRows[contentRowIndex].items.lastIndex
                     contentColIndex = contentColIndex.coerceAtMost(maxCol)
+                } else if (
+                    contentFilter == VodContentFilter.ALL &&
+                    !showBrowseGrid &&
+                    loadedDeferredWallCount < deferredWallRows.size
+                ) {
+                    loadedDeferredWallCount += 1
+                    contentScrollDirection = TvLazyFocusScrollDirection.DOWN
+                    contentRowIndex += 1
+                    contentColIndex = 0
                 }
                 true
             }

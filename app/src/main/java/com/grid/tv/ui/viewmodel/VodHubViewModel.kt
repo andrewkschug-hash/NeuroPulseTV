@@ -156,7 +156,17 @@ class VodHubViewModel @Inject constructor(
         ) { catalog, cw, enrichment, profileId, _ ->
             val profile = profileId ?: return@combine emptyList()
             VodPerfLogger.trace("topPicks", "catalog=${catalog.size}") {
-                val picks = tasteGenomeEngine.topPicks(catalog, cw, enrichment, limit = 24)
+                val (likedGenres, downvotedKeys) = recommendationTasteSignals(catalog, enrichment, profile)
+                val picks = tasteGenomeEngine.topPicks(
+                    catalog = catalog,
+                    continueWatching = cw,
+                    enrichmentByProviderKey = enrichment,
+                    likedGenres = likedGenres,
+                    limit = 24
+                ).filter { item ->
+                    val key = ContinueWatchingRepository.movieContentKey(item.playlistId, item.streamId)
+                    key !in downvotedKeys
+                }
                 applyRecommendationFeedback(picks, profile)
             }
         }
@@ -916,6 +926,34 @@ class VodHubViewModel @Inject constructor(
             .sortedByDescending { it.second }
             .map { it.first }
     }
+
+    private fun recommendationTasteSignals(
+        catalog: List<VodItem>,
+        enrichment: Map<String, TitleEnrichmentEntity>,
+        profileId: Long
+    ): Pair<Set<String>, Set<String>> {
+        val likedGenres = linkedSetOf<String>()
+        val downvotedKeys = linkedSetOf<String>()
+        catalog.forEach { item ->
+            val key = ContinueWatchingRepository.movieContentKey(item.playlistId, item.streamId)
+            when (recommendationFeedbackStore.voteFor(profileId, key)) {
+                com.grid.tv.feature.vod.personalization.RecommendationVote.UP -> {
+                    val enrichmentKey = TitleEnrichmentRepository.xtreamVodKey(item.playlistId, item.streamId)
+                    val row = enrichment[enrichmentKey]
+                    likedGenres += tokenizeGenreCsv(row?.genres ?: item.genre.orEmpty())
+                }
+                com.grid.tv.feature.vod.personalization.RecommendationVote.DOWN -> downvotedKeys += key
+                null -> Unit
+            }
+        }
+        return likedGenres to downvotedKeys
+    }
+
+    private fun tokenizeGenreCsv(raw: String): Set<String> =
+        raw.split(',')
+            .map { it.trim().lowercase() }
+            .filter { it.length >= 2 }
+            .toSet()
 
     private fun filterMoviesByLanguage(
         catalog: List<VodItem>,

@@ -76,7 +76,7 @@ fun ProfileMenuDropdown(
             }
             if (showSwitchAccounts) {
                 ProfileMenuDropdownItem(
-                    label = "Switch accounts",
+                    label = "Switch profile",
                     onClick = {
                         onDismiss()
                         onSwitchAccounts()

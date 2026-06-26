@@ -22,10 +22,11 @@ class TasteGenomeEngine {
         catalog: List<VodItem>,
         continueWatching: List<ContinueWatchingItem>,
         enrichmentByProviderKey: Map<String, TitleEnrichmentEntity> = emptyMap(),
+        likedGenres: Set<String> = emptySet(),
         limit: Int = 20
     ): List<VodItem> {
         if (catalog.isEmpty()) return emptyList()
-        val tasteProfile = buildTasteProfile(continueWatching, enrichmentByProviderKey)
+        val tasteProfile = buildTasteProfile(continueWatching, enrichmentByProviderKey, likedGenres)
         return catalog
             .asSequence()
             .map { item ->
@@ -114,7 +115,8 @@ class TasteGenomeEngine {
 
     private fun buildTasteProfile(
         continueWatching: List<ContinueWatchingItem>,
-        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity>
+        enrichmentByProviderKey: Map<String, TitleEnrichmentEntity>,
+        likedGenres: Set<String> = emptySet()
     ): TasteProfile {
         val genres = linkedSetOf<String>()
         val keywords = linkedSetOf<String>()
@@ -130,6 +132,7 @@ class TasteGenomeEngine {
             directors += tokenizeCsv(enrichment?.directors ?: "")
             genres += tokenize(item.title)
         }
+        genres += likedGenres.map { it.trim().lowercase() }.filter { it.length >= 2 }
 
         return TasteProfile(genres, keywords, cast, directors)
     }

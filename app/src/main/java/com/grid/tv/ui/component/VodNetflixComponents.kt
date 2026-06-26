@@ -2,6 +2,7 @@ package com.grid.tv.ui.component
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
@@ -143,7 +144,7 @@ fun NetflixPosterCard(
     val focused = interactionFocused || externallyFocused
     val scale by animateFloatAsState(
         targetValue = if (focused) VodPosterFocusLayout.POSTER_FOCUS_SCALE else 1f,
-        animationSpec = tween(150),
+        animationSpec = spring(stiffness = 380f, dampingRatio = 0.72f),
         label = "posterScale"
     )
     val border = if (focused) {

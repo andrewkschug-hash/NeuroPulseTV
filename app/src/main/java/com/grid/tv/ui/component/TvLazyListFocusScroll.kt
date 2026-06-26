@@ -140,9 +140,11 @@ suspend fun LazyListState.animateScrollVodWallRowIntoView(
         if (fullyVisible) return
 
         when {
-            itemBottom > safeBottom || direction == TvLazyFocusScrollDirection.DOWN -> {
-                val scrollOffset = (viewportHeight - visibleItem.size - padding).coerceAtLeast(0)
-                animateScrollToItem(targetIndex, scrollOffset)
+            itemBottom > safeBottom -> {
+                animateScrollToItem(targetIndex, scrollOffset = padding)
+            }
+            direction == TvLazyFocusScrollDirection.DOWN -> {
+                animateScrollToItem(targetIndex, scrollOffset = padding)
             }
             itemTop < safeTop || direction == TvLazyFocusScrollDirection.UP -> {
                 animateScrollToItem(targetIndex, scrollOffset = padding)
@@ -157,8 +159,7 @@ suspend fun LazyListState.animateScrollVodWallRowIntoView(
             animateScrollToItem(targetIndex, scrollOffset = padding)
         }
         TvLazyFocusScrollDirection.DOWN -> {
-            val scrollOffset = (viewportHeight - itemHeight - padding).coerceAtLeast(0)
-            animateScrollToItem(targetIndex, scrollOffset)
+            animateScrollToItem(targetIndex, scrollOffset = padding)
         }
         TvLazyFocusScrollDirection.NEUTRAL -> {
             animateScrollToItemIfNeeded(targetIndex, direction)
