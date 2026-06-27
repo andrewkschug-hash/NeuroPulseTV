@@ -236,7 +236,10 @@ fun GuideNavDrawer(
                             item = item,
                             focused = focused,
                             selected = selected,
-                            onClick = { onItemSelected(item) },
+                            onClick = {
+                        onItemFocused(focusIndex)
+                        onItemSelected(item)
+                    },
                             modifier = Modifier
                                 .focusRequester(requesterFor(focusIndex))
                                 .onFocusChanged {

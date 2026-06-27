@@ -717,7 +717,16 @@ fun VodHubScreen(
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> false
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
+                    false
+                } else {
+                    GuideNavDrawerItems.getOrNull(navDrawerFocusIndex - 1)?.let { item ->
+                        selectVodDrawerItem(item)
+                        true
+                    } ?: false
+                }
+            }
             else -> false
         }
     }

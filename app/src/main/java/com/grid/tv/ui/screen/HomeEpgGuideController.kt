@@ -649,7 +649,18 @@ internal class HomeEpgGuideController(
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> false
+            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                if (ui.navDrawerFocusIndex == com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
+                    false
+                } else {
+                    com.grid.tv.ui.component.GuideNavDrawerItems
+                        .getOrNull(ui.navDrawerFocusIndex - 1)
+                        ?.let { item ->
+                            selectDrawerItem(item)
+                            true
+                        } ?: false
+                }
+            }
             else -> false
         }
     }
@@ -663,7 +674,9 @@ internal class HomeEpgGuideController(
         }
         d.scope.launch {
             when (zone) {
-                EpgFocusZone.NAV_DRAWER -> Unit
+                EpgFocusZone.NAV_DRAWER -> {
+                    d.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
+                }
                 EpgFocusZone.CHANNEL_GROUPS -> if (showChannelGroupsPanel()) {
                     d.channelGroupsPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }

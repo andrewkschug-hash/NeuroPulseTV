@@ -153,6 +153,7 @@ fun HomeEpgScreen(
     val profileAccessMessage = viewModel.profileAccessMessage()
     val livePlayerManager = viewModel.livePlayerManager
     val fullscreenActive by livePlayerManager.fullscreenActive.collectAsStateWithLifecycle()
+    val lastPlayedChannel by viewModel.lastPlayedChannel.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.reloadPlaybackSettings(context)
@@ -295,22 +296,38 @@ fun HomeEpgScreen(
         )
     }
 
-    LaunchedEffect(guidePosition, displayChannels.size, livePlayerManager) {
+    var wasFullscreen by remember { androidx.compose.runtime.mutableStateOf(fullscreenActive) }
+    LaunchedEffect(fullscreenActive) {
+        if (wasFullscreen && !fullscreenActive) {
+            ui.didRestoreGuide = false
+        }
+        wasFullscreen = fullscreenActive
+    }
+
+    LaunchedEffect(guidePosition, displayChannels.size, livePlayerManager, lastPlayedChannel?.id) {
         if (ui.didRestoreGuide || displayChannels.isEmpty()) return@LaunchedEffect
         val liveChannelId = livePlayerManager.playbackUiState.value.activeChannelId
-        if (guidePosition.hasSavedPosition) {
+            ?.takeIf { it > 0L }
+            ?: lastPlayedChannel?.id
+        val idxByChannel = liveChannelId?.let { id ->
+            displayChannels.indexOfFirst { it.id == id }
+        } ?: -1
+        if (idxByChannel >= 0) {
+            ui.focusChannelIndex = idxByChannel
+            ui.focusProgramIndex = guidePosition.focusProgramIndex
+            ui.focusOnChannelColumn = guidePosition.focusOnChannelColumn
+            listState.scrollToItem(idxByChannel)
+            if (guidePosition.hasSavedPosition) {
+                hScroll.scrollTo(guidePosition.timelineScrollPx.coerceIn(0, hScroll.maxValue))
+            }
+            ui.didInitialScroll = true
+        } else if (guidePosition.hasSavedPosition) {
             ui.focusChannelIndex = guidePosition.focusChannelIndex.coerceIn(0, displayChannels.lastIndex)
             ui.focusProgramIndex = guidePosition.focusProgramIndex
             ui.focusOnChannelColumn = guidePosition.focusOnChannelColumn
             listState.scrollToItem(ui.focusChannelIndex)
             hScroll.scrollTo(guidePosition.timelineScrollPx.coerceIn(0, hScroll.maxValue))
             ui.didInitialScroll = true
-        } else {
-            val idx = displayChannels.indexOfFirst { it.id == liveChannelId }
-            if (idx >= 0) {
-                ui.focusChannelIndex = idx
-                listState.scrollToItem(idx)
-            }
         }
         ui.didRestoreGuide = true
     }
@@ -422,13 +439,31 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex) {
+    LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex, lastPlayedChannel?.id) {
         if (isReloadingChannels) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
-            ui.focusChannelIndex = 0
-            ui.focusProgramIndex = 0
-            ui.focusOnChannelColumn = false
-        } else if (ui.focusChannelIndex > displayChannels.lastIndex) {
+            if (channels.isEmpty()) {
+                ui.focusChannelIndex = 0
+                ui.focusProgramIndex = 0
+                ui.focusOnChannelColumn = false
+            }
+            return@LaunchedEffect
+        }
+        val liveChannelId = livePlayerManager.playbackUiState.value.activeChannelId
+            ?.takeIf { it > 0L }
+            ?: lastPlayedChannel?.id
+        if (liveChannelId != null) {
+            val idx = displayChannels.indexOfFirst { it.id == liveChannelId }
+            if (idx >= 0) {
+                ui.focusChannelIndex = idx
+                val progs = displayChannels.getOrNull(idx)
+                    ?.let { programmeIndex.programsFor(it.id) }
+                    ?: emptyList()
+                ui.focusProgramIndex = ui.focusProgramIndex.coerceIn(0, (progs.size - 1).coerceAtLeast(0))
+                return@LaunchedEffect
+            }
+        }
+        if (ui.focusChannelIndex > displayChannels.lastIndex) {
             ui.focusChannelIndex = displayChannels.lastIndex
             val progs = displayChannels.getOrNull(ui.focusChannelIndex)
                 ?.let { programmeIndex.programsFor(it.id) }
@@ -558,7 +593,10 @@ fun HomeEpgScreen(
                         ui.profileMenuOpen = true
                         ui.profileMenuFocusIndex = 0
                     },
-                    onItemFocused = { ui.navDrawerFocusIndex = it },
+                    onItemFocused = {
+                        ui.navDrawerFocusIndex = it
+                        ui.focusZone = EpgFocusZone.NAV_DRAWER
+                    },
                     onItemSelected = controller::selectDrawerItem,
                     onPreviewKey = controller::handleNavDrawerKey,
                     liveViewActive = liveViewActive,

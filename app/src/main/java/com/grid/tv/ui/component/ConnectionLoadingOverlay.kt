@@ -35,7 +35,7 @@ fun ConnectionLoadingOverlay(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.78f))
+            .background(Color.Black)
             .padding(horizontal = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
