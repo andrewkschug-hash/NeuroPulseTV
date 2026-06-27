@@ -920,6 +920,9 @@ internal fun HomeEpgChannelList(
                     .focusRequester(gridFocusRequester)
                     .focusProperties {
                         canFocus = !displayChannelsEmpty && gridFocused
+                        if (channelGroups.isNotEmpty()) {
+                            left = topNavFocusRequester
+                        }
                         up = if (focusChannelIndex == 0) {
                             if (showGroupFilter) gridFilterFocusRequester else gridFilterUpTarget
                         } else {

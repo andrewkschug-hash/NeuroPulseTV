@@ -352,9 +352,20 @@ fun VodHubScreen(
     }
 
     LaunchedEffect(contentFilter, searchQuery) {
-        val searchMode = contentFilter == VodContentFilter.SEARCH
-        moviesViewModel.setHubSearchMode(searchMode)
-        seriesViewModel.setHubSearchMode(searchMode)
+        moviesViewModel.setHubSearchMode(
+            when (contentFilter) {
+                VodContentFilter.MOVIES -> false
+                VodContentFilter.SEARCH -> searchQuery.isBlank()
+                else -> true
+            }
+        )
+        seriesViewModel.setHubSearchMode(
+            when (contentFilter) {
+                VodContentFilter.SERIES -> false
+                VodContentFilter.SEARCH -> searchQuery.isBlank()
+                else -> true
+            }
+        )
         when (contentFilter) {
             VodContentFilter.SEARCH -> {
                 moviesViewModel.setSearchQuery(searchQuery)
@@ -601,6 +612,9 @@ fun VodHubScreen(
     fun focusFilterPanelFromGenre() {
         focusZone = VodFocusZone.FILTER_PANEL
         filterFocusIndex = vodHubTabFilterIndex(contentFilter)
+        scope.launch {
+            filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun focusBrowseGridFromSidebar() {
@@ -608,6 +622,9 @@ fun VodHubScreen(
         if (count <= 0) return
         focusZone = VodFocusZone.CONTENT
         browseGridFocusIndex = 0
+        scope.launch {
+            browseGridFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun focusBrowseResultsFromTopBar() {
@@ -698,8 +715,7 @@ fun VodHubScreen(
             }
             Key.DirectionRight -> {
                 if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
-                    profileMenuOpen = true
-                    profileMenuFocusIndex = 0
+                    navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
                 } else {
                     closeNavDrawer()
                 }
@@ -719,7 +735,9 @@ fun VodHubScreen(
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
                 if (navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
-                    false
+                    profileMenuOpen = true
+                    profileMenuFocusIndex = 0
+                    true
                 } else {
                     GuideNavDrawerItems.getOrNull(navDrawerFocusIndex - 1)?.let { item ->
                         selectVodDrawerItem(item)
@@ -822,6 +840,13 @@ fun VodHubScreen(
             return
         }
         val filter = VodHubTabFilters.getOrNull(index) ?: VodContentFilter.ALL
+        if (filter == contentFilter &&
+            filter != VodContentFilter.MOVIES &&
+            filter != VodContentFilter.SERIES
+        ) {
+            filterFocusIndex = index
+            return
+        }
         if (filter != VodContentFilter.SEARCH && contentFilter == VodContentFilter.SEARCH) {
             hubViewModel.setSearchQuery("")
             vodSearchFocused = false
@@ -844,13 +869,30 @@ fun VodHubScreen(
             }
             return
         }
-        focusZone = if (filter == VodContentFilter.ALL) VodFocusZone.CONTENT else VodFocusZone.GENRE_PANEL
+        focusZone = when (filter) {
+            VodContentFilter.ALL -> VodFocusZone.CONTENT
+            VodContentFilter.MOVIES, VodContentFilter.SERIES -> VodFocusZone.GENRE_PANEL
+            VodContentFilter.SEARCH -> VodFocusZone.CONTENT
+        }
         onNavigateVod(
             when (filter) {
                 VodContentFilter.SERIES -> 1
                 else -> 0
             }
         )
+        if (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) {
+            scope.launch {
+                genrePanelFocusRequester.requestFocusSafelyAfterLayout()
+            }
+        }
+    }
+
+    fun moveFilterFocus(delta: Int) {
+        val nextIndex = (filterFocusIndex + delta).coerceIn(0, VodHubLanguageFilterFocusIndex)
+        filterFocusIndex = nextIndex
+        if (nextIndex < VodHubLanguageFilterFocusIndex) {
+            applyContentFilter(nextIndex)
+        }
     }
 
     fun applyGenre(index: Int) {
@@ -897,6 +939,9 @@ fun VodHubScreen(
         }
         focusZone = VodFocusZone.CONTENT
         browseGridFocusIndex = 0
+        scope.launch {
+            browseGridFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun handleBrowseGridKey(event: KeyEvent): Boolean {
@@ -1045,7 +1090,7 @@ fun VodHubScreen(
         return when (event.key) {
             Key.DirectionLeft -> {
                 if (filterFocusIndex > 0) {
-                    filterFocusIndex -= 1
+                    moveFilterFocus(-1)
                 } else {
                     openNavDrawer()
                 }
@@ -1053,7 +1098,7 @@ fun VodHubScreen(
             }
             Key.DirectionRight -> {
                 if (filterFocusIndex < VodHubLanguageFilterFocusIndex) {
-                    filterFocusIndex += 1
+                    moveFilterFocus(1)
                 } else {
                     when {
                         showInlineSearch -> focusInlineSearchField()

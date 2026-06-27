@@ -15,8 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,7 @@ import com.grid.tv.ui.theme.EpgColors
 /** TiviMate-style column-2 channel group list beside the icon rail. */
 val GuideChannelGroupsPanelWidth = 260.dp
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GuideChannelGroupsPanel(
     channelGroups: List<String>,
@@ -38,6 +42,9 @@ fun GuideChannelGroupsPanel(
     focusedIndex: Int,
     panelFocused: Boolean,
     panelFocusRequester: FocusRequester,
+    gridFocusRequester: FocusRequester,
+    navDrawerFocusRequester: FocusRequester,
+    onPanelFocused: () -> Unit,
     onFocusedIndexChange: (Int) -> Unit,
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     onFilterChange: (GuideChannelFilter) -> Unit,
@@ -77,6 +84,11 @@ fun GuideChannelGroupsPanel(
                 shape = RoundedCornerShape(0.dp)
             )
             .focusRequester(panelFocusRequester)
+            .focusProperties {
+                left = navDrawerFocusRequester
+                right = gridFocusRequester
+            }
+            .onFocusChanged { if (it.isFocused) onPanelFocused() }
             .onPreviewKeyEvent(onPreviewKey)
     ) {
         Text(

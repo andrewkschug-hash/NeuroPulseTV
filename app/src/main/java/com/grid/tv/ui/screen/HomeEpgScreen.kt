@@ -607,7 +607,7 @@ fun HomeEpgScreen(
                     }
                 )
                 AnimatedVisibility(
-                    visible = liveViewActive && channelGroups.isNotEmpty() && ui.channelGroupsPanelVisible,
+                    visible = liveViewActive && channelGroups.isNotEmpty(),
                     enter = slideInHorizontally { -it } + fadeIn(),
                     exit = slideOutHorizontally { -it } + fadeOut()
                 ) {
@@ -618,8 +618,12 @@ fun HomeEpgScreen(
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
                         panelFocusRequester = channelGroupsPanelFocusRequester,
+                        gridFocusRequester = gridFocusRequester,
+                        navDrawerFocusRequester = navDrawerFocusRequester,
+                        onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
                         onFocusedIndexChange = { index ->
                             ui.channelGroupsFocusIndex = index
+                            ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
                             controller.previewChannelGroupForFocusedRow()
                         },
                         onPreviewKey = controller::handleChannelGroupsKey,
