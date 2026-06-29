@@ -80,6 +80,7 @@ data class VodUiState(
         browseRowCount = 0,
         categoryCount = 0
     ),
+    val surfaceState: VodHubSurfaceState = VodHubSurfaceState.Ready(),
 
     val enrichmentMap: Map<String, TitleEnrichmentEntity> = emptyMap(),
     val vodProgress: Map<Pair<Long, Long>, Long> = emptyMap(),

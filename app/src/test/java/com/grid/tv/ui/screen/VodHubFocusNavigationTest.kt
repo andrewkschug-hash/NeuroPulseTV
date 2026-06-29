@@ -2,6 +2,7 @@ package com.grid.tv.ui.screen
 
 import androidx.compose.ui.focus.FocusRequester
 import com.grid.tv.domain.model.VodContentFilter
+import com.grid.tv.feature.vod.VodHubFocusContentMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
@@ -51,6 +52,7 @@ class VodHubFocusNavigationTest {
                 genrePanelFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
                 browseEmptyStateFocusRequester = FocusRequester(),
+                rootFocusRequester = FocusRequester(),
                 heroPlayFocusRequester = FocusRequester(),
                 inlineSearchFocusRequester = FocusRequester(),
                 navDrawerFocusRequester = FocusRequester(),
@@ -62,6 +64,13 @@ class VodHubFocusNavigationTest {
                 setContentColIndex = {},
                 browseGridItemCount = { browseCount },
                 browseGridCatalogTotal = { browseCatalogTotal },
+                focusContentMode = {
+                    when {
+                        browseCount > 0 -> VodHubFocusContentMode.Ready
+                        browseCatalogTotal > 0 || browseLoading -> VodHubFocusContentMode.Loading
+                        else -> VodHubFocusContentMode.Empty
+                    }
+                },
                 isBrowseGridLoading = { browseLoading },
                 browseGridKeyAtIndex = { index -> "key_$index" },
                 activeBrowseGridState = { null },

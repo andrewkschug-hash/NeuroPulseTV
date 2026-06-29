@@ -9,6 +9,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodWallRow
+import com.grid.tv.feature.vod.VodHubFocusContentMode
+import com.grid.tv.feature.vod.VodHubSurfaceStateResolver
 import com.grid.tv.feature.vod.resolveVodWallFocus
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.SidebarContentFocus
@@ -54,6 +56,7 @@ internal data class VodHubFocusDeps(
     val genrePanelFocusRequester: FocusRequester,
     val browseGridFocusRequester: FocusRequester,
     val browseEmptyStateFocusRequester: FocusRequester,
+    val rootFocusRequester: FocusRequester,
     val heroPlayFocusRequester: FocusRequester,
     val inlineSearchFocusRequester: FocusRequester,
     val navDrawerFocusRequester: FocusRequester,
@@ -65,6 +68,7 @@ internal data class VodHubFocusDeps(
     val setContentColIndex: (Int) -> Unit,
     val browseGridItemCount: () -> Int,
     val browseGridCatalogTotal: () -> Int,
+    val focusContentMode: () -> VodHubFocusContentMode,
     val isBrowseGridLoading: () -> Boolean,
     val browseGridKeyAtIndex: (Int) -> String?,
     val activeBrowseGridState: () -> LazyGridState?,
@@ -187,15 +191,27 @@ internal class VodHubFocusController(
 
     fun escapeAwaitingBrowseGridFocus() {
         ui.awaitingBrowseGridFocus = false
-        val loading = d.isBrowseGridLoading()
         val catalogTotal = d.browseGridCatalogTotal()
-        if (!loading && catalogTotal == 0) {
-            focusBrowseGridEmpty()
-            return
-        }
-        transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
-        d.scope.launch {
-            d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+        when (d.focusContentMode()) {
+            VodHubFocusContentMode.Empty,
+            VodHubFocusContentMode.Error,
+            -> focusBrowseGridEmpty()
+            VodHubFocusContentMode.Loading -> {
+                if (catalogTotal == 0) {
+                    focusBrowseGridEmpty()
+                } else {
+                    transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
+                    d.scope.launch {
+                        d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                    }
+                }
+            }
+            VodHubFocusContentMode.Ready -> {
+                transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
+                d.scope.launch {
+                    d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                }
+            }
         }
     }
 
@@ -204,12 +220,29 @@ internal class VodHubFocusController(
         val count = d.browseGridItemCount()
         if (count <= 0) {
             val catalogTotal = d.browseGridCatalogTotal()
-            val loading = d.isBrowseGridLoading()
-            if (loading || catalogTotal > 0) {
-                transitionToZone(VodFocusZone.CONTENT, if (loading) "gridLoading" else "gridPagingWarm")
-                ui.awaitingBrowseGridFocus = true
-                d.setBrowseGridFocusIndex(0)
-                return
+            when (d.focusContentMode()) {
+                VodHubFocusContentMode.Loading -> {
+                    val awaiting = VodHubSurfaceStateResolver.shouldAwaitBrowseGrid(
+                        VodHubFocusContentMode.Loading,
+                        catalogTotal,
+                    )
+                    transitionToZone(
+                        VodFocusZone.CONTENT,
+                        if (d.isBrowseGridLoading()) "gridLoading" else "gridPagingWarm",
+                    )
+                    if (awaiting || d.isBrowseGridLoading()) {
+                        ui.awaitingBrowseGridFocus = true
+                        d.setBrowseGridFocusIndex(0)
+                        return
+                    }
+                }
+                VodHubFocusContentMode.Empty,
+                VodHubFocusContentMode.Error,
+                -> {
+                    focusBrowseGridEmpty()
+                    return
+                }
+                VodHubFocusContentMode.Ready -> Unit
             }
             focusBrowseGridEmpty()
             return
@@ -258,7 +291,7 @@ internal class VodHubFocusController(
         )
         VodHubFocusLogger.gridFocus(d.contentFilter, resolvedIndex, key)
         d.scope.launch {
-            d.browseGridFocusRequester.requestFocusSafelyAfterLayout()
+            d.rootFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
 

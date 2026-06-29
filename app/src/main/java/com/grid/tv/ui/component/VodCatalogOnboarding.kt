@@ -73,7 +73,6 @@ data class VodCatalogOnboardingInputs(
 private const val MIN_ALL_WALL_ROWS = 1
 private const val MIN_ALL_WALL_ITEMS = 1
 private const val MIN_PAGED_ITEMS_WITH_CATEGORY = 16
-private const val MIN_PAGED_ITEMS_PHASE_COMPLETE = 8
 private const val MIN_BROWSE_ROWS = 2
 private const val READINESS_STABILIZATION_MS = 400L
 private val OnboardingStepHeight = 44.dp
@@ -119,13 +118,11 @@ fun isVodCatalogContentReady(inputs: VodCatalogOnboardingInputs): Boolean {
                 inputs.browseRowCount > 0
         }
         VodCatalogOnboardingTab.MOVIES ->
-            inputs.pagedItemCount >= MIN_PAGED_ITEMS_WITH_CATEGORY && inputs.categoryCount >= 1 ||
-                inputs.browseRowCount >= MIN_BROWSE_ROWS ||
-                (progress.moviesPhaseFinished && inputs.pagedItemCount >= MIN_PAGED_ITEMS_PHASE_COMPLETE)
+            (inputs.pagedItemCount >= MIN_PAGED_ITEMS_WITH_CATEGORY && inputs.categoryCount >= 1) ||
+                inputs.browseRowCount >= MIN_BROWSE_ROWS
         VodCatalogOnboardingTab.SERIES ->
-            inputs.pagedItemCount >= MIN_PAGED_ITEMS_WITH_CATEGORY && inputs.categoryCount >= 1 ||
-                inputs.browseRowCount >= MIN_BROWSE_ROWS ||
-                (progress.seriesPhaseFinished && inputs.pagedItemCount >= MIN_PAGED_ITEMS_PHASE_COMPLETE)
+            (inputs.pagedItemCount >= MIN_PAGED_ITEMS_WITH_CATEGORY && inputs.categoryCount >= 1) ||
+                inputs.browseRowCount >= MIN_BROWSE_ROWS
     }
 }
 
@@ -187,7 +184,7 @@ private fun isVodCatalogPipelineStillRunning(
         VodCatalogOnboardingTab.MOVIES ->
             !progress.moviesPhaseFinished
         VodCatalogOnboardingTab.SERIES ->
-            !progress.moviesPhaseFinished || !progress.seriesPhaseFinished
+            !progress.seriesPhaseFinished
     }
 }
 
@@ -221,10 +218,22 @@ fun shouldShowVodCatalogEmptyState(
 fun shouldShowVodCatalogOnboarding(inputs: VodCatalogOnboardingInputs): Boolean {
     if (isVodCatalogContentReady(inputs)) return false
     if (inputs.wallRowCount > 0 && inputs.tab == VodCatalogOnboardingTab.ALL) return false
-    // Returning users already have a catalog in the DB — show the hub immediately while refresh runs.
-    if (inputs.catalogTotalCount > 0) return false
+    // Returning users on Movies/Series can skip onboarding while browse grids warm.
+    if (inputs.catalogTotalCount > 0 && inputs.tab != VodCatalogOnboardingTab.ALL) return false
     if (isVodCatalogPipelineStillRunning(inputs.tab, inputs.catalogLoading, inputs.progress)) return true
     if (isBuildingRecommendationsPhase(inputs)) return true
+    if ((inputs.tab == VodCatalogOnboardingTab.MOVIES || inputs.tab == VodCatalogOnboardingTab.SERIES) &&
+        isVodCatalogPipelineComplete(inputs.tab, inputs.progress) &&
+        !inputs.catalogLoading &&
+        !inputs.progress.isLoading &&
+        !isVodCatalogContentReady(inputs) &&
+        (inputs.pagedItemCount > 0 ||
+            inputs.browseRowCount > 0 ||
+            inputs.catalogTotalCount > 0 ||
+            inputs.effectiveCatalogCount() > 0)
+    ) {
+        return true
+    }
     return false
 }
 

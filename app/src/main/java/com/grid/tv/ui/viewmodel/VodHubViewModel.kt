@@ -1,5 +1,8 @@
 package com.grid.tv.ui.viewmodel
 
+import android.os.SystemClock
+import android.util.Log
+import com.grid.tv.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
@@ -15,6 +18,7 @@ import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.vod.VodCatalogPartitionInputs
 import com.grid.tv.feature.vod.VodCatalogPartitions
+import com.grid.tv.feature.vod.VodSeriesHydrationReason
 import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.buildVodCatalogPartitions
 import com.grid.tv.feature.vod.VodHubUiStateBuilder
@@ -198,6 +202,8 @@ class VodHubViewModel @Inject constructor(
     val featuredCarousel: StateFlow<List<VodItem>> = _featuredCarousel.asStateFlow()
 
     private val _heroIndex = MutableStateFlow(0)
+
+    private var lastSeriesHydrationElapsedMs = 0L
     val heroIndex: StateFlow<Int> = _heroIndex.asStateFlow()
 
     private var featuredSessionKey: Pair<Long, Long>? = null
@@ -251,7 +257,8 @@ class VodHubViewModel @Inject constructor(
         .flatMapLatest { (movieCount, playlistId) ->
             flow {
                 if (movieCount <= 0) {
-                    emit(emptyList())
+                    val cached = vodCatalogSessionStore.cachedMovieBrowseRows()
+                    emit(if (cached.isNotEmpty()) cached else emptyList())
                     return@flow
                 }
                 emit(
@@ -279,7 +286,8 @@ class VodHubViewModel @Inject constructor(
         .flatMapLatest { seriesCount ->
             flow {
                 if (seriesCount <= 0) {
-                    emit(emptyList())
+                    val cached = vodCatalogSessionStore.cachedSeriesBrowseRows()
+                    emit(if (cached.isNotEmpty()) cached else emptyList())
                     return@flow
                 }
                 emit(withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() })
@@ -694,8 +702,22 @@ class VodHubViewModel @Inject constructor(
         }
     }
 
-    /** Series tab: hydrate categories + ingest when needed (explicit tab select may refetch EMPTY catalogs). */
-    fun ensureSeriesTabHydrated() {
+    /**
+     * Single entry for series-tab catalog hydration.
+     * Bootstrap, deep-link, and tab-select all route here (coalesced within 300ms).
+     */
+    fun ensureSeriesTabHydrated(reason: VodSeriesHydrationReason = VodSeriesHydrationReason.TAB_SELECT) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastSeriesHydrationElapsedMs < 300L) {
+            if (BuildConfig.DEBUG) {
+                Log.d("VOD_STATE", "ensureSeriesCatalogForTab skipped (coalesced) reason=$reason")
+            }
+            return
+        }
+        lastSeriesHydrationElapsedMs = now
+        if (BuildConfig.DEBUG) {
+            Log.d("VOD_STATE", "ensureSeriesCatalogForTab reason=$reason")
+        }
         repository.ensureSeriesCatalogForTab(VodRefreshTrigger.SERIES_VIEW_MODEL)
     }
 

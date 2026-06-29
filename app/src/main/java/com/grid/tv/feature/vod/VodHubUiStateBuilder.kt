@@ -112,9 +112,23 @@ object VodHubUiStateBuilder {
             combinedCatalogCount > 0 &&
             languageFilterActive
 
+        val surfaceState = VodHubSurfaceStateResolver.resolveAllTab(
+            contentFilter = inputs.contentFilter,
+            onboardingInputs = onboardingInputs,
+            showOnboarding = showOnboarding,
+            wallRowCount = if (inputs.contentFilter == VodContentFilter.ALL && searchBlank) wallRows.size else 0,
+            catalogLoading = inputs.catalogLoading,
+            catalogProgress = inputs.catalogProgress,
+            combinedCatalogCount = combinedCatalogCount,
+            hasContinueWatching = inputs.continueWatching.isNotEmpty(),
+            languageFilterActive = languageFilterActive,
+            continueWatchingOnly = false,
+        )
+
         return VodUiState(
             isLoading = inputs.catalogLoading,
             showOnboarding = showOnboarding,
+            surfaceState = surfaceState,
             showCatalogEmptyState = showCatalogEmptyState,
             showLanguageFilteredEmpty = showLanguageFilteredEmpty,
             languageFilterActive = languageFilterActive,

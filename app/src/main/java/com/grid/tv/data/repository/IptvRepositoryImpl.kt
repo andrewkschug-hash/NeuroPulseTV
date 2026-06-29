@@ -2812,6 +2812,10 @@ class IptvRepositoryImpl @Inject constructor(
                     )
                     return@launch
                 }
+                if (playlistSeriesCount > 0) {
+                    publishVodProgressFromDb(trigger)
+                    return@launch
+                }
                 if (playlistSeriesCount <= 0) {
                     refreshVodSeriesCatalog(
                         trigger = trigger,

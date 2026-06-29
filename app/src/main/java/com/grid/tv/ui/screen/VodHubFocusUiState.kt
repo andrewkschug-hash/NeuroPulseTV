@@ -105,6 +105,10 @@ internal class VodHubFocusUiState {
     /** Tab-bar Down was pressed before paging exposed any grid items — restore when [itemCount] > 0. */
     var awaitingBrowseGridFocus by mutableStateOf(false)
 
+    /** Focus orchestration only — not catalog readiness (see [VodHubSurfaceState]). */
+    val blocksGridFocus: Boolean
+        get() = gridFocusPending || awaitingBrowseGridFocus
+
     fun importPersistedBreadcrumb(filter: VodContentFilter, persisted: VodFilterFocusBreadcrumbPersisted) {
         rememberGridFor(
             filter,

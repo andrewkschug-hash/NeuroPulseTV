@@ -4,6 +4,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.grid.tv.feature.vod.VodHubFocusContentMode
 import com.grid.tv.domain.model.VodContentFilter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,8 @@ class VodHubFocusNavigationUiTest {
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
+                browseEmptyStateFocusRequester = FocusRequester(),
+                rootFocusRequester = FocusRequester(),
                 heroPlayFocusRequester = FocusRequester(),
                 inlineSearchFocusRequester = FocusRequester(),
                 navDrawerFocusRequester = FocusRequester(),
@@ -56,6 +59,7 @@ class VodHubFocusNavigationUiTest {
                 setContentColIndex = {},
                 browseGridItemCount = { 20 },
                 browseGridCatalogTotal = { 20 },
+                focusContentMode = { VodHubFocusContentMode.Ready },
                 isBrowseGridLoading = { false },
                 browseGridKeyAtIndex = { index -> "1_$index" },
                 activeBrowseGridState = { LazyGridState() },

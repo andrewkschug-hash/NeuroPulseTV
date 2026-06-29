@@ -100,10 +100,7 @@ private fun VodGridAnimatedRestoreEffect(
 ) {
     LaunchedEffect(gridRestoreRequest?.token, itemCount) {
         val request = gridRestoreRequest ?: return@LaunchedEffect
-        if (itemCount <= 0) {
-            onGridRestoreComplete(0)
-            return@LaunchedEffect
-        }
+        if (itemCount <= 0) return@LaunchedEffect
         val resolved = restoreGridFocusAnimated(gridState, request, itemCount)
         onGridRestoreComplete(resolved)
     }

@@ -19,10 +19,10 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.grid.tv.domain.model.VodCatalogEmptyReason
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
-import com.grid.tv.domain.model.vodEmptyMessage
-import com.grid.tv.domain.model.vodEmptyTitle
+import com.grid.tv.feature.vod.VodHubBrowseSurfaceInputs
+import com.grid.tv.feature.vod.VodHubSurfaceState
+import com.grid.tv.feature.vod.VodHubSurfaceStateResolver
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
-import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
 import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
@@ -31,7 +31,6 @@ import com.grid.tv.ui.component.VodGridCardModel
 import com.grid.tv.ui.component.VodInlineSearchContent
 import com.grid.tv.ui.component.VodMoviePagedGrid
 import com.grid.tv.ui.component.VodPagedVerticalGrid
-import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.SeriesViewModel
@@ -80,6 +79,7 @@ fun VodHubMoviesBrowseSection(
     restoreScrollOffset: Int = 0,
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
     onGridRestoreComplete: (Int) -> Unit = {},
+    surfaceState: VodHubSurfaceState? = null,
     modifier: Modifier = Modifier
 ) {
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
@@ -92,29 +92,24 @@ fun VodHubMoviesBrowseSection(
     val browseRows by moviesViewModel.browseRows.collectAsStateWithLifecycle()
     val categories by moviesViewModel.categories.collectAsStateWithLifecycle()
 
-    val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
     val pagingRefreshing = moviePagingItems.loadState.refresh is LoadState.Loading
-    val showVodOnboarding = rememberVodCatalogOnboardingVisible(
-        VodCatalogOnboardingInputs(
-            catalogLoading = catalogLoading,
-            progress = catalogProgress,
+    val resolvedSurfaceState = surfaceState ?: VodHubSurfaceStateResolver.resolveBrowseTab(
+        VodHubBrowseSurfaceInputs(
             tab = VodCatalogOnboardingTab.MOVIES,
+            catalogLoading = catalogLoading,
+            catalogProgress = catalogProgress,
+            catalogStatus = catalogStatus,
+            catalogTotalCount = catalogTotalCount,
+            filteredTotalCount = filteredTotalCount,
             browseRowCount = browseRows.size,
             categoryCount = categories.size,
-            pagedItemCount = moviePagingItems.itemCount
+            pagedItemCount = moviePagingItems.itemCount,
+            pagingRefreshing = pagingRefreshing,
+            selectedCategoryId = selectedCategoryId,
         )
     )
-    val emptyReason = catalogStatus.moviesEmptyReason(
-        filteredCount = filteredTotalCount,
-        catalogTotal = catalogTotalCount,
-        categoryId = selectedCategoryId,
-        searchQuery = ""
-    )
+    val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
     val refreshWarning = catalogStatus.moviesRefreshWarning(catalogTotalCount)
-    val showEmptyGrid = moviePagingItems.itemCount == 0 &&
-        !moviesLoading &&
-        !pagingRefreshing &&
-        catalogProgress.moviesPhaseFinished
 
     SideEffect {
         browseGridHandle.bind(
@@ -137,7 +132,7 @@ fun VodHubMoviesBrowseSection(
     Column(modifier = modifier.fillMaxSize()) {
         VodCatalogProgressBar(
             progress = catalogProgress.moviesProgressFraction(),
-            visible = moviesLoading && !showVodOnboarding
+            visible = moviesLoading && resolvedSurfaceState !is VodHubSurfaceState.Loading
         )
         VodCatalogLoadingBanner(
             baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
@@ -146,28 +141,21 @@ fun VodHubMoviesBrowseSection(
         )
         VodCatalogRefreshWarningBanner(message = refreshWarning)
 
-        when {
-            showVodOnboarding -> {
+        when (resolvedSurfaceState) {
+            is VodHubSurfaceState.Loading -> {
                 com.grid.tv.ui.component.VodCatalogOnboardingPanel(
                     progress = catalogProgress,
-                    onboardingInputs = VodCatalogOnboardingInputs(
-                        catalogLoading = catalogLoading,
-                        progress = catalogProgress,
-                        tab = VodCatalogOnboardingTab.MOVIES,
-                        browseRowCount = browseRows.size,
-                        categoryCount = categories.size,
-                        pagedItemCount = moviePagingItems.itemCount
-                    ),
+                    onboardingInputs = resolvedSurfaceState.onboardingInputs,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
             }
-            showEmptyGrid -> {
+            is VodHubSurfaceState.Empty -> {
                 VodEmptyState(
-                    title = emptyReason.vodEmptyTitle(isMovies = true),
-                    message = emptyReason.vodEmptyMessage(catalogStatus, isMovies = true),
-                    onRetry = if (emptyReason != VodCatalogEmptyReason.FILTERED_EMPTY) {
+                    title = resolvedSurfaceState.title,
+                    message = resolvedSurfaceState.message,
+                    onRetry = if (resolvedSurfaceState.canRetry) {
                         { moviesViewModel.refreshCatalog() }
                     } else {
                         null
@@ -178,7 +166,22 @@ fun VodHubMoviesBrowseSection(
                         .fillMaxWidth()
                 )
             }
-            else -> {
+            is VodHubSurfaceState.Error -> {
+                VodEmptyState(
+                    title = resolvedSurfaceState.title,
+                    message = resolvedSurfaceState.message,
+                    onRetry = if (resolvedSurfaceState.canRetry) {
+                        { moviesViewModel.refreshCatalog() }
+                    } else {
+                        null
+                    },
+                    retryFocusRequester = emptyStateRetryFocusRequester,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+            }
+            is VodHubSurfaceState.Ready -> {
                 VodMoviePagedGrid(
                     pagingItems = moviePagingItems,
                     progressByKey = progressByKey,
@@ -220,6 +223,7 @@ fun VodHubSeriesBrowseSection(
     restoreScrollOffset: Int = 0,
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
     onGridRestoreComplete: (Int) -> Unit = {},
+    surfaceState: VodHubSurfaceState? = null,
     modifier: Modifier = Modifier
 ) {
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
@@ -236,30 +240,25 @@ fun VodHubSeriesBrowseSection(
         catalogProgress.isMoviesPhaseComplete &&
         !catalogProgress.isSeriesPhaseComplete
     val pagingRefreshing = seriesPagingItems.loadState.refresh is LoadState.Loading
-    val showVodOnboarding = rememberVodCatalogOnboardingVisible(
-        VodCatalogOnboardingInputs(
-            catalogLoading = catalogLoading,
-            progress = catalogProgress,
+    val resolvedSurfaceState = surfaceState ?: VodHubSurfaceStateResolver.resolveBrowseTab(
+        VodHubBrowseSurfaceInputs(
             tab = VodCatalogOnboardingTab.SERIES,
+            catalogLoading = catalogLoading,
+            catalogProgress = catalogProgress,
+            catalogStatus = catalogStatus,
+            catalogTotalCount = catalogTotalCount,
+            filteredTotalCount = filteredTotalCount,
             browseRowCount = browseRows.size,
             categoryCount = categories.size,
-            pagedItemCount = seriesPagingItems.itemCount
+            pagedItemCount = seriesPagingItems.itemCount,
+            pagingRefreshing = pagingRefreshing,
+            selectedCategoryId = selectedCategoryId,
         )
     )
-    val emptyReason = catalogStatus.seriesEmptyReason(
-        filteredCount = filteredTotalCount,
-        catalogTotal = catalogTotalCount,
-        category = selectedCategoryId ?: "All",
-        searchQuery = ""
-    )
     val refreshWarning = catalogStatus.seriesRefreshWarning(catalogTotalCount)
-    val showEmptyGrid = seriesPagingItems.itemCount == 0 &&
-        !seriesLoading &&
-        !pagingRefreshing &&
-        (catalogProgress.seriesPhaseFinished || emptyReason != VodCatalogEmptyReason.NOT_LOADED)
 
     LaunchedEffect(
-        emptyReason,
+        resolvedSurfaceState,
         seriesPagingItems.itemCount,
         filteredTotalCount,
         catalogTotalCount,
@@ -267,12 +266,14 @@ fun VodHubSeriesBrowseSection(
         seriesLoading,
         catalogProgress.seriesPhaseFinished
     ) {
-        android.util.Log.i(
-            "VodCatalogPipeline",
-            "VodHub Series empty-state: reason=$emptyReason paged=${seriesPagingItems.itemCount} " +
-                "filtered=$filteredTotalCount catalog=$catalogTotalCount category=${selectedCategoryId ?: "All"} " +
-                "loading=$seriesLoading phaseFinished=${catalogProgress.seriesPhaseFinished}"
-        )
+        if (resolvedSurfaceState is VodHubSurfaceState.Empty) {
+            android.util.Log.i(
+                "VodCatalogPipeline",
+                "VodHub Series empty-state: reason=${resolvedSurfaceState.reason} paged=${seriesPagingItems.itemCount} " +
+                    "filtered=$filteredTotalCount catalog=$catalogTotalCount category=${selectedCategoryId ?: "All"} " +
+                    "loading=$seriesLoading phaseFinished=${catalogProgress.seriesPhaseFinished}"
+            )
+        }
     }
 
     SideEffect {
@@ -298,7 +299,7 @@ fun VodHubSeriesBrowseSection(
     Column(modifier = modifier.fillMaxSize()) {
         VodCatalogProgressBar(
             progress = catalogProgress.seriesProgressFraction(),
-            visible = seriesLoading && !showVodOnboarding
+            visible = seriesLoading && resolvedSurfaceState !is VodHubSurfaceState.Loading
         )
         VodCatalogLoadingBanner(
             baseMessage = "Fetching your provider's series catalog. Large libraries can take a minute.",
@@ -307,28 +308,21 @@ fun VodHubSeriesBrowseSection(
         )
         VodCatalogRefreshWarningBanner(message = refreshWarning)
 
-        when {
-            showVodOnboarding -> {
+        when (resolvedSurfaceState) {
+            is VodHubSurfaceState.Loading -> {
                 com.grid.tv.ui.component.VodCatalogOnboardingPanel(
                     progress = catalogProgress,
-                    onboardingInputs = VodCatalogOnboardingInputs(
-                        catalogLoading = catalogLoading,
-                        progress = catalogProgress,
-                        tab = VodCatalogOnboardingTab.SERIES,
-                        browseRowCount = browseRows.size,
-                        categoryCount = categories.size,
-                        pagedItemCount = seriesPagingItems.itemCount
-                    ),
+                    onboardingInputs = resolvedSurfaceState.onboardingInputs,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                 )
             }
-            showEmptyGrid -> {
+            is VodHubSurfaceState.Empty -> {
                 VodEmptyState(
-                    title = emptyReason.vodEmptyTitle(isMovies = false),
-                    message = emptyReason.vodEmptyMessage(catalogStatus, isMovies = false),
-                    onRetry = if (emptyReason != VodCatalogEmptyReason.FILTERED_EMPTY) {
+                    title = resolvedSurfaceState.title,
+                    message = resolvedSurfaceState.message,
+                    onRetry = if (resolvedSurfaceState.canRetry) {
                         { seriesViewModel.refreshCatalog() }
                     } else {
                         null
@@ -339,7 +333,22 @@ fun VodHubSeriesBrowseSection(
                         .fillMaxWidth()
                 )
             }
-            else -> {
+            is VodHubSurfaceState.Error -> {
+                VodEmptyState(
+                    title = resolvedSurfaceState.title,
+                    message = resolvedSurfaceState.message,
+                    onRetry = if (resolvedSurfaceState.canRetry) {
+                        { seriesViewModel.refreshCatalog() }
+                    } else {
+                        null
+                    },
+                    retryFocusRequester = emptyStateRetryFocusRequester,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                )
+            }
+            is VodHubSurfaceState.Ready -> {
                 VodPagedVerticalGrid(
                     pagingItems = seriesPagingItems,
                     progressByKey = progressByKey,

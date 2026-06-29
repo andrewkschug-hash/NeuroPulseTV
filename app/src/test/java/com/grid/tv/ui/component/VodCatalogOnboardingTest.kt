@@ -33,8 +33,22 @@ class VodCatalogOnboardingTest {
     )
 
     @Test
-    fun skipsOnboardingWhenCatalogAlreadyPopulated() {
+    fun skipsOnboardingWhenCatalogAlreadyPopulated_onBrowseTabs() {
         assertFalse(
+            shouldShowVodCatalogOnboarding(
+                inputs(
+                    tab = VodCatalogOnboardingTab.MOVIES,
+                    catalogLoading = true,
+                    progress = VodCatalogProgress(isLoading = true),
+                    catalogTotalCount = 500
+                )
+            )
+        )
+    }
+
+    @Test
+    fun allTab_showsOnboardingWhileWallAssemblesForReturningUsers() {
+        assertTrue(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
@@ -109,7 +123,7 @@ class VodCatalogOnboardingTest {
 
     @Test
     fun allTab_staysOnboardingWhileBuildingRecommendations() {
-        assertFalse(
+        assertTrue(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.ALL,
@@ -173,8 +187,8 @@ class VodCatalogOnboardingTest {
     }
 
     @Test
-    fun moviesTab_phaseFinishedWithEightItems() {
-        assertFalse(
+    fun moviesTab_requiresCategoriesBeforePhaseOnlyPaging() {
+        assertTrue(
             shouldShowVodCatalogOnboarding(
                 inputs(
                     tab = VodCatalogOnboardingTab.MOVIES,
