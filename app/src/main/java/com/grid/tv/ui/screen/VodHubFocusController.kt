@@ -157,6 +157,7 @@ internal class VodHubFocusController(
 
     fun openLibraryNavPanel() {
         if (!d.showLibraryNavPanel) return
+        ui.navDrawerOpen = false
         ui.libraryNavPanelVisible = true
         val appliedIndex = vodHubTabFilterIndex(d.contentFilter)
             .coerceIn(0, VodHubLanguageFilterFocusIndex)
@@ -455,6 +456,10 @@ internal class VodHubFocusController(
             Key.DirectionRight -> {
                 if (ui.navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
                     ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
+                } else if (d.showLibraryNavPanel) {
+                    ui.rememberNavDrawerFocus()
+                    ui.navDrawerOpen = false
+                    openLibraryNavPanel()
                 } else if (
                     d.contentFilter == VodContentFilter.ALL &&
                     d.displayWallRows.isNotEmpty() &&
@@ -463,10 +468,6 @@ internal class VodHubFocusController(
                     ui.rememberNavDrawerFocus()
                     ui.navDrawerOpen = false
                     focusWallContentRestored(resetToOrigin = true)
-                } else if (d.showLibraryNavPanel) {
-                    ui.rememberNavDrawerFocus()
-                    ui.navDrawerOpen = false
-                    openLibraryNavPanel()
                 } else {
                     ui.rememberNavDrawerFocus()
                     closeNavDrawerToContentZone()
@@ -582,7 +583,7 @@ internal class VodHubFocusController(
 
     fun handleLibraryNavPanelKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
-        if (d.navDrawerOpen) return false
+        if (ui.focusZone == VodFocusZone.NAV_DRAWER) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {

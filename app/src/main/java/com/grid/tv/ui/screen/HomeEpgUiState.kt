@@ -41,6 +41,8 @@ internal class HomeEpgUiState {
     var channelGroupsFocusIndex by mutableIntStateOf(0)
     /** Last highlighted group row — restored when reopening the panel from the live grid. */
     var lastChannelGroupsFocusIndex by mutableIntStateOf(0)
+    /** Stable row identity (see [guideGroupVisibleRowKey]) — survives list regroup/reorder. */
+    var lastChannelGroupRowKey by mutableStateOf<String?>(null)
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
     /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
     var channelGroupsPanelVisible by mutableStateOf(false)

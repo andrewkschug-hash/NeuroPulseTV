@@ -85,7 +85,6 @@ import androidx.compose.ui.zIndex
 import com.grid.tv.ui.component.VodLibraryNavPanel
 import com.grid.tv.ui.component.VodLanguageSubmenuPanel
 import com.grid.tv.ui.component.VodLibrarySubPanelOffsetExpanded
-import com.grid.tv.ui.component.VodLibraryNavPanelCollapsedWidth
 import com.grid.tv.ui.component.VodLibraryNavPanelExpandedWidth
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
@@ -532,21 +531,11 @@ fun VodHubScreen(
         !showHubUnifiedLoading
     val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
     val showLibraryRail = showLibraryNavPanel && focusUi.libraryNavPanelVisible
-    val libraryNavRailWidth = VodLibraryNavPanelCollapsedWidth
-    val libraryNavExpanded = showLibraryRail && focusUi.focusZone == VodFocusZone.FILTER_PANEL
     val librarySubPanelOpen = focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
         focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
     val showLibraryOverlayScrim = librarySubPanelOpen
-    val librarySubPanelOffset = when {
-        !showLibraryRail -> 0.dp
-        libraryNavExpanded -> VodLibrarySubPanelOffsetExpanded
-        else -> VodLibraryNavPanelCollapsedWidth
-    }
-    val libraryContentInsetTarget = when {
-        !showLibraryRail -> 0.dp
-        libraryNavExpanded -> VodLibraryNavPanelExpandedWidth
-        else -> libraryNavRailWidth
-    }
+    val librarySubPanelOffset = if (showLibraryRail) VodLibrarySubPanelOffsetExpanded else 0.dp
+    val libraryContentInsetTarget = if (showLibraryRail) VodLibraryNavPanelExpandedWidth else 0.dp
     val libraryContentInsetAnimated by animateDpAsState(
         targetValue = libraryContentInsetTarget,
         animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
@@ -758,6 +747,7 @@ fun VodHubScreen(
 
     LaunchedEffect(wallRows.size, searchQuery) {
         if (searchQuery.isBlank() && wallRows.isEmpty() && focusUi.focusZone == VodFocusZone.CONTENT) {
+            focusUi.libraryNavPanelVisible = true
             focusUi.focusZone = VodFocusZone.FILTER_PANEL
         }
     }
@@ -926,15 +916,15 @@ fun VodHubScreen(
             0 -> {
                 hubViewModel.setContentFilter(VodContentFilter.ALL)
                 focusUi.filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.ALL)
-                focusUi.focusZone = VodFocusZone.FILTER_PANEL
-                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                focusUi.libraryNavPanelVisible = false
+                focusUi.focusZone = VodFocusZone.CONTENT
                 VodHubFocusLogger.restore(activePlaylistId, VodContentFilter.ALL)
             }
             1 -> {
                 hubViewModel.setContentFilter(VodContentFilter.SERIES)
                 focusUi.filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.SERIES)
-                focusUi.focusZone = VodFocusZone.FILTER_PANEL
-                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                focusUi.libraryNavPanelVisible = false
+                focusUi.focusZone = VodFocusZone.CONTENT
                 VodHubFocusLogger.restore(activePlaylistId, VodContentFilter.SERIES)
             }
             else -> {
@@ -968,15 +958,16 @@ fun VodHubScreen(
                             focusController.focusBrowseGridRestored()
                         }
                         else -> {
+                            focusUi.libraryNavPanelVisible = true
                             focusUi.focusZone = VodFocusZone.FILTER_PANEL
                             filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                         }
                     }
                     VodHubFocusLogger.restore(activePlaylistId, filter)
                 } else {
-                    focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                    focusUi.libraryNavPanelVisible = false
+                    focusUi.focusZone = VodFocusZone.CONTENT
                     focusUi.filterFocusIndex = vodHubTabFilterIndex(contentFilter)
-                    filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
             }
         }
@@ -1748,7 +1739,18 @@ fun VodHubScreen(
                         VodFocusZone.GENRE_PANEL -> handleGenrePanelKey(event)
                         VodFocusZone.LANGUAGE_SUBMENU -> handleLanguageSubmenuKey(event)
                         VodFocusZone.HERO -> false
-                        VodFocusZone.CONTENT -> handleContentKey(event)
+                        VodFocusZone.CONTENT -> {
+                            if (
+                                focusUi.libraryNavPanelVisible &&
+                                event.type == KeyEventType.KeyDown &&
+                                isVodDirectionalKey(event)
+                            ) {
+                                focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                                handleLibraryNavPanelKey(event)
+                            } else {
+                                handleContentKey(event)
+                            }
+                        }
                     }
                 }
                 if (handled) return@onPreviewKeyEvent true

@@ -37,6 +37,7 @@ import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
 import com.grid.tv.ui.component.nextFocusableGroupRowIndex
 import com.grid.tv.ui.component.isFocusableGroupRow
+import com.grid.tv.ui.component.guideGroupVisibleRowKey
 import com.grid.tv.ui.component.resolveChannelGroupsFocusIndex
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
@@ -468,6 +469,9 @@ internal class HomeEpgGuideController(
     }
 
     fun collapseChannelGroupsPanel(focusGrid: Boolean = true) {
+        if (ui.focusZone == EpgFocusZone.CHANNEL_GROUPS) {
+            rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
+        }
         ui.channelGroupsPanelVisible = false
         if (focusGrid) {
             ui.focusOnChannelColumn = true
@@ -478,13 +482,15 @@ internal class HomeEpgGuideController(
 
     fun openChannelGroupsPanel() {
         if (!canShowChannelGroupsPanel()) return
+        val activeFilter = boundDeps.viewModel.currentGuideFilter()
         ui.channelGroupsFocusIndex = resolveChannelGroupsFocusIndex(
             channelGroups = boundDeps.channelGroups,
             favoriteGroups = boundDeps.viewModel.favoriteChannelGroups.value,
-            committedFilter = boundDeps.guideFilter,
+            committedFilter = activeFilter,
             currentIndex = ui.lastChannelGroupsFocusIndex,
+            lastRowKey = ui.lastChannelGroupRowKey,
         )
-        ui.lastChannelGroupsFocusIndex = ui.channelGroupsFocusIndex
+        rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
         ui.channelGroupsPanelVisible = true
         focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
         previewChannelGroupForFocusedRow()
@@ -504,11 +510,19 @@ internal class HomeEpgGuideController(
             boundDeps.viewModel.favoriteChannelGroups.value
         )
 
+    private fun rememberChannelGroupsRowFocus(index: Int) {
+        val rows = flatVisibleGroupRows()
+        val clamped = index.coerceIn(0, (rows.size - 1).coerceAtLeast(0))
+        ui.channelGroupsFocusIndex = clamped
+        ui.lastChannelGroupsFocusIndex = clamped
+        ui.lastChannelGroupRowKey = rows.getOrNull(clamped)?.let(::guideGroupVisibleRowKey)
+    }
+
     fun previewChannelGroupForFocusedRow() {
         if (!canShowChannelGroupsPanel() || ui.focusZone != EpgFocusZone.CHANNEL_GROUPS) return
         val row = flatVisibleGroupRows().getOrNull(ui.channelGroupsFocusIndex) ?: return
         val filter = guideChannelFilterForVisibleRow(row)
-        if (filter == boundDeps.guideFilter) return
+        if (filter == boundDeps.viewModel.currentGuideFilter()) return
         boundDeps.viewModel.previewGuideFilter(filter)
     }
 
@@ -516,7 +530,7 @@ internal class HomeEpgGuideController(
         boundDeps.viewModel.setGuideFilter(filter, markConfigured = true)
         ui.focusChannelIndex = 0
         ui.hasRequestedInitialGridFocus = false
-        ui.lastChannelGroupsFocusIndex = ui.channelGroupsFocusIndex
+        rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
     }
 
     /** Persist the focused group and optionally return focus to the live grid. */
@@ -573,8 +587,9 @@ internal class HomeEpgGuideController(
                 KeyEventType.KeyUp -> {
                     if (!ui.channelGroupsActivatePending) return true
                     ui.channelGroupsActivatePending = false
-                    val activeRow = row ?: return true
+                    val activeRow = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
                     if (!activeRow.isFocusableGroupRow()) return true
+                    rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
                     applyChannelGroupFilter(guideChannelFilterForVisibleRow(activeRow))
                     collapseChannelGroupsPanel(focusGrid = true)
                     return true
@@ -606,8 +621,7 @@ internal class HomeEpgGuideController(
             Key.DirectionDown -> {
                 val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = 1)
                 if (next != ui.channelGroupsFocusIndex) {
-                    ui.channelGroupsFocusIndex = next
-                    ui.lastChannelGroupsFocusIndex = next
+                    rememberChannelGroupsRowFocus(next)
                     previewChannelGroupForFocusedRow()
                 }
                 true
@@ -615,8 +629,7 @@ internal class HomeEpgGuideController(
             Key.DirectionUp -> {
                 val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = -1)
                 if (next != ui.channelGroupsFocusIndex) {
-                    ui.channelGroupsFocusIndex = next
-                    ui.lastChannelGroupsFocusIndex = next
+                    rememberChannelGroupsRowFocus(next)
                     previewChannelGroupForFocusedRow()
                 }
                 true

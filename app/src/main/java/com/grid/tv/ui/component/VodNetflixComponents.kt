@@ -573,11 +573,11 @@ fun LazyListScope.netflixSeriesBrowseRows(
     }
 }
 
-/** Collapsed icon rail when the library panel is not focused. */
-val VodLibraryNavPanelCollapsedWidth = 56.dp
-
-/** Expanded library panel — content inset animates to this width when the rail is focused. */
+/** Full-width library popout panel (Home / Movies / Series / Languages). */
 val VodLibraryNavPanelExpandedWidth = 200.dp
+
+@Deprecated("Icon-only rail removed — library is a labeled popout only.", level = DeprecationLevel.HIDDEN)
+val VodLibraryNavPanelCollapsedWidth = VodLibraryNavPanelExpandedWidth
 
 /** Genre / language sub-panels overlay at the expanded sidebar's trailing edge. */
 val VodLibrarySubPanelOffsetExpanded = VodLibraryNavPanelExpandedWidth
@@ -614,16 +614,6 @@ fun VodLibraryNavPanel(
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val expanded = panelFocused
-    val panelWidth by animateDpAsState(
-        targetValue = if (expanded) {
-            VodLibraryNavPanelExpandedWidth
-        } else {
-            VodLibraryNavPanelCollapsedWidth
-        },
-        animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
-        label = "vodLibraryNavPanelWidth",
-    )
     val itemCount = VodHubLanguageFilterFocusIndex + 1
     val listState = rememberLazyListState()
     val accent = VodNetflixColors.Accent
@@ -636,10 +626,10 @@ fun VodLibraryNavPanel(
 
     Column(
         modifier = modifier
-            .width(panelWidth)
+            .width(VodLibraryNavPanelExpandedWidth)
             .fillMaxHeight()
             .zIndex(2f)
-            .background(EpgColors.SidebarPanelBg.copy(alpha = if (expanded) 0.97f else 0.92f))
+            .background(EpgColors.SidebarPanelBg.copy(alpha = 0.97f))
             .border(
                 width = 1.dp,
                 color = EpgColors.BorderSubtle,
@@ -654,26 +644,21 @@ fun VodLibraryNavPanel(
             .onFocusChanged { if (it.isFocused) onPanelFocused() }
             .onPreviewKeyEvent(onPreviewKey),
     ) {
-        if (expanded) {
-            Text(
-                text = "Library",
-                color = EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-        }
+        Text(
+            text = "Library",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+        )
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(
-                horizontal = if (expanded) 8.dp else 6.dp,
-                vertical = if (expanded) 8.dp else 10.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(if (expanded) 6.dp else 4.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(itemCount) { index ->
                 val isLanguages = index == VodHubLanguageFilterFocusIndex
@@ -707,81 +692,51 @@ fun VodLibraryNavPanel(
                         },
                     )
                     .focusProperties { canFocus = false }
-                if (expanded) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .then(chipModifier)
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.CenterStart,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Box(
-                                modifier = Modifier.width(20.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = icon,
-                                    color = if (focused || tabSelected) Color.White else Color(0xFFB8BEC8),
-                                    fontSize = 16.sp,
-                                    textAlign = TextAlign.Center,
-                                )
-                                if (showLanguageDot) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .size(6.dp)
-                                            .background(Color.White, androidx.compose.foundation.shape.CircleShape),
-                                    )
-                                }
-                            }
-                            Text(
-                                text = label,
-                                color = when {
-                                    focused || tabSelected -> Color.White
-                                    enabled -> Color(0xFFB8BEC8)
-                                    else -> Color(0xFF6B7280)
-                                },
-                                fontFamily = DmSansFamily,
-                                fontSize = 14.sp,
-                                fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                } else {
-                    Box(
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .then(chipModifier)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .then(chipModifier),
+                            modifier = Modifier.width(20.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = icon,
                                 color = if (focused || tabSelected) Color.White else Color(0xFFB8BEC8),
-                                fontSize = 18.sp,
+                                fontSize = 16.sp,
                                 textAlign = TextAlign.Center,
                             )
                             if (showLanguageDot) {
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
-                                        .padding(6.dp)
                                         .size(6.dp)
                                         .background(Color.White, androidx.compose.foundation.shape.CircleShape),
                                 )
                             }
                         }
+                        Text(
+                            text = label,
+                            color = when {
+                                focused || tabSelected -> Color.White
+                                enabled -> Color(0xFFB8BEC8)
+                                else -> Color(0xFF6B7280)
+                            },
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

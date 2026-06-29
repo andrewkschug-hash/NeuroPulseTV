@@ -204,8 +204,15 @@ fun resolveChannelGroupsFocusIndex(
     favoriteGroups: List<String>,
     committedFilter: com.grid.tv.feature.epg.GuideChannelFilter,
     currentIndex: Int,
+    lastRowKey: String? = null,
 ): Int {
     val rows = buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+    if (!lastRowKey.isNullOrBlank()) {
+        val byKey = rows.indexOfFirst { guideGroupVisibleRowKey(it) == lastRowKey }
+        if (byKey >= 0 && rows[byKey].isFocusableGroupRow()) {
+            return byKey
+        }
+    }
     val current = rows.getOrNull(currentIndex)
     val keepCurrent = current != null &&
         current.isFocusableGroupRow() &&

@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
@@ -30,7 +31,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -115,6 +115,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class SettingsSection(val title: String, val subtitle: String) {
     Profile("Profile", "Who's watching & parental"),
@@ -235,7 +236,16 @@ fun SettingsScreen(
         List(sections.size) { FocusRequester() }
     }
     val topNavFocusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
+    val scope = rememberCoroutineScope()
+
+    suspend fun focusDetailEntry(section: Int) {
+        val requester = sectionEntryFocusRequesters.getOrNull(section) ?: return
+        withFrameMillis { }
+        if (!requester.requestFocusSafelyAfterLayout()) {
+            delay(48)
+            requester.requestFocusSafelyAfterLayout()
+        }
+    }
 
     LaunchedEffect(focusPanel, listFocusIndex, detailSectionOrdinal, showGuideGroupPicker) {
         if (showGuideGroupPicker) return@LaunchedEffect
@@ -244,14 +254,8 @@ fun SettingsScreen(
             SettingsFocusPanel.LIST ->
                 listItemFocusRequesters.getOrNull(listFocusIndex)?.requestFocusSafelyAfterLayout()
             SettingsFocusPanel.DETAIL -> {
-                focusManager.clearFocus(force = true)
-                withFrameMillis { }
                 val section = detailSectionOrdinal ?: return@LaunchedEffect
-                val requester = sectionEntryFocusRequesters.getOrNull(section) ?: return@LaunchedEffect
-                if (!requester.requestFocusSafelyAfterLayout()) {
-                    delay(48)
-                    requester.requestFocusSafelyAfterLayout()
-                }
+                focusDetailEntry(section)
             }
         }
     }
@@ -280,6 +284,7 @@ fun SettingsScreen(
         listFocusIndex = clamped
         detailSectionOrdinal = clamped
         focusPanel = SettingsFocusPanel.DETAIL
+        scope.launch { focusDetailEntry(clamped) }
     }
 
     fun returnToSectionList() {
@@ -370,7 +375,14 @@ fun SettingsScreen(
                 true
             }
             Key.DirectionDown -> {
-                focusPanel = if (showingDetail) SettingsFocusPanel.DETAIL else SettingsFocusPanel.LIST
+                if (showingDetail) {
+                    focusPanel = SettingsFocusPanel.DETAIL
+                    detailSectionOrdinal?.let { section ->
+                        scope.launch { focusDetailEntry(section) }
+                    }
+                } else {
+                    focusPanel = SettingsFocusPanel.LIST
+                }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -463,8 +475,19 @@ fun SettingsScreen(
                 miniPlayer = {},
                 modifier = Modifier
                     .focusRequester(topNavFocusRequester)
-                    .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.TOP_BAR }
-                    .focusable()
+                    .focusable(
+                        enabled = focusPanel == SettingsFocusPanel.TOP_BAR && !showManageProfilesOverlay,
+                    )
+                    .focusProperties {
+                        if (showingDetail) {
+                            val section = detailSectionOrdinal
+                            if (section != null) {
+                                down = sectionEntryFocusRequesters.getOrElse(section) {
+                                    sectionEntryFocusRequesters.first()
+                                }
+                            }
+                        }
+                    }
                     .onPreviewKeyEvent {
                         if (focusPanel == SettingsFocusPanel.TOP_BAR) handleTopBarKey(it) else false
                     }
@@ -488,7 +511,9 @@ fun SettingsScreen(
                                 .fillMaxSize()
                                 .background(EpgColors.GridBg)
                                 .onFocusChanged {
-                                    if (it.hasFocus) focusPanel = SettingsFocusPanel.LIST
+                                    if (it.hasFocus && !showingDetail) {
+                                        focusPanel = SettingsFocusPanel.LIST
+                                    }
                                 }
                                 .onPreviewKeyEvent { event ->
                                     if (focusPanel == SettingsFocusPanel.LIST) handleListKey(event) else false
@@ -507,7 +532,9 @@ fun SettingsScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.DETAIL }
+                                .onFocusChanged {
+                                    if (it.hasFocus) focusPanel = SettingsFocusPanel.DETAIL
+                                }
                                 .focusGroup()
                                 .onPreviewKeyEvent { event ->
                                     if (focusPanel == SettingsFocusPanel.DETAIL) handleContentKey(event) else false

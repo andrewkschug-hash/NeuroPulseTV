@@ -832,6 +832,9 @@ class HomeEpgViewModel @Inject constructor(
     private fun effectiveGuideFilter(): GuideChannelFilter =
         _previewGuideFilter.value ?: _guideFilter.value
 
+    /** Active live-guide filter (preview while browsing groups, else committed). */
+    fun currentGuideFilter(): GuideChannelFilter = effectiveGuideFilter()
+
     fun saveGuideChannelGroups(groups: Set<String>, markConfigured: Boolean = true) {
         val filter = GuideChannelFilter(groups)
         _guideFilter.value = filter
