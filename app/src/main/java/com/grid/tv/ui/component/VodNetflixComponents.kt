@@ -104,6 +104,14 @@ fun vodHubTabFilterIndex(filter: VodContentFilter): Int =
     VodHubTabFilters.indexOf(filter).coerceAtLeast(0)
 
 fun vodHubTabFilterLabel(filter: VodContentFilter): String = when (filter) {
+    VodContentFilter.ALL -> "Home"
+    VodContentFilter.MOVIES -> "Movies"
+    VodContentFilter.SERIES -> "Series"
+    VodContentFilter.SEARCH -> "Search"
+}
+
+/** Home wall content-type chips — "All" filters the feed, not the library tab. */
+fun vodHomeWallTypeFilterLabel(filter: VodContentFilter): String = when (filter) {
     VodContentFilter.ALL -> "All"
     VodContentFilter.MOVIES -> "Movies"
     VodContentFilter.SERIES -> "Series"
@@ -563,8 +571,22 @@ fun LazyListScope.netflixSeriesBrowseRows(
     }
 }
 
-/** VOD library filter panel beside the icon rail (mirrors [GuideChannelGroupsPanel]). */
-val VodLibraryNavPanelWidth = 260.dp
+/** Collapsed icon rail when the library panel is not focused. */
+val VodLibraryNavPanelCollapsedWidth = 48.dp
+
+/** Expanded library panel — labels fit comfortably at this width on TV. */
+val VodLibraryNavPanelExpandedWidth = 188.dp
+
+@Deprecated("Use VodLibraryNavPanelExpandedWidth", ReplaceWith("VodLibraryNavPanelExpandedWidth"))
+val VodLibraryNavPanelWidth = VodLibraryNavPanelExpandedWidth
+
+fun vodLibraryNavItemIcon(index: Int, filter: VodContentFilter?): String = when {
+    index == VodHubLanguageFilterFocusIndex -> "◉"
+    filter == VodContentFilter.ALL -> "⌂"
+    filter == VodContentFilter.MOVIES -> "▣"
+    filter == VodContentFilter.SERIES -> "▤"
+    else -> "•"
+}
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -577,12 +599,23 @@ fun VodLibraryNavPanel(
     panelFocusRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
     navDrawerFocusRequester: FocusRequester,
+    genrePanelFocusRequester: FocusRequester? = null,
     onPanelFocused: () -> Unit,
     onFocusedIndexChange: (Int) -> Unit,
     onItemSelected: (Int) -> Unit,
     onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val expanded = panelFocused
+    val panelWidth by animateDpAsState(
+        targetValue = if (expanded) {
+            VodLibraryNavPanelExpandedWidth
+        } else {
+            VodLibraryNavPanelCollapsedWidth
+        },
+        animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
+        label = "vodLibraryNavPanelWidth",
+    )
     val itemCount = VodHubLanguageFilterFocusIndex + 1
     val listState = rememberLazyListState()
     val accent = VodNetflixColors.Accent
@@ -595,9 +628,10 @@ fun VodLibraryNavPanel(
 
     Column(
         modifier = modifier
-            .width(VodLibraryNavPanelWidth)
+            .width(panelWidth)
             .fillMaxHeight()
-            .background(EpgColors.SidebarPanelBg)
+            .zIndex(2f)
+            .background(EpgColors.SidebarPanelBg.copy(alpha = if (expanded) 0.97f else 0.92f))
             .border(
                 width = 1.dp,
                 color = EpgColors.BorderSubtle,
@@ -607,25 +641,32 @@ fun VodLibraryNavPanel(
             .focusable(enabled = panelFocused)
             .focusProperties {
                 left = navDrawerFocusRequester
-                right = contentFocusRequester
+                right = genrePanelFocusRequester ?: contentFocusRequester
             }
             .onFocusChanged { if (it.isFocused) onPanelFocused() }
             .onPreviewKeyEvent(onPreviewKey),
     ) {
-        Text(
-            text = "Library",
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
+        if (expanded) {
+            Text(
+                text = "Library",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            contentPadding = PaddingValues(
+                horizontal = if (expanded) 8.dp else 4.dp,
+                vertical = 4.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(itemCount) { index ->
@@ -636,6 +677,7 @@ fun VodLibraryNavPanel(
                 } else {
                     filter?.let { vodHubTabFilterLabel(it) } ?: ""
                 }
+                val icon = vodLibraryNavItemIcon(index, filter)
                 val selected = if (isLanguages) {
                     languageFilterActive
                 } else {
@@ -647,6 +689,7 @@ fun VodLibraryNavPanel(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 44.dp)
                         .clip(chipShape)
                         .then(
                             if (emphasized) {
@@ -669,21 +712,50 @@ fun VodLibraryNavPanel(
                             },
                         )
                         .focusProperties { canFocus = false }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(
+                            horizontal = if (expanded) 10.dp else 0.dp,
+                            vertical = if (expanded) 10.dp else 8.dp,
+                        ),
+                    contentAlignment = if (expanded) Alignment.CenterStart else Alignment.Center,
                 ) {
-                    Text(
-                        text = label,
-                        color = when {
-                            emphasized -> Color.White
-                            enabled -> Color(0xFFB8BEC8)
-                            else -> Color(0xFF6B7280)
-                        },
-                        fontFamily = DmSansFamily,
-                        fontSize = 14.sp,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (expanded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = icon,
+                                color = if (emphasized) Color.White else Color(0xFFB8BEC8),
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.width(20.dp),
+                            )
+                            Text(
+                                text = label,
+                                color = when {
+                                    emphasized -> Color.White
+                                    enabled -> Color(0xFFB8BEC8)
+                                    else -> Color(0xFF6B7280)
+                                },
+                                fontFamily = DmSansFamily,
+                                fontSize = 14.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = icon,
+                            color = when {
+                                emphasized -> Color.White
+                                enabled -> Color(0xFFB8BEC8)
+                                else -> Color(0xFF6B7280)
+                            },
+                            fontSize = 18.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
         }
@@ -869,7 +941,7 @@ fun VodContentFilterTabBar(
                 val selected = filter == selectedFilter
                 val focused = barFocused && filter == focusedFilter && !languageFilterFocused
                 val emphasized = selected || focused
-                val label = vodHubTabFilterLabel(filter)
+                val label = vodHomeWallTypeFilterLabel(filter)
                 val tabEnabled = tabsNavigable || filter == selectedFilter
                 Box(
                     modifier = Modifier
@@ -1089,7 +1161,8 @@ fun NetflixContentWallRow(
     modifier: Modifier = Modifier,
     firstItemFocusRequester: FocusRequester? = null,
     heroPlayFocusRequester: FocusRequester? = null,
-    sidebarFocusRequester: FocusRequester? = null
+    sidebarFocusRequester: FocusRequester? = null,
+    linkUpToHero: Boolean = false,
 ) {
     LaunchedEffect(rowFocused, focusedColumn) {
         if (rowFocused && focusedColumn in row.items.indices) {
@@ -1152,7 +1225,7 @@ fun NetflixContentWallRow(
                         if (index == 0 && sidebarFocusRequester != null) {
                             left = sidebarFocusRequester
                         }
-                        if (rowIndex == 0 && index == 0 && heroPlayFocusRequester != null) {
+                        if (linkUpToHero && index == 0 && heroPlayFocusRequester != null) {
                             up = heroPlayFocusRequester
                         }
                     }

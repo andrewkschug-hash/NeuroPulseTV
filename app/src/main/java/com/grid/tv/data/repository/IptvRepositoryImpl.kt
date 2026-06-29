@@ -4717,6 +4717,32 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun seriesShowsBatch(
+        categoryIds: Set<String>?,
+        search: String,
+        playlistId: Long?,
+        limit: Int,
+        offset: Int
+    ): List<SeriesShow> = withContext(Dispatchers.IO) {
+        val matchAll = categoryIds.isNullOrEmpty()
+        val ids = categoryIds?.toList()?.sorted() ?: listOf("")
+        val trimmedSearch = search.trim()
+        val resolvedPlaylistId = scopedPlaylistId(playlistId)
+        val entities = if (resolvedPlaylistId.isPlaylistScoped()) {
+            seriesShowDao.filteredBatchByIdsForPlaylist(
+                resolvedPlaylistId!!,
+                matchAll,
+                ids,
+                trimmedSearch,
+                limit,
+                offset
+            )
+        } else {
+            seriesShowDao.filteredBatchByIds(matchAll, ids, trimmedSearch, limit, offset)
+        }
+        entities.map { it.toDomain() }
+    }
+
     override suspend fun findSeriesShow(playlistId: Long, seriesId: Long): SeriesShow? =
         withContext(Dispatchers.IO) {
             val resolved = requireScopedPlaylistId(playlistId) ?: return@withContext null

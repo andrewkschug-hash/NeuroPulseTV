@@ -9,6 +9,7 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.domain.model.buildVodWallRows
+import com.grid.tv.domain.model.vodHomeLeadWallRowIds
 
 /**
  * Pre-split VOD catalogs built off the UI thread after sync / language filtering.
@@ -32,10 +33,23 @@ data class VodCatalogPartitions(
     val revision: String = "",
 ) {
     fun wallRowsFor(filter: VodContentFilter): List<VodWallRow> = when (filter) {
-        VodContentFilter.ALL -> allPersonalizedWallRows + allStaticWallRows
+        VodContentFilter.ALL -> orderedAllWallRows()
         VodContentFilter.MOVIES -> movieWallRows
         VodContentFilter.SERIES -> seriesWallRows
         VodContentFilter.SEARCH -> emptyList()
+    }
+
+    private fun orderedAllWallRows(): List<VodWallRow> {
+        val personalizedById = allPersonalizedWallRows.associateBy { it.id }
+        return buildList {
+            personalizedById["continue_watching"]?.let { add(it) }
+            allStaticWallRows.firstOrNull { it.id == "movie_recent" }?.let { add(it) }
+            allStaticWallRows
+                .filter { it.id !in vodHomeLeadWallRowIds }
+                .forEach { add(it) }
+            personalizedById["trending"]?.let { add(it) }
+            personalizedById["recommended"]?.let { add(it) }
+        }
     }
 
     fun wallRowsRevisionFor(filter: VodContentFilter): String = when (filter) {

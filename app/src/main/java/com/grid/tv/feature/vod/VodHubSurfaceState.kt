@@ -91,6 +91,8 @@ data class VodHubBrowseSurfaceInputs(
     val pagingRefreshing: Boolean,
     val selectedCategoryId: String?,
     val searchQuery: String = "",
+    val languageFilterActive: Boolean = false,
+    val isSeriesStillLoading: Boolean = false,
 )
 
 data class VodHubBrowseGridFocusInputs(

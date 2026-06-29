@@ -204,6 +204,7 @@ internal class VodHubFocusController(
         ui.rememberFilterFocus()
         transitionToZone(VodFocusZone.GENRE_PANEL, "fromFilter")
         ui.restoreGenreFrom(d.contentFilter)
+        ui.genreFocusIndex = ui.genreFocusIndex.coerceIn(0, (d.genreLabels.size - 1).coerceAtLeast(0))
         val label = d.genreLabels.getOrNull(ui.genreFocusIndex) ?: "?"
         VodHubFocusLogger.genreFocus(label, ui.genreFocusIndex)
         d.scope.launch {
@@ -457,6 +458,15 @@ internal class VodHubFocusController(
         }
     }
 
+    fun routeLibraryNavRight() {
+        if (!d.hubTabsNavigable()) return
+        if (d.showGenrePanel && d.genreLabels.isNotEmpty()) {
+            focusGenrePanelFromFilter()
+        } else {
+            returnToContentFromLibraryNav(resetOrigin = true)
+        }
+    }
+
     fun handleLibraryNavPanelKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (d.navDrawerOpen) return false
@@ -468,9 +478,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.DirectionRight -> {
-                if (d.hubTabsNavigable()) {
-                    returnToContentFromLibraryNav(resetOrigin = true)
-                }
+                routeLibraryNavRight()
                 true
             }
             Key.DirectionDown -> {
@@ -490,7 +498,11 @@ internal class VodHubFocusController(
                     d.openLanguagePreferenceDialog()
                 } else if (d.hubTabsNavigable()) {
                     commitFocusedFilterHighlight()
-                    returnToContentFromLibraryNav(resetOrigin = true)
+                    if (d.showGenrePanel && d.genreLabels.isNotEmpty()) {
+                        focusGenrePanelFromFilter()
+                    } else {
+                        returnToContentFromLibraryNav(resetOrigin = true)
+                    }
                 }
                 true
             }

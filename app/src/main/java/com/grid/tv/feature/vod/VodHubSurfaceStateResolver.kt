@@ -108,6 +108,22 @@ object VodHubSurfaceStateResolver {
                     !inputs.catalogProgress.isSeriesPhaseComplete
             else -> false
         }
+        val seriesStillIngesting = inputs.tab == VodCatalogOnboardingTab.SERIES && inputs.isSeriesStillLoading
+        val languageFilteredEmpty = inputs.languageFilterActive &&
+            inputs.catalogTotalCount > 0 &&
+            inputs.pagedItemCount == 0 &&
+            !tabLoading &&
+            !inputs.pagingRefreshing &&
+            !seriesStillIngesting
+        if (languageFilteredEmpty) {
+            return VodHubSurfaceState.Empty(
+                title = "No titles match your language preferences.",
+                message = "Try selecting additional languages, enable untagged content, or clear the language filter.",
+                canRetry = true,
+                variant = VodHubSurfaceState.Empty.EmptyVariant.ALL_LANGUAGE_FILTER,
+                onboardingInputs = onboardingInputs,
+            )
+        }
         val emptyReason = if (isMovies) {
             inputs.catalogStatus.moviesEmptyReason(
                 filteredCount = inputs.filteredTotalCount,
@@ -126,6 +142,7 @@ object VodHubSurfaceStateResolver {
         val showEmptyGrid = inputs.pagedItemCount == 0 &&
             !tabLoading &&
             !inputs.pagingRefreshing &&
+            !seriesStillIngesting &&
             when (inputs.tab) {
                 VodCatalogOnboardingTab.MOVIES -> inputs.catalogProgress.moviesPhaseFinished
                 VodCatalogOnboardingTab.SERIES ->

@@ -61,6 +61,10 @@ import com.grid.tv.domain.model.VodPlaybackHelper
 import com.grid.tv.domain.model.VodWallItem
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.domain.model.categoryKey
+import com.grid.tv.domain.model.filterHomeWallRowsByType
+import com.grid.tv.domain.model.homeLeadWallRowCount
+import com.grid.tv.domain.model.lazyColumnIndexForWallRow
+import com.grid.tv.domain.model.splitHomeWallRows
 import com.grid.tv.ui.component.EpgGuideHeader
 import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.ui.component.GuideNavDrawerItem
@@ -79,6 +83,7 @@ import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.domain.model.VodSidebarGenreNormalizer
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
+import com.grid.tv.ui.component.VodContentFilterTabBar
 import com.grid.tv.ui.component.VodHubTabFilters
 import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
@@ -137,7 +142,7 @@ import com.grid.tv.util.VodPerfLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val vodImmediateWallRowIds = setOf("continue_watching", "trending", "recommended")
+private val vodImmediateWallRowIds = setOf("continue_watching", "movie_recent")
 
 @Composable
 fun VodHubScreen(
@@ -169,6 +174,7 @@ fun VodHubScreen(
     var contentColIndex by rememberSaveable { mutableIntStateOf(0) }
     var focusedContentKey by rememberSaveable { mutableStateOf<String?>(null) }
     var browseGridFocusIndex by rememberSaveable { mutableIntStateOf(0) }
+    var homeWallTypeFilter by rememberSaveable { mutableStateOf(VodContentFilter.ALL) }
     var selectedMovie by remember { mutableStateOf<VodItem?>(null) }
     var showLanguageDialog by remember { mutableStateOf(false) }
 
@@ -250,13 +256,30 @@ fun VodHubScreen(
     var loadedDeferredWallCount by rememberSaveable(wallRowsRevision) {
         mutableIntStateOf(seedDeferredWallCount)
     }
-    val displayWallRows = remember(contentFilter, wallRows, immediateWallRows, deferredWallRows, loadedDeferredWallCount) {
-        if (contentFilter != VodContentFilter.ALL) {
+    val displayWallRows = remember(
+        contentFilter,
+        wallRows,
+        immediateWallRows,
+        deferredWallRows,
+        loadedDeferredWallCount,
+        homeWallTypeFilter,
+    ) {
+        val base = if (contentFilter != VodContentFilter.ALL) {
             wallRows
         } else {
             immediateWallRows + deferredWallRows.take(loadedDeferredWallCount)
         }
+        if (contentFilter == VodContentFilter.ALL) {
+            filterHomeWallRowsByType(base, homeWallTypeFilter)
+        } else {
+            base
+        }
     }
+    val (homeLeadWallRows, homeTailWallRows) = remember(displayWallRows) {
+        splitHomeWallRows(displayWallRows)
+    }
+    val homeLeadRowCount = homeLeadWallRows.size
+    val homeCategoryStartIndex = homeLeadRowCount
     val onboardingInputs = contentState.onboardingInputs
     val showCatalogEmptyState = contentState.showCatalogEmptyState
     val showLanguageFilteredEmpty = contentState.showLanguageFilteredEmpty
@@ -452,6 +475,7 @@ fun VodHubScreen(
             pagedItemCount = moviePagingItems.itemCount,
             pagingRefreshing = moviesPagingRefreshing,
             selectedCategoryId = moviesSelectedCategoryId,
+            languageFilterActive = languageFilterActive,
         )
     )
 
@@ -462,6 +486,7 @@ fun VodHubScreen(
     val seriesSelectedCategoryId by seriesViewModel.selectedCategoryId.collectAsStateWithLifecycle()
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
     val seriesPagingRefreshing = seriesPagingItems.loadState.refresh is LoadState.Loading
+    val isSeriesStillLoading = isSeriesCatalogStillLoading(catalogLoading, catalogProgress)
     val seriesBrowseSurface = VodHubSurfaceStateResolver.resolveBrowseTab(
         VodHubBrowseSurfaceInputs(
             tab = VodCatalogOnboardingTab.SERIES,
@@ -475,6 +500,8 @@ fun VodHubScreen(
             pagedItemCount = seriesPagingItems.itemCount,
             pagingRefreshing = seriesPagingRefreshing,
             selectedCategoryId = seriesSelectedCategoryId,
+            languageFilterActive = languageFilterActive,
+            isSeriesStillLoading = isSeriesStillLoading,
         )
     )
 
@@ -497,7 +524,6 @@ fun VodHubScreen(
         catalogTotalCount = seriesCatalogTotalCount,
     )
     val isColdStart = isVodHubColdStartLoad(catalogTotalCount, seriesCatalogTotalCount)
-    val isSeriesStillLoading = isSeriesCatalogStillLoading(catalogLoading, catalogProgress)
     val showHubUnifiedLoading = contentFilter == VodContentFilter.ALL &&
         contentFilter != VodContentFilter.SEARCH &&
         isColdStart &&
@@ -727,16 +753,19 @@ fun VodHubScreen(
         when (focusUi.focusZone) {
             VodFocusZone.HERO -> {
                 columnListState.animateScrollVodWallRowIntoView(
-                    index = 0,
+                    index = homeLeadRowCount.coerceAtLeast(0),
                     direction = TvLazyFocusScrollDirection.UP,
                     safePaddingPx = vodWallScrollSafePaddingPx,
                     fallbackItemHeightPx = vodWallRowHeightPx
                 )
             }
             VodFocusZone.CONTENT -> {
-                val heroOffset = if (showHeroIsland) 1 else 0
                 columnListState.animateScrollVodWallRowIntoView(
-                    index = (contentRowIndex + heroOffset).coerceAtLeast(0),
+                    index = lazyColumnIndexForWallRow(
+                        wallRowIndex = contentRowIndex,
+                        leadRowCount = homeLeadRowCount,
+                        heroVisible = showHeroIsland,
+                    ).coerceAtLeast(0),
                     direction = focusUi.contentScrollDirection,
                     safePaddingPx = vodWallScrollSafePaddingPx,
                     fallbackItemHeightPx = vodWallRowHeightPx
@@ -1576,7 +1605,11 @@ fun VodHubScreen(
             onStepCarousel = hubViewModel::stepHeroCarousel,
             onNavigateDown = {
                 focusUi.focusZone = VodFocusZone.CONTENT
-                contentRowIndex = 0
+                contentRowIndex = if (homeTailWallRows.isNotEmpty()) {
+                    homeCategoryStartIndex
+                } else {
+                    0
+                }
                 contentColIndex = 0
                 focusUi.contentScrollDirection = TvLazyFocusScrollDirection.DOWN
             },
@@ -1746,38 +1779,12 @@ fun VodHubScreen(
                 onPreviewKey = ::handleNavDrawerKey,
                 selectedItem = GuideNavDrawerItem.Vod
             )
-            AnimatedVisibility(
-                visible = showLibraryNavPanel,
-                enter = slideInHorizontally { -it } + fadeIn(),
-                exit = slideOutHorizontally { -it } + fadeOut(),
-            ) {
-                VodLibraryNavPanel(
-                    selectedFilter = contentFilter,
-                    focusedIndex = focusUi.filterFocusIndex,
-                    panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
-                    languageFilterActive = languageFilterActive,
-                    tabsNavigable = hubCatalogReady,
-                    panelFocusRequester = filterPanelFocusRequester,
-                    contentFocusRequester = rootFocusRequester,
-                    navDrawerFocusRequester = navDrawerFocusRequester,
-                    onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
-                    onFocusedIndexChange = { index ->
-                        focusUi.filterFocusIndex = index
-                    },
-                    onItemSelected = { index ->
-                        if (hubCatalogReady) {
-                            commitFilterHighlight(index)
-                        }
-                    },
-                    onPreviewKey = ::handleLibraryNavPanelKey,
-                    modifier = Modifier.fillMaxHeight(),
-                )
-            }
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
+                    .fillMaxHeight(),
             ) {
+                Column(modifier = Modifier.fillMaxSize()) {
             EpgGuideHeader(
                 isRecording = isRecording,
                 activeRecordingTitle = activeRecordingTitle,
@@ -1975,6 +1982,21 @@ fun VodHubScreen(
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
+                                if (searchQuery.isBlank()) {
+                                    VodContentFilterTabBar(
+                                        selectedFilter = homeWallTypeFilter,
+                                        focusedFilter = homeWallTypeFilter,
+                                        barFocused = false,
+                                        onFilterSelected = { filter ->
+                                            homeWallTypeFilter = filter
+                                            contentRowIndex = 0
+                                            contentColIndex = 0
+                                        },
+                                        tabsNavigable = true,
+                                        languageFilterActive = languageFilterActive,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
                                 LazyColumn(
                                 state = columnListState,
                                 modifier = Modifier
@@ -1982,46 +2004,7 @@ fun VodHubScreen(
                                     .fillMaxWidth(),
                                 contentPadding = PaddingValues(bottom = 64.dp, top = 4.dp)
                             ) {
-                                if (showHero) {
-                                    item(key = "vod_hero") {
-                                        VodHubHeroIsland(
-                                            hubViewModel = hubViewModel,
-                                            featuredCarousel = featuredCarousel,
-                                            enrichmentMap = enrichmentMap,
-                                            inputActive = focusUi.focusZone == VodFocusZone.HERO,
-                                            requestPlayFocus = requestHeroPlayFocus,
-                                            onPlay = { hero ->
-                                                hubViewModel.onHeroInteraction(hero)
-                                                playMovie(hero)
-                                            },
-                                            onMoreInfo = { hero ->
-                                                hubViewModel.onHeroInteraction(hero)
-                                                openMovieDetail(hero)
-                                            },
-                                            onNavigateDown = {
-                                                vodFoldScroller.snapDownFromHero()
-                                                focusUi.focusZone = VodFocusZone.CONTENT
-                                                contentRowIndex = 0
-                                                contentColIndex = 0
-                                                focusUi.contentScrollDirection = TvLazyFocusScrollDirection.DOWN
-                                            },
-                                            onNavigateUp = {
-                                                focusUi.focusZone = VodFocusZone.FILTER_PANEL
-                                                scope.launch {
-                                                    filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-                                                }
-                                            },
-                                            playFocusRequester = heroPlayFocusRequester,
-                                            moreInfoFocusRequester = heroMoreInfoFocusRequester,
-                                            topTabsFocusRequester = filterPanelFocusRequester,
-                                            firstRowCardFocusRequester = contentFocusRequester,
-                                            sidebarFocusRequester = navDrawerFocusRequester,
-                                            onPlayFocused = { focusUi.focusZone = VodFocusZone.HERO },
-                                            onMoreInfoFocused = { focusUi.focusZone = VodFocusZone.HERO }
-                                        )
-                                    }
-                                }
-                                itemsIndexed(displayWallRows, key = { _, row -> row.id }) { index, row ->
+                                itemsIndexed(homeLeadWallRows, key = { _, row -> row.id }) { index, row ->
                                     val rowListState = remember(row.id) { LazyListState() }
                                     val rowFocused = focusUi.focusZone == VodFocusZone.CONTENT && contentRowIndex == index
                                     val focusedColumn = if (rowFocused) contentColIndex else -1
@@ -2046,7 +2029,85 @@ fun VodHubScreen(
                                             onActivateItem = ::activateWallItem,
                                             firstItemFocusRequester = if (index == 0) contentFocusRequester else null,
                                             heroPlayFocusRequester = heroPlayFocusRequester,
-                                            sidebarFocusRequester = navDrawerFocusRequester
+                                            sidebarFocusRequester = navDrawerFocusRequester,
+                                        )
+                                    }
+                                }
+                                if (showHero) {
+                                    item(key = "vod_hero") {
+                                        VodHubHeroIsland(
+                                            hubViewModel = hubViewModel,
+                                            featuredCarousel = featuredCarousel,
+                                            enrichmentMap = enrichmentMap,
+                                            inputActive = focusUi.focusZone == VodFocusZone.HERO,
+                                            requestPlayFocus = requestHeroPlayFocus,
+                                            onPlay = { hero ->
+                                                hubViewModel.onHeroInteraction(hero)
+                                                playMovie(hero)
+                                            },
+                                            onMoreInfo = { hero ->
+                                                hubViewModel.onHeroInteraction(hero)
+                                                openMovieDetail(hero)
+                                            },
+                                            onNavigateDown = {
+                                                vodFoldScroller.snapDownFromHero()
+                                                focusUi.focusZone = VodFocusZone.CONTENT
+                                                contentRowIndex = if (homeTailWallRows.isNotEmpty()) {
+                                                    homeCategoryStartIndex
+                                                } else {
+                                                    0
+                                                }
+                                                contentColIndex = 0
+                                                focusUi.contentScrollDirection = TvLazyFocusScrollDirection.DOWN
+                                            },
+                                            onNavigateUp = {
+                                                focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                                                scope.launch {
+                                                    filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                                                }
+                                            },
+                                            playFocusRequester = heroPlayFocusRequester,
+                                            moreInfoFocusRequester = heroMoreInfoFocusRequester,
+                                            topTabsFocusRequester = filterPanelFocusRequester,
+                                            firstRowCardFocusRequester = contentFocusRequester,
+                                            sidebarFocusRequester = navDrawerFocusRequester,
+                                            onPlayFocused = { focusUi.focusZone = VodFocusZone.HERO },
+                                            onMoreInfoFocused = { focusUi.focusZone = VodFocusZone.HERO }
+                                        )
+                                    }
+                                }
+                                itemsIndexed(homeTailWallRows, key = { _, row -> row.id }) { tailIndex, row ->
+                                    val index = homeCategoryStartIndex + tailIndex
+                                    val rowListState = remember(row.id) { LazyListState() }
+                                    val rowFocused = focusUi.focusZone == VodFocusZone.CONTENT && contentRowIndex == index
+                                    val focusedColumn = if (rowFocused) contentColIndex else -1
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = VodPosterFocusLayout.estimatedWallRowHeight)
+                                            .graphicsLayer { clip = false }
+                                    ) {
+                                        NetflixContentWallRow(
+                                            row = row,
+                                            rowIndex = index,
+                                            focusedColumn = focusedColumn,
+                                            rowFocused = rowFocused,
+                                            listState = rowListState,
+                                            progressByKey = vodProgress,
+                                            posterUrlForMovie = ::posterFor,
+                                            ratingForMovie = ::ratingFor,
+                                            metaForMovie = ::metaFor,
+                                            overviewForMovie = ::overviewForMovie,
+                                            overviewForSeries = ::overviewForSeries,
+                                            onActivateItem = ::activateWallItem,
+                                            firstItemFocusRequester = if (index == homeCategoryStartIndex && homeLeadWallRows.isEmpty()) {
+                                                contentFocusRequester
+                                            } else {
+                                                null
+                                            },
+                                            heroPlayFocusRequester = heroPlayFocusRequester,
+                                            sidebarFocusRequester = navDrawerFocusRequester,
+                                            linkUpToHero = showHero && index == homeCategoryStartIndex,
                                         )
                                     }
                                 }
@@ -2056,6 +2117,31 @@ fun VodHubScreen(
                     }
                 }
             }
+                }
+                if (showLibraryNavPanel) {
+                    VodLibraryNavPanel(
+                        selectedFilter = contentFilter,
+                        focusedIndex = focusUi.filterFocusIndex,
+                        panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
+                        languageFilterActive = languageFilterActive,
+                        tabsNavigable = hubCatalogReady,
+                        panelFocusRequester = filterPanelFocusRequester,
+                        contentFocusRequester = rootFocusRequester,
+                        navDrawerFocusRequester = navDrawerFocusRequester,
+                        genrePanelFocusRequester = if (showGenrePanel) genrePanelFocusRequester else null,
+                        onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
+                        onFocusedIndexChange = { index ->
+                            focusUi.filterFocusIndex = index
+                        },
+                        onItemSelected = { index ->
+                            if (hubCatalogReady) {
+                                commitFilterHighlight(index)
+                            }
+                        },
+                        onPreviewKey = ::handleLibraryNavPanelKey,
+                        modifier = Modifier.fillMaxHeight(),
+                    )
+                }
             }
         }
 

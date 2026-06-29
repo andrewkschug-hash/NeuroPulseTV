@@ -225,6 +225,7 @@ fun VodHubSeriesBrowseSection(
     val catalogLoading by seriesViewModel.catalogLoading.collectAsStateWithLifecycle()
     val browseRows by seriesViewModel.browseRows.collectAsStateWithLifecycle()
     val categories by seriesViewModel.categories.collectAsStateWithLifecycle()
+    val preferredLanguages by seriesViewModel.preferredLanguages.collectAsStateWithLifecycle()
 
     val pagingRefreshing = seriesPagingItems.loadState.refresh is LoadState.Loading
     val resolvedSurfaceState = surfaceState ?: VodHubSurfaceStateResolver.resolveBrowseTab(
@@ -240,6 +241,8 @@ fun VodHubSeriesBrowseSection(
             pagedItemCount = seriesPagingItems.itemCount,
             pagingRefreshing = pagingRefreshing,
             selectedCategoryId = selectedCategoryId,
+            languageFilterActive = preferredLanguages.isNotEmpty(),
+            isSeriesStillLoading = isSeriesStillLoading,
         )
     )
     val refreshWarning = catalogStatus.seriesRefreshWarning(catalogTotalCount)

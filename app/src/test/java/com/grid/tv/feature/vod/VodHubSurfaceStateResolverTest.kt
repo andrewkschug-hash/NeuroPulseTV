@@ -104,6 +104,56 @@ class VodHubSurfaceStateResolverTest {
     }
 
     @Test
+    fun browseTab_seriesLanguageFilterEmptyWhenPagedGridEmpty() {
+        val state = VodHubSurfaceStateResolver.resolveBrowseTab(
+            VodHubBrowseSurfaceInputs(
+                tab = VodCatalogOnboardingTab.SERIES,
+                catalogLoading = false,
+                catalogProgress = VodCatalogProgress(moviesPhaseFinished = true, seriesPhaseFinished = true),
+                catalogStatus = VodCatalogStatus(),
+                catalogTotalCount = 120,
+                filteredTotalCount = 120,
+                browseRowCount = 0,
+                categoryCount = 2,
+                pagedItemCount = 0,
+                pagingRefreshing = false,
+                selectedCategoryId = null,
+                languageFilterActive = true,
+                isSeriesStillLoading = false,
+            )
+        )
+        assertTrue(state is VodHubSurfaceState.Empty)
+        val empty = state as VodHubSurfaceState.Empty
+        assertEquals("No titles match your language preferences.", empty.title)
+    }
+
+    @Test
+    fun browseTab_seriesDoesNotShowEmptyWhileStillLoading() {
+        val state = VodHubSurfaceStateResolver.resolveBrowseTab(
+            VodHubBrowseSurfaceInputs(
+                tab = VodCatalogOnboardingTab.SERIES,
+                catalogLoading = true,
+                catalogProgress = VodCatalogProgress(
+                    moviesPhaseFinished = true,
+                    seriesPhaseFinished = false,
+                    isLoading = true,
+                ),
+                catalogStatus = VodCatalogStatus(),
+                catalogTotalCount = 0,
+                filteredTotalCount = 0,
+                browseRowCount = 0,
+                categoryCount = 0,
+                pagedItemCount = 0,
+                pagingRefreshing = false,
+                selectedCategoryId = null,
+                languageFilterActive = false,
+                isSeriesStillLoading = true,
+            )
+        )
+        assertFalse(state is VodHubSurfaceState.Empty)
+    }
+
+    @Test
     fun focusContentMode_readyWhenGridHasItems() {
         val mode = VodHubSurfaceStateResolver.focusContentMode(
             surfaceState = VodHubSurfaceState.Ready(gridItemCount = 12),

@@ -32,8 +32,64 @@ data class VodWallRow(
     val isEmpty: Boolean get() = items.isEmpty()
 }
 
+/** Home wall rows rendered above the featured hero banner. */
+val vodHomeLeadWallRowIds = setOf("continue_watching", "movie_recent")
+
+fun splitHomeWallRows(rows: List<VodWallRow>): Pair<List<VodWallRow>, List<VodWallRow>> {
+    val lead = rows.filter { it.id in vodHomeLeadWallRowIds }
+    val tail = rows.filter { it.id !in vodHomeLeadWallRowIds }
+    return lead to tail
+}
+
+fun homeLeadWallRowCount(rows: List<VodWallRow>): Int =
+    rows.count { it.id in vodHomeLeadWallRowIds }
+
+fun lazyColumnIndexForWallRow(
+    wallRowIndex: Int,
+    leadRowCount: Int,
+    heroVisible: Boolean,
+): Int = wallRowIndex + if (heroVisible && wallRowIndex >= leadRowCount) 1 else 0
+
+fun filterHomeWallRowsByType(
+    rows: List<VodWallRow>,
+    typeFilter: VodContentFilter,
+): List<VodWallRow> {
+    if (typeFilter == VodContentFilter.ALL) return rows
+    return rows.mapNotNull { row ->
+        when (typeFilter) {
+            VodContentFilter.MOVIES -> filterHomeWallRowMoviesOnly(row)
+            VodContentFilter.SERIES -> filterHomeWallRowSeriesOnly(row)
+            else -> row
+        }
+    }
+}
+
+private fun filterHomeWallRowMoviesOnly(row: VodWallRow): VodWallRow? {
+    val items = when (row.id) {
+        "continue_watching" -> row.items.filter {
+            it is VodWallItem.MovieItem ||
+                (it is VodWallItem.ContinueItem &&
+                    it.item.contentType == ContinueWatchingContentType.MOVIE)
+        }
+        else -> row.items.filterIsInstance<VodWallItem.MovieItem>()
+    }
+    return items.takeIf { it.isNotEmpty() }?.let { row.copy(items = it) }
+}
+
+private fun filterHomeWallRowSeriesOnly(row: VodWallRow): VodWallRow? {
+    val items = when (row.id) {
+        "continue_watching" -> row.items.filter {
+            it is VodWallItem.SeriesItem ||
+                (it is VodWallItem.ContinueItem &&
+                    it.item.contentType == ContinueWatchingContentType.SERIES)
+        }
+        else -> row.items.filterIsInstance<VodWallItem.SeriesItem>()
+    }
+    return items.takeIf { it.isNotEmpty() }?.let { row.copy(items = it) }
+}
+
 fun genreIntegratedRowTitle(rowId: String, title: String): String = when (rowId) {
-    "recent" -> "New Releases"
+    "recent" -> "Recently Added"
     "top_imdb" -> "Top Rated"
     "4k" -> "4K Ultra HD"
     "trending" -> "Trending"
@@ -76,16 +132,12 @@ fun buildVodWallRows(
     }
 
     if (filter == VodContentFilter.ALL) {
-        val trendingItems = buildList {
-            trendingMovies.take(12).forEach { add(VodWallItem.MovieItem(it)) }
-            seriesBrowseRows.firstOrNull()?.series?.take(12)?.forEach { add(VodWallItem.SeriesItem(it)) }
-        }.distinctBy { it.key }
-        if (trendingItems.isNotEmpty()) {
-            rows += VodWallRow("trending", "Trending: Movies & Series", trendingItems)
-        }
-
-        recommendedMovies.take(20).map { VodWallItem.MovieItem(it) }.takeIf { it.isNotEmpty() }?.let { items ->
-            rows += VodWallRow("recommended", "Recommended For You", items)
+        movieBrowseRows.firstOrNull { it.id == "recent" && it.movies.isNotEmpty() }?.let { browseRow ->
+            rows += VodWallRow(
+                id = "movie_${browseRow.id}",
+                title = genreIntegratedRowTitle(browseRow.id, browseRow.title),
+                items = browseRow.movies.map { VodWallItem.MovieItem(it) },
+            )
         }
 
         val movieGenreRows = movieBrowseRows
@@ -113,7 +165,7 @@ fun buildVodWallRows(
             }
         }
 
-        movieBrowseRows.filter { it.id in setOf("recent", "top_imdb", "4k") && it.movies.isNotEmpty() }
+        movieBrowseRows.filter { it.id in setOf("top_imdb", "4k") && it.movies.isNotEmpty() }
             .forEach { browseRow ->
                 rows += VodWallRow(
                     id = "movie_${browseRow.id}",
@@ -121,6 +173,18 @@ fun buildVodWallRows(
                     items = browseRow.movies.map { VodWallItem.MovieItem(it) }
                 )
             }
+
+        val trendingItems = buildList {
+            trendingMovies.take(12).forEach { add(VodWallItem.MovieItem(it)) }
+            seriesBrowseRows.firstOrNull()?.series?.take(12)?.forEach { add(VodWallItem.SeriesItem(it)) }
+        }.distinctBy { it.key }
+        if (trendingItems.isNotEmpty()) {
+            rows += VodWallRow("trending", "Trending: Movies & Series", trendingItems)
+        }
+
+        recommendedMovies.take(20).map { VodWallItem.MovieItem(it) }.takeIf { it.isNotEmpty() }?.let { items ->
+            rows += VodWallRow("recommended", "Recommended For You", items)
+        }
     } else if (filter == VodContentFilter.MOVIES) {
         movieBrowseRows.filter { !it.isEmpty }.forEach { browseRow ->
             rows += VodWallRow(

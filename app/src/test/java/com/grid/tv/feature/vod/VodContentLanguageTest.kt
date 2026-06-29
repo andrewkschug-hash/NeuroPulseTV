@@ -77,6 +77,27 @@ class VodContentLanguageTest {
     }
 
     @Test
+    fun matchesVodLanguageFilter_treatsRegionalEnglishCodesAsEnglish() {
+        val englishOnly = setOf("EN")
+        assertTrue(matchesVodLanguageFilter("Plain Title", englishOnly, categoryName = "US | Series"))
+        assertTrue(matchesVodLanguageFilter("Plain Title", englishOnly, categoryName = "UK | Drama"))
+        assertTrue(matchesVodLanguageFilter("US - Breaking Bad", englishOnly))
+    }
+
+    @Test
+    fun seriesLanguageCategoryName_usesGenreWhenCategoryLookupMissing() {
+        val show = com.grid.tv.domain.model.SeriesShow(
+            id = 1L,
+            name = "Plain Title",
+            coverUrl = null,
+            categoryId = "999",
+            genre = "EN | Drama",
+            playlistId = 1L
+        )
+        assertTrue(show.matchesLanguageFilter(VodLanguageFilterOptions(setOf("EN"))))
+    }
+
+    @Test
     fun matchesVodLanguageFilter_excludesMismatchedTaggedContent() {
         val englishOnly = setOf("EN")
         assertTrue(!matchesVodLanguageFilter("FR - Amélie", englishOnly))

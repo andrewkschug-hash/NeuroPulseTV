@@ -16,6 +16,22 @@ data class VodLanguageFilterOptions(
 fun vodContentLanguageCode(title: String, categoryName: String? = null): String? =
     parseVodContentLanguageCode(title) ?: categoryName?.let { parseVodContentLanguageCode(it) }
 
+/** Regional codes that IPTV providers use interchangeably with base language codes. */
+internal val VOD_LANGUAGE_EQUIVALENTS: Map<String, Set<String>> = mapOf(
+    "EN" to setOf("EN", "US", "UK", "GB", "AU", "CA", "NZ", "IE"),
+)
+
+internal fun expandPreferredLanguageCodes(preferred: Set<String>): Set<String> {
+    val expanded = mutableSetOf<String>()
+    preferred.forEach { code ->
+        val upper = code.trim().uppercase()
+        if (upper.isEmpty()) return@forEach
+        expanded += upper
+        VOD_LANGUAGE_EQUIVALENTS[upper]?.let { expanded += it }
+    }
+    return expanded
+}
+
 /**
  * Hybrid language filter:
  * - Explicit matching tag → include
@@ -29,7 +45,7 @@ fun matchesVodLanguageFilter(
     includeUntagged: Boolean = true
 ): Boolean {
     if (preferredLanguages.isEmpty()) return true
-    val normalized = preferredLanguages.map { it.uppercase() }.toSet()
+    val normalized = expandPreferredLanguageCodes(preferredLanguages)
     val code = vodContentLanguageCode(title, categoryName)
     return when {
         code == null -> includeUntagged
@@ -73,8 +89,11 @@ fun SeriesShow.matchesLanguageFilter(
 ): Boolean = matchesVodLanguageFilter(
     title = name,
     options = options,
-    categoryName = categoryId?.let { categoryNames[it] }
+    categoryName = seriesLanguageCategoryName(categoryNames)
 )
+
+private fun SeriesShow.seriesLanguageCategoryName(categoryNames: Map<String, String>): String? =
+    categoryId?.let { categoryNames[it] } ?: genre?.takeIf { it.isNotBlank() }
 
 fun SeriesShow.matchesLanguageFilter(
     preferredLanguages: Set<String>,

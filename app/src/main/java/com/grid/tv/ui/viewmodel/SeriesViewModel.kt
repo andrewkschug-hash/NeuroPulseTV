@@ -1,5 +1,6 @@
 package com.grid.tv.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -158,6 +159,28 @@ class SeriesViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            combine(
+                languagePreferenceStore.filterOptions,
+                debouncedSearchQuery,
+                selectedSeriesCategoryFilter,
+                categories
+            ) { filterOptions, query, categoryFilter, categoryList ->
+                val (categoryFilterIds, playlistId) = categoryFilter
+                SeriesLanguageFilterDebugParams(
+                    filterOptions = filterOptions,
+                    query = query,
+                    categoryFilterIds = categoryFilterIds,
+                    playlistId = playlistId,
+                    categoryNames = categoryList.associate { it.id to it.name }
+                )
+            }
+                .debounce(300)
+                .collect { params ->
+                    if (!params.filterOptions.isActive) return@collect
+                    logLanguageFilterCounts(params)
+                }
+        }
     }
 
     val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
@@ -273,6 +296,44 @@ class SeriesViewModel @Inject constructor(
     ) {
         withContext(Dispatchers.IO) {
             _filteredTotalCount.value = repository.seriesFilteredCount(categoryFilterIds, query, playlistId)
+        }
+    }
+
+    private suspend fun logLanguageFilterCounts(params: SeriesLanguageFilterDebugParams) {
+        withContext(Dispatchers.IO) {
+            val before = repository.seriesFilteredCount(
+                params.categoryFilterIds,
+                params.query,
+                params.playlistId
+            )
+            if (before == 0) {
+                Log.d(
+                    LANGUAGE_FILTER_LOG_TAG,
+                    "series language filter: before=0 (catalog not loaded yet) languages=${params.filterOptions.preferredLanguages}"
+                )
+                return@withContext
+            }
+            var after = 0
+            var offset = 0
+            val batchSize = 500
+            while (offset < before) {
+                val batch = repository.seriesShowsBatch(
+                    categoryIds = params.categoryFilterIds,
+                    search = params.query,
+                    playlistId = params.playlistId,
+                    limit = batchSize,
+                    offset = offset
+                )
+                if (batch.isEmpty()) break
+                after += batch.count { it.matchesLanguageFilter(params.filterOptions, params.categoryNames) }
+                offset += batch.size
+                if (batch.size < batchSize) break
+            }
+            Log.d(
+                LANGUAGE_FILTER_LOG_TAG,
+                "series language filter: before=$before after=$after languages=${params.filterOptions.preferredLanguages} " +
+                    "includeUntagged=${params.filterOptions.includeUntagged}"
+            )
         }
     }
 
@@ -537,3 +598,13 @@ private data class SeriesFilterCountParams(
     val playlistId: Long?,
     val hubSearchMode: Boolean
 )
+
+private data class SeriesLanguageFilterDebugParams(
+    val filterOptions: VodLanguageFilterOptions,
+    val query: String,
+    val categoryFilterIds: Set<String>?,
+    val playlistId: Long?,
+    val categoryNames: Map<String, String>
+)
+
+private const val LANGUAGE_FILTER_LOG_TAG = "VodCatalogPipeline"

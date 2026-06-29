@@ -175,6 +175,13 @@ interface IptvRepository {
         search: String = "",
         playlistId: Long? = null
     ): Int
+    suspend fun seriesShowsBatch(
+        categoryIds: Set<String>? = null,
+        search: String = "",
+        playlistId: Long? = null,
+        limit: Int,
+        offset: Int
+    ): List<SeriesShow>
     suspend fun findSeriesShow(playlistId: Long, seriesId: Long): SeriesShow?
     suspend fun loadSeriesBrowseRows(itemsPerRow: Int = 20, maxRows: Int = 16): List<VodBrowseRow>
     suspend fun searchVod(query: String, limit: Int = 40): List<VodItem>

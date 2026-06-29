@@ -199,6 +199,42 @@ interface SeriesShowDao {
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
           AND (:search = '' OR name LIKE '%' || :search || '%')
         ORDER BY name COLLATE NOCASE
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun filteredBatchByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String,
+        limit: Int,
+        offset: Int
+    ): List<SeriesShowEntity>
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE playlistId = :playlistId
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        ORDER BY name COLLATE NOCASE
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun filteredBatchByIdsForPlaylist(
+        playlistId: Long,
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        search: String,
+        limit: Int,
+        offset: Int
+    ): List<SeriesShowEntity>
+
+    @Query(
+        """
+        SELECT * FROM series_shows
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:search = '' OR name LIKE '%' || :search || '%')
+        ORDER BY name COLLATE NOCASE
         """
     )
     fun seriesPagingSourceByIds(
