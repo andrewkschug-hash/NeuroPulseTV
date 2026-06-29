@@ -93,6 +93,8 @@ interface IptvRepository {
     suspend fun setActiveProfile(profileId: Long)
     suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean
     suspend fun purgeDefaultProfiles()
+    /** Purges seeded Default rows and reconciles the active profile before the picker is shown. */
+    suspend fun prepareProfilePicker()
     suspend fun enterGuestSession()
     fun isGuestSession(): Boolean
     suspend fun activeProfileId(): Long

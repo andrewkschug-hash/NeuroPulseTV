@@ -37,7 +37,6 @@ fun MainContentGate(
     onRestartToOnboarding: () -> Unit,
     onSignOut: () -> Unit
 ) {
-    var ready by remember { mutableStateOf(false) }
     var loadError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val playbackOrchestrator = remember(context) {
@@ -54,7 +53,6 @@ fun MainContentGate(
     LaunchedEffect(Unit) {
         runCatching {
             StartupProfiler.mark("ui_first_frame")
-            ready = true
         }.onFailure {
             loadError = it.message ?: "Unable to load app"
         }
@@ -63,33 +61,15 @@ fun MainContentGate(
     when {
         loadError != null -> NoServiceFallback(
             message = loadError!!,
-            onRetry = { loadError = null; ready = false },
-            onConnect = { ready = true; loadError = null }
+            onRetry = { loadError = null },
+            onConnect = { loadError = null }
         )
-        !ready -> LoadingPlaceholder()
         else -> AppNavHost(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
             onSwitchProfile = onSwitchProfile,
             onRestartToOnboarding = onRestartToOnboarding,
             onSignOut = onSignOut
-        )
-    }
-}
-
-@Composable
-private fun LoadingPlaceholder() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(EpgColors.Background),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "Loading…",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 16.sp
         )
     }
 }

@@ -79,7 +79,25 @@ class PlayerFactory(
         } else {
             DefaultTrackSelector(appContext)
         }
+        val trackParamsBuilder = DefaultTrackSelector.Parameters.Builder(appContext)
+            .setViewportSizeToPhysicalDisplaySize(appContext, true)
+            .setExceedVideoConstraintsIfNecessary(false)
         when {
+            onDemandPlayback && caps.isEmulator -> {
+                trackSelector.parameters = trackParamsBuilder
+                    .setMaxVideoSize(1920, 1080)
+                    .setMaxVideoBitrate(8_000_000)
+                    .build()
+            }
+            onDemandPlayback && caps.isLowEndDevice -> {
+                trackSelector.parameters = trackParamsBuilder
+                    .setMaxVideoSize(1280, 720)
+                    .setMaxVideoBitrate(2_500_000)
+                    .build()
+            }
+            onDemandPlayback -> {
+                trackSelector.parameters = trackParamsBuilder.build()
+            }
             caps.isEmulator -> {
                 trackSelector.parameters = trackSelector.buildUponParameters()
                     .setMaxVideoSize(1920, 1080)

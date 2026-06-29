@@ -175,7 +175,8 @@ class DirectPlayerViewModel @Inject constructor(
      */
     suspend fun resolveVodStream(
         url: String,
-        contentKind: IptvOnDemandContentKind
+        contentKind: IptvOnDemandContentKind,
+        title: String? = null,
     ): ResolvedVodStream? {
         streamFormatRegistry.remove(url)
 
@@ -188,14 +189,14 @@ class DirectPlayerViewModel @Inject constructor(
             else -> streamTypePreflightSniffer.detectForVod(url)
         }
 
-        val resolved = VodStreamResolver.resolve(url, detection) ?: run {
+        val resolved = VodStreamResolver.resolve(url, detection, title) ?: run {
             Log.e(TAG, "VOD resolution blocked url=$url reason=${detection.reason}")
             return null
         }
 
         resolved.logFinal()
         streamFormatRegistry.put(
-            url,
+            resolved.url,
             resolved.toStreamFormat(),
             IptvStreamFormatRegistry.Source.MANIFEST_SNIFF
         )

@@ -84,6 +84,7 @@ import com.grid.tv.feature.startup.StartupGroupMetadataStore
 import com.grid.tv.feature.guide.GroupsTrace
 import com.grid.tv.util.DEFAULT_CONNECTION_TIMEOUT_SECONDS
 import com.grid.tv.util.JsonParseMetrics
+import com.grid.tv.util.GUEST_PROFILE_AVATAR_COLOR
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
 import com.grid.tv.util.sanitizeProfileAvatarColorHex
 import com.grid.tv.util.runVodPipelineCatching
@@ -267,6 +268,7 @@ class IptvRepositoryImpl @Inject constructor(
         const val CHANNEL_BROWSER_PAGE_SIZE = 48
         const val CHANNEL_BROWSER_PREFETCH = 12
         private const val SPORTS_FILTER_EMPTY_SENTINEL = "__none__"
+        private const val GUEST_SCRATCH_PROFILE_NAME = "Guest"
         /** Serve in-memory/disk cache without network for this long unless [force] refresh. */
         private const val VOD_CACHE_TTL_MS = 6L * 60L * 60L * 1000L
         private const val INGEST_REVISION_EVERY_BATCHES = 4
@@ -1686,7 +1688,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun profiles(): Flow<List<UserProfile>> = profileDao.observeProfiles().map { rows ->
         rows
-            .filter { it.name != "Default" }
+            .filter { it.name != "Default" && it.name != GUEST_SCRATCH_PROFILE_NAME }
             .map {
                 UserProfile(
                     it.id,
@@ -1700,8 +1702,9 @@ class IptvRepositoryImpl @Inject constructor(
             }
     }.flowOn(Dispatchers.IO)
 
-    override suspend fun activeProfile(): UserProfile? =
-        profileDao.getProfile(activeProfileId)?.let {
+    override suspend fun activeProfile(): UserProfile? {
+        ensureDefaultProfile()
+        return profileDao.getProfile(activeProfileId)?.let {
             UserProfile(
                 it.id,
                 it.name,
@@ -1712,6 +1715,12 @@ class IptvRepositoryImpl @Inject constructor(
                 it.allowedEndMinutes
             )
         }
+    }
+
+    override suspend fun prepareProfilePicker() {
+        profileDao.deleteDefaultProfiles()
+        ensureDefaultProfile()
+    }
 
     override suspend fun createProfile(name: String, avatarColor: String, pin: String?, isParental: Boolean): Long {
         profileDao.deleteDefaultProfiles()
@@ -1750,9 +1759,20 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun enterGuestSession() {
         ensureDefaultProfile()
+        if (profileDao.getProfile(activeProfileId) == null) {
+            val id = profileDao.upsertProfile(
+                UserProfileEntity(
+                    name = GUEST_SCRATCH_PROFILE_NAME,
+                    avatarColor = sanitizeProfileAvatarColorHex(GUEST_PROFILE_AVATAR_COLOR)
+                )
+            )
+            activeProfileId = id
+            profileDao.setActive(ActiveProfileEntity(profileId = id))
+        }
         if (profileSettingsDao.get(activeProfileId) == null) {
             profileSettingsDao.upsert(ProfileSettingsEntity(profileId = activeProfileId))
         }
+        favoritesRepository.ensureDefaultGroups(activeProfileId)
         guestSessionPreferences.startGuestSession(activeProfileId)
     }
 

@@ -46,6 +46,7 @@ class VodHubFocusNavigationUiTest {
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
+                languageSubmenuFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
                 browseEmptyStateFocusRequester = FocusRequester(),
                 rootFocusRequester = FocusRequester(),
@@ -69,6 +70,10 @@ class VodHubFocusNavigationUiTest {
                 applyGenre = {},
                 activateWallItem = {},
                 openLanguagePreferenceDialog = {},
+                refreshAvailableLanguages = {},
+                togglePreferredLanguage = {},
+                languageFilterActive = false,
+                availableLanguages = listOf("EN", "FR"),
                 openNavDrawer = {
                     ui.navDrawerOpen = true
                     ui.focusZone = VodFocusZone.NAV_DRAWER

@@ -20,8 +20,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -157,6 +159,7 @@ private fun DrawerIconButton(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GuideNavDrawer(
     focusedIndex: Int,
@@ -210,6 +213,7 @@ fun GuideNavDrawer(
                 avatarColorHex = profileAvatarColor,
                 modifier = Modifier
                     .focusRequester(drawerFocusRequester)
+                    .focusProperties { left = FocusRequester.Cancel }
                     .onFocusChanged {
                         if (it.isFocused) onItemFocused(GuideNavDrawerProfileFocusIndex)
                     }

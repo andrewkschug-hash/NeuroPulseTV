@@ -8,6 +8,8 @@ import coil.ImageLoader
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.grid.tv.di.StartupEntryPoint
+import com.grid.tv.di.MemoryEntryPoint
+import com.grid.tv.feature.startup.MemoryPressureHandler
 import com.grid.tv.feature.startup.MemoryPressureMonitor
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupTiming
@@ -46,12 +48,13 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         StartupTiming.trace("registerComponentCallbacks") {
             registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
                 override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = Unit
-                override fun onLowMemory() = trimImageCaches()
+                override fun onLowMemory() = memoryPressureHandler().onTrimMemory(
+                    this@StreamFlowApplication,
+                    android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+                )
                 override fun onTrimMemory(level: Int) {
                     LowEndDeviceMode.onTrimMemory(level)
-                    if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-                        trimImageCaches()
-                    }
+                    memoryPressureHandler().onTrimMemory(this@StreamFlowApplication, level)
                 }
             })
         }
@@ -85,11 +88,9 @@ class StreamFlowApplication : Application(), Configuration.Provider {
         StartupTiming.log("Application.onCreate() complete")
     }
 
-    private fun trimImageCaches() {
-        runCatching {
-            Coil.imageLoader(this).memoryCache?.clear()
-        }
-    }
+    private fun memoryPressureHandler(): MemoryPressureHandler =
+        EntryPointAccessors.fromApplication(this, MemoryEntryPoint::class.java)
+            .memoryPressureHandler()
 
     /**
      * Room and WorkManager init are expensive on large databases.

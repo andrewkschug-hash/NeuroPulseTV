@@ -193,40 +193,38 @@ object VodCategoryNameResolver {
             )
         }
 
-        val grouped = resolved.groupBy { VodSidebarGenreNormalizer.scopedPrimaryComparisonKey(it.playlistId, it.name) }
-        VodSidebarGenreNormalizer.logMergedGenreGroups(source, grouped)
+    val grouped = resolved.groupBy { VodSidebarGenreNormalizer.scopedPrimaryComparisonKey(it.playlistId, it.name) }
+    VodSidebarGenreNormalizer.logMergedGenreGroups(source, grouped)
 
-        val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
-        val displayCategories = grouped.values
-            .map { group -> pickSidebarRepresentative(group, itemCountByCategoryKey) }
-            .map { representative ->
-                val canonicalName = VodSidebarGenreNormalizer.pickCanonicalDisplayName(
-                    resolved.filter {
-                        it.playlistId == representative.playlistId &&
-                            VodSidebarGenreNormalizer.primaryComparisonKey(it.name) ==
-                            VodSidebarGenreNormalizer.primaryComparisonKey(representative.name)
-                    }.map { it.name }
-                )
-                val displayCategory = representative.copy(name = canonicalName)
-                val repKey = categoryKey(displayCategory.playlistId, displayCategory.id)
-                val comparisonKey = VodSidebarGenreNormalizer.primaryComparisonKey(canonicalName)
-                val siblingIds = resolved
-                    .filter {
-                        it.playlistId == displayCategory.playlistId &&
-                            VodSidebarGenreNormalizer.primaryComparisonKey(it.name) == comparisonKey
-                    }
-                    .map { it.id }
-                    .toSet()
-                filterIdsByRepresentativeId[repKey] = siblingIds
-                displayCategory
-            }
-            .sortedWith(
-                compareBy<VodCategory> { VodSidebarGenreNormalizer.sidebarSortRank(it.name) }
-                    .thenBy { it.name.lowercase() }
-            )
-
-        return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
+    val siblingsByPlaylistPrimaryKey = resolved.groupBy {
+        it.playlistId to VodSidebarGenreNormalizer.primaryComparisonKey(it.name)
     }
+    val namesByPlaylistPrimaryKey = siblingsByPlaylistPrimaryKey.mapValues { (_, siblings) ->
+        siblings.map { it.name }
+    }
+
+    val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
+    val displayCategories = grouped.values
+        .map { group -> pickSidebarRepresentative(group, itemCountByCategoryKey) }
+        .map { representative ->
+            val primaryKey = VodSidebarGenreNormalizer.primaryComparisonKey(representative.name)
+            val playlistPrimaryKey = representative.playlistId to primaryKey
+            val siblings = siblingsByPlaylistPrimaryKey[playlistPrimaryKey].orEmpty()
+            val canonicalName = VodSidebarGenreNormalizer.pickCanonicalDisplayName(
+                namesByPlaylistPrimaryKey[playlistPrimaryKey].orEmpty()
+            )
+            val displayCategory = representative.copy(name = canonicalName)
+            val repKey = categoryKey(displayCategory.playlistId, displayCategory.id)
+            filterIdsByRepresentativeId[repKey] = siblings.map { it.id }.toSet()
+            displayCategory
+        }
+        .sortedWith(
+            compareBy<VodCategory> { VodSidebarGenreNormalizer.sidebarSortRank(it.name) }
+                .thenBy { it.name.lowercase() }
+        )
+
+    return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
+}
 
     private fun pickSidebarRepresentative(
         group: List<VodCategory>,

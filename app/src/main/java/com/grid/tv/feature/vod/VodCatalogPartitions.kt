@@ -1,7 +1,6 @@
 package com.grid.tv.feature.vod
 
 import com.grid.tv.domain.model.ContinueWatchingItem
-import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodCategoryNameResolver
@@ -18,10 +17,6 @@ import com.grid.tv.domain.model.vodHomeLeadWallRowIds
 data class VodCatalogPartitions(
     val movieBrowseRows: List<VodBrowseRow> = emptyList(),
     val seriesBrowseRows: List<VodBrowseRow> = emptyList(),
-    /** Flat movie list derived from [movieBrowseRows]. */
-    val movieCatalog: List<VodItem> = emptyList(),
-    /** Flat series list derived from [seriesBrowseRows]. */
-    val seriesCatalog: List<SeriesShow> = emptyList(),
     val allPersonalizedWallRows: List<VodWallRow> = emptyList(),
     val allStaticWallRows: List<VodWallRow> = emptyList(),
     val movieWallRows: List<VodWallRow> = emptyList(),
@@ -37,6 +32,43 @@ data class VodCatalogPartitions(
         VodContentFilter.MOVIES -> movieWallRows
         VodContentFilter.SERIES -> seriesWallRows
         VodContentFilter.SEARCH -> emptyList()
+    }
+
+    /** Builds tab-specific wall rows on demand when startup prefetch was skipped. */
+    fun ensureWallRowsFor(filter: VodContentFilter): VodCatalogPartitions = when (filter) {
+        VodContentFilter.MOVIES -> {
+            if (movieWallRows.isNotEmpty() || movieBrowseRows.isEmpty()) {
+                this
+            } else {
+                copy(
+                    movieWallRows = buildVodWallRows(
+                        filter = VodContentFilter.MOVIES,
+                        continueWatching = emptyList(),
+                        trendingMovies = emptyList(),
+                        recommendedMovies = emptyList(),
+                        movieBrowseRows = movieBrowseRows,
+                        seriesBrowseRows = emptyList(),
+                    )
+                )
+            }
+        }
+        VodContentFilter.SERIES -> {
+            if (seriesWallRows.isNotEmpty() || seriesBrowseRows.isEmpty()) {
+                this
+            } else {
+                copy(
+                    seriesWallRows = buildVodWallRows(
+                        filter = VodContentFilter.SERIES,
+                        continueWatching = emptyList(),
+                        trendingMovies = emptyList(),
+                        recommendedMovies = emptyList(),
+                        movieBrowseRows = emptyList(),
+                        seriesBrowseRows = seriesBrowseRows,
+                    )
+                )
+            }
+        }
+        else -> this
     }
 
     private fun orderedAllWallRows(): List<VodWallRow> {
@@ -59,6 +91,48 @@ data class VodCatalogPartitions(
         VodContentFilter.SEARCH -> "${revision}_search"
     }
 
+    /** Approximate retained wall-item count — used for trim logging. */
+    fun estimatedWallItemCount(): Int =
+        allPersonalizedWallRows.sumOf { it.items.size } +
+            allStaticWallRows.sumOf { it.items.size } +
+            movieWallRows.sumOf { it.items.size } +
+            seriesWallRows.sumOf { it.items.size }
+
+    /**
+     * Drops pre-built wall rows and browse slices that are not needed for [activeFilter].
+     * Browse rows needed for the active tab/sidebar are retained.
+     */
+    fun trimForMemoryPressure(activeFilter: VodContentFilter): VodCatalogPartitions = when (activeFilter) {
+        VodContentFilter.ALL -> copy(
+            movieWallRows = emptyList(),
+            seriesWallRows = emptyList(),
+        )
+        VodContentFilter.MOVIES -> copy(
+            allPersonalizedWallRows = emptyList(),
+            allStaticWallRows = emptyList(),
+            seriesWallRows = emptyList(),
+            seriesBrowseRows = emptyList(),
+            seriesSidebarBundle = VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap()),
+        )
+        VodContentFilter.SERIES -> copy(
+            allPersonalizedWallRows = emptyList(),
+            allStaticWallRows = emptyList(),
+            movieWallRows = emptyList(),
+            movieBrowseRows = emptyList(),
+            movieSidebarBundle = VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap()),
+        )
+        VodContentFilter.SEARCH -> copy(
+            allPersonalizedWallRows = emptyList(),
+            allStaticWallRows = emptyList(),
+            movieWallRows = emptyList(),
+            seriesWallRows = emptyList(),
+            movieBrowseRows = emptyList(),
+            seriesBrowseRows = emptyList(),
+            movieSidebarBundle = VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap()),
+            seriesSidebarBundle = VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap()),
+        )
+    }
+
     companion object {
         val EMPTY = VodCatalogPartitions()
     }
@@ -72,13 +146,21 @@ data class VodCatalogPartitionInputs(
     val continueWatching: List<ContinueWatchingItem>,
     val trendingMovies: List<VodItem>,
     val recommendedMovies: List<VodItem>,
+    val movieBrowseIndex: VodBrowseRowCategoryIndex = VodBrowseRowCategoryIndex.EMPTY,
+    val seriesBrowseIndex: VodBrowseRowCategoryIndex = VodBrowseRowCategoryIndex.EMPTY,
 )
 
-fun buildVodCatalogPartitions(inputs: VodCatalogPartitionInputs): VodCatalogPartitions {
+fun buildVodCatalogPartitions(
+    inputs: VodCatalogPartitionInputs,
+    prefetchTabWallRows: Boolean = true,
+): VodCatalogPartitions {
     val movieBrowseRows = inputs.movieBrowseRows
     val seriesBrowseRows = inputs.seriesBrowseRows
-    val movieCatalog = movieBrowseRows.flatMap { row -> row.movies }
-    val seriesCatalog = seriesBrowseRows.flatMap { row -> row.series }
+
+    val movieBrowseIndex = inputs.movieBrowseIndex.takeUnless { it == VodBrowseRowCategoryIndex.EMPTY }
+        ?: VodBrowseRowCategoryIndex.fromBrowseRows(movieBrowseRows)
+    val seriesBrowseIndex = inputs.seriesBrowseIndex.takeUnless { it == VodBrowseRowCategoryIndex.EMPTY }
+        ?: VodBrowseRowCategoryIndex.fromBrowseRows(seriesBrowseRows)
 
     val allPersonalizedWallRows = buildVodWallRows(
         filter = VodContentFilter.ALL,
@@ -96,25 +178,39 @@ fun buildVodCatalogPartitions(inputs: VodCatalogPartitionInputs): VodCatalogPart
         movieBrowseRows = movieBrowseRows,
         seriesBrowseRows = seriesBrowseRows
     )
-    val movieWallRows = buildVodWallRows(
-        filter = VodContentFilter.MOVIES,
-        continueWatching = emptyList(),
-        trendingMovies = emptyList(),
-        recommendedMovies = emptyList(),
-        movieBrowseRows = movieBrowseRows,
-        seriesBrowseRows = emptyList()
-    )
-    val seriesWallRows = buildVodWallRows(
-        filter = VodContentFilter.SERIES,
-        continueWatching = emptyList(),
-        trendingMovies = emptyList(),
-        recommendedMovies = emptyList(),
-        movieBrowseRows = emptyList(),
-        seriesBrowseRows = seriesBrowseRows
-    )
+    val movieWallRows = if (prefetchTabWallRows && movieBrowseRows.isNotEmpty()) {
+        buildVodWallRows(
+            filter = VodContentFilter.MOVIES,
+            continueWatching = emptyList(),
+            trendingMovies = emptyList(),
+            recommendedMovies = emptyList(),
+            movieBrowseRows = movieBrowseRows,
+            seriesBrowseRows = emptyList()
+        )
+    } else {
+        emptyList()
+    }
+    val seriesWallRows = if (prefetchTabWallRows && seriesBrowseRows.isNotEmpty()) {
+        buildVodWallRows(
+            filter = VodContentFilter.SERIES,
+            continueWatching = emptyList(),
+            trendingMovies = emptyList(),
+            recommendedMovies = emptyList(),
+            movieBrowseRows = emptyList(),
+            seriesBrowseRows = seriesBrowseRows
+        )
+    } else {
+        emptyList()
+    }
 
-    val movieSidebarBundle = prepareMovieSidebarCategories(inputs.movieCategories, movieBrowseRows)
-    val seriesSidebarBundle = prepareSeriesSidebarCategories(inputs.seriesCategories, seriesBrowseRows)
+    val movieSidebarBundle = prepareMovieSidebarCategories(
+        primary = inputs.movieCategories,
+        browseIndex = movieBrowseIndex,
+    )
+    val seriesSidebarBundle = prepareSeriesSidebarCategories(
+        primary = inputs.seriesCategories,
+        browseIndex = seriesBrowseIndex,
+    )
 
     val revision = buildString {
         append(movieBrowseRows.joinToString(",") { "${it.id}:${it.movies.size}" })
@@ -127,8 +223,6 @@ fun buildVodCatalogPartitions(inputs: VodCatalogPartitionInputs): VodCatalogPart
     return VodCatalogPartitions(
         movieBrowseRows = movieBrowseRows,
         seriesBrowseRows = seriesBrowseRows,
-        movieCatalog = movieCatalog,
-        seriesCatalog = seriesCatalog,
         allPersonalizedWallRows = allPersonalizedWallRows,
         allStaticWallRows = allStaticWallRows,
         movieWallRows = movieWallRows,

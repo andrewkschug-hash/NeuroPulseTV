@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -572,10 +573,16 @@ fun LazyListScope.netflixSeriesBrowseRows(
 }
 
 /** Collapsed icon rail when the library panel is not focused. */
-val VodLibraryNavPanelCollapsedWidth = 48.dp
+val VodLibraryNavPanelCollapsedWidth = 56.dp
 
-/** Expanded library panel — labels fit comfortably at this width on TV. */
-val VodLibraryNavPanelExpandedWidth = 188.dp
+/** Expanded library panel — overlays content; does not affect content layout width. */
+val VodLibraryNavPanelExpandedWidth = 200.dp
+
+/** Genre / language sub-panels overlay at the expanded sidebar's trailing edge. */
+val VodLibrarySubPanelOffsetExpanded = VodLibraryNavPanelExpandedWidth
+
+/** Overlay width for genre and language sub-panels. */
+val VodLibrarySubPanelWidth = 180.dp
 
 @Deprecated("Use VodLibraryNavPanelExpandedWidth", ReplaceWith("VodLibraryNavPanelExpandedWidth"))
 val VodLibraryNavPanelWidth = VodLibraryNavPanelExpandedWidth
@@ -638,7 +645,7 @@ fun VodLibraryNavPanel(
                 shape = RoundedCornerShape(0.dp),
             )
             .focusRequester(panelFocusRequester)
-            .focusable(enabled = panelFocused)
+            .focusable()
             .focusProperties {
                 left = navDrawerFocusRequester
                 right = genrePanelFocusRequester ?: contentFocusRequester
@@ -646,16 +653,17 @@ fun VodLibraryNavPanel(
             .onFocusChanged { if (it.isFocused) onPanelFocused() }
             .onPreviewKeyEvent(onPreviewKey),
     ) {
-        if (expanded) {
-            Text(
-                text = "Library",
-                color = EpgColors.TextDimmed,
-                fontFamily = DmSansFamily,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-        } else {
+        Text(
+            text = "Library",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .alpha(if (expanded) 1f else 0f)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        )
+        if (!expanded) {
             Spacer(modifier = Modifier.height(8.dp))
         }
         LazyColumn(
@@ -718,42 +726,31 @@ fun VodLibraryNavPanel(
                         ),
                     contentAlignment = if (expanded) Alignment.CenterStart else Alignment.Center,
                 ) {
-                    if (expanded) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                text = icon,
-                                color = if (emphasized) Color.White else Color(0xFFB8BEC8),
-                                fontSize = 16.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.width(20.dp),
-                            )
-                            Text(
-                                text = label,
-                                color = when {
-                                    emphasized -> Color.White
-                                    enabled -> Color(0xFFB8BEC8)
-                                    else -> Color(0xFF6B7280)
-                                },
-                                fontFamily = DmSansFamily,
-                                fontSize = 14.sp,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         Text(
                             text = icon,
+                            color = if (emphasized) Color.White else Color(0xFFB8BEC8),
+                            fontSize = if (expanded) 16.sp else 18.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.width(if (expanded) 20.dp else 24.dp),
+                        )
+                        Text(
+                            text = label,
                             color = when {
                                 emphasized -> Color.White
                                 enabled -> Color(0xFFB8BEC8)
                                 else -> Color(0xFF6B7280)
                             },
-                            fontSize = 18.sp,
-                            textAlign = TextAlign.Center,
+                            fontFamily = DmSansFamily,
+                            fontSize = 14.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.alpha(if (expanded) 1f else 0f),
                         )
                     }
                 }
@@ -788,15 +785,21 @@ fun VodGenreSidePanel(
 
     Column(
         modifier = modifier
-            .width(168.dp)
+            .width(VodLibrarySubPanelWidth)
             .fillMaxHeight()
-            .background(Color(0xFF101010))
+            .zIndex(3f)
+            .background(EpgColors.SidebarPanelBg.copy(alpha = 0.97f))
+            .border(
+                width = 1.dp,
+                color = EpgColors.BorderSubtle,
+                shape = RoundedCornerShape(0.dp),
+            )
             .padding(vertical = 12.dp, horizontal = 8.dp)
             .then(
                 if (entryFocusRequester != null) {
                     Modifier
                         .focusRequester(entryFocusRequester)
-                        .focusable(enabled = panelFocused)
+                        .focusable()
                         .focusProperties {
                             canFocus = panelFocused
                             if (libraryNavFocusRequester != null) {
@@ -815,7 +818,7 @@ fun VodGenreSidePanel(
     ) {
         Text(
             text = "Genres",
-            color = VodNetflixColors.TextSecondary,
+            color = EpgColors.TextDimmed,
             fontFamily = DmSansFamily,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
@@ -832,7 +835,7 @@ fun VodGenreSidePanel(
         ) {
             items(
                 count = genres.size,
-                key = { index -> genres[index] }
+                key = { index -> index }
             ) { index ->
                 val label = genres[index]
                 val selected = index == selectedIndex
@@ -866,6 +869,152 @@ fun VodGenreSidePanel(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
                     )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun VodLanguageSubmenuPanel(
+    availableLanguages: List<String>,
+    selectedLanguages: Set<String>,
+    focusedIndex: Int,
+    panelFocused: Boolean,
+    onFocusedIndexChange: (Int) -> Unit,
+    onLanguageToggle: (String?) -> Unit,
+    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
+    modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester? = null,
+    libraryNavFocusRequester: FocusRequester? = null,
+    contentFocusRequester: FocusRequester? = null,
+) {
+    val itemCount = availableLanguages.size + 1
+    val listState = rememberLazyListState()
+    val chipShape = RoundedCornerShape(8.dp)
+    val accent = VodNetflixColors.Accent
+
+    LaunchedEffect(focusedIndex, panelFocused, itemCount) {
+        if (!panelFocused || itemCount <= 0) return@LaunchedEffect
+        listState.animateScrollToItem(focusedIndex.coerceIn(0, itemCount - 1))
+    }
+
+    Column(
+        modifier = modifier
+            .width(VodLibrarySubPanelWidth)
+            .fillMaxHeight()
+            .zIndex(3f)
+            .background(EpgColors.SidebarPanelBg.copy(alpha = 0.97f))
+            .border(
+                width = 1.dp,
+                color = EpgColors.BorderSubtle,
+                shape = RoundedCornerShape(0.dp),
+            )
+            .padding(vertical = 12.dp, horizontal = 8.dp)
+            .then(
+                if (entryFocusRequester != null) {
+                    Modifier
+                        .focusRequester(entryFocusRequester)
+                        .focusable()
+                        .focusProperties {
+                            canFocus = panelFocused
+                            if (libraryNavFocusRequester != null) {
+                                left = libraryNavFocusRequester
+                            }
+                            if (contentFocusRequester != null) {
+                                right = contentFocusRequester
+                            }
+                        }
+                        .onPreviewKeyEvent(onPreviewKey)
+                } else {
+                    Modifier.focusProperties { canFocus = false }
+                }
+            ),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "Languages",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .focusProperties { canFocus = false },
+        )
+        LazyColumn(
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            items(
+                count = itemCount,
+                key = { index -> index },
+            ) { index ->
+                val isAllLanguages = index == 0
+                val code = availableLanguages.getOrNull(index - 1)
+                val label = if (isAllLanguages) {
+                    "All Languages"
+                } else {
+                    com.grid.tv.feature.vod.displayLanguageName(code!!)
+                }
+                val selected = if (isAllLanguages) {
+                    selectedLanguages.isEmpty()
+                } else {
+                    code!!.uppercase() in selectedLanguages.map { it.uppercase() }.toSet()
+                }
+                val focused = panelFocused && index == focusedIndex
+                val emphasized = selected || focused
+                val containerColor = when {
+                    emphasized -> accent.copy(alpha = 0.28f)
+                    else -> Color(0xFF161616)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(chipShape)
+                        .background(containerColor, chipShape)
+                        .then(
+                            if (focused) {
+                                Modifier.border(2.dp, accent.copy(alpha = 0.95f), chipShape)
+                            } else if (selected) {
+                                Modifier.border(1.dp, accent.copy(alpha = 0.65f), chipShape)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .clickable { onLanguageToggle(if (isAllLanguages) null else code) }
+                        .focusProperties { canFocus = false }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (emphasized) Color.White else Color(0xFFB8BEC8),
+                            fontFamily = DmSansFamily,
+                            fontSize = 13.sp,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (selected) {
+                            Text(
+                                text = "✓",
+                                color = accent,
+                                fontFamily = DmSansFamily,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1224,6 +1373,9 @@ fun NetflixContentWallRow(
                         canFocus = false
                         if (index == 0 && sidebarFocusRequester != null) {
                             left = sidebarFocusRequester
+                            if (rowIndex == 0) {
+                                up = sidebarFocusRequester
+                            }
                         }
                         if (linkUpToHero && index == 0 && heroPlayFocusRequester != null) {
                             up = heroPlayFocusRequester

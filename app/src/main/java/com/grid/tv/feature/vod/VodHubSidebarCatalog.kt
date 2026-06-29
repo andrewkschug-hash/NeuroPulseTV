@@ -7,16 +7,8 @@ import com.grid.tv.domain.model.VodCategoryGuards
 import com.grid.tv.domain.model.VodCategoryNameResolver
 import com.grid.tv.domain.model.parseCategoryBrowseRowId
 
-internal fun categoryItemCountsFromBrowseRows(rows: List<VodBrowseRow>): Map<String, Int> {
-    val counts = linkedMapOf<String, Int>()
-    rows.forEach { row ->
-        val (playlistId, categoryId) = parseCategoryBrowseRowId(row.id) ?: return@forEach
-        val key = VodCategoryNameResolver.categoryKey(playlistId, categoryId)
-        val itemCount = row.movies.size + row.series.size
-        counts[key] = (counts[key] ?: 0) + itemCount
-    }
-    return counts
-}
+internal fun categoryItemCountsFromBrowseRows(rows: List<VodBrowseRow>): Map<String, Int> =
+    VodBrowseRowCategoryIndex.fromBrowseRows(rows).itemCountByCategoryKey
 
 internal fun vodCategoryFromBrowseRow(row: VodBrowseRow): VodCategory? {
     parseCategoryBrowseRowId(row.id)?.let { (playlistId, categoryId) ->
@@ -34,23 +26,20 @@ internal fun vodCategoryFromBrowseRow(row: VodBrowseRow): VodCategory? {
 
 internal fun prepareMovieSidebarCategories(
     primary: List<VodCategory>,
-    browseRows: List<VodBrowseRow>
+    browseIndex: VodBrowseRowCategoryIndex,
 ): VodCategoryNameResolver.SeriesSidebarCategories {
-    val itemCounts = categoryItemCountsFromBrowseRows(browseRows)
     val raw = if (primary.isNotEmpty()) {
         primary
     } else {
-        browseRows.mapNotNull(::vodCategoryFromBrowseRow)
+        browseIndex.categoriesFromRows
     }
-    return VodCategoryNameResolver.prepareMovieCategoriesForSidebar(raw, itemCounts)
+    return VodCategoryNameResolver.prepareMovieCategoriesForSidebar(raw, browseIndex.itemCountByCategoryKey)
 }
 
 internal fun prepareSeriesSidebarCategories(
     primary: List<VodCategory>,
-    browseRows: List<VodBrowseRow>
+    browseIndex: VodBrowseRowCategoryIndex,
 ): VodCategoryNameResolver.SeriesSidebarCategories {
-    val itemCounts = categoryItemCountsFromBrowseRows(browseRows)
-    val fromBrowse = browseRows.mapNotNull(::vodCategoryFromBrowseRow)
-    val raw = VodCategoryNameResolver.mergeSeriesCategorySources(primary, fromBrowse)
-    return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw, itemCounts)
+    val raw = VodCategoryNameResolver.mergeSeriesCategorySources(primary, browseIndex.categoriesFromRows)
+    return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw, browseIndex.itemCountByCategoryKey)
 }

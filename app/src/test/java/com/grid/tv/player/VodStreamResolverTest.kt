@@ -1,7 +1,9 @@
 package com.grid.tv.player
 
 import io.mockk.every
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -17,11 +19,15 @@ class VodStreamResolverTest {
     fun setUp() {
         mockkStatic(android.util.Log::class)
         every { android.util.Log.i(any<String>(), any<String>()) } returns 0
+        every { android.util.Log.d(any<String>(), any<String>()) } returns 0
+        mockkObject(CodecCapabilityChecker)
+        every { CodecCapabilityChecker.isVariantSupported(any()) } returns true
     }
 
     @After
     fun tearDown() {
         unmockkStatic(android.util.Log::class)
+        unmockkObject(CodecCapabilityChecker)
     }
 
     @Test

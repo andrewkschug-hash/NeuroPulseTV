@@ -19,5 +19,6 @@ class VodPlaybackRecoveryListenerTest {
         assertEquals(15_000L, VodPlaybackRecoveryListener.BUFFERING_RECOVERY_THRESHOLD_MS)
         assertEquals(20_000L, VodPlaybackRecoveryListener.RECOVERY_DEBOUNCE_MS)
         assertEquals(2, VodPlaybackRecoveryListener.MAX_BUFFERING_RECOVERY_ATTEMPTS)
+        assertEquals(3, VodPlaybackRecoveryListener.MAX_SOURCE_ERROR_RETRIES)
     }
 }

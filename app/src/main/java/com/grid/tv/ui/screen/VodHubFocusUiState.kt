@@ -17,6 +17,7 @@ internal enum class VodFocusZone {
     NAV_DRAWER,
     FILTER_PANEL,
     GENRE_PANEL,
+    LANGUAGE_SUBMENU,
     HERO,
     CONTENT
 }
@@ -25,6 +26,7 @@ internal val vodManualFocusZones = setOf(
     VodFocusZone.NAV_DRAWER,
     VodFocusZone.FILTER_PANEL,
     VodFocusZone.GENRE_PANEL,
+    VodFocusZone.LANGUAGE_SUBMENU,
     VodFocusZone.HERO
 )
 
@@ -38,6 +40,7 @@ internal class VodHubFocusUiState {
     /** Keyboard highlight on the top filter bar (may differ from applied [contentFilter]). */
     var filterFocusIndex by mutableIntStateOf(0)
     var genreFocusIndex by mutableIntStateOf(0)
+    var languageSubmenuFocusIndex by mutableIntStateOf(0)
     var browseGridColumnCount by mutableIntStateOf(4)
     var contentScrollDirection by mutableStateOf(TvLazyFocusScrollDirection.NEUTRAL)
     var vodSearchFocused by mutableStateOf(false)

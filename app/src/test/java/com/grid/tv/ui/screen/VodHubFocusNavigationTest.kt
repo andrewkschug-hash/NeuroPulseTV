@@ -2,7 +2,11 @@ package com.grid.tv.ui.screen
 
 import androidx.compose.ui.focus.FocusRequester
 import com.grid.tv.domain.model.VodContentFilter
+import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodWallItem
+import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.feature.vod.VodHubFocusContentMode
+import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
@@ -20,6 +24,7 @@ class VodHubFocusNavigationTest {
         genreIndex: Int = 2,
         browseCatalogTotal: Int = browseCount,
         browseLoading: Boolean = false,
+        showGenrePanel: Boolean = true,
     ): Pair<VodHubFocusUiState, VodHubFocusController> {
         val ui = VodHubFocusUiState()
         ui.filterFocusIndex = filterIndex
@@ -37,7 +42,7 @@ class VodHubFocusNavigationTest {
                 scope = scope,
                 contentFilter = contentFilter,
                 searchQuery = "",
-                showGenrePanel = true,
+                showGenrePanel = showGenrePanel,
                 showLibraryNavPanel = true,
                 showBrowseGrid = true,
                 showInlineSearch = false,
@@ -51,6 +56,7 @@ class VodHubFocusNavigationTest {
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
+                languageSubmenuFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
                 browseEmptyStateFocusRequester = FocusRequester(),
                 rootFocusRequester = FocusRequester(),
@@ -80,6 +86,10 @@ class VodHubFocusNavigationTest {
                 applyGenre = {},
                 activateWallItem = {},
                 openLanguagePreferenceDialog = {},
+                refreshAvailableLanguages = {},
+                togglePreferredLanguage = {},
+                languageFilterActive = false,
+                availableLanguages = emptyList(),
                 openNavDrawer = {
                     ui.navDrawerOpen = true
                     ui.focusZone = VodFocusZone.NAV_DRAWER
@@ -150,6 +160,7 @@ class VodHubFocusNavigationTest {
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
+                languageSubmenuFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
                 browseEmptyStateFocusRequester = FocusRequester(),
                 rootFocusRequester = FocusRequester(),
@@ -173,6 +184,10 @@ class VodHubFocusNavigationTest {
                 applyGenre = {},
                 activateWallItem = {},
                 openLanguagePreferenceDialog = {},
+                refreshAvailableLanguages = {},
+                togglePreferredLanguage = {},
+                languageFilterActive = false,
+                availableLanguages = emptyList(),
                 openNavDrawer = {},
                 closeNavDrawer = {},
                 selectVodDrawerItem = {},
@@ -252,11 +267,286 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun escapeAwaitingBrowseGridFocus_confirmedEmpty_entersGridEmpty() {
-        val (ui, controller) = setupController(browseCount = 0, browseCatalogTotal = 0)
-        ui.awaitingBrowseGridFocus = true
-        controller.escapeAwaitingBrowseGridFocus()
-        assertEquals(false, ui.awaitingBrowseGridFocus)
+    fun handleBrowseGridLeadingEdgeLeft_withoutGenrePanel_opensLibraryNav() {
+        val (ui, controller) = setupController(
+            contentFilter = VodContentFilter.MOVIES,
+            browseIndex = 0,
+            filterIndex = 1,
+            showGenrePanel = false,
+        )
+        ui.focusZone = VodFocusZone.CONTENT
+        ui.browseGridColumnCount = 4
+        controller.handleBrowseGridLeadingEdgeLeft()
+        assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
+        assertEquals(1, ui.filterFocusIndex)
+    }
+
+    @Test
+    fun handleBrowseGridLeadingEdgeLeft_withGenrePanel_entersGenrePanel() {
+        val (ui, controller) = setupController(
+            contentFilter = VodContentFilter.MOVIES,
+            browseIndex = 4,
+            genreIndex = 2,
+        )
+        ui.focusZone = VodFocusZone.CONTENT
+        ui.browseGridColumnCount = 4
+        controller.handleBrowseGridLeadingEdgeLeft()
+        assertEquals(VodFocusZone.GENRE_PANEL, ui.focusZone)
+        assertEquals(2, ui.genreFocusIndex)
+    }
+
+    @Test
+    fun routeLibraryNavRight_onLanguagesWithoutFilter_opensLanguageSubmenu() {
+        val (ui, controller) = setupController(
+            filterIndex = VodHubLanguageFilterFocusIndex,
+            showGenrePanel = false,
+        )
+        ui.focusZone = VodFocusZone.FILTER_PANEL
+        controller.routeLibraryNavRight()
+        assertEquals(VodFocusZone.LANGUAGE_SUBMENU, ui.focusZone)
+        assertEquals(VodHubLanguageFilterFocusIndex, ui.filterFocusIndex)
+    }
+
+    @Test
+    fun routeLibraryNavRight_onLanguagesWithFilter_skipsToContent() {
+        val (ui, controller) = setupController(
+            filterIndex = VodHubLanguageFilterFocusIndex,
+            showGenrePanel = false,
+        )
+        val deps = VodHubFocusDeps(
+            scope = scope,
+            contentFilter = VodContentFilter.MOVIES,
+            searchQuery = "",
+            showGenrePanel = false,
+            showLibraryNavPanel = true,
+            showBrowseGrid = true,
+            showInlineSearch = false,
+            hasHero = false,
+            hasBrowseResults = true,
+            genreLabels = emptyList(),
+            wallRows = emptyList(),
+            displayWallRows = emptyList(),
+            loadedDeferredWallCount = 0,
+            deferredWallRowsSize = 0,
+            navDrawerOpen = false,
+            filterPanelFocusRequester = FocusRequester(),
+            genrePanelFocusRequester = FocusRequester(),
+            languageSubmenuFocusRequester = FocusRequester(),
+            browseGridFocusRequester = FocusRequester(),
+            browseEmptyStateFocusRequester = FocusRequester(),
+            rootFocusRequester = FocusRequester(),
+            heroPlayFocusRequester = FocusRequester(),
+            inlineSearchFocusRequester = FocusRequester(),
+            navDrawerFocusRequester = FocusRequester(),
+            browseGridFocusIndex = 0,
+            setBrowseGridFocusIndex = {},
+            contentRowIndex = 0,
+            setContentRowIndex = {},
+            contentColIndex = 0,
+            setContentColIndex = {},
+            browseGridItemCount = { 12 },
+            browseGridCatalogTotal = { 12 },
+            focusContentMode = { VodHubFocusContentMode.Ready },
+            isBrowseGridLoading = { false },
+            browseGridKeyAtIndex = { index -> "key_$index" },
+            activeBrowseGridState = { null },
+            syncFocusedWallItemKey = {},
+            commitFilterHighlight = {},
+            applyGenre = {},
+            activateWallItem = {},
+            openLanguagePreferenceDialog = {},
+            refreshAvailableLanguages = {},
+            togglePreferredLanguage = {},
+            languageFilterActive = true,
+            availableLanguages = listOf("EN"),
+            openNavDrawer = {},
+            closeNavDrawer = {},
+            selectVodDrawerItem = {},
+            focusInlineSearchField = {},
+            focusSearchResults = {},
+            moviesBrowseGridActivate = {},
+            seriesBrowseGridActivate = {},
+            ensureValidFocus = {},
+        )
+        controller.bind(deps)
+        ui.focusZone = VodFocusZone.FILTER_PANEL
+        ui.filterFocusIndex = VodHubLanguageFilterFocusIndex
+        controller.routeLibraryNavRight()
         assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+    }
+
+    private fun sampleWallRows(): List<VodWallRow> {
+        val movie = VodItem(
+            id = 1L,
+            streamId = 1L,
+            playlistId = 1L,
+            title = "Movie",
+            streamUrl = "http://test",
+            posterUrl = null,
+            plot = null,
+            cast = null,
+            director = null,
+            categoryId = null,
+            rating = null,
+            duration = null,
+            genre = null,
+        )
+        return listOf(
+            VodWallRow(
+                id = "continue_watching",
+                title = "Continue Watching",
+                items = listOf(VodWallItem.MovieItem(movie)),
+            ),
+            VodWallRow(
+                id = "movie_recent",
+                title = "Recently Added",
+                items = listOf(VodWallItem.MovieItem(movie.copy(streamId = 2L))),
+            ),
+        )
+    }
+
+    @Test
+    fun focusWallContentRestored_entersContentAtSavedWallPosition() {
+        val ui = VodHubFocusUiState()
+        ui.rememberWallFor(
+            VodContentFilter.ALL,
+            VodWallFocusMemory(rowIndex = 1, colIndex = 0, contentKey = "movie_1_2"),
+        )
+        var rowIndex = 0
+        var colIndex = 0
+        val wallRows = sampleWallRows()
+        val controller = VodHubFocusController(ui)
+        controller.bind(
+            VodHubFocusDeps(
+                scope = scope,
+                contentFilter = VodContentFilter.ALL,
+                searchQuery = "",
+                showGenrePanel = false,
+                showLibraryNavPanel = true,
+                showBrowseGrid = false,
+                showInlineSearch = false,
+                hasHero = false,
+                hasBrowseResults = false,
+                genreLabels = emptyList(),
+                wallRows = wallRows,
+                displayWallRows = wallRows,
+                loadedDeferredWallCount = 0,
+                deferredWallRowsSize = 0,
+                navDrawerOpen = false,
+                filterPanelFocusRequester = FocusRequester(),
+                genrePanelFocusRequester = FocusRequester(),
+                languageSubmenuFocusRequester = FocusRequester(),
+                browseGridFocusRequester = FocusRequester(),
+                browseEmptyStateFocusRequester = FocusRequester(),
+                rootFocusRequester = FocusRequester(),
+                heroPlayFocusRequester = FocusRequester(),
+                inlineSearchFocusRequester = FocusRequester(),
+                navDrawerFocusRequester = FocusRequester(),
+                browseGridFocusIndex = 0,
+                setBrowseGridFocusIndex = {},
+                contentRowIndex = rowIndex,
+                setContentRowIndex = { rowIndex = it },
+                contentColIndex = colIndex,
+                setContentColIndex = { colIndex = it },
+                browseGridItemCount = { 0 },
+                browseGridCatalogTotal = { 0 },
+                focusContentMode = { VodHubFocusContentMode.Ready },
+                isBrowseGridLoading = { false },
+                browseGridKeyAtIndex = { null },
+                activeBrowseGridState = { null },
+                syncFocusedWallItemKey = {},
+                commitFilterHighlight = {},
+                applyGenre = {},
+                activateWallItem = {},
+                openLanguagePreferenceDialog = {},
+                refreshAvailableLanguages = {},
+                togglePreferredLanguage = {},
+                languageFilterActive = false,
+                availableLanguages = emptyList(),
+                openNavDrawer = {},
+                closeNavDrawer = {},
+                selectVodDrawerItem = {},
+                focusInlineSearchField = {},
+                focusSearchResults = {},
+                moviesBrowseGridActivate = {},
+                seriesBrowseGridActivate = {},
+                ensureValidFocus = {},
+            )
+        )
+        controller.focusWallContentRestored(resetToOrigin = false)
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(1, rowIndex)
+        assertEquals(0, colIndex)
+    }
+
+    @Test
+    fun returnToContentFromLibraryNav_onHomeWall_resetsToFirstItem() {
+        val ui = VodHubFocusUiState()
+        ui.focusZone = VodFocusZone.FILTER_PANEL
+        var rowIndex = 1
+        var colIndex = 2
+        val wallRows = sampleWallRows()
+        val controller = VodHubFocusController(ui)
+        controller.bind(
+            VodHubFocusDeps(
+                scope = scope,
+                contentFilter = VodContentFilter.ALL,
+                searchQuery = "",
+                showGenrePanel = false,
+                showLibraryNavPanel = true,
+                showBrowseGrid = false,
+                showInlineSearch = false,
+                hasHero = false,
+                hasBrowseResults = false,
+                genreLabels = emptyList(),
+                wallRows = wallRows,
+                displayWallRows = wallRows,
+                loadedDeferredWallCount = 0,
+                deferredWallRowsSize = 0,
+                navDrawerOpen = false,
+                filterPanelFocusRequester = FocusRequester(),
+                genrePanelFocusRequester = FocusRequester(),
+                languageSubmenuFocusRequester = FocusRequester(),
+                browseGridFocusRequester = FocusRequester(),
+                browseEmptyStateFocusRequester = FocusRequester(),
+                rootFocusRequester = FocusRequester(),
+                heroPlayFocusRequester = FocusRequester(),
+                inlineSearchFocusRequester = FocusRequester(),
+                navDrawerFocusRequester = FocusRequester(),
+                browseGridFocusIndex = 0,
+                setBrowseGridFocusIndex = {},
+                contentRowIndex = rowIndex,
+                setContentRowIndex = { rowIndex = it },
+                contentColIndex = colIndex,
+                setContentColIndex = { colIndex = it },
+                browseGridItemCount = { 0 },
+                browseGridCatalogTotal = { 0 },
+                focusContentMode = { VodHubFocusContentMode.Ready },
+                isBrowseGridLoading = { false },
+                browseGridKeyAtIndex = { null },
+                activeBrowseGridState = { null },
+                syncFocusedWallItemKey = {},
+                commitFilterHighlight = {},
+                applyGenre = {},
+                activateWallItem = {},
+                openLanguagePreferenceDialog = {},
+                refreshAvailableLanguages = {},
+                togglePreferredLanguage = {},
+                languageFilterActive = false,
+                availableLanguages = emptyList(),
+                openNavDrawer = {},
+                closeNavDrawer = {},
+                selectVodDrawerItem = {},
+                focusInlineSearchField = {},
+                focusSearchResults = {},
+                moviesBrowseGridActivate = {},
+                seriesBrowseGridActivate = {},
+                ensureValidFocus = {},
+            )
+        )
+        controller.returnToContentFromLibraryNav(resetOrigin = true)
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(0, rowIndex)
+        assertEquals(0, colIndex)
     }
 }

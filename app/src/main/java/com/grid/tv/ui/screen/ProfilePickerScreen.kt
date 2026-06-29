@@ -99,6 +99,7 @@ fun ProfilePickerScreen(
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val profilesReady by viewModel.profilesReady.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val hasProfiles = profiles.isNotEmpty()
     val firstProfileFocusRequester = remember { FocusRequester() }
@@ -149,9 +150,8 @@ fun ProfilePickerScreen(
             showPinFor = profile
         } else {
             scope.launch {
-                viewModel.switchProfile(profile.id)
-                exitAlpha.animateTo(0f, tween(400))
-                delay(400)
+                viewModel.activateProfile(profile.id)
+                exitAlpha.animateTo(0f, tween(200))
                 onProfileSelected()
             }
         }
@@ -160,20 +160,35 @@ fun ProfilePickerScreen(
     fun onPinVerified(profile: UserProfile) {
         showPinFor = null
         scope.launch {
-            viewModel.switchProfile(profile.id)
-            exitAlpha.animateTo(0f, tween(400))
-            delay(400)
+            viewModel.activateProfile(profile.id)
+            exitAlpha.animateTo(0f, tween(200))
             onProfileSelected()
         }
     }
 
     fun continueAsGuest() {
-        viewModel.enterGuestSession()
         scope.launch {
-            exitAlpha.animateTo(0f, tween(400))
-            delay(400)
+            viewModel.activateGuestSession()
+            exitAlpha.animateTo(0f, tween(200))
             onProfileSelected()
         }
+    }
+
+    if (!profilesReady) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Bg),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "Loading profiles…",
+                color = TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 16.sp
+            )
+        }
+        return
     }
 
     Box(
@@ -312,9 +327,8 @@ fun ProfilePickerScreen(
                         newProfileName = ""
                         showAddProfile = false
                         if (newId > 0L) {
-                            viewModel.switchProfile(newId)
-                            exitAlpha.animateTo(0f, tween(400))
-                            delay(400)
+                            viewModel.activateProfile(newId)
+                            exitAlpha.animateTo(0f, tween(200))
                             onProfileSelected()
                         }
                     }

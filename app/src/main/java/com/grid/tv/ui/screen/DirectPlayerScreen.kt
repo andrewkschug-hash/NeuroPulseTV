@@ -17,9 +17,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
@@ -54,7 +64,9 @@ import com.grid.tv.domain.model.VodPlaybackMeta
 import com.grid.tv.player.ExternalPlayerId
 import com.grid.tv.player.ExternalPlayerLauncher
 import com.grid.tv.player.devicePlaybackCapabilities
-import com.grid.tv.player.playbackErrorMessage
+import com.grid.tv.player.PlaybackErrorPresentation
+import com.grid.tv.player.ResolvedVodStream
+import com.grid.tv.player.playbackErrorPresentation
 import com.grid.tv.player.PlaybackHttpFailure
 import com.grid.tv.player.PlaybackNetworkCoordinator
 import com.grid.tv.player.PlaybackOrchestrator
@@ -69,14 +81,7 @@ import com.grid.tv.ui.component.toResizeMode
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.tv.material3.Text
 import androidx.media3.common.util.UnstableApi
 import com.grid.tv.ui.viewmodel.DirectPlayerViewModel
@@ -186,8 +191,9 @@ fun DirectPlayerScreen(
     var isPlaying by remember(url) { mutableStateOf(true) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
     var hasSeekedToResume by remember(recordingId, resume, url) { mutableStateOf(false) }
-    var playbackError by remember(url) { mutableStateOf<String?>(null) }
+    var playbackError by remember(url) { mutableStateOf<PlaybackErrorPresentation?>(null) }
     val isEmulator = remember(context) { context.devicePlaybackCapabilities().isEmulator }
+    val scope = rememberCoroutineScope()
     val playerViewRef = remember { arrayOfNulls<PlayerView>(1) }
     val playerEntryPoint = remember(context) {
         EntryPointAccessors.fromApplication(
@@ -236,17 +242,33 @@ fun DirectPlayerScreen(
     }
 
     var resolvedVodStream by remember(url, onDemandContentKind) {
-        mutableStateOf<com.grid.tv.player.ResolvedVodStream?>(null)
+        mutableStateOf<ResolvedVodStream?>(null)
     }
+    var resolvedVariantsByUrl by remember(url) { mutableStateOf<Map<String, ResolvedVodStream>>(emptyMap()) }
     var vodResolutionFailed by remember(url) { mutableStateOf(false) }
+    val qualitySwitchRef = remember { arrayOf<(Long) -> Boolean>({ false }) }
 
-    LaunchedEffect(url, onDemandContentKind) {
+    LaunchedEffect(url, onDemandContentKind, title) {
         vodResolutionFailed = false
         resolvedVodStream = null
-        resolvedVodStream = viewModel.resolveVodStream(url, onDemandContentKind)
-        if (resolvedVodStream == null) {
+        resolvedVariantsByUrl = emptyMap()
+        val initial = viewModel.resolveVodStream(url, onDemandContentKind, title)
+        if (initial == null) {
             vodResolutionFailed = true
+            return@LaunchedEffect
         }
+        val resolved = linkedMapOf<String, ResolvedVodStream>()
+        for (variantUrl in initial.qualityVariants) {
+            val variantStream = viewModel.resolveVodStream(variantUrl, onDemandContentKind, title)
+            if (variantStream != null) {
+                resolved[variantUrl] = variantStream.copy(
+                    qualityVariants = initial.qualityVariants,
+                    selectedVariantIndex = initial.qualityVariants.indexOf(variantUrl).coerceAtLeast(0),
+                )
+            }
+        }
+        resolvedVariantsByUrl = resolved
+        resolvedVodStream = resolved[initial.url] ?: initial
     }
 
     if (vodResolutionFailed) {
@@ -290,22 +312,26 @@ fun DirectPlayerScreen(
     val playbackStarted = remember { mutableStateOf(false) }
     val vodRecoveryRef = remember { arrayOfNulls<VodPlaybackRecoveryListener>(1) }
     val onFatalPlaybackError = rememberUpdatedState { error: PlaybackException ->
+        val stream = resolvedVodStream
         com.grid.tv.util.PlaybackDiagnostics.logPlaybackError(
             owner = "vod_direct",
             error = error,
-            streamUrl = url
+            streamUrl = stream?.url ?: url
         )
-        PlaybackHttpFailure.logHttpFailure(error, url)
-        playbackError = error.playbackErrorMessage(isEmulator)
+        PlaybackHttpFailure.logHttpFailure(error, stream?.url ?: url)
+        playbackError = error.playbackErrorPresentation(
+            isEmulator = isEmulator,
+            canTryDifferentQuality = stream?.hasMoreQualityVariants() == true,
+        )
     }
 
-    val player = remember(url, vodResumeMs, onDemandContentKind, resolvedVod) {
+    val player = remember(url, vodResumeMs, onDemandContentKind) {
         resumeSeekState.applied = vodResumeMs > 0L
         resumeSeekState.pendingMs = vodResumeMs
-        playbackNetworkCoordinator.beginVodSession(url)
+        playbackNetworkCoordinator.beginVodSession(resolvedVod.url)
         viewModel.createPlayer(context).apply {
             val mediaItem = viewModel.buildOnDemandMediaItem(
-                url,
+                resolvedVod.url,
                 onDemandContentKind,
                 resolvedStream = resolvedVod
             )
@@ -318,10 +344,12 @@ fun DirectPlayerScreen(
             } else {
                 setMediaItem(mediaItem)
             }
-            playbackNetworkCoordinator.markSingleRequestAllowed(url)
+            playbackNetworkCoordinator.markSingleRequestAllowed(resolvedVod.url)
             VodPlaybackRecoveryListener(
                 player = this,
-                onFatalError = { error -> onFatalPlaybackError.value(error) }
+                onFatalError = { error -> onFatalPlaybackError.value(error) },
+                onTryNextQualityVariant = { positionMs -> qualitySwitchRef[0](positionMs) },
+                isEmulator = isEmulator,
             ).also { recovery ->
                 recovery.attach()
                 vodRecoveryRef[0] = recovery
@@ -348,6 +376,36 @@ fun DirectPlayerScreen(
                     isPlaying = playing
                 }
             })
+        }
+    }
+
+    SideEffect {
+        qualitySwitchRef[0] = qualitySwitch@{ positionMs ->
+            val current = resolvedVodStream ?: return@qualitySwitch false
+            val nextIndex = current.selectedVariantIndex + 1
+            if (nextIndex >= current.qualityVariants.size) return@qualitySwitch false
+            val nextUrl = current.qualityVariants[nextIndex]
+            val nextResolved = resolvedVariantsByUrl[nextUrl] ?: return@qualitySwitch false
+            val updated = nextResolved.copy(
+                qualityVariants = current.qualityVariants,
+                selectedVariantIndex = nextIndex,
+            )
+            resolvedVodStream = updated
+            playbackError = null
+            playbackNetworkCoordinator.markSingleRequestAllowed(nextUrl)
+            runCatching {
+                val mediaItem = viewModel.buildOnDemandMediaItem(
+                    nextUrl,
+                    onDemandContentKind,
+                    updated,
+                )
+                player.setMediaItem(mediaItem, positionMs)
+                player.prepare()
+                player.playWhenReady = true
+                player.play()
+            }.onFailure { failure ->
+                Log.e("DirectPlayer", "quality variant switch failed url=$nextUrl", failure)
+            }.isSuccess
         }
     }
 
@@ -986,6 +1044,7 @@ fun DirectPlayerScreen(
         )
 
         if (playbackError != null) {
+            val errorPresentation = playbackError!!
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1003,7 +1062,7 @@ fun DirectPlayerScreen(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = playbackError.orEmpty(),
+                    text = errorPresentation.message,
                     color = EpgColors.TextSecondary,
                     fontFamily = DmSansFamily,
                     fontSize = 14.sp,
@@ -1011,6 +1070,19 @@ fun DirectPlayerScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 16.dp, bottom = 24.dp)
                 )
+                if (errorPresentation.canTryDifferentQuality) {
+                    GlowFocusButton(
+                        onClick = {
+                            val switched = qualitySwitchRef[0](player.currentPosition.coerceAtLeast(0L))
+                            if (!switched) {
+                                playbackError = errorPresentation.copy(canTryDifferentQuality = false)
+                            }
+                        },
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    ) {
+                        Text("Try different quality", fontFamily = DmSansFamily)
+                    }
+                }
                 GlowFocusButton(onClick = ::leaveScreen) {
                     Text("Go back", fontFamily = DmSansFamily)
                 }

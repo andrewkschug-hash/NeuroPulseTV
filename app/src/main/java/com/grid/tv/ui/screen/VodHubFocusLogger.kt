@@ -70,6 +70,7 @@ internal object VodHubFocusLogger {
         VodFocusZone.NAV_DRAWER -> "SIDEBAR"
         VodFocusZone.FILTER_PANEL -> "FILTER"
         VodFocusZone.GENRE_PANEL -> "GENRE"
+        VodFocusZone.LANGUAGE_SUBMENU -> "LANG_SUB"
         VodFocusZone.HERO -> "HERO"
         VodFocusZone.CONTENT -> "GRID"
     }

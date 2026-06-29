@@ -17,7 +17,9 @@ class VodPlaybackRecoveryListener(
     private val player: ExoPlayer,
     private val handler: Handler = Handler(Looper.getMainLooper()),
     private val onFatalError: (PlaybackException) -> Unit = {},
-    private val onRecoverableStall: () -> Unit = {}
+    private val onRecoverableStall: () -> Unit = {},
+    private val onTryNextQualityVariant: ((positionMs: Long) -> Boolean)? = null,
+    private val isEmulator: Boolean = false,
 ) : Player.Listener {
 
     private var detached = false
@@ -25,7 +27,7 @@ class VodPlaybackRecoveryListener(
     private var userPaused = false
     private var wantsPlayback = true
     private var bufferingStartedAtMs = 0L
-    private var errorRetryCount = 0
+    private var sourceErrorRetryCount = 0
     private var idleRecoveryAttempts = 0
     private var bufferingRecoveryAttempts = 0
     private var lastRecoveryAttemptAtMs = 0L
@@ -86,7 +88,7 @@ class VodPlaybackRecoveryListener(
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying) {
-            errorRetryCount = 0
+            sourceErrorRetryCount = 0
             bufferingRecoveryAttempts = 0
             stuckRecoverableEmitted = false
             lastProgressAtMs = System.currentTimeMillis()
@@ -234,23 +236,58 @@ class VodPlaybackRecoveryListener(
             failPermanently(error)
             return
         }
-        if (errorRetryCount >= MAX_ERROR_RETRIES) {
-            Log.e(LOG_TAG, "error recovery exhausted retries=${errorRetryCount}", error)
-            failPermanently(error)
-            return
+
+        val position = player.currentPosition.coerceAtLeast(0L)
+        when {
+            error.isFormatUnsupportedPlaybackError() -> {
+                Log.w(
+                    LOG_TAG,
+                    "FORMAT_UNSUPPORTED (${error.errorCode}) — advancing quality variant, " +
+                        "not retrying same URL emulator=$isEmulator"
+                )
+                if (attemptQualityVariantFallback(position, error)) return
+                failPermanently(error)
+            }
+            error.isSourceRetryPlaybackError() -> {
+                if (sourceErrorRetryCount >= MAX_SOURCE_ERROR_RETRIES) {
+                    Log.w(
+                        LOG_TAG,
+                        "SOURCE_ERROR retries exhausted — trying next quality variant " +
+                            "code=${error.errorCode} emulator=$isEmulator"
+                    )
+                    if (attemptQualityVariantFallback(position, error)) return
+                    Log.e(LOG_TAG, "error recovery exhausted retries=$sourceErrorRetryCount", error)
+                    failPermanently(error)
+                    return
+                }
+                retrySameUrl(error, position)
+            }
+            error.isCodecCapabilityError() -> {
+                if (attemptQualityVariantFallback(position, error)) return
+                failPermanently(error)
+            }
+            else -> {
+                if (sourceErrorRetryCount >= MAX_SOURCE_ERROR_RETRIES) {
+                    failPermanently(error)
+                    return
+                }
+                retrySameUrl(error, position)
+            }
         }
+    }
+
+    private fun retrySameUrl(error: PlaybackException, position: Long) {
         val mediaItem = player.currentMediaItem
         if (mediaItem == null) {
             failPermanently(error)
             return
         }
-        errorRetryCount++
-        val delayMs = errorBackoffMs(errorRetryCount)
-        val position = player.currentPosition.coerceAtLeast(0L)
+        sourceErrorRetryCount++
+        val delayMs = errorBackoffMs(sourceErrorRetryCount)
         Log.w(
             LOG_TAG,
-            "error recovery scheduled attempt=$errorRetryCount delayMs=$delayMs positionMs=$position " +
-                "code=${error.errorCode}"
+            "SOURCE_ERROR retry scheduled attempt=$sourceErrorRetryCount delayMs=$delayMs " +
+                "positionMs=$position code=${error.errorCode} emulator=$isEmulator"
         )
         handler.postDelayed({
             if (detached || userPaused || !wantsPlayback) return@postDelayed
@@ -262,12 +299,24 @@ class VodPlaybackRecoveryListener(
                 player.playWhenReady = true
                 player.play()
             }.onFailure { failure ->
-                Log.e(LOG_TAG, "error recovery prepare failed attempt=$errorRetryCount", failure)
-                if (errorRetryCount >= MAX_ERROR_RETRIES) {
+                Log.e(LOG_TAG, "SOURCE_ERROR retry prepare failed attempt=$sourceErrorRetryCount", failure)
+                if (sourceErrorRetryCount >= MAX_SOURCE_ERROR_RETRIES) {
                     failPermanently(error)
                 }
             }
         }, delayMs)
+    }
+
+    private fun attemptQualityVariantFallback(positionMs: Long, error: PlaybackException): Boolean {
+        val switched = onTryNextQualityVariant?.invoke(positionMs) == true
+        if (switched) {
+            sourceErrorRetryCount = 0
+            Log.i(
+                LOG_TAG,
+                "switched quality variant after error code=${error.errorCode} emulator=$isEmulator"
+            )
+        }
+        return switched
     }
 
     companion object {
@@ -278,7 +327,7 @@ class VodPlaybackRecoveryListener(
         const val BUFFERING_RECOVERY_THRESHOLD_MS = 15_000L
         const val RECOVERY_DEBOUNCE_MS = 20_000L
         const val MAX_BUFFERING_RECOVERY_ATTEMPTS = 2
-        const val MAX_ERROR_RETRIES = 3
+        const val MAX_SOURCE_ERROR_RETRIES = 3
         const val MAX_IDLE_RECOVERY_ATTEMPTS = 2
         private const val ERROR_BACKOFF_BASE_MS = 1_000L
 
@@ -287,4 +336,23 @@ class VodPlaybackRecoveryListener(
             return ERROR_BACKOFF_BASE_MS shl exponent.coerceAtMost(4)
         }
     }
+}
+
+/** Media3 4003 — decoder cannot handle this format/profile. */
+fun PlaybackException.isFormatUnsupportedPlaybackError(): Boolean =
+    errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
+
+/**
+ * Media3 4001 (decoder init) and transient source/IO failures — retry same URL before fallback.
+ */
+fun PlaybackException.isSourceRetryPlaybackError(): Boolean = when (errorCode) {
+    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+    PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
+    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
+    PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE,
+    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
+    PlaybackException.ERROR_CODE_TIMEOUT -> true
+    else -> false
 }

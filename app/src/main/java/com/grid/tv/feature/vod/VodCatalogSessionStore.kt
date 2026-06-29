@@ -6,6 +6,7 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
+import com.grid.tv.player.LowEndDeviceMode
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +14,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+data class VodCatalogTrimSnapshot(
+    val wallItemsDropped: Int,
+    val browseRowsDropped: Int,
+    val hubWasActive: Boolean,
+    val activeContentFilter: String,
+)
 
 /**
  * Process-wide VOD shell cache so the hub can paint browse rows and wall content
@@ -34,8 +42,72 @@ class VodCatalogSessionStore @Inject constructor(
     @Volatile
     private var rawSeriesBrowseRows: List<VodBrowseRow> = emptyList()
 
+    @Volatile
+    private var hubActive: Boolean = false
+
+    @Volatile
+    private var activeContentFilter: VodContentFilter = VodContentFilter.ALL
+
     private val warmMutex = Mutex()
     private var shellWarmed = false
+
+    fun setHubSessionState(active: Boolean, contentFilter: VodContentFilter = activeContentFilter) {
+        hubActive = active
+        activeContentFilter = contentFilter
+    }
+
+    fun trimForMemoryPressure(): VodCatalogTrimSnapshot {
+        val filter = activeContentFilter
+        val wasHubActive = hubActive
+        val beforeItems = cachedPartitions.estimatedWallItemCount()
+        val beforeBrowseRows = cachedPartitions.movieBrowseRows.size + cachedPartitions.seriesBrowseRows.size
+
+        if (!wasHubActive) {
+            clearPrefetchedShell()
+            return VodCatalogTrimSnapshot(
+                wallItemsDropped = beforeItems,
+                browseRowsDropped = beforeBrowseRows + rawMovieBrowseRows.size + rawSeriesBrowseRows.size,
+                hubWasActive = false,
+                activeContentFilter = filter.name,
+            )
+        }
+
+        val trimmed = cachedPartitions.trimForMemoryPressure(filter)
+        val rawBrowseDropped = rawMovieBrowseRows.size + rawSeriesBrowseRows.size
+        cachedPartitions = trimmed
+        rawMovieBrowseRows = emptyList()
+        rawSeriesBrowseRows = emptyList()
+        cachedUiState = cachedUiState.copy(
+            catalogPartitions = trimmed,
+            wallRows = trimmed.wallRowsFor(filter),
+            wallRowsRevision = trimmed.wallRowsRevisionFor(filter),
+            movieBrowseRows = trimmed.movieBrowseRows,
+            seriesBrowseRows = trimmed.seriesBrowseRows,
+        )
+
+        val afterItems = trimmed.estimatedWallItemCount()
+        val afterBrowseRows = trimmed.movieBrowseRows.size + trimmed.seriesBrowseRows.size
+        return VodCatalogTrimSnapshot(
+            wallItemsDropped = (beforeItems - afterItems).coerceAtLeast(0),
+            browseRowsDropped = (beforeBrowseRows - afterBrowseRows).coerceAtLeast(0) + rawBrowseDropped,
+            hubWasActive = true,
+            activeContentFilter = filter.name,
+        )
+    }
+
+    private fun clearPrefetchedShell() {
+        cachedPartitions = VodCatalogPartitions.EMPTY
+        rawMovieBrowseRows = emptyList()
+        rawSeriesBrowseRows = emptyList()
+        cachedUiState = cachedUiState.copy(
+            wallRows = emptyList(),
+            movieBrowseRows = emptyList(),
+            seriesBrowseRows = emptyList(),
+            catalogPartitions = VodCatalogPartitions.EMPTY,
+            hero = cachedUiState.hero.copy(featuredCarousel = emptyList()),
+        )
+        shellWarmed = false
+    }
 
     fun cachedUiState(): VodUiState = cachedUiState
 
@@ -120,7 +192,8 @@ class VodCatalogSessionStore @Inject constructor(
                 continueWatching = emptyList(),
                 trendingMovies = emptyList(),
                 recommendedMovies = emptyList()
-            )
+            ),
+            prefetchTabWallRows = !LowEndDeviceMode.isEnabled(),
         )
         publishPartitions(partitions)
         val wallRows = partitions.wallRowsFor(VodContentFilter.ALL)

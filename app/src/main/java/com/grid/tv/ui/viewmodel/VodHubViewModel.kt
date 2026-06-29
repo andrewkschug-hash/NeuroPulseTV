@@ -16,6 +16,7 @@ import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.vod.VodBrowseRowCategoryIndex
 import com.grid.tv.feature.vod.VodCatalogPartitionInputs
 import com.grid.tv.feature.vod.VodCatalogPartitions
 import com.grid.tv.feature.vod.VodSeriesHydrationReason
@@ -29,6 +30,7 @@ import com.grid.tv.feature.vod.VodLanguageFilterOptions
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.VodUiState
 import com.grid.tv.feature.vod.filterBrowseRows
+import com.grid.tv.feature.vod.toCategoryIndex
 import com.grid.tv.feature.vod.matchesLanguageFilter
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCatalogProgress
@@ -334,7 +336,14 @@ class VodHubViewModel @Inject constructor(
             movieCategories,
             seriesCategories
         ) { movieRows, seriesRows, movieCats, seriesCats ->
-            VodCatalogPartitionBrowseSlice(movieRows, seriesRows, movieCats, seriesCats)
+        VodCatalogPartitionBrowseSlice(
+            movieRows,
+            seriesRows,
+            movieCats,
+            seriesCats,
+            movieRows.toCategoryIndex(),
+            seriesRows.toCategoryIndex(),
+        )
         },
         combine(
             continueWatchingItems,
@@ -352,12 +361,21 @@ class VodHubViewModel @Inject constructor(
             seriesCategories = browseSlice.seriesCategories,
             continueWatching = cw,
             trendingMovies = trending,
-            recommendedMovies = recommended
+            recommendedMovies = recommended,
+            movieBrowseIndex = browseSlice.movieBrowseIndex,
+            seriesBrowseIndex = browseSlice.seriesBrowseIndex,
         )
     }
         .map { inputs ->
-            VodPerfLogger.trace("buildVodCatalogPartitions", "movies=${inputs.movieBrowseRows.size}") {
-                buildVodCatalogPartitions(inputs)
+            VodPerfLogger.trace(
+                "buildVodCatalogPartitions",
+                "movies=${inputs.movieBrowseRows.size} series=${inputs.seriesBrowseRows.size} " +
+                    "movieCats=${inputs.movieCategories.size} seriesCats=${inputs.seriesCategories.size}",
+            ) {
+                buildVodCatalogPartitions(
+                    inputs = inputs,
+                    prefetchTabWallRows = !LowEndDeviceMode.isEnabled(),
+                )
             }
         }
         .flowOn(Dispatchers.Default)
@@ -455,6 +473,7 @@ class VodHubViewModel @Inject constructor(
     ) { topSlices, bottomSlices ->
         val (catalogSlice, chromeSlice, heroSlice) = topSlices
         val (partitions, browseSlice, metaSlice) = bottomSlices
+        val resolvedPartitions = partitions.ensureWallRowsFor(chromeSlice.filter)
         VodHubUiStateBuilder.build(
             VodHubUiBuildInputs(
                 catalogSample = catalogSlice.sample,
@@ -470,8 +489,8 @@ class VodHubViewModel @Inject constructor(
                 featuredCarousel = heroSlice.carousel,
                 enrichmentMap = heroSlice.enrichmentMap,
                 vodProgress = heroSlice.vodProgress,
-                movieBrowseRows = partitions.movieBrowseRows,
-                seriesBrowseRows = partitions.seriesBrowseRows,
+                movieBrowseRows = resolvedPartitions.movieBrowseRows,
+                seriesBrowseRows = resolvedPartitions.seriesBrowseRows,
                 movieCategories = browseSlice.movieCategories,
                 seriesCategories = browseSlice.seriesCategories,
                 selectedMovieCategoryId = browseSlice.selectedMovieCategoryId,
@@ -484,7 +503,7 @@ class VodHubViewModel @Inject constructor(
                 seriesFilteredTotalCount = metaSlice.seriesFilteredTotalCount,
                 catalogLoading = metaSlice.catalogLoading,
                 catalogProgress = metaSlice.catalogProgress,
-                catalogPartitions = partitions
+                catalogPartitions = resolvedPartitions
             )
         )
     }
@@ -498,6 +517,15 @@ class VodHubViewModel @Inject constructor(
 
     fun setContentFilter(filter: VodContentFilter) {
         _contentFilter.value = filter
+        vodCatalogSessionStore.setHubSessionState(active = true, contentFilter = filter)
+    }
+
+    fun onHubEntered() {
+        vodCatalogSessionStore.setHubSessionState(active = true, contentFilter = _contentFilter.value)
+    }
+
+    fun onHubExited() {
+        vodCatalogSessionStore.setHubSessionState(active = false, contentFilter = _contentFilter.value)
     }
 
     fun setMovieCategory(categoryId: String?, filterIds: Set<String>? = null, playlistId: Long? = null) {
@@ -1033,6 +1061,8 @@ class VodHubViewModel @Inject constructor(
         val seriesBrowseRows: List<VodBrowseRow>,
         val movieCategories: List<VodCategory>,
         val seriesCategories: List<VodCategory>,
+        val movieBrowseIndex: VodBrowseRowCategoryIndex = VodBrowseRowCategoryIndex.EMPTY,
+        val seriesBrowseIndex: VodBrowseRowCategoryIndex = VodBrowseRowCategoryIndex.EMPTY,
     )
 
     private data class VodCategorySelectionSlice(

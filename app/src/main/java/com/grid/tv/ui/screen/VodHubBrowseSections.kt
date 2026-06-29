@@ -76,6 +76,7 @@ fun VodHubMoviesBrowseSection(
     emptyStateRetryFocusRequester: FocusRequester,
     onColumnCountChanged: (Int) -> Unit,
     onNavigateUpFromFirstRow: () -> Unit,
+    onLeadingEdgeNavigateLeft: () -> Unit = {},
     restoreScrollIndex: Int = -1,
     restoreScrollOffset: Int = 0,
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
@@ -186,6 +187,7 @@ fun VodHubMoviesBrowseSection(
                     contentGridFocusRequester = contentGridFocusRequester,
                     onColumnCountChanged = onColumnCountChanged,
                     onNavigateUpFromFirstRow = onNavigateUpFromFirstRow,
+                    onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -208,6 +210,7 @@ fun VodHubSeriesBrowseSection(
     emptyStateRetryFocusRequester: FocusRequester,
     onColumnCountChanged: (Int) -> Unit,
     onNavigateUpFromFirstRow: () -> Unit,
+    onLeadingEdgeNavigateLeft: () -> Unit = {},
     restoreScrollIndex: Int = -1,
     restoreScrollOffset: Int = 0,
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
@@ -351,6 +354,7 @@ fun VodHubSeriesBrowseSection(
                     contentGridFocusRequester = contentGridFocusRequester,
                     onColumnCountChanged = onColumnCountChanged,
                     onNavigateUpFromFirstRow = onNavigateUpFromFirstRow,
+                    onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()

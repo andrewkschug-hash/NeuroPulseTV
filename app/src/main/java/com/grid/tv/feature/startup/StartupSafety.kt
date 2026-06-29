@@ -198,7 +198,21 @@ class StartupSafety(
     }
 
     suspend fun awaitInputSafe() {
-        while (!inputSafe) delay(100)
+        awaitInputSafe(timeoutMs = Long.MAX_VALUE)
+    }
+
+    /** Returns whether [inputSafe] was reached before [timeoutMs] elapsed. */
+    suspend fun awaitInputSafe(timeoutMs: Long): Boolean {
+        if (inputSafe) return true
+        if (timeoutMs <= 0L) return inputSafe
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (!inputSafe && SystemClock.elapsedRealtime() < deadline) {
+            delay(50)
+        }
+        if (!inputSafe) {
+            log("input_blocked_reason", "await_input_safe_timeout timeoutMs=$timeoutMs")
+        }
+        return inputSafe
     }
 
     suspend fun <T> runDiskExclusive(label: String, block: suspend () -> T): T {

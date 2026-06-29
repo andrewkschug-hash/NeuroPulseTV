@@ -18,21 +18,29 @@ class ProfileViewModel @Inject constructor(
     private val repository: IptvRepository
 ) : ViewModel() {
     val profiles: StateFlow<List<UserProfile>> = repository.profiles()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val _profilesReady = MutableStateFlow(false)
+    val profilesReady: StateFlow<Boolean> = _profilesReady.asStateFlow()
 
     private val _activeProfile = MutableStateFlow<UserProfile?>(null)
     val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
 
     init {
-        viewModelScope.launch { repository.purgeDefaultProfiles() }
-        refreshActiveProfile()
+        viewModelScope.launch {
+            repository.prepareProfilePicker()
+            _activeProfile.value = repository.activeProfile()
+            _profilesReady.value = true
+        }
     }
 
     fun switchProfile(profileId: Long) {
-        viewModelScope.launch {
-            repository.setActiveProfile(profileId)
-            refreshActiveProfile()
-        }
+        viewModelScope.launch { activateProfile(profileId) }
+    }
+
+    suspend fun activateProfile(profileId: Long) {
+        repository.setActiveProfile(profileId)
+        _activeProfile.value = repository.activeProfile()
     }
 
     fun refreshActiveProfile() {
@@ -44,10 +52,12 @@ class ProfileViewModel @Inject constructor(
     fun isGuestSession(): Boolean = repository.isGuestSession()
 
     fun enterGuestSession() {
-        viewModelScope.launch {
-            repository.enterGuestSession()
-            refreshActiveProfile()
-        }
+        viewModelScope.launch { activateGuestSession() }
+    }
+
+    suspend fun activateGuestSession() {
+        repository.enterGuestSession()
+        _activeProfile.value = repository.activeProfile()
     }
 
     suspend fun createProfileAndGetId(

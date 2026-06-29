@@ -45,6 +45,9 @@ object StartupTierPolicy {
     /** Guide channel page + EPG hydrate — after UI is visible. */
     fun guideBootstrapDelayMs(): Long = if (LowEndDeviceMode.current().active) 600L else 150L
 
+    /** Max wait for startup gating before guide bootstrap proceeds anyway. */
+    fun guideInputSafeTimeoutMs(): Long = if (LowEndDeviceMode.current().active) 2_500L else 1_500L
+
     /** First guide channel SQL page — keep small so the grid is interactive before full paging. */
     fun guideInitialChannelPageSize(): Int = if (LowEndDeviceMode.current().active) 40 else 80
 

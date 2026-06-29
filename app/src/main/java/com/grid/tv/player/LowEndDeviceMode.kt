@@ -59,7 +59,7 @@ object LowEndDeviceMode {
 
     fun onTrimMemory(level: Int) {
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
-            Log.w(TAG, "trimMemory level=$level — recommend clearing image cache")
+            Log.w(TAG, "trimMemory level=$level — clearing image + catalog caches")
         }
     }
 

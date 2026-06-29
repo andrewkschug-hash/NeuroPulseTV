@@ -9,6 +9,10 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -86,6 +90,25 @@ private fun Modifier.consumeBrowseGridDirectionalKeys(gridFocused: Boolean): Mod
     }
 }
 
+private fun Modifier.interceptLeadingEdgeLeft(
+    focusedIndex: Int,
+    columnCount: Int,
+    onLeadingEdgeNavigateLeft: (() -> Unit)?,
+): Modifier {
+    val callback = onLeadingEdgeNavigateLeft ?: return this
+    return onPreviewKeyEvent { event ->
+        if (event.type == KeyEventType.KeyDown &&
+            event.key == Key.DirectionLeft &&
+            SidebarContentFocus.isLeadingGridColumn(focusedIndex, columnCount.coerceAtLeast(1))
+        ) {
+            callback()
+            true
+        } else {
+            false
+        }
+    }
+}
+
 @Composable
 fun VodPagedVerticalGrid(
   items: List<VodGridCardModel>,
@@ -152,11 +175,14 @@ fun VodPagedVerticalGrid(
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
     onGridRestoreComplete: (Int) -> Unit = {},
     onColumnCountChanged: ((Int) -> Unit)? = null,
-    onNavigateUpFromFirstRow: (() -> Unit)? = null
+    onNavigateUpFromFirstRow: (() -> Unit)? = null,
+    onLeadingEdgeNavigateLeft: (() -> Unit)? = null,
 ) {
     val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
     val useNativeFocus = gridFocusRequester != null && !gridFocused
     val effectiveFocusedIndex = if (gridFocused && focusedItemIndex >= 0) focusedItemIndex else -1
+    var columnCount by remember { mutableIntStateOf(1) }
+    val leadingEdgeIndex = if (effectiveFocusedIndex >= 0) effectiveFocusedIndex else focusedItemIndex
 
     VodGridAnimatedRestoreEffect(
         gridState = gridState,
@@ -174,7 +200,10 @@ fun VodPagedVerticalGrid(
     VodGridColumnCountEffect(
         gridState = gridState,
         itemCount = pagingItems.itemCount,
-        onColumnCountChanged = onColumnCountChanged,
+        onColumnCountChanged = { columns ->
+            columnCount = columns
+            onColumnCountChanged?.invoke(columns)
+        },
     )
 
     LazyVerticalGrid(
@@ -183,7 +212,13 @@ fun VodPagedVerticalGrid(
         contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
         horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
         verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
-        modifier = modifier.consumeBrowseGridDirectionalKeys(gridFocused)
+        modifier = modifier
+            .consumeBrowseGridDirectionalKeys(gridFocused)
+            .interceptLeadingEdgeLeft(
+                focusedIndex = leadingEdgeIndex,
+                columnCount = columnCount,
+                onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
+            )
     ) {
         items(
             count = pagingItems.itemCount,
@@ -242,11 +277,14 @@ fun VodMoviePagedGrid(
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
     onGridRestoreComplete: (Int) -> Unit = {},
     onColumnCountChanged: ((Int) -> Unit)? = null,
-    onNavigateUpFromFirstRow: (() -> Unit)? = null
+    onNavigateUpFromFirstRow: (() -> Unit)? = null,
+    onLeadingEdgeNavigateLeft: (() -> Unit)? = null,
 ) {
     val gridFocusRequester = contentGridFocusRequester ?: firstItemFocusRequester
     val useNativeFocus = gridFocusRequester != null && !gridFocused
     val effectiveFocusedIndex = if (gridFocused && focusedItemIndex >= 0) focusedItemIndex else -1
+    var columnCount by remember { mutableIntStateOf(1) }
+    val leadingEdgeIndex = if (effectiveFocusedIndex >= 0) effectiveFocusedIndex else focusedItemIndex
 
     VodGridAnimatedRestoreEffect(
         gridState = gridState,
@@ -264,7 +302,10 @@ fun VodMoviePagedGrid(
     VodGridColumnCountEffect(
         gridState = gridState,
         itemCount = pagingItems.itemCount,
-        onColumnCountChanged = onColumnCountChanged,
+        onColumnCountChanged = { columns ->
+            columnCount = columns
+            onColumnCountChanged?.invoke(columns)
+        },
     )
 
     LazyVerticalGrid(
@@ -273,7 +314,13 @@ fun VodMoviePagedGrid(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier.consumeBrowseGridDirectionalKeys(gridFocused)
+        modifier = modifier
+            .consumeBrowseGridDirectionalKeys(gridFocused)
+            .interceptLeadingEdgeLeft(
+                focusedIndex = leadingEdgeIndex,
+                columnCount = columnCount,
+                onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
+            )
     ) {
         items(
             count = pagingItems.itemCount,

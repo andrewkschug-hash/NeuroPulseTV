@@ -567,7 +567,7 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            startupSafety.awaitInputSafe()
+            startupSafety.awaitInputSafe(StartupTierPolicy.guideInputSafeTimeoutMs())
             delay(StartupTierPolicy.guideBootstrapDelayMs())
             StartupProfiler.mark("guide_bootstrap_start")
             bootstrapGuideFromSettings()
@@ -665,8 +665,8 @@ class HomeEpgViewModel @Inject constructor(
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
             livePlayerManager.setStreamRetries(settings.streamRetries)
         }
-        loadBootstrapChannelPage()
         _guideSettingsLoaded.value = true
+        loadBootstrapChannelPage()
         guideBootstrapComplete = true
         epgScheduler.scheduleEpgOnGuideOpen()
         enableGuideGroupMetadataSubscription(settings.guideChannelGroups, settings.guideFiltersConfigured)
@@ -1174,7 +1174,7 @@ class HomeEpgViewModel @Inject constructor(
         previewTuneJob?.cancel()
         previewTuneJob = viewModelScope.launch {
             delay(PREVIEW_TUNE_DEBOUNCE_MS)
-            startupSafety.awaitInputSafe()
+            startupSafety.awaitInputSafe(StartupTierPolicy.guideInputSafeTimeoutMs())
             if (channel.streamUrl.isBlank()) return@launch
             playbackOrchestrator.onGuidePreviewActive(context)
             livePlayerManager.tuneChannel(context, channel)

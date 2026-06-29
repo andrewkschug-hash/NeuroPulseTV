@@ -4,10 +4,10 @@ import androidx.media3.common.PlaybackException
 
 /**
  * True when the device decoder cannot handle the stream (4K HEVC/Dolby Vision on emulators, etc.).
- * Retrying prepare() will not recover from these failures.
+ * Retrying prepare() on the same URL will not recover from these failures.
  */
 fun PlaybackException.isCodecCapabilityError(): Boolean {
-    if (errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED) return true
+    if (isFormatUnsupportedPlaybackError()) return true
     return generateSequence(this as Throwable?) { it.cause }
         .map { it.message.orEmpty() }
         .any { message ->
@@ -17,19 +17,39 @@ fun PlaybackException.isCodecCapabilityError(): Boolean {
         }
 }
 
-fun PlaybackException.playbackErrorMessage(isEmulator: Boolean = false): String {
-    if (isCodecCapabilityError()) {
-        return if (isEmulator) {
-            "This stream uses 4K HEVC/Dolby Vision, which the Android emulator cannot decode. " +
-                "Test on a physical Android TV device, or pick an HD/SD stream from your provider."
-        } else {
-            "This video format is not supported on this device (often 4K HEVC or Dolby Vision). " +
-                "Try a lower-quality stream if your provider offers one."
-        }
-    }
-    return message?.takeIf { it.isNotBlank() }
-        ?: "Playback failed. Check your connection and try again."
+data class PlaybackErrorPresentation(
+    val message: String,
+    val canTryDifferentQuality: Boolean,
+)
+
+internal fun codecCapabilityErrorMessage(isEmulator: Boolean): String = when {
+    isEmulator ->
+        "This stream uses 4K HEVC or Dolby Vision, which the Android emulator cannot decode. " +
+            "Test on a physical Android TV device, or try a lower-quality stream."
+    else ->
+        "This video format is not supported on this device (often 4K HEVC or Dolby Vision). " +
+            "Try a lower-quality stream if your provider offers one."
 }
+
+fun PlaybackException.playbackErrorPresentation(
+    isEmulator: Boolean = false,
+    canTryDifferentQuality: Boolean = false,
+): PlaybackErrorPresentation {
+    val message = when {
+        isCodecCapabilityError() -> codecCapabilityErrorMessage(isEmulator)
+        else ->
+            message?.takeIf { it.isNotBlank() }
+                ?: "Playback failed. Check your connection and try again."
+    }
+    return PlaybackErrorPresentation(
+        message = message,
+        canTryDifferentQuality = canTryDifferentQuality && isCodecCapabilityError(),
+    )
+}
+
+/** @deprecated Use [playbackErrorPresentation]. */
+fun PlaybackException.playbackErrorMessage(isEmulator: Boolean = false): String =
+    playbackErrorPresentation(isEmulator).message
 
 fun PlaybackException.isRetriablePlaybackError(): Boolean = PlaybackHttpFailure.isRetriablePlaybackError(this)
 
