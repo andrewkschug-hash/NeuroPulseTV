@@ -644,6 +644,7 @@ fun HomeEpgScreen(
                         onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
                         onFocusedIndexChange = { index ->
                             ui.channelGroupsFocusIndex = index
+                            ui.lastChannelGroupsFocusIndex = index
                             ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
                             controller.previewChannelGroupForFocusedRow()
                         },

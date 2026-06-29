@@ -89,7 +89,7 @@ import com.grid.tv.ui.component.SettingsListRow
 import com.grid.tv.ui.component.SettingsNavItem
 import com.grid.tv.ui.component.SettingsPanel
 import com.grid.tv.ui.component.ProfileColorPicker
-import com.grid.tv.ui.component.SettingsSidebar
+import com.grid.tv.ui.component.SettingsSectionList
 import com.grid.tv.ui.component.SettingsTextField
 import com.grid.tv.ui.component.SettingsFocusToggleRow
 import com.grid.tv.ui.component.SettingsFocusTextField
@@ -195,11 +195,13 @@ fun SettingsScreen(
     val sections = SettingsSection.entries
     val navItems = sections.map { SettingsNavItem(it.title, it.subtitle) }
 
-    var selectedSection by rememberSaveable { mutableIntStateOf(0) }
-    var focusPanel by rememberSaveable { mutableStateOf(SettingsFocusPanel.LEFT) }
-    var sidebarFocusIndex by rememberSaveable { mutableIntStateOf(0) }
-    var lastActiveSidebarIndex by rememberSaveable { mutableIntStateOf(0) }
+    var detailSectionOrdinal by rememberSaveable { mutableStateOf<Int?>(null) }
+    var focusPanel by rememberSaveable { mutableStateOf(SettingsFocusPanel.LIST) }
+    var listFocusIndex by rememberSaveable { mutableIntStateOf(0) }
     var topBarFocusIndex by remember { mutableIntStateOf(3) }
+
+    val showingDetail = detailSectionOrdinal != null
+    val activeSectionIndex = detailSectionOrdinal ?: listFocusIndex
 
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
@@ -226,7 +228,7 @@ fun SettingsScreen(
         xtreamPass = ""
     }
 
-    val sidebarItemFocusRequesters = remember(sections.size) {
+    val listItemFocusRequesters = remember(sections.size) {
         List(sections.size) { FocusRequester() }
     }
     val sectionEntryFocusRequesters = remember(sections.size) {
@@ -235,16 +237,17 @@ fun SettingsScreen(
     val topNavFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(focusPanel, sidebarFocusIndex, selectedSection, showGuideGroupPicker) {
+    LaunchedEffect(focusPanel, listFocusIndex, detailSectionOrdinal, showGuideGroupPicker) {
         if (showGuideGroupPicker) return@LaunchedEffect
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
-            SettingsFocusPanel.LEFT ->
-                sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocusSafelyAfterLayout()
-            SettingsFocusPanel.RIGHT -> {
+            SettingsFocusPanel.LIST ->
+                listItemFocusRequesters.getOrNull(listFocusIndex)?.requestFocusSafelyAfterLayout()
+            SettingsFocusPanel.DETAIL -> {
                 focusManager.clearFocus(force = true)
                 withFrameMillis { }
-                val requester = sectionEntryFocusRequesters.getOrNull(selectedSection) ?: return@LaunchedEffect
+                val section = detailSectionOrdinal ?: return@LaunchedEffect
+                val requester = sectionEntryFocusRequesters.getOrNull(section) ?: return@LaunchedEffect
                 if (!requester.requestFocusSafelyAfterLayout()) {
                     delay(48)
                     requester.requestFocusSafelyAfterLayout()
@@ -267,33 +270,27 @@ fun SettingsScreen(
         xtreamPass = form.xtreamPassword
     }
 
-    fun selectSidebarSection(index: Int) {
+    fun openDetailSection(index: Int) {
         val clamped = index.coerceIn(0, sections.lastIndex)
-        if (sections[selectedSection] == SettingsSection.Connections &&
+        if (sections[activeSectionIndex] == SettingsSection.Connections &&
             sections[clamped] != SettingsSection.Connections
         ) {
             dismissConnectionForm()
         }
-        sidebarFocusIndex = clamped
-        selectedSection = clamped
+        listFocusIndex = clamped
+        detailSectionOrdinal = clamped
+        focusPanel = SettingsFocusPanel.DETAIL
     }
 
-    fun enterContentFromSidebar() {
-        val clamped = sidebarFocusIndex.coerceIn(0, sections.lastIndex)
-        if (sections[selectedSection] == SettingsSection.Connections &&
-            sections[clamped] != SettingsSection.Connections
-        ) {
-            dismissConnectionForm()
-        }
-        lastActiveSidebarIndex = clamped
-        selectedSection = clamped
-        sidebarFocusIndex = clamped
-        focusPanel = SettingsFocusPanel.RIGHT
+    fun returnToSectionList() {
+        detailSectionOrdinal?.let { listFocusIndex = it }
+        detailSectionOrdinal = null
+        focusPanel = SettingsFocusPanel.LIST
     }
 
     fun handleBackKey(): Boolean {
         when {
-            showConnectionForm && sections[selectedSection] == SettingsSection.Connections -> {
+            showConnectionForm && detailSectionOrdinal == SettingsSection.Connections.ordinal -> {
                 dismissConnectionForm()
             }
             connectionDialog != null -> viewModel.dismissConnectionDialog()
@@ -310,10 +307,7 @@ fun SettingsScreen(
             showManageProfilesOverlay -> showManageProfilesOverlay = false
             showChangePinDialog -> showChangePinDialog = false
             profileMenuOpen -> profileMenuOpen = false
-            focusPanel == SettingsFocusPanel.RIGHT -> {
-                sidebarFocusIndex = lastActiveSidebarIndex
-                focusPanel = SettingsFocusPanel.LEFT
-            }
+            showingDetail -> returnToSectionList()
             else -> return false
         }
         return true
@@ -323,6 +317,10 @@ fun SettingsScreen(
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
+            Key.DirectionLeft -> {
+                returnToSectionList()
+                true
+            }
             Key.Back, Key.Escape -> handleBackKey()
             else -> false
         }
@@ -372,8 +370,7 @@ fun SettingsScreen(
                 true
             }
             Key.DirectionDown -> {
-                focusPanel = SettingsFocusPanel.LEFT
-                sidebarFocusIndex = selectedSection
+                focusPanel = if (showingDetail) SettingsFocusPanel.DETAIL else SettingsFocusPanel.LIST
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -390,21 +387,21 @@ fun SettingsScreen(
         }
     }
 
-    fun handleSidebarKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+    fun handleListKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.DirectionUp -> {
-                if (sidebarFocusIndex > 0) {
-                    selectSidebarSection(sidebarFocusIndex - 1)
+                if (listFocusIndex > 0) {
+                    listFocusIndex -= 1
                 } else {
                     focusPanel = SettingsFocusPanel.TOP_BAR
                 }
                 true
             }
             Key.DirectionDown -> {
-                if (sidebarFocusIndex < sections.lastIndex) {
-                    selectSidebarSection(sidebarFocusIndex + 1)
+                if (listFocusIndex < sections.lastIndex) {
+                    listFocusIndex += 1
                 }
                 true
             }
@@ -412,12 +409,8 @@ fun SettingsScreen(
                 onBack()
                 true
             }
-            Key.DirectionRight -> {
-                enterContentFromSidebar()
-                true
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                enterContentFromSidebar()
+            Key.DirectionRight, Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                openDetailSection(listFocusIndex)
                 true
             }
             Key.Back, Key.Escape -> handleBackKey()
@@ -484,75 +477,75 @@ fun SettingsScreen(
             ) {
                 Box(
                     modifier = Modifier
-                        .width(260.dp)
-                        .fillMaxHeight()
-                        .clip(RectangleShape)
-                        .background(EpgColors.ChannelColumnBg)
-                        .onFocusChanged { state ->
-                            if (state.hasFocus && focusPanel != SettingsFocusPanel.RIGHT) {
-                                focusPanel = SettingsFocusPanel.LEFT
-                            }
-                        }
-                        .onPreviewKeyEvent {
-                            if (focusPanel == SettingsFocusPanel.LEFT) {
-                                handleSidebarKey(it)
-                            } else {
-                                false
-                            }
-                        }
-                ) {
-                    SettingsSidebar(
-                        items = navItems,
-                        selectedIndex = selectedSection,
-                        focusedIndex = sidebarFocusIndex,
-                        sidebarFocused = focusPanel == SettingsFocusPanel.LEFT,
-                        itemFocusRequesters = sidebarItemFocusRequesters,
-                        sectionEntryFocusRequesters = sectionEntryFocusRequesters,
-                        onItemFocused = { index ->
-                            sidebarFocusIndex = index
-                            lastActiveSidebarIndex = index
-                        },
-                        onSectionSelected = { index ->
-                            selectSidebarSection(index)
-                        }
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .background(EpgColors.GridBg)
                         .clip(RectangleShape)
-                        .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.RIGHT }
-                        .focusProperties {
-                            left = sidebarItemFocusRequesters.getOrElse(lastActiveSidebarIndex) {
-                                sidebarItemFocusRequesters.firstOrNull() ?: FocusRequester.Default
-                            }
-                            up = topNavFocusRequester
-                        }
-                        .focusGroup()
-                        .onPreviewKeyEvent { event ->
-                            if (focusPanel == SettingsFocusPanel.RIGHT) handleContentKey(event) else false
-                        }
                 ) {
-                    TvScrollContainer(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(EpgColors.GridBg)
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        key(selectedSection) {
-                        when (sections[selectedSection]) {
+                    if (!showingDetail) {
+                        TvScrollContainer(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(EpgColors.GridBg)
+                                .onFocusChanged {
+                                    if (it.hasFocus) focusPanel = SettingsFocusPanel.LIST
+                                }
+                                .onPreviewKeyEvent { event ->
+                                    if (focusPanel == SettingsFocusPanel.LIST) handleListKey(event) else false
+                                },
+                        ) {
+                            SettingsSectionList(
+                                items = navItems,
+                                focusedIndex = listFocusIndex,
+                                listFocused = focusPanel == SettingsFocusPanel.LIST,
+                                itemFocusRequesters = listItemFocusRequesters,
+                                onItemFocused = { listFocusIndex = it },
+                                onItemSelected = ::openDetailSection,
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.DETAIL }
+                                .focusGroup()
+                                .onPreviewKeyEvent { event ->
+                                    if (focusPanel == SettingsFocusPanel.DETAIL) handleContentKey(event) else false
+                                },
+                        ) {
+                            TvScrollContainer(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(EpgColors.GridBg)
+                                    .padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
+                                val section = sections[activeSectionIndex]
+                                Text(
+                                    text = section.title,
+                                    color = EpgColors.TextPrimary,
+                                    fontFamily = DmSansFamily,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                )
+                                Text(
+                                    text = section.subtitle,
+                                    color = EpgColors.TextDimmed,
+                                    fontFamily = DmSansFamily,
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.padding(bottom = 8.dp),
+                                )
+                                key(activeSectionIndex) {
+                                when (section) {
                         SettingsSection.Profile -> ProfileSettingsContent(
                             activeProfile = activeProfile,
                             profiles = profiles,
                             settings = settings,
                             includeUntaggedVodContent = includeUntaggedVodContent,
                             sectionEntryFocusRequester = sectionEntryFocusRequesters[SettingsSection.Profile.ordinal],
-                            sidebarBackFocusRequester = sidebarItemFocusRequesters.getOrElse(lastActiveSidebarIndex) {
-                                sidebarItemFocusRequesters.first()
+                            sidebarBackFocusRequester = listItemFocusRequesters.getOrElse(listFocusIndex) {
+                                listItemFocusRequesters.first()
                             },
                             onManageProfiles = {
                                 Log.d("SettingsScreen", "Manage profiles clicked — opening inline editor")
@@ -757,6 +750,8 @@ fun SettingsScreen(
                                 onLogPlaybackHealth = { viewModel.logPlaybackHealthDiagnostics() }
                             )
                         }
+                                }
+                            }
                         }
                     }
                 }
@@ -777,7 +772,7 @@ fun SettingsScreen(
 
         if (isConnecting &&
             showConnectionForm &&
-            sections.getOrNull(selectedSection) == SettingsSection.Connections
+            sections.getOrNull(activeSectionIndex) == SettingsSection.Connections
         ) {
             ConnectionLoadingOverlay(
                 message = if (editingPlaylistId != null) {

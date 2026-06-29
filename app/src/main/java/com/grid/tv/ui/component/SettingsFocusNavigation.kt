@@ -38,7 +38,7 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvTextInputSession
 
-enum class SettingsFocusPanel { TOP_BAR, LEFT, RIGHT }
+enum class SettingsFocusPanel { TOP_BAR, LIST, DETAIL }
 
 /** Shared corner radius for interactive settings rows and action chips. */
 val SettingsRowShape = RoundedCornerShape(10.dp)

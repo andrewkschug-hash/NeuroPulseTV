@@ -481,9 +481,10 @@ internal class HomeEpgGuideController(
         ui.channelGroupsFocusIndex = resolveChannelGroupsFocusIndex(
             channelGroups = boundDeps.channelGroups,
             favoriteGroups = boundDeps.viewModel.favoriteChannelGroups.value,
-            committedFilter = boundDeps.committedGuideFilter,
-            currentIndex = ui.channelGroupsFocusIndex,
+            committedFilter = boundDeps.guideFilter,
+            currentIndex = ui.lastChannelGroupsFocusIndex,
         )
+        ui.lastChannelGroupsFocusIndex = ui.channelGroupsFocusIndex
         ui.channelGroupsPanelVisible = true
         focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
         previewChannelGroupForFocusedRow()
@@ -515,6 +516,7 @@ internal class HomeEpgGuideController(
         boundDeps.viewModel.setGuideFilter(filter, markConfigured = true)
         ui.focusChannelIndex = 0
         ui.hasRequestedInitialGridFocus = false
+        ui.lastChannelGroupsFocusIndex = ui.channelGroupsFocusIndex
     }
 
     /** Persist the focused group and optionally return focus to the live grid. */
@@ -545,7 +547,7 @@ internal class HomeEpgGuideController(
     }
 
     fun returnToGridFromSidebar() {
-        collapseChannelGroupsPanel(focusGrid = true)
+        commitChannelGroupSelection(focusGrid = true)
     }
 
     fun handleChannelGroupsKey(event: KeyEvent): Boolean {
@@ -605,6 +607,7 @@ internal class HomeEpgGuideController(
                 val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = 1)
                 if (next != ui.channelGroupsFocusIndex) {
                     ui.channelGroupsFocusIndex = next
+                    ui.lastChannelGroupsFocusIndex = next
                     previewChannelGroupForFocusedRow()
                 }
                 true
@@ -613,6 +616,7 @@ internal class HomeEpgGuideController(
                 val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = -1)
                 if (next != ui.channelGroupsFocusIndex) {
                     ui.channelGroupsFocusIndex = next
+                    ui.lastChannelGroupsFocusIndex = next
                     previewChannelGroupForFocusedRow()
                 }
                 true

@@ -547,11 +547,12 @@ fun VodHubScreen(
         libraryNavExpanded -> VodLibraryNavPanelExpandedWidth
         else -> libraryNavRailWidth
     }
-    val libraryContentInset by animateDpAsState(
+    val libraryContentInsetAnimated by animateDpAsState(
         targetValue = libraryContentInsetTarget,
         animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
         label = "vodLibraryContentInset",
     )
+    val libraryContentInset = libraryContentInsetAnimated.coerceAtLeast(0.dp)
 
     val activeSurfaceState = when (contentFilter) {
         VodContentFilter.MOVIES -> moviesBrowseSurface

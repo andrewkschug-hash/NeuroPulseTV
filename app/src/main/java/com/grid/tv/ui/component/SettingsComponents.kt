@@ -161,6 +161,104 @@ fun SettingsSidebar(
     }
 }
 
+/** Full-width settings section picker — one row per category; Enter opens the detail screen. */
+@Composable
+fun SettingsSectionList(
+    items: List<SettingsNavItem>,
+    focusedIndex: Int,
+    listFocused: Boolean,
+    itemFocusRequesters: List<FocusRequester>,
+    onItemFocused: (Int) -> Unit,
+    onItemSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Settings",
+            color = EpgColors.TextPrimary,
+            fontFamily = DmSansFamily,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 12.dp),
+        )
+        items.forEachIndexed { index, item ->
+            val focused = listFocused && index == focusedIndex
+            val bg = if (focused) EpgColors.Accent.copy(alpha = 0.22f) else Color.Transparent
+            GridFocusSurface(
+                onClick = { onItemSelected(index) },
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    pressedContainerColor = Color.Transparent,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
+                            ?: Modifier
+                    )
+                    .focusable()
+                    .onFocusChanged { if (it.isFocused) onItemFocused(index) }
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
+                                onItemSelected(index)
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bg, RoundedCornerShape(10.dp))
+                        .border(
+                            width = if (focused) 2.dp else 0.dp,
+                            color = if (focused) EpgColors.FocusBorder else Color.Transparent,
+                            shape = RoundedCornerShape(10.dp),
+                        )
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = item.title,
+                            color = if (focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 16.sp,
+                            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+                        )
+                        Text(
+                            text = item.subtitle,
+                            color = EpgColors.TextDimmed,
+                            fontFamily = DmSansFamily,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    Text(
+                        text = "›",
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 20.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun SettingsPanel(
     title: String,

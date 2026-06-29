@@ -39,6 +39,8 @@ internal class HomeEpgUiState {
     /** Short-press Enter on channel groups: defer until KeyUp so long-press can toggle favourites. */
     var channelGroupsActivatePending by mutableStateOf(false)
     var channelGroupsFocusIndex by mutableIntStateOf(0)
+    /** Last highlighted group row — restored when reopening the panel from the live grid. */
+    var lastChannelGroupsFocusIndex by mutableIntStateOf(0)
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
     /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
     var channelGroupsPanelVisible by mutableStateOf(false)
