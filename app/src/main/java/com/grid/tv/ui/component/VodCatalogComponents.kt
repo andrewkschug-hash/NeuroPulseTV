@@ -1010,7 +1010,8 @@ fun VodEmptyState(
     title: String,
     message: String,
     modifier: Modifier = Modifier,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    retryFocusRequester: FocusRequester? = null,
 ) {
     Column(
         modifier = modifier
@@ -1043,7 +1044,15 @@ fun VodEmptyState(
         if (onRetry != null) {
             GlowFocusButton(
                 onClick = onRetry,
-                modifier = Modifier.padding(top = 24.dp)
+                modifier = Modifier
+                    .padding(top = 24.dp)
+                    .then(
+                        if (retryFocusRequester != null) {
+                            Modifier.focusRequester(retryFocusRequester)
+                        } else {
+                            Modifier
+                        }
+                    ),
             ) {
                 Text("Retry", fontFamily = DmSansFamily)
             }

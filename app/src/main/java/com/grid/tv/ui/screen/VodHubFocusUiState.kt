@@ -102,6 +102,9 @@ internal class VodHubFocusUiState {
     /** When true, grid highlight is suppressed until scroll restoration completes. */
     var gridFocusPending by mutableStateOf(false)
 
+    /** Tab-bar Down was pressed before paging exposed any grid items — restore when [itemCount] > 0. */
+    var awaitingBrowseGridFocus by mutableStateOf(false)
+
     fun importPersistedBreadcrumb(filter: VodContentFilter, persisted: VodFilterFocusBreadcrumbPersisted) {
         rememberGridFor(
             filter,

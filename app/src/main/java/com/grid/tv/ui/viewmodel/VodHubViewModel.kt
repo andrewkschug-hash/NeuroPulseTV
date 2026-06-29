@@ -694,6 +694,11 @@ class VodHubViewModel @Inject constructor(
         }
     }
 
+    /** Series tab: hydrate categories + ingest series when the local catalog is movie-only. */
+    fun ensureSeriesTabHydrated() {
+        repository.ensureSeriesCatalogForTab(VodRefreshTrigger.VOD_HUB_MOUNT)
+    }
+
     fun setHeroIndex(index: Int) {
         _heroIndex.value = index.coerceAtLeast(0)
     }

@@ -23,7 +23,10 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
@@ -40,7 +43,9 @@ import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GuideChannelGroupsPanel
-import com.grid.tv.ui.component.GuideGroupFavoriteMenuDialog
+import com.grid.tv.ui.component.EpgTransientToast
+import com.grid.tv.ui.component.GuideChannelGroupsPanelWidth
+import com.grid.tv.ui.component.GuideNavDrawerCollapsedWidth
 import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
@@ -143,6 +148,7 @@ fun HomeEpgScreen(
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
     val favoriteChannelGroups by viewModel.favoriteChannelGroups.collectAsStateWithLifecycle()
+    val channelGroupFavoriteToast by viewModel.channelGroupFavoriteToastMessage.collectAsStateWithLifecycle()
     val channelGroupsLoading by viewModel.channelGroupsLoading.collectAsStateWithLifecycle()
     val organizedGuideGroups by viewModel.organizedGuideGroups.collectAsStateWithLifecycle()
     val hasCatalogChannels = chrome.hasCatalogChannels
@@ -232,6 +238,13 @@ fun HomeEpgScreen(
         if (favoriteSavedMessage != null) {
             delay(2500)
             viewModel.clearFavoriteSavedMessage()
+        }
+    }
+
+    LaunchedEffect(channelGroupFavoriteToast) {
+        if (channelGroupFavoriteToast != null) {
+            delay(1750)
+            viewModel.clearChannelGroupFavoriteToastMessage()
         }
     }
 
@@ -707,15 +720,16 @@ fun HomeEpgScreen(
             recordingViewModel = recordingViewModel,
         )
 
-        val favoriteMenuTarget = ui.groupFavoriteMenuTarget
-        if (ui.showGroupFavoriteMenu && favoriteMenuTarget != null) {
-            GuideGroupFavoriteMenuDialog(
-                groupKey = favoriteMenuTarget,
-                isFavorite = favoriteMenuTarget in favoriteChannelGroups,
-                onToggleFavorite = controller::toggleGroupFavoriteFromMenu,
-                onDismiss = controller::dismissGroupFavoriteMenu
-            )
-        }
+        EpgTransientToast(
+            message = channelGroupFavoriteToast,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(
+                    start = GuideNavDrawerCollapsedWidth + GuideChannelGroupsPanelWidth + 12.dp,
+                    bottom = 24.dp,
+                ),
+            alignment = Alignment.BottomStart,
+        )
 
         ProfileMenuDropdown(
             expanded = ui.profileMenuOpen,

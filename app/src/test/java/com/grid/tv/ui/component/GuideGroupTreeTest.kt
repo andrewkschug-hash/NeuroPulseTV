@@ -45,8 +45,12 @@ class GuideGroupTreeTest {
     fun `buildFlatProviderVisibleRows lists provider groups in display order`() {
         val rows = buildFlatProviderVisibleRows(listOf("UK| SPORT", "CA| NEWS", "AFR|"))
 
-        assertEquals(GuideGroupVisibleRow.AllChannels, rows.first())
-        val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>().map { it.fullName }
+        assertEquals(GuideGroupVisibleRow.FavoriteSectionHeader, rows[0])
+        assertEquals(GuideGroupVisibleRow.FavoriteSectionEmpty, rows[1])
+        assertEquals(GuideGroupVisibleRow.AllChannels, rows[2])
+        val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>()
+            .filter { it.listSection == GuideGroupVisibleRow.ListSection.Catalog }
+            .map { it.fullName }
         assertEquals(listOf("UK| SPORT", "CA| NEWS", "AFR|"), groups)
     }
 
@@ -59,9 +63,18 @@ class GuideGroupTreeTest {
 
         assertEquals(GuideGroupVisibleRow.FavoriteSectionHeader, rows[0])
         assertEquals("Sports", (rows[1] as GuideGroupVisibleRow.Group).fullName)
+        assertEquals(GuideGroupVisibleRow.ListSection.Favorites, (rows[1] as GuideGroupVisibleRow.Group).listSection)
         assertEquals("Kids", (rows[2] as GuideGroupVisibleRow.Group).fullName)
         assertEquals(GuideGroupVisibleRow.AllChannels, rows[3])
-        val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>().map { it.fullName }
-        assertEquals(listOf("Sports", "Kids", "Movies"), groups)
+        val catalogGroups = rows.filterIsInstance<GuideGroupVisibleRow.Group>()
+            .filter { it.listSection == GuideGroupVisibleRow.ListSection.Catalog }
+            .map { it.fullName }
+        assertEquals(listOf("Sports", "Movies", "Kids"), catalogGroups)
+    }
+
+    @Test
+    fun `firstFocusableFlatGroupRowIndex skips non-focusable favourites header`() {
+        assertEquals(2, firstFocusableFlatGroupRowIndex(listOf("Sports"), favoriteGroups = emptyList()))
+        assertEquals(1, firstFocusableFlatGroupRowIndex(listOf("Sports"), favoriteGroups = listOf("Sports")))
     }
 }

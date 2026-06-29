@@ -34,6 +34,21 @@ class VodHubFocusEmptyRecoveryTest {
     }
 
     @Test
+    fun emptyMoviesCatalogStillLoading_keepsFilter() {
+        val action = resolveVodFocusEmptyRecovery(
+            contentFilter = VodContentFilter.MOVIES,
+            genreIndex = 0,
+            genreCount = 4,
+            moviesBrowseCount = 0,
+            seriesBrowseCount = 0,
+            wallRowCount = 16,
+            moviesCatalogTotal = 120_000,
+            isCatalogLoading = false,
+        )
+        assertEquals(VodFocusEmptyRecoveryAction.KeepFilter, action)
+    }
+
+    @Test
     fun emptyEverything_opensSidebar() {
         val action = resolveVodFocusEmptyRecovery(
             contentFilter = VodContentFilter.ALL,

@@ -17,6 +17,8 @@ class VodHubFocusNavigationTest {
         browseIndex: Int = 0,
         filterIndex: Int = 1,
         genreIndex: Int = 2,
+        browseCatalogTotal: Int = browseCount,
+        browseLoading: Boolean = false,
     ): Pair<VodHubFocusUiState, VodHubFocusController> {
         val ui = VodHubFocusUiState()
         ui.filterFocusIndex = filterIndex
@@ -48,6 +50,7 @@ class VodHubFocusNavigationTest {
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
                 browseGridFocusRequester = FocusRequester(),
+                browseEmptyStateFocusRequester = FocusRequester(),
                 heroPlayFocusRequester = FocusRequester(),
                 inlineSearchFocusRequester = FocusRequester(),
                 navDrawerFocusRequester = FocusRequester(),
@@ -58,6 +61,8 @@ class VodHubFocusNavigationTest {
                 contentColIndex = 0,
                 setContentColIndex = {},
                 browseGridItemCount = { browseCount },
+                browseGridCatalogTotal = { browseCatalogTotal },
+                isBrowseGridLoading = { browseLoading },
                 browseGridKeyAtIndex = { index -> "key_$index" },
                 activeBrowseGridState = { null },
                 syncFocusedWallItemKey = {},
@@ -125,5 +130,31 @@ class VodHubFocusNavigationTest {
         controller.focusFilterPanelFromGenre()
         assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
         assertEquals(1, ui.filterFocusIndex)
+    }
+
+    @Test
+    fun focusBrowseGridRestored_withPagingWarm_awaitsItemsWithoutSwitchingTab() {
+        val (ui, controller) = setupController(browseCount = 0, browseCatalogTotal = 120)
+        controller.focusBrowseGridRestored()
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(true, ui.awaitingBrowseGridFocus)
+        assertEquals(1, ui.filterFocusIndex)
+    }
+
+    @Test
+    fun focusBrowseGridEmpty_entersContentWithoutAwaiting() {
+        val (ui, controller) = setupController(browseCount = 0, browseCatalogTotal = 0)
+        controller.focusBrowseGridEmpty()
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(false, ui.awaitingBrowseGridFocus)
+    }
+
+    @Test
+    fun escapeAwaitingBrowseGridFocus_confirmedEmpty_entersGridEmpty() {
+        val (ui, controller) = setupController(browseCount = 0, browseCatalogTotal = 0)
+        ui.awaitingBrowseGridFocus = true
+        controller.escapeAwaitingBrowseGridFocus()
+        assertEquals(false, ui.awaitingBrowseGridFocus)
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
     }
 }

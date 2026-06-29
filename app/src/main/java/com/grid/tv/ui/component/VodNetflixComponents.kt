@@ -682,6 +682,7 @@ fun VodContentFilterTabBar(
     tabBarFocusRequester: FocusRequester? = null,
     heroPlayFocusRequester: FocusRequester? = null,
     sidebarFocusRequester: FocusRequester? = null,
+    linkDownToHero: Boolean = false,
     onBarFocused: () -> Unit = {},
     onPreviewKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null,
     modifier: Modifier = Modifier
@@ -701,7 +702,9 @@ fun VodContentFilterTabBar(
                         .focusRequester(tabBarFocusRequester)
                         .focusable(enabled = barFocused)
                         .focusProperties {
-                            if (heroPlayFocusRequester != null) down = heroPlayFocusRequester
+                            if (linkDownToHero && heroPlayFocusRequester != null) {
+                                down = heroPlayFocusRequester
+                            }
                             if (sidebarFocusRequester != null) left = sidebarFocusRequester
                         }
                         .onFocusChanged { if (it.isFocused) onBarFocused() }

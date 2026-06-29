@@ -170,6 +170,10 @@ class HomeEpgViewModel @Inject constructor(
     private val _favoriteSavedMessage = MutableStateFlow<String?>(null)
     val favoriteSavedMessage: StateFlow<String?> = _favoriteSavedMessage.asStateFlow()
 
+    private val _channelGroupFavoriteToastMessage = MutableStateFlow<String?>(null)
+    val channelGroupFavoriteToastMessage: StateFlow<String?> =
+        _channelGroupFavoriteToastMessage.asStateFlow()
+
     private val _activeProfile = MutableStateFlow<UserProfile?>(null)
     val activeProfile: StateFlow<UserProfile?> = _activeProfile.asStateFlow()
 
@@ -871,6 +875,25 @@ class HomeEpgViewModel @Inject constructor(
             if (playlistId <= 0L) return@launch
             repository.toggleFavoriteChannelGroup(playlistId, groupKey)
         }
+    }
+
+    fun toggleFavoriteChannelGroupWithToast(groupKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val playlistId = repository.activePlaylistId().first()
+            if (playlistId <= 0L) return@launch
+            val wasFavorite = repository.observeIsFavoriteChannelGroup(playlistId, groupKey).first()
+            repository.toggleFavoriteChannelGroup(playlistId, groupKey)
+            val message = if (wasFavorite) {
+                "Removed from Favourites"
+            } else {
+                "Added to Favourites"
+            }
+            _channelGroupFavoriteToastMessage.value = message
+        }
+    }
+
+    fun clearChannelGroupFavoriteToastMessage() {
+        _channelGroupFavoriteToastMessage.value = null
     }
 
     suspend fun isFavoriteChannelGroup(groupKey: String): Boolean {

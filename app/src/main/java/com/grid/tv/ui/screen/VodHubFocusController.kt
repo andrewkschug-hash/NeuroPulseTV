@@ -11,6 +11,11 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.feature.vod.resolveVodWallFocus
 import com.grid.tv.ui.component.GuideNavDrawerItem
+import com.grid.tv.ui.component.SidebarContentFocus
+import com.grid.tv.ui.component.SidebarContentFocus.isLeadingGridColumn
+import com.grid.tv.ui.component.SidebarContentFocus.shouldEnterContentFromHeader
+import com.grid.tv.ui.component.SidebarContentFocus.shouldEnterSidebarFromContent
+import com.grid.tv.ui.component.SidebarContentFocus.sidebarHorizontalResult
 import com.grid.tv.ui.component.GuideNavDrawerItems
 import com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
@@ -48,6 +53,7 @@ internal data class VodHubFocusDeps(
     val filterPanelFocusRequester: FocusRequester,
     val genrePanelFocusRequester: FocusRequester,
     val browseGridFocusRequester: FocusRequester,
+    val browseEmptyStateFocusRequester: FocusRequester,
     val heroPlayFocusRequester: FocusRequester,
     val inlineSearchFocusRequester: FocusRequester,
     val navDrawerFocusRequester: FocusRequester,
@@ -58,6 +64,8 @@ internal data class VodHubFocusDeps(
     var contentColIndex: Int,
     val setContentColIndex: (Int) -> Unit,
     val browseGridItemCount: () -> Int,
+    val browseGridCatalogTotal: () -> Int,
+    val isBrowseGridLoading: () -> Boolean,
     val browseGridKeyAtIndex: (Int) -> String?,
     val activeBrowseGridState: () -> LazyGridState?,
     val syncFocusedWallItemKey: () -> Unit,
@@ -159,13 +167,46 @@ internal class VodHubFocusController(
         }
     }
 
+    fun focusBrowseGridEmpty() {
+        persistGenreFocus()
+        transitionToZone(VodFocusZone.CONTENT, "gridEmpty")
+        ui.awaitingBrowseGridFocus = false
+        d.setBrowseGridFocusIndex(0)
+        d.scope.launch {
+            d.browseEmptyStateFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
+    fun escapeAwaitingBrowseGridFocus() {
+        ui.awaitingBrowseGridFocus = false
+        val loading = d.isBrowseGridLoading()
+        val catalogTotal = d.browseGridCatalogTotal()
+        if (!loading && catalogTotal == 0) {
+            focusBrowseGridEmpty()
+            return
+        }
+        transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
+        d.scope.launch {
+            d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+        }
+    }
+
     fun focusBrowseGridRestored() {
         persistGenreFocus()
         val count = d.browseGridItemCount()
         if (count <= 0) {
-            d.ensureValidFocus()
+            val catalogTotal = d.browseGridCatalogTotal()
+            val loading = d.isBrowseGridLoading()
+            if (loading || catalogTotal > 0) {
+                transitionToZone(VodFocusZone.CONTENT, if (loading) "gridLoading" else "gridPagingWarm")
+                ui.awaitingBrowseGridFocus = true
+                d.setBrowseGridFocusIndex(0)
+                return
+            }
+            focusBrowseGridEmpty()
             return
         }
+        ui.awaitingBrowseGridFocus = false
         val gridState = d.activeBrowseGridState()
         val firstVisible = gridState?.firstVisibleItemIndex ?: 0
         val memory = ui.gridMemoryFor(d.contentFilter)
@@ -337,10 +378,12 @@ internal class VodHubFocusController(
                 true
             }
             Key.DirectionDown -> {
-                if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-                    d.openLanguagePreferenceDialog()
-                } else {
-                    focusContentFromFilters()
+                if (shouldEnterContentFromHeader(event.key)) {
+                    if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
+                        d.openLanguagePreferenceDialog()
+                    } else {
+                        focusContentFromFilters()
+                    }
                 }
                 true
             }
@@ -382,11 +425,17 @@ internal class VodHubFocusController(
             }
             Key.DirectionLeft -> {
                 persistGenreFocus()
-                d.openNavDrawer()
+                when (sidebarHorizontalResult(event.key, allowLeftToRail = true)) {
+                    SidebarContentFocus.SidebarHorizontalResult.OpenRail -> d.openNavDrawer()
+                    else -> Unit
+                }
                 true
             }
             Key.DirectionRight -> {
-                focusBrowseGridRestored()
+                when (sidebarHorizontalResult(event.key, allowLeftToRail = false)) {
+                    SidebarContentFocus.SidebarHorizontalResult.ReturnToContent -> focusBrowseGridRestored()
+                    else -> Unit
+                }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
@@ -405,16 +454,19 @@ internal class VodHubFocusController(
         val lastIndex = itemCount - 1
         val handled = when (event.key) {
             Key.DirectionLeft -> {
-                if (d.browseGridFocusIndex % columns == 0) {
-                    if (d.showGenrePanel) {
-                        focusGenrePanelFromGrid()
-                    } else {
-                        persistGridFocus()
-                        transitionToZone(VodFocusZone.FILTER_PANEL, "gridLeft")
-                        ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter)
-                        d.scope.launch {
-                            d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-                        }
+                if (shouldEnterSidebarFromContent(
+                        event.key,
+                        atLeadingEdge = isLeadingGridColumn(d.browseGridFocusIndex, columns),
+                        hasSidebar = d.showGenrePanel,
+                    )
+                ) {
+                    focusGenrePanelFromGrid()
+                } else if (isLeadingGridColumn(d.browseGridFocusIndex, columns)) {
+                    persistGridFocus()
+                    transitionToZone(VodFocusZone.FILTER_PANEL, "gridLeft")
+                    ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter)
+                    d.scope.launch {
+                        d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                     }
                 } else {
                     d.setBrowseGridFocusIndex(d.browseGridFocusIndex - 1)

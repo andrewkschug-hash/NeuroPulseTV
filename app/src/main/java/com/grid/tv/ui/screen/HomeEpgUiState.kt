@@ -36,12 +36,10 @@ internal class HomeEpgUiState {
     var hasRequestedInitialGridFocus by mutableStateOf(false)
     /** True while opening preview; blocks spurious filter focus during grid→preview transition. */
     var pendingPreviewFocus by mutableStateOf(false)
-    /** Short-press Enter on channel groups: defer until KeyUp so long-press can open favourites. */
+    /** Short-press Enter on channel groups: defer until KeyUp so long-press can toggle favourites. */
     var channelGroupsActivatePending by mutableStateOf(false)
     var channelGroupsFocusIndex by mutableIntStateOf(0)
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
     /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
     var channelGroupsPanelVisible by mutableStateOf(false)
-    var showGroupFavoriteMenu by mutableStateOf(false)
-    var groupFavoriteMenuTarget by mutableStateOf<String?>(null)
 }

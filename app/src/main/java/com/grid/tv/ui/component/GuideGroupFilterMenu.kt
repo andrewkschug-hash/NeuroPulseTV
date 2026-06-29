@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.grid.tv.R
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -148,6 +152,7 @@ fun guideFilterForMenuSelection(
     return when (row) {
         GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
         GuideGroupVisibleRow.FavoriteSectionHeader -> GuideChannelFilter(selectedGroups)
+        GuideGroupVisibleRow.FavoriteSectionEmpty -> GuideChannelFilter(selectedGroups)
         is GuideGroupVisibleRow.Group -> GuideChannelFilter(
             toggleGuideGroupSelection(selectedGroups, row.fullName)
         )
@@ -164,6 +169,7 @@ fun guideFilterRowAction(
 ): GuideChannelFilter? = when (row) {
     GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
     GuideGroupVisibleRow.FavoriteSectionHeader -> null
+    GuideGroupVisibleRow.FavoriteSectionEmpty -> null
     is GuideGroupVisibleRow.Group -> GuideChannelFilter(
         toggleGuideGroupSelection(selectedGroups, row.fullName)
     )
@@ -179,6 +185,7 @@ fun isGuideGroupRowSelected(
 ): Boolean = when (row) {
     GuideGroupVisibleRow.AllChannels -> selectedGroups.isEmpty()
     GuideGroupVisibleRow.FavoriteSectionHeader -> false
+    GuideGroupVisibleRow.FavoriteSectionEmpty -> false
     is GuideGroupVisibleRow.Group -> row.fullName in selectedGroups
     is GuideGroupVisibleRow.SelectAll -> areAllGroupsSelected(row.groupNames, selectedGroups)
     is GuideGroupVisibleRow.Category -> false
@@ -301,6 +308,7 @@ fun GuideGroupFilterMenu(
                             when (row) {
                                 GuideGroupVisibleRow.AllChannels -> "all"
                                 GuideGroupVisibleRow.FavoriteSectionHeader -> "fav_header"
+                                GuideGroupVisibleRow.FavoriteSectionEmpty -> "fav_empty"
                                 is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
@@ -309,6 +317,7 @@ fun GuideGroupFilterMenu(
                     ) { index, row ->
                         when (row) {
                             GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
+                            GuideGroupVisibleRow.FavoriteSectionEmpty -> Unit
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selectedGroups.isEmpty(),
                                 onClick = { onToggle(index) },
@@ -535,6 +544,7 @@ internal fun GuideGroupChildRow(
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     blockRemoteActivation: Boolean = false,
+    showFavoriteStar: Boolean = false,
 ) {
     GuideGroupTreeRowShell(
         label = label,
@@ -545,6 +555,7 @@ internal fun GuideGroupChildRow(
         focusRequester = focusRequester,
         onFocused = onFocused,
         blockRemoteActivation = blockRemoteActivation,
+        showFavoriteStar = showFavoriteStar,
     )
 }
 
@@ -559,6 +570,7 @@ private fun GuideGroupTreeRowShell(
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
     blockRemoteActivation: Boolean = false,
+    showFavoriteStar: Boolean = false,
 ) {
     var rowFocused by remember { mutableStateOf(false) }
     val background = when {
@@ -626,6 +638,14 @@ private fun GuideGroupTreeRowShell(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            if (showFavoriteStar) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_star_filled),
+                    contentDescription = "Favourited",
+                    tint = FavoriteGold,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
             if (checked) {
                 Text(
                     text = "✓",
@@ -638,3 +658,5 @@ private fun GuideGroupTreeRowShell(
         }
     }
 }
+
+private val FavoriteGold = Color(0xFFFFD700)

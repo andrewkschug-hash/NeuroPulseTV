@@ -90,6 +90,7 @@ fun GuideGroupsScreen(
                 onBack()
             }
             GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
+            GuideGroupVisibleRow.FavoriteSectionEmpty -> Unit
             is GuideGroupVisibleRow.Category -> {
                 expandedCategories = toggleCategoryExpansion(expandedCategories, row.categoryIndex)
             }
@@ -169,6 +170,7 @@ fun GuideGroupsScreen(
                     when (row) {
                         GuideGroupVisibleRow.AllChannels -> "all"
                         GuideGroupVisibleRow.FavoriteSectionHeader -> "fav_header"
+                        GuideGroupVisibleRow.FavoriteSectionEmpty -> "fav_empty"
                         is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
                         is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
                         is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
@@ -177,6 +179,7 @@ fun GuideGroupsScreen(
             ) { index, row ->
                 when (row) {
                     GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
+            GuideGroupVisibleRow.FavoriteSectionEmpty -> Unit
                     GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                         checked = selectedGroups.isEmpty(),
                         onClick = { activateRow(row) },

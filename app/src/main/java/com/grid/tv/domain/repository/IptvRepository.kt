@@ -251,6 +251,13 @@ interface IptvRepository {
         force: Boolean = false
     )
 
+    /**
+     * When the Series tab opens: ensure series categories exist and run a series ingest only
+     * while hydration state is [com.grid.tv.domain.model.SeriesCatalogHydrationState.NEVER_FETCHED].
+     * [VodRefreshTrigger.MANUAL_RETRY] bypasses the gate.
+     */
+    fun ensureSeriesCatalogForTab(trigger: VodRefreshTrigger = VodRefreshTrigger.VOD_HUB_MOUNT)
+
     suspend fun shouldShowWhatsNew(currentVersion: String): Boolean
     suspend fun markVersionSeen(currentVersion: String)
     suspend fun exportBackup(file: File): String

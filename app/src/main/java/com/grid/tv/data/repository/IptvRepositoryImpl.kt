@@ -116,6 +116,7 @@ import com.grid.tv.domain.model.VodCategoryNameResolver
 import com.grid.tv.domain.model.categoryBrowseRowId
 import com.grid.tv.domain.model.categoryKey
 import com.grid.tv.domain.model.VodCatalogProgress
+import com.grid.tv.domain.model.SeriesCatalogHydrationState
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.WatchHistory
@@ -227,6 +228,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val appCacheRegistry: AppCacheRegistry,
     private val startupCatalogCountsStore: StartupCatalogCountsStore,
     private val startupGroupMetadataStore: StartupGroupMetadataStore,
+    private val seriesCatalogHydrationStore: com.grid.tv.feature.vod.SeriesCatalogHydrationStore,
     private val startupSafety: com.grid.tv.feature.startup.StartupSafety,
     private val startupDiskQueue: com.grid.tv.feature.startup.StartupDiskQueue,
     private val diskIoSerialExecutor: DiskIoSerialExecutor,
@@ -2787,6 +2789,38 @@ class IptvRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun ensureSeriesCatalogForTab(trigger: VodRefreshTrigger) {
+        vodRepositoryScope.launch {
+            try {
+                refreshSeriesCategoriesIfMissing(trigger)
+                val playlistId = playlistContext.activePlaylistId.value
+                if (playlistId <= 0L) return@launch
+                val playlistSeriesCount = seriesShowDao.countByPlaylist(playlistId)
+                val hydrationState = seriesCatalogHydrationStore.resolveState(
+                    playlistId = playlistId,
+                    seriesCountOnDisk = playlistSeriesCount,
+                )
+                val manualRetry = trigger == VodRefreshTrigger.MANUAL_RETRY
+                if (!manualRetry && hydrationState != SeriesCatalogHydrationState.NEVER_FETCHED) {
+                    Log.i(
+                        VOD_FLOW_TAG,
+                        "Skipping series tab auto-fetch hydration=$hydrationState playlist=$playlistId"
+                    )
+                    return@launch
+                }
+                if (playlistSeriesCount <= 0) {
+                    refreshVodSeriesCatalog(trigger = trigger, force = manualRetry)
+                }
+            } catch (error: Throwable) {
+                Log.e(
+                    VOD_FLOW_TAG,
+                    "ensureSeriesCatalogForTab failed trigger=$trigger: ${error.message}",
+                    error
+                )
+            }
+        }
+    }
+
     override suspend fun refreshVodSeriesCatalog(
         trigger: VodRefreshTrigger,
         force: Boolean
@@ -2904,6 +2938,13 @@ class IptvRepositoryImpl @Inject constructor(
         val movies = cachedMoviesCount()
         val series = cachedSeriesCount()
         if (movies <= 0 && series <= 0) return false
+        // Movies on disk but series never ingested — not a complete catalog.
+        if (movies > 0 && series <= 0) {
+            val status = vodCatalogStatus.value
+            if (status.seriesRawLength == 0 && status.seriesError.isNullOrBlank()) {
+                return false
+            }
+        }
         return true
     }
 
@@ -2914,8 +2955,10 @@ class IptvRepositoryImpl @Inject constructor(
         return used.toDouble() / max.toDouble() >= 0.85
     }
 
-    private suspend fun needsSeriesCategoriesRefresh(): Boolean =
-        cachedSeriesCount() > 0 && seriesCategoryDao.countTotal() == 0
+    private suspend fun needsSeriesCategoriesRefresh(): Boolean {
+        if (seriesCategoryDao.countTotal() > 0) return false
+        return playlistDao.all().any { it.type == PlaylistType.XTREAM.name }
+    }
 
     private suspend fun needsVodCategoriesRefresh(): Boolean =
         cachedMoviesCount() > 0 && vodCategoryDao.countTotal() == 0
@@ -3923,12 +3966,23 @@ class IptvRepositoryImpl @Inject constructor(
 
             if (parsedCount <= 0) {
                 preserveCatalogLog(playlist.id, "series", "parsed 0 catalog entries")
+                if (isSuccessfulHttp(fetchResult.httpCode)) {
+                    seriesCatalogHydrationStore.setState(
+                        playlist.id,
+                        SeriesCatalogHydrationState.EMPTY,
+                    )
+                }
                 return@traceSuspend VodPlaylistRefreshResult(
                     rawLength = fetchResult.rawBytes.toInt(),
                     arrayLength = 0,
                     error = "Parsed 0 series entries for ${playlist.name}"
                 )
             }
+
+            seriesCatalogHydrationStore.setState(
+                playlist.id,
+                SeriesCatalogHydrationState.POPULATED,
+            )
 
             refreshCatalogCountsFromDb(
                 trigger = trigger,
@@ -4738,6 +4792,7 @@ class IptvRepositoryImpl @Inject constructor(
         seriesCategoryDao.clearAll()
         seriesShowDao.clearAll()
         vodCatalogDiskCache.clearAll()
+        seriesCatalogHydrationStore.clearAll()
         seriesSeasonsCache.clear()
         invalidateCategoryLookupCache()
         invalidateCatalogCountCache()

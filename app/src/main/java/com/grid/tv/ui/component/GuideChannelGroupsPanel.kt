@@ -55,12 +55,9 @@ fun GuideChannelGroupsPanel(
     modifier: Modifier = Modifier,
 ) {
     val visibleRows = remember(channelGroups, favoriteGroups) {
-        if (channelGroups.isEmpty() && favoriteGroups.isEmpty()) {
-            emptyList()
-        } else {
-            buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
-        }
+        buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
     }
+    val favoriteGroupSet = remember(favoriteGroups) { favoriteGroups.toSet() }
     val listState = rememberLazyListState()
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
 
@@ -108,7 +105,7 @@ fun GuideChannelGroupsPanel(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
 
-        if (groupsLoading && visibleRows.isEmpty()) {
+        if (groupsLoading && channelGroups.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -149,6 +146,16 @@ fun GuideChannelGroupsPanel(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
                         )
                     }
+                    GuideGroupVisibleRow.FavoriteSectionEmpty -> {
+                        Text(
+                            text = "Long-press a channel group to add it here.",
+                            color = EpgColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 12.sp,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
+                    }
                     GuideGroupVisibleRow.AllChannels -> {
                         val selected = isGuideGroupRowSelected(row, selectedGroups)
                         GuideGroupAllChannelsRow(
@@ -166,6 +173,8 @@ fun GuideChannelGroupsPanel(
                             append(ChannelGroupIdentity.displayLabel(row.fullName))
                             if (count > 0) append(" ($count)")
                         }
+                        val showFavoriteStar = row.listSection == GuideGroupVisibleRow.ListSection.Catalog &&
+                            row.fullName in favoriteGroupSet
                         GuideGroupChildRow(
                             label = label,
                             checked = selected,
@@ -175,6 +184,7 @@ fun GuideChannelGroupsPanel(
                             focusRequester = focusRequesterFor(row),
                             onFocused = { onFocusedIndexChange(index) },
                             blockRemoteActivation = true,
+                            showFavoriteStar = showFavoriteStar,
                         )
                     }
                     else -> Unit

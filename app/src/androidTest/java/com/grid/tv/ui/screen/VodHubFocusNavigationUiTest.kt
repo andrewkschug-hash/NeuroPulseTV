@@ -55,6 +55,8 @@ class VodHubFocusNavigationUiTest {
                 contentColIndex = 0,
                 setContentColIndex = {},
                 browseGridItemCount = { 20 },
+                browseGridCatalogTotal = { 20 },
+                isBrowseGridLoading = { false },
                 browseGridKeyAtIndex = { index -> "1_$index" },
                 activeBrowseGridState = { LazyGridState() },
                 syncFocusedWallItemKey = {},
