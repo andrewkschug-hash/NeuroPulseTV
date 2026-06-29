@@ -155,7 +155,8 @@ fun GuideChannelGroupsPanel(
                             checked = selected,
                             onClick = { onFilterChange(GuideChannelFilter.All) },
                             focusRequester = focusRequesterFor(row),
-                            onFocused = { onFocusedIndexChange(index) }
+                            onFocused = { onFocusedIndexChange(index) },
+                            blockRemoteActivation = true,
                         )
                     }
                     is GuideGroupVisibleRow.Group -> {
@@ -172,7 +173,8 @@ fun GuideChannelGroupsPanel(
                                 onFilterChange(GuideChannelFilter(setOf(row.fullName)))
                             },
                             focusRequester = focusRequesterFor(row),
-                            onFocused = { onFocusedIndexChange(index) }
+                            onFocused = { onFocusedIndexChange(index) },
+                            blockRemoteActivation = true,
                         )
                     }
                     else -> Unit

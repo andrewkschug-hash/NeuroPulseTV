@@ -174,7 +174,16 @@ internal fun isTextFieldActivateKey(event: KeyEvent): Boolean {
 /** Enter / D-pad center on TV remotes (Compose key + native keycode). */
 internal fun isTvActivateKey(event: KeyEvent): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
-    return when (event.key) {
+    return isTvActivateKeyCode(event)
+}
+
+internal fun isTvActivateKeyUp(event: KeyEvent): Boolean {
+    if (event.type != KeyEventType.KeyUp) return false
+    return isTvActivateKeyCode(event)
+}
+
+private fun isTvActivateKeyCode(event: KeyEvent): Boolean =
+    when (event.key) {
         Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> true
         else -> {
             val code = event.nativeKeyEvent.keyCode
@@ -183,6 +192,11 @@ internal fun isTvActivateKey(event: KeyEvent): Boolean {
                 code == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
         }
     }
+
+internal fun KeyEvent.isTvLongPress(): Boolean {
+    val native = nativeKeyEvent
+    return native.isLongPress ||
+        (native.flags and android.view.KeyEvent.FLAG_LONG_PRESS) != 0
 }
 
 internal suspend fun showTextFieldKeyboard(

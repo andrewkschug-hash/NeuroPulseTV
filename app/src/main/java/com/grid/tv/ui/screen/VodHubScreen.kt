@@ -456,13 +456,16 @@ fun VodHubScreen(
             )
         }
         if (contentFilter.storesBrowseGridMemory()) {
+            val count = browseGridItemCount()
             activeBrowseGridState()?.let { state ->
+                val index = if (count > 0) browseGridFocusIndex.coerceIn(0, count - 1) else 0
+                val existing = focusUi.gridMemoryFor(contentFilter)
                 focusUi.rememberGridFor(
                     contentFilter,
                     snapshotGridMemory(
                         state,
-                        browseGridFocusIndex,
-                        browseGridKeyAtIndex(browseGridFocusIndex)
+                        index,
+                        if (count > 0) browseGridKeyAtIndex(index) else existing.contentKey
                     )
                 )
             }
@@ -583,13 +586,16 @@ fun VodHubScreen(
         when (contentFilter) {
             VodContentFilter.MOVIES, VodContentFilter.SERIES -> {
                 focusUi.rememberGenreFor(contentFilter)
+                val count = browseGridItemCount()
                 activeBrowseGridState()?.let { state ->
+                    val index = if (count > 0) browseGridFocusIndex.coerceIn(0, count - 1) else 0
+                    val existing = focusUi.gridMemoryFor(contentFilter)
                     focusUi.rememberGridFor(
                         contentFilter,
                         snapshotGridMemory(
                             state,
-                            browseGridFocusIndex,
-                            browseGridKeyAtIndex(browseGridFocusIndex)
+                            index,
+                            if (count > 0) browseGridKeyAtIndex(index) else existing.contentKey
                         )
                     )
                 }
@@ -709,6 +715,13 @@ fun VodHubScreen(
     ) {
         if (!focusBootstrapComplete || activePlaylistId <= 0L) return@LaunchedEffect
         delay(400)
+        if (showBrowseGrid && browseGridItemCount() <= 0) {
+            hubViewModel.writePersistedFocus(
+                activePlaylistId,
+                snapshotVodHubFocus(focusUi, contentFilter, focusUi.focusZone),
+            )
+            return@LaunchedEffect
+        }
         saveCurrentFilterMemory()
         hubViewModel.writePersistedFocus(
             activePlaylistId,

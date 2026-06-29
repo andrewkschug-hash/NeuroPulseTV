@@ -39,10 +39,14 @@ class VodHubBrowseGridHandle {
     }
 
     fun activateFocusedIndex(index: Int) {
+        if (index < 0 || index >= itemCount) return
         activateAtIndex(index)
     }
 
-    fun contentKeyAt(index: Int): String? = keyAtIndexFn(index)
+    fun contentKeyAt(index: Int): String? {
+        if (index < 0 || index >= itemCount) return null
+        return keyAtIndexFn(index)
+    }
 }
 
 @Composable
@@ -69,10 +73,16 @@ fun VodHubMoviesBrowseSection(
         browseGridHandle.bind(
             itemCount = moviePagingItems.itemCount,
             activateAtIndex = { index ->
-                moviePagingItems[index]?.let(onItemClick)
+                if (index in 0 until moviePagingItems.itemCount) {
+                    moviePagingItems[index]?.let(onItemClick)
+                }
             },
             keyAtIndex = { index ->
-                moviePagingItems[index]?.let { "${it.playlistId}_${it.streamId}" }
+                if (index !in 0 until moviePagingItems.itemCount) {
+                    null
+                } else {
+                    moviePagingItems[index]?.let { "${it.playlistId}_${it.streamId}" }
+                }
             }
         )
     }
@@ -120,12 +130,18 @@ fun VodHubSeriesBrowseSection(
         browseGridHandle.bind(
             itemCount = seriesPagingItems.itemCount,
             activateAtIndex = { index ->
-                seriesPagingItems[index]?.let { show ->
-                    onSeriesCardClick(show.toGridCardModel())
+                if (index in 0 until seriesPagingItems.itemCount) {
+                    seriesPagingItems[index]?.let { show ->
+                        onSeriesCardClick(show.toGridCardModel())
+                    }
                 }
             },
             keyAtIndex = { index ->
-                seriesPagingItems[index]?.let { "${it.playlistId}_${it.id}" }
+                if (index !in 0 until seriesPagingItems.itemCount) {
+                    null
+                } else {
+                    seriesPagingItems[index]?.let { "${it.playlistId}_${it.id}" }
+                }
             }
         )
     }

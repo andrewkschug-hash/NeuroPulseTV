@@ -40,6 +40,8 @@ import com.grid.tv.ui.component.isFocusableGroupRow
 import com.grid.tv.ui.component.visibleRowIndexForFlatSelection
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
+import com.grid.tv.ui.component.isTvActivateKeyUp
+import com.grid.tv.ui.component.isTvLongPress
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
 import com.grid.tv.ui.component.animateScrollEpgChannelIntoView
@@ -52,7 +54,6 @@ import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import android.view.KeyEvent as AndroidKeyEvent
 
 internal const val TopBarSearchIndex = 0
 
@@ -144,6 +145,7 @@ internal class HomeEpgGuideController(
         selectChannelForPreview(channel)
         ui.detailExpanded = true
         ui.detailActionIndex = 0
+        ui.focusZone = EpgFocusZone.PREVIEW
         ui.pendingPreviewFocus = true
     }
 
@@ -151,10 +153,11 @@ internal class HomeEpgGuideController(
         if (!boundDeps.showPreviewSection) return false
         ui.focusZone = EpgFocusZone.PREVIEW
         ui.detailActionIndex = 0
-        return boundDeps.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 200)
+        return boundDeps.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 0)
     }
 
     fun openGroupFavoriteMenu(groupKey: String) {
+        ui.channelGroupsActivatePending = false
         ui.groupFavoriteMenuTarget = groupKey
         ui.showGroupFavoriteMenu = true
     }
@@ -551,17 +554,40 @@ internal class HomeEpgGuideController(
     }
 
     fun handleChannelGroupsKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
         if (!showChannelGroupsPanel()) return false
         val visibleRows = flatVisibleGroupRows()
         if (visibleRows.isEmpty()) return false
         val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex)
-        if (event.isTvLongPress() || event.key == Key.Menu) {
+
+        if (event.type == KeyEventType.KeyDown && (event.isTvLongPress() || event.key == Key.Menu)) {
             if (row is GuideGroupVisibleRow.Group) {
                 openGroupFavoriteMenu(row.fullName)
                 return true
             }
         }
+
+        if (isTvActivateKey(event) || isTvActivateKeyUp(event)) {
+            when (event.type) {
+                KeyEventType.KeyDown -> {
+                    if (event.isTvLongPress()) return true
+                    ui.channelGroupsActivatePending = true
+                    return true
+                }
+                KeyEventType.KeyUp -> {
+                    if (!ui.channelGroupsActivatePending) return true
+                    ui.channelGroupsActivatePending = false
+                    if (ui.showGroupFavoriteMenu) return true
+                    val activeRow = row ?: return true
+                    if (!activeRow.isFocusableGroupRow()) return true
+                    applyChannelGroupFilter(guideChannelFilterForVisibleRow(activeRow))
+                    focusEpgZone(EpgFocusZone.GRID)
+                    return true
+                }
+                else -> return false
+            }
+        }
+
+        if (event.type != KeyEventType.KeyDown) return false
         return when (event.key) {
             Key.Back, Key.Escape -> {
                 if (ui.showGroupFavoriteMenu) {
@@ -599,21 +625,8 @@ internal class HomeEpgGuideController(
                 }
                 true
             }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                val activeRow = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
-                if (!activeRow.isFocusableGroupRow()) return true
-                applyChannelGroupFilter(guideChannelFilterForVisibleRow(activeRow))
-                focusEpgZone(EpgFocusZone.GRID)
-                true
-            }
             else -> false
         }
-    }
-
-    private fun KeyEvent.isTvLongPress(): Boolean {
-        val native = nativeKeyEvent
-        return native.isLongPress ||
-            (native.flags and AndroidKeyEvent.FLAG_LONG_PRESS) != 0
     }
 
     fun selectDrawerItem(item: com.grid.tv.ui.component.GuideNavDrawerItem) {
@@ -733,7 +746,7 @@ internal class HomeEpgGuideController(
                     d.continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
                 }
                 EpgFocusZone.PREVIEW -> {
-                    d.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 200)
+                    d.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 0)
                 }
                 EpgFocusZone.GRID -> {
                     d.gridFocusRequester.requestFocusSafelyAfterLayout()

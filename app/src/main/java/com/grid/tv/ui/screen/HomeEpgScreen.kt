@@ -544,6 +544,7 @@ fun HomeEpgScreen(
     LaunchedEffect(isInitializing, guideSettingsLoaded, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
         if (ui.showGuideGroupPicker) return@LaunchedEffect
         if (isInitializing || !guideSettingsLoaded) return@LaunchedEffect
+        if (ui.pendingPreviewFocus || ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
         if (
             displayChannels.isNotEmpty() &&
             !ui.hasRequestedInitialGridFocus &&
@@ -559,6 +560,7 @@ fun HomeEpgScreen(
 
     LaunchedEffect(displayChannels.isEmpty(), ui.selectedTab, ui.guideSubScreen) {
         if (ui.guideSubScreen != null) return@LaunchedEffect
+        if (ui.pendingPreviewFocus || ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
         if (!displayChannels.isEmpty() || ui.focusZone != EpgFocusZone.GRID) return@LaunchedEffect
         controller.focusEpgZone(EpgFocusZone.GRID)
     }

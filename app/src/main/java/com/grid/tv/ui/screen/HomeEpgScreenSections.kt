@@ -247,7 +247,11 @@ internal fun HomeEpgScreenMainColumn(
             hasContinueWatching = deps.hasContinueWatching,
             onOpenCategoryFilter = { controller.openNavDrawer() },
             onGridFilterKey = { false },
-            onGridFocused = { ui.focusZone = EpgFocusZone.GRID },
+            onGridFocused = {
+                if (!ui.pendingPreviewFocus && ui.focusZone != EpgFocusZone.PREVIEW) {
+                    ui.focusZone = EpgFocusZone.GRID
+                }
+            },
             onGridFilterFocused = { },
             listState = listState,
             displayChannels = deps.displayChannels,

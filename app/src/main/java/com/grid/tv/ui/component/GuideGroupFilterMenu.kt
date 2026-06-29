@@ -414,6 +414,7 @@ internal fun GuideGroupAllChannelsRow(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
+    blockRemoteActivation: Boolean = false,
 ) {
     GuideGroupTreeRowShell(
         label = "All channels",
@@ -422,7 +423,8 @@ internal fun GuideGroupAllChannelsRow(
         startPadding = 20.dp,
         modifier = modifier,
         focusRequester = focusRequester,
-        onFocused = onFocused
+        onFocused = onFocused,
+        blockRemoteActivation = blockRemoteActivation,
     )
 }
 
@@ -532,6 +534,7 @@ internal fun GuideGroupChildRow(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
+    blockRemoteActivation: Boolean = false,
 ) {
     GuideGroupTreeRowShell(
         label = label,
@@ -540,7 +543,8 @@ internal fun GuideGroupChildRow(
         startPadding = 16.dp,
         modifier = modifier,
         focusRequester = focusRequester,
-        onFocused = onFocused
+        onFocused = onFocused,
+        blockRemoteActivation = blockRemoteActivation,
     )
 }
 
@@ -554,6 +558,7 @@ private fun GuideGroupTreeRowShell(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     onFocused: () -> Unit = {},
+    blockRemoteActivation: Boolean = false,
 ) {
     var rowFocused by remember { mutableStateOf(false) }
     val background = when {
@@ -572,6 +577,15 @@ private fun GuideGroupTreeRowShell(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 2.dp)
+            .then(
+                if (blockRemoteActivation) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        isTvActivateKey(event) || isTvActivateKeyUp(event)
+                    }
+                } else {
+                    Modifier
+                }
+            )
             .then(
                 if (focusRequester != null) {
                     Modifier.guideGroupRowTvFocus(
