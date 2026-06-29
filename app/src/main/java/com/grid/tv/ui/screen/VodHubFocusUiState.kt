@@ -34,6 +34,8 @@ internal val vodManualFocusZones = setOf(
 internal class VodHubFocusUiState {
     var focusZone by mutableStateOf(VodFocusZone.FILTER_PANEL)
     var navDrawerOpen by mutableStateOf(false)
+    /** Library category rail — hidden after Enter commits a category; D-pad Left from content reopens. */
+    var libraryNavPanelVisible by mutableStateOf(true)
     var navDrawerFocusIndex by mutableIntStateOf(
         guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
     )

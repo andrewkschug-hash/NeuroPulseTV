@@ -531,18 +531,19 @@ fun VodHubScreen(
         isMoviesTabRenderable(moviesOnboardingInputs, catalogProgress) ||
         !showHubUnifiedLoading
     val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
+    val showLibraryRail = showLibraryNavPanel && focusUi.libraryNavPanelVisible
     val libraryNavRailWidth = VodLibraryNavPanelCollapsedWidth
-    val libraryNavExpanded = showLibraryNavPanel && focusUi.focusZone == VodFocusZone.FILTER_PANEL
+    val libraryNavExpanded = showLibraryRail && focusUi.focusZone == VodFocusZone.FILTER_PANEL
     val librarySubPanelOpen = focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
         focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
     val showLibraryOverlayScrim = librarySubPanelOpen
-    val librarySubPanelOffset = if (libraryNavExpanded) {
-        VodLibrarySubPanelOffsetExpanded
-    } else {
-        VodLibraryNavPanelCollapsedWidth
+    val librarySubPanelOffset = when {
+        !showLibraryRail -> 0.dp
+        libraryNavExpanded -> VodLibrarySubPanelOffsetExpanded
+        else -> VodLibraryNavPanelCollapsedWidth
     }
     val libraryContentInsetTarget = when {
-        !showLibraryNavPanel -> 0.dp
+        !showLibraryRail -> 0.dp
         libraryNavExpanded -> VodLibraryNavPanelExpandedWidth
         else -> libraryNavRailWidth
     }
@@ -949,11 +950,13 @@ fun VodHubScreen(
                     when {
                         zone == VodFocusZone.CONTENT &&
                             (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) -> {
+                            focusUi.libraryNavPanelVisible = false
                             focusUi.focusZone = VodFocusZone.CONTENT
                             focusController.focusBrowseGridRestored()
                         }
                         (zone == VodFocusZone.CONTENT || zone == VodFocusZone.HERO) &&
                             filter == VodContentFilter.ALL -> {
+                            focusUi.libraryNavPanelVisible = false
                             focusUi.focusZone = VodFocusZone.CONTENT
                             focusController.focusWallContentRestored(resetToOrigin = false)
                         }
@@ -1034,7 +1037,7 @@ fun VodHubScreen(
                 !focusUi.vodSearchFocused &&
                 !focusUi.blocksGridFocus ->
                 browseGridFocusRequester.requestFocusSafelyAfterLayout()
-            focusUi.focusZone == VodFocusZone.FILTER_PANEL ->
+            focusUi.focusZone == VodFocusZone.FILTER_PANEL && focusUi.libraryNavPanelVisible ->
                 filterPanelFocusRequester.requestFocusSafelyAfterLayout()
             focusUi.focusZone == VodFocusZone.GENRE_PANEL ->
                 genrePanelFocusRequester.requestFocusSafelyAfterLayout()
@@ -2119,31 +2122,37 @@ fun VodHubScreen(
             }
                 }
                 if (showLibraryNavPanel) {
-                    VodLibraryNavPanel(
-                        selectedFilter = contentFilter,
-                        focusedIndex = focusUi.filterFocusIndex,
-                        panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
-                        languageFilterActive = languageFilterActive,
-                        tabsNavigable = hubCatalogReady,
-                        panelFocusRequester = filterPanelFocusRequester,
-                        contentFocusRequester = rootFocusRequester,
-                        navDrawerFocusRequester = navDrawerFocusRequester,
-                        genrePanelFocusRequester = if (showGenrePanel) genrePanelFocusRequester else null,
-                        onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
-                        onFocusedIndexChange = { index ->
-                            focusUi.filterFocusIndex = index
-                        },
-                        onItemSelected = { index ->
-                            if (hubCatalogReady) {
-                                commitFilterHighlight(index)
-                            }
-                        },
-                        onPreviewKey = ::handleLibraryNavPanelKey,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .fillMaxHeight()
-                            .zIndex(2f),
-                    )
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showLibraryRail,
+                        enter = slideInHorizontally { -it } + fadeIn(),
+                        exit = slideOutHorizontally { -it } + fadeOut(),
+                    ) {
+                        VodLibraryNavPanel(
+                            selectedFilter = contentFilter,
+                            focusedIndex = focusUi.filterFocusIndex,
+                            panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
+                            languageFilterActive = languageFilterActive,
+                            tabsNavigable = hubCatalogReady,
+                            panelFocusRequester = filterPanelFocusRequester,
+                            contentFocusRequester = rootFocusRequester,
+                            navDrawerFocusRequester = navDrawerFocusRequester,
+                            genrePanelFocusRequester = if (showGenrePanel) genrePanelFocusRequester else null,
+                            onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
+                            onFocusedIndexChange = { index ->
+                                focusUi.filterFocusIndex = index
+                            },
+                            onItemSelected = { index ->
+                                if (hubCatalogReady) {
+                                    commitFilterHighlight(index)
+                                }
+                            },
+                            onPreviewKey = ::handleLibraryNavPanelKey,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .fillMaxHeight()
+                                .zIndex(2f),
+                        )
+                    }
                 }
         }
         }

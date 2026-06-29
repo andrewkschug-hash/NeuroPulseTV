@@ -151,10 +151,21 @@ internal class VodHubFocusController(
         moveLibraryNavHighlight(delta)
     }
 
+    fun collapseLibraryNavPanel() {
+        ui.libraryNavPanelVisible = false
+    }
+
     fun openLibraryNavPanel() {
-        ui.rememberFilterFocus()
+        if (!d.showLibraryNavPanel) return
+        ui.libraryNavPanelVisible = true
+        val appliedIndex = vodHubTabFilterIndex(d.contentFilter)
+            .coerceIn(0, VodHubLanguageFilterFocusIndex)
+        ui.filterFocusIndex = if (ui.lastFilterFocusIndex != 0) {
+            ui.lastFilterFocusIndex.coerceIn(0, VodHubLanguageFilterFocusIndex)
+        } else {
+            appliedIndex
+        }
         transitionToZone(VodFocusZone.FILTER_PANEL, "openLibraryNav")
-        ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter).coerceIn(0, VodHubLanguageFilterFocusIndex)
         VodHubFocusLogger.filterHighlight(d.contentFilter, ui.filterFocusIndex)
         d.scope.launch {
             d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
@@ -162,6 +173,7 @@ internal class VodHubFocusController(
     }
 
     fun returnToContentFromLibraryNav(resetOrigin: Boolean = true) {
+        collapseLibraryNavPanel()
         ui.rememberFilterFocus()
         when {
             d.showBrowseGrid -> focusBrowseGridRestored(resetToOrigin = resetOrigin)
@@ -185,6 +197,7 @@ internal class VodHubFocusController(
             d.ensureValidFocus()
             return
         }
+        collapseLibraryNavPanel()
         transitionToZone(VodFocusZone.CONTENT, if (resetToOrigin) "wallOrigin" else "wallRestore")
         if (resetToOrigin) {
             d.setContentRowIndex(0)
@@ -244,6 +257,7 @@ internal class VodHubFocusController(
     }
 
     fun focusBrowseGridEmpty() {
+        collapseLibraryNavPanel()
         persistGenreFocus()
         transitionToZone(VodFocusZone.CONTENT, "gridEmpty")
         ui.awaitingBrowseGridFocus = false
@@ -265,6 +279,7 @@ internal class VodHubFocusController(
                     focusBrowseGridEmpty()
                 } else {
                     transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
+                    ui.libraryNavPanelVisible = true
                     d.scope.launch {
                         d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                     }
@@ -272,6 +287,7 @@ internal class VodHubFocusController(
             }
             VodHubFocusContentMode.Ready -> {
                 transitionToZone(VodFocusZone.FILTER_PANEL, "awaitGridTimeout")
+                ui.libraryNavPanelVisible = true
                 d.scope.launch {
                     d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
@@ -280,6 +296,7 @@ internal class VodHubFocusController(
     }
 
     fun focusBrowseGridRestored(resetToOrigin: Boolean = false) {
+        collapseLibraryNavPanel()
         persistGenreFocus()
         val count = d.browseGridItemCount()
         if (count <= 0) {
@@ -409,6 +426,7 @@ internal class VodHubFocusController(
                     d.genrePanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
                 VodFocusZone.FILTER_PANEL -> {
+                    ui.libraryNavPanelVisible = true
                     ui.filterFocusIndex = ui.lastFilterFocusIndex.coerceAtLeast(0)
                     d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
