@@ -40,4 +40,6 @@ internal class HomeEpgUiState {
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
     /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
     var channelGroupsPanelVisible by mutableStateOf(false)
+    var showGroupFavoriteMenu by mutableStateOf(false)
+    var groupFavoriteMenuTarget by mutableStateOf<String?>(null)
 }

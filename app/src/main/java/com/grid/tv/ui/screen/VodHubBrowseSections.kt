@@ -26,15 +26,23 @@ import com.grid.tv.ui.viewmodel.SeriesViewModel
 class VodHubBrowseGridHandle {
     var itemCount by mutableIntStateOf(0)
     private var activateAtIndex: (Int) -> Unit = {}
+    private var keyAtIndexFn: (Int) -> String? = { null }
 
-    fun bind(itemCount: Int, activateAtIndex: (Int) -> Unit) {
+    fun bind(
+        itemCount: Int,
+        activateAtIndex: (Int) -> Unit,
+        keyAtIndex: (Int) -> String? = { null },
+    ) {
         this.itemCount = itemCount
         this.activateAtIndex = activateAtIndex
+        this.keyAtIndexFn = keyAtIndex
     }
 
     fun activateFocusedIndex(index: Int) {
         activateAtIndex(index)
     }
+
+    fun contentKeyAt(index: Int): String? = keyAtIndexFn(index)
 }
 
 @Composable
@@ -49,14 +57,24 @@ fun VodHubMoviesBrowseSection(
     contentGridFocusRequester: FocusRequester,
     onColumnCountChanged: (Int) -> Unit,
     onNavigateUpFromFirstRow: () -> Unit,
+    restoreScrollIndex: Int = -1,
+    restoreScrollOffset: Int = 0,
+    gridRestoreRequest: VodGridFocusRestoreRequest? = null,
+    onGridRestoreComplete: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
 
     SideEffect {
-        browseGridHandle.bind(moviePagingItems.itemCount) { index ->
-            moviePagingItems[index]?.let(onItemClick)
-        }
+        browseGridHandle.bind(
+            itemCount = moviePagingItems.itemCount,
+            activateAtIndex = { index ->
+                moviePagingItems[index]?.let(onItemClick)
+            },
+            keyAtIndex = { index ->
+                moviePagingItems[index]?.let { "${it.playlistId}_${it.streamId}" }
+            }
+        )
     }
 
     VodMoviePagedGrid(
@@ -67,6 +85,10 @@ fun VodHubMoviesBrowseSection(
         gridState = gridState,
         gridFocused = gridFocused,
         focusedItemIndex = focusedItemIndex,
+        restoreScrollIndex = restoreScrollIndex,
+        restoreScrollOffset = restoreScrollOffset,
+        gridRestoreRequest = gridRestoreRequest,
+        onGridRestoreComplete = onGridRestoreComplete,
         contentGridFocusRequester = contentGridFocusRequester,
         onColumnCountChanged = onColumnCountChanged,
         onNavigateUpFromFirstRow = onNavigateUpFromFirstRow,
@@ -86,16 +108,26 @@ fun VodHubSeriesBrowseSection(
     contentGridFocusRequester: FocusRequester,
     onColumnCountChanged: (Int) -> Unit,
     onNavigateUpFromFirstRow: () -> Unit,
+    restoreScrollIndex: Int = -1,
+    restoreScrollOffset: Int = 0,
+    gridRestoreRequest: VodGridFocusRestoreRequest? = null,
+    onGridRestoreComplete: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
 
     SideEffect {
-        browseGridHandle.bind(seriesPagingItems.itemCount) { index ->
-            seriesPagingItems[index]?.let { show ->
-                onSeriesCardClick(show.toGridCardModel())
+        browseGridHandle.bind(
+            itemCount = seriesPagingItems.itemCount,
+            activateAtIndex = { index ->
+                seriesPagingItems[index]?.let { show ->
+                    onSeriesCardClick(show.toGridCardModel())
+                }
+            },
+            keyAtIndex = { index ->
+                seriesPagingItems[index]?.let { "${it.playlistId}_${it.id}" }
             }
-        }
+        )
     }
 
     VodPagedVerticalGrid(
@@ -106,6 +138,10 @@ fun VodHubSeriesBrowseSection(
         gridState = gridState,
         gridFocused = gridFocused,
         focusedItemIndex = focusedItemIndex,
+        restoreScrollIndex = restoreScrollIndex,
+        restoreScrollOffset = restoreScrollOffset,
+        gridRestoreRequest = gridRestoreRequest,
+        onGridRestoreComplete = onGridRestoreComplete,
         contentGridFocusRequester = contentGridFocusRequester,
         onColumnCountChanged = onColumnCountChanged,
         onNavigateUpFromFirstRow = onNavigateUpFromFirstRow,

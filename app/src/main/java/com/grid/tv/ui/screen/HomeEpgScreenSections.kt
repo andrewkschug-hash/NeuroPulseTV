@@ -415,7 +415,8 @@ internal fun HomeEpgPreviewBlock(
         gridFocusRequester = deps.gridFocusRequester,
         showGroupFilter = showGroupFilter,
         hasContinueWatching = deps.hasContinueWatching,
-        onFocused = { ui.focusZone = EpgFocusZone.PREVIEW }
+        onFocused = { ui.focusZone = EpgFocusZone.PREVIEW },
+        onPreviewKey = controller::handlePreviewKey
     )
 }
 
@@ -762,7 +763,8 @@ internal fun HomeEpgPreviewSection(
     gridFocusRequester: FocusRequester,
     showGroupFilter: Boolean,
     hasContinueWatching: Boolean,
-    onFocused: () -> Unit
+    onFocused: () -> Unit,
+    onPreviewKey: (KeyEvent) -> Boolean = { false }
 ) {
     val ch = channel ?: return
 
@@ -791,6 +793,7 @@ internal fun HomeEpgPreviewSection(
             }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
+            .onPreviewKeyEvent { previewFocused && onPreviewKey(it) }
     )
 }
 

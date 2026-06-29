@@ -574,7 +574,8 @@ fun VodGenreSidePanel(
     modifier: Modifier = Modifier,
     contentGridFocusRequester: FocusRequester? = null,
     entryFocusRequester: FocusRequester? = null,
-    onFocusedIndexChange: ((Int) -> Unit)? = null
+    onFocusedIndexChange: ((Int) -> Unit)? = null,
+    onPreviewKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
 ) {
     if (genres.isEmpty()) return
     val listState = rememberLazyListState()
@@ -591,7 +592,22 @@ fun VodGenreSidePanel(
             .fillMaxHeight()
             .background(Color(0xFF101010))
             .padding(vertical = 12.dp, horizontal = 8.dp)
-            .focusProperties { canFocus = false },
+            .then(
+                if (entryFocusRequester != null) {
+                    Modifier
+                        .focusRequester(entryFocusRequester)
+                        .focusable(enabled = panelFocused)
+                        .focusProperties {
+                            canFocus = panelFocused
+                            if (contentGridFocusRequester != null) {
+                                right = contentGridFocusRequester
+                            }
+                        }
+                        .onPreviewKeyEvent { onPreviewKey?.invoke(it) ?: false }
+                } else {
+                    Modifier.focusProperties { canFocus = false }
+                }
+            ),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
@@ -613,7 +629,7 @@ fun VodGenreSidePanel(
         ) {
             items(
                 count = genres.size,
-                key = { index -> index }
+                key = { index -> genres[index] }
             ) { index ->
                 val label = genres[index]
                 val selected = index == selectedIndex

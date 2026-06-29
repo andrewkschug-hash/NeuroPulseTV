@@ -51,8 +51,8 @@ object StartupTierPolicy {
     /** EPG programme rows loaded during the first bootstrap channel page. */
     fun guideBootstrapEpgChannelCount(): Int = if (LowEndDeviceMode.current().active) 16 else 32
 
-    /** Defer GROUP BY group metadata until the guide accepts input. */
-    fun guideGroupMetadataDelayMs(): Long = if (LowEndDeviceMode.current().active) 10_000L else 4_000L
+    /** Defer GROUP BY group metadata until bootstrap channel page is shown (not EPG). */
+    fun guideGroupMetadataDelayMs(): Long = if (LowEndDeviceMode.current().active) 0L else 0L
 
     /** Delay before hydrating EPG programmes after the first channel page is shown. */
     fun guideEpgHydrateDelayMs(): Long = if (LowEndDeviceMode.current().active) 800L else 300L

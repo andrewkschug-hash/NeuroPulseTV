@@ -47,6 +47,21 @@ class GuideGroupTreeTest {
 
         assertEquals(GuideGroupVisibleRow.AllChannels, rows.first())
         val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>().map { it.fullName }
-        assertEquals(listOf("AFR|", "CA| NEWS", "UK| SPORT"), groups)
+        assertEquals(listOf("UK| SPORT", "CA| NEWS", "AFR|"), groups)
+    }
+
+    @Test
+    fun `buildFlatProviderVisibleRows surfaces favourites before all channels`() {
+        val rows = buildFlatProviderVisibleRows(
+            channelGroups = listOf("Sports", "Movies", "Kids"),
+            favoriteGroups = listOf("Sports", "Kids")
+        )
+
+        assertEquals(GuideGroupVisibleRow.FavoriteSectionHeader, rows[0])
+        assertEquals("Sports", (rows[1] as GuideGroupVisibleRow.Group).fullName)
+        assertEquals("Kids", (rows[2] as GuideGroupVisibleRow.Group).fullName)
+        assertEquals(GuideGroupVisibleRow.AllChannels, rows[3])
+        val groups = rows.filterIsInstance<GuideGroupVisibleRow.Group>().map { it.fullName }
+        assertEquals(listOf("Sports", "Kids", "Movies"), groups)
     }
 }

@@ -35,6 +35,8 @@ import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideChannelFilterForVisibleRow
 import com.grid.tv.ui.component.guideFilterRowAction
 import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
+import com.grid.tv.ui.component.nextFocusableGroupRowIndex
+import com.grid.tv.ui.component.isFocusableGroupRow
 import com.grid.tv.ui.component.visibleRowIndexForFlatSelection
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
@@ -50,6 +52,7 @@ import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import android.view.KeyEvent as AndroidKeyEvent
 
 internal const val TopBarSearchIndex = 0
 
@@ -140,10 +143,31 @@ internal class HomeEpgGuideController(
         if (boundDeps.usePlaceholder || channel.streamUrl.isBlank()) return
         selectChannelForPreview(channel)
         ui.detailExpanded = true
+        ui.detailActionIndex = 0
         ui.pendingPreviewFocus = true
-        if (boundDeps.showPreviewSection) {
-            focusEpgZone(EpgFocusZone.PREVIEW)
-        }
+    }
+
+    suspend fun requestPreviewFocusAwait(): Boolean {
+        if (!boundDeps.showPreviewSection) return false
+        ui.focusZone = EpgFocusZone.PREVIEW
+        ui.detailActionIndex = 0
+        return boundDeps.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 200)
+    }
+
+    fun openGroupFavoriteMenu(groupKey: String) {
+        ui.groupFavoriteMenuTarget = groupKey
+        ui.showGroupFavoriteMenu = true
+    }
+
+    fun dismissGroupFavoriteMenu() {
+        ui.showGroupFavoriteMenu = false
+        ui.groupFavoriteMenuTarget = null
+        focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
+    }
+
+    fun toggleGroupFavoriteFromMenu() {
+        val groupKey = ui.groupFavoriteMenuTarget ?: return
+        boundDeps.viewModel.toggleFavoriteChannelGroup(groupKey)
     }
 
     fun liveScrollTarget(): Int {
@@ -440,7 +464,7 @@ internal class HomeEpgGuideController(
 
     private fun canShowChannelGroupsPanel(): Boolean =
         isLiveViewLayoutActive(ui.selectedTab, ui.guideSubScreen) &&
-            boundDeps.channelGroups.isNotEmpty()
+            (boundDeps.channelGroups.isNotEmpty() || boundDeps.viewModel.hasCatalogChannels.value)
 
     private fun showChannelGroupsPanel(): Boolean = canShowChannelGroupsPanel()
 
@@ -461,7 +485,8 @@ internal class HomeEpgGuideController(
         if (!canShowChannelGroupsPanel()) return
         ui.channelGroupsFocusIndex = visibleRowIndexForFlatSelection(
             boundDeps.channelGroups,
-            boundDeps.committedGuideFilter.selectedGroups
+            boundDeps.committedGuideFilter.selectedGroups,
+            boundDeps.viewModel.favoriteChannelGroups.value
         )
         ui.channelGroupsPanelVisible = true
         focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
@@ -477,7 +502,10 @@ internal class HomeEpgGuideController(
     }
 
     private fun flatVisibleGroupRows(): List<GuideGroupVisibleRow> =
-        buildFlatProviderVisibleRows(boundDeps.channelGroups)
+        buildFlatProviderVisibleRows(
+            boundDeps.channelGroups,
+            boundDeps.viewModel.favoriteChannelGroups.value
+        )
 
     fun previewChannelGroupForFocusedRow() {
         if (!canShowChannelGroupsPanel() || ui.focusZone != EpgFocusZone.CHANNEL_GROUPS) return
@@ -527,9 +555,20 @@ internal class HomeEpgGuideController(
         if (!showChannelGroupsPanel()) return false
         val visibleRows = flatVisibleGroupRows()
         if (visibleRows.isEmpty()) return false
+        val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex)
+        if (event.isTvLongPress() || event.key == Key.Menu) {
+            if (row is GuideGroupVisibleRow.Group) {
+                openGroupFavoriteMenu(row.fullName)
+                return true
+            }
+        }
         return when (event.key) {
             Key.Back, Key.Escape -> {
-                commitChannelGroupSelection(focusGrid = true)
+                if (ui.showGroupFavoriteMenu) {
+                    dismissGroupFavoriteMenu()
+                } else {
+                    commitChannelGroupSelection(focusGrid = true)
+                }
                 true
             }
             Key.DirectionLeft -> {
@@ -538,32 +577,43 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.DirectionRight -> {
-                applyChannelGroupFilter(guideChannelFilterForVisibleRow(visibleRows[ui.channelGroupsFocusIndex]))
+                val activeRow = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
+                if (!activeRow.isFocusableGroupRow()) return true
+                applyChannelGroupFilter(guideChannelFilterForVisibleRow(activeRow))
                 focusEpgZone(EpgFocusZone.GRID)
                 true
             }
             Key.DirectionDown -> {
-                if (ui.channelGroupsFocusIndex < visibleRows.lastIndex) {
-                    ui.channelGroupsFocusIndex += 1
+                val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = 1)
+                if (next != ui.channelGroupsFocusIndex) {
+                    ui.channelGroupsFocusIndex = next
                     previewChannelGroupForFocusedRow()
                 }
                 true
             }
             Key.DirectionUp -> {
-                if (ui.channelGroupsFocusIndex > 0) {
-                    ui.channelGroupsFocusIndex -= 1
+                val next = nextFocusableGroupRowIndex(visibleRows, ui.channelGroupsFocusIndex, delta = -1)
+                if (next != ui.channelGroupsFocusIndex) {
+                    ui.channelGroupsFocusIndex = next
                     previewChannelGroupForFocusedRow()
                 }
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
-                applyChannelGroupFilter(guideChannelFilterForVisibleRow(row))
+                val activeRow = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true
+                if (!activeRow.isFocusableGroupRow()) return true
+                applyChannelGroupFilter(guideChannelFilterForVisibleRow(activeRow))
                 focusEpgZone(EpgFocusZone.GRID)
                 true
             }
             else -> false
         }
+    }
+
+    private fun KeyEvent.isTvLongPress(): Boolean {
+        val native = nativeKeyEvent
+        return native.isLongPress ||
+            (native.flags and AndroidKeyEvent.FLAG_LONG_PRESS) != 0
     }
 
     fun selectDrawerItem(item: com.grid.tv.ui.component.GuideNavDrawerItem) {
@@ -682,8 +732,8 @@ internal class HomeEpgGuideController(
                 EpgFocusZone.CONTINUE_WATCHING -> if (d.hasContinueWatching) {
                     d.continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
                 }
-                EpgFocusZone.PREVIEW -> if (d.showPreviewSection) {
-                    d.previewFocusRequester.requestFocusSafelyAfterLayout(150)
+                EpgFocusZone.PREVIEW -> {
+                    d.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 200)
                 }
                 EpgFocusZone.GRID -> {
                     d.gridFocusRequester.requestFocusSafelyAfterLayout()
@@ -757,6 +807,7 @@ internal class HomeEpgGuideController(
                 val next = guideFilterRowAction(row, boundDeps.guideFilter.selectedGroups) ?: return
                 boundDeps.viewModel.setGuideFilter(next, markConfigured = true)
             }
+            GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
             GuideGroupVisibleRow.AllChannels -> {
                 boundDeps.viewModel.setGuideFilter(GuideChannelFilter.All, markConfigured = true)
                 ui.showCategoryFilterMenu = false

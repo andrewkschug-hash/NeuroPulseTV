@@ -12,6 +12,7 @@ import com.grid.tv.data.db.dao.EpgSourceChannelDao
 import com.grid.tv.data.db.dao.FavoriteDao
 import com.grid.tv.data.db.dao.FavoriteGroupDao
 import com.grid.tv.data.db.dao.PlaylistDao
+import com.grid.tv.data.db.dao.PlaylistFavoriteGroupDao
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.db.dao.ProfileFavoriteDao
 import com.grid.tv.data.db.dao.ProfileSettingsDao
@@ -26,6 +27,7 @@ import com.grid.tv.data.db.dao.WatchHistoryDao
 import com.grid.tv.data.db.entity.ActiveProfileEntity
 import com.grid.tv.data.db.entity.EpgSourceChannelEntity
 import com.grid.tv.data.db.entity.PlaylistEntity
+import com.grid.tv.data.db.entity.PlaylistFavoriteGroupEntity
 import com.grid.tv.data.db.entity.ProfileFavoriteEntity
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
 import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
@@ -75,9 +77,12 @@ import com.grid.tv.util.TvImageSizing
 import com.grid.tv.feature.startup.PersistedCatalogCounts
 import com.grid.tv.feature.startup.CachedCatalogCounts
 import com.grid.tv.feature.startup.StartupCatalogCountsStore
+import com.grid.tv.feature.startup.StartupGroupMetadataStore
+import com.grid.tv.feature.guide.GroupsTrace
 import com.grid.tv.util.DEFAULT_CONNECTION_TIMEOUT_SECONDS
 import com.grid.tv.util.JsonParseMetrics
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
+import com.grid.tv.util.sanitizeProfileAvatarColorHex
 import com.grid.tv.util.runVodPipelineCatching
 import com.grid.tv.domain.model.Channel
 import com.grid.tv.domain.model.ConnectionFormFields
@@ -149,6 +154,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -176,6 +182,7 @@ import javax.inject.Singleton
 class IptvRepositoryImpl @Inject constructor(
     private val database: AppDatabase,
     private val playlistDao: PlaylistDao,
+    private val playlistFavoriteGroupDao: PlaylistFavoriteGroupDao,
     private val channelDao: ChannelDao,
     private val profileDao: ProfileDao,
     private val profileFavoriteDao: ProfileFavoriteDao,
@@ -219,6 +226,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val epgDispatchers: EpgCoroutineDispatchers,
     private val appCacheRegistry: AppCacheRegistry,
     private val startupCatalogCountsStore: StartupCatalogCountsStore,
+    private val startupGroupMetadataStore: StartupGroupMetadataStore,
     private val startupSafety: com.grid.tv.feature.startup.StartupSafety,
     private val startupDiskQueue: com.grid.tv.feature.startup.StartupDiskQueue,
     private val diskIoSerialExecutor: DiskIoSerialExecutor,
@@ -888,6 +896,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata> =
         channelDao.observeGroupChannelCounts().map { rows ->
+            val startNs = System.nanoTime()
             val groups = ArrayList<String>(rows.size)
             val counts = LinkedHashMap<String, Int>(rows.size)
             rows.forEach { row ->
@@ -898,8 +907,49 @@ class IptvRepositoryImpl @Inject constructor(
                 groups += key
                 counts[key] = row.channelCount
             }
-            com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
-        }.flowOn(Dispatchers.IO)
+            val metadata = com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
+            val durationMs = (System.nanoTime() - startNs) / 1_000_000L
+            GroupsTrace.logMetadataLoaded(
+                source = "room_group_by",
+                groupCount = groups.size,
+                durationMs = durationMs,
+                cached = false
+            )
+            metadata
+        }
+            .onEach { metadata ->
+                if (metadata.groups.isNotEmpty()) {
+                    startupGroupMetadataStore.write(metadata)
+                }
+            }
+            .flowOn(Dispatchers.IO)
+
+    override fun observeFavoriteChannelGroups(playlistId: Long): Flow<List<String>> =
+        playlistFavoriteGroupDao.observeGroupKeys(playlistId).flowOn(Dispatchers.IO)
+
+    override fun observeIsFavoriteChannelGroup(playlistId: Long, groupKey: String): Flow<Boolean> =
+        playlistFavoriteGroupDao.observeIsFavorite(playlistId, groupKey).flowOn(Dispatchers.IO)
+
+    override suspend fun toggleFavoriteChannelGroup(playlistId: Long, groupKey: String) =
+        withContext(Dispatchers.IO) {
+            if (playlistFavoriteGroupDao.isFavorite(playlistId, groupKey)) {
+                playlistFavoriteGroupDao.delete(playlistId, groupKey)
+            } else {
+                val sortOrder = playlistFavoriteGroupDao.maxSortOrder(playlistId) + 1
+                playlistFavoriteGroupDao.insert(
+                    PlaylistFavoriteGroupEntity(
+                        playlistId = playlistId,
+                        groupKey = groupKey,
+                        sortOrder = sortOrder
+                    )
+                )
+            }
+        }
+
+    override suspend fun getFavoriteChannelGroups(playlistId: Long): List<String> =
+        withContext(Dispatchers.IO) {
+            playlistFavoriteGroupDao.observeGroupKeys(playlistId).first()
+        }
 
     override fun channels(
         group: String?,
@@ -1634,7 +1684,7 @@ class IptvRepositoryImpl @Inject constructor(
         val id = profileDao.upsertProfile(
             UserProfileEntity(
                 name = name,
-                avatarColor = avatarColor,
+                avatarColor = sanitizeProfileAvatarColorHex(avatarColor),
                 pin = pin,
                 isParental = isParental,
                 allowedStartMinutes = if (isParental) 7 * 60 else 0,
@@ -1655,6 +1705,8 @@ class IptvRepositoryImpl @Inject constructor(
         }
         return id
     }
+
+    override fun isGuestSession(): Boolean = guestSessionPreferences.isGuestSession()
 
     override suspend fun enterGuestSession() {
         ensureDefaultProfile()
@@ -1702,7 +1754,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun updateProfileAvatarColor(profileId: Long, avatarColor: String) {
         val profile = profileDao.getProfile(profileId) ?: return
-        profileDao.upsertProfile(profile.copy(avatarColor = avatarColor))
+        profileDao.upsertProfile(profile.copy(avatarColor = sanitizeProfileAvatarColorHex(avatarColor)))
     }
 
     override suspend fun deleteProfile(profileId: Long) {
@@ -2204,6 +2256,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     override suspend fun deletePlaylist(playlistId: Long) {
         secureCredentialStore.removePlaylistCredentials(playlistId)
+        playlistFavoriteGroupDao.deleteAllForPlaylist(playlistId)
         playlistDao.delete(playlistId)
         vodStreamDao.clearByPlaylist(playlistId)
         vodCategoryDao.clearByPlaylist(playlistId)

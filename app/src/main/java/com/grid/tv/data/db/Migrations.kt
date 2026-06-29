@@ -969,8 +969,28 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_36_37 = object : Migration(36, 37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS playlist_favorite_groups (
+                    playlistId INTEGER NOT NULL,
+                    groupKey TEXT NOT NULL,
+                    sortOrder INTEGER NOT NULL DEFAULT 0,
+                    createdAt INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(playlistId, groupKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_playlist_favorite_groups_playlistId " +
+                    "ON playlist_favorite_groups(playlistId)"
+            )
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 36
+    const val SCHEMA_VERSION = 37
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -1010,6 +1030,7 @@ object DbMigrations {
         MIGRATION_32_33,
         MIGRATION_33_34,
         MIGRATION_34_35,
-        MIGRATION_35_36
+        MIGRATION_35_36,
+        MIGRATION_36_37
     )
 }

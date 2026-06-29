@@ -23,6 +23,7 @@ import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
+import com.grid.tv.feature.startup.StartupGroupMetadataStore
 import com.grid.tv.feature.startup.StartupProfiler
 import com.grid.tv.feature.startup.StartupSafety
 import com.grid.tv.feature.startup.StartupTierPolicy
@@ -86,7 +87,8 @@ class HomeEpgViewModel @Inject constructor(
     private val playbackOrchestrator: PlaybackOrchestrator,
     private val channelScanner: ChannelScanner,
     private val epgScheduler: EpgScheduler,
-    private val startupSafety: StartupSafety
+    private val startupSafety: StartupSafety,
+    private val startupGroupMetadataStore: StartupGroupMetadataStore
 ) : ViewModel() {
 
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
@@ -238,16 +240,24 @@ class HomeEpgViewModel @Inject constructor(
 
     private val _guideGroupMetadataReady = MutableStateFlow(false)
 
-    private val _hideAdultContent = MutableStateFlow(true)
-    val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
+    private val _cachedGroupMetadata = MutableStateFlow(GuideGroupMetadata.EMPTY)
 
-    private val groupMetadata: StateFlow<GuideGroupMetadata> = _guideGroupMetadataReady
+    private val liveGroupMetadata: StateFlow<GuideGroupMetadata> = _guideGroupMetadataReady
         .flatMapLatest { ready ->
             if (ready) repository.observeGroupMetadata() else flowOf(GuideGroupMetadata.EMPTY)
         }
         .debounce(StartupTierPolicy.guideGroupMetadataDebounceMs())
         .distinctUntilChanged()
         .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GuideGroupMetadata.EMPTY)
+
+    private val groupMetadata: StateFlow<GuideGroupMetadata> = combine(
+        _cachedGroupMetadata,
+        liveGroupMetadata
+    ) { cached, live ->
+        if (live.groups.isNotEmpty()) live else cached
+    }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GuideGroupMetadata.EMPTY)
 
     val channelGroups: StateFlow<List<String>> = groupMetadata
@@ -257,6 +267,15 @@ class HomeEpgViewModel @Inject constructor(
     val groupChannelCounts: StateFlow<Map<String, Int>> = groupMetadata
         .map { it.counts }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val favoriteChannelGroups: StateFlow<List<String>> = repository.activePlaylistId()
+        .flatMapLatest { playlistId ->
+            if (playlistId <= 0L) flowOf(emptyList()) else repository.observeFavoriteChannelGroups(playlistId)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _hideAdultContent = MutableStateFlow(true)
+    val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
     /**
      * Precomputed off the main thread — one [GuideCategoryProcessor.organizeGroups] per metadata update.
@@ -299,6 +318,14 @@ class HomeEpgViewModel @Inject constructor(
     /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
     val hasCatalogChannels: StateFlow<Boolean> = repository.hasChannels()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** True while the drawer is waiting on the first metadata emission (cache or Room). */
+    val channelGroupsLoading: StateFlow<Boolean> = combine(
+        hasCatalogChannels,
+        channelGroups
+    ) { hasChannels, groups ->
+        hasChannels && groups.isEmpty()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
 
@@ -609,11 +636,26 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private suspend fun bootstrapGuideFromSettings() {
+        val cacheStartNs = System.nanoTime()
+        val cached = startupGroupMetadataStore.read()
+        if (cached.groups.isNotEmpty()) {
+            _cachedGroupMetadata.value = cached
+            val cacheMs = (System.nanoTime() - cacheStartNs) / 1_000_000L
+            GroupsTrace.logMetadataLoaded(
+                source = "prefs_cache",
+                groupCount = cached.groups.size,
+                durationMs = cacheMs,
+                cached = true
+            )
+            StartupProfiler.mark("guide_groups_cache_hydrated")
+        }
         val settings = repository.loadSettings()
         _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
         _hideAdultContent.value = settings.hideAdultContent
-        _guideFilter.value = GuideChannelFilter(settings.guideChannelGroups)
-        _guideFiltersConfigured.value = settings.guideFiltersConfigured
+        val restoredFilter = GuideChannelFilter(settings.guideChannelGroups)
+        _guideFilter.value = restoredFilter
+        _guideFiltersConfigured.value = settings.guideFiltersConfigured ||
+            restoredFilter.isActive
         withContext(Dispatchers.Main.immediate) {
             livePlayerManager.setMiniAudioEnabled(settings.miniPlayerAudioEnabled)
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
@@ -623,14 +665,17 @@ class HomeEpgViewModel @Inject constructor(
         _guideSettingsLoaded.value = true
         guideBootstrapComplete = true
         epgScheduler.scheduleEpgOnGuideOpen()
-        scheduleDeferredGuideMetadata(settings.guideChannelGroups, settings.guideFiltersConfigured)
+        enableGuideGroupMetadataSubscription(settings.guideChannelGroups, settings.guideFiltersConfigured)
         scheduleBackgroundChannelPrefetch()
     }
 
-    private fun scheduleDeferredGuideMetadata(groups: Set<String>, configured: Boolean) {
+    private fun enableGuideGroupMetadataSubscription(groups: Set<String>, configured: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            delay(StartupTierPolicy.guideGroupMetadataDelayMs())
+            if (StartupTierPolicy.guideGroupMetadataDelayMs() > 0L) {
+                delay(StartupTierPolicy.guideGroupMetadataDelayMs())
+            }
             _guideGroupMetadataReady.value = true
+            StartupProfiler.mark("guide_groups_db_subscribed")
             yield()
             deferValidateGuideFilter(groups, configured)
         }
@@ -818,6 +863,20 @@ class HomeEpgViewModel @Inject constructor(
         viewModelScope.launch {
             repository.saveGuideChannelFilter(filter.selectedGroups, configured)
         }
+    }
+
+    fun toggleFavoriteChannelGroup(groupKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val playlistId = repository.activePlaylistId().first()
+            if (playlistId <= 0L) return@launch
+            repository.toggleFavoriteChannelGroup(playlistId, groupKey)
+        }
+    }
+
+    suspend fun isFavoriteChannelGroup(groupKey: String): Boolean {
+        val playlistId = repository.activePlaylistId().first()
+        if (playlistId <= 0L) return false
+        return repository.observeIsFavoriteChannelGroup(playlistId, groupKey).first()
     }
 
     /** Extend the visible timeline forward when the user navigates past loaded data. */

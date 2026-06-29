@@ -17,8 +17,10 @@ import com.grid.tv.feature.vod.VodCatalogPartitionInputs
 import com.grid.tv.feature.vod.VodCatalogPartitions
 import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.buildVodCatalogPartitions
-import com.grid.tv.feature.vod.VodHubUiBuildInputs
 import com.grid.tv.feature.vod.VodHubUiStateBuilder
+import com.grid.tv.feature.vod.VodHubUiBuildInputs
+import com.grid.tv.ui.screen.VodHubFocusBreadcrumbStore
+import com.grid.tv.ui.screen.VodHubPersistedFocusSnapshot
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
 import com.grid.tv.feature.vod.VodLanguagePreferenceStore
 import com.grid.tv.feature.vod.VodUiState
@@ -64,6 +66,7 @@ class VodHubViewModel @Inject constructor(
     private val featuredCurationRepository: FeaturedCurationRepository,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
     private val playlistContext: PlaylistContext,
+    private val focusBreadcrumbStore: VodHubFocusBreadcrumbStore,
     private val recommendationFeedbackStore: RecommendationFeedbackStore,
     private val vodCatalogSessionStore: VodCatalogSessionStore
 ) : ViewModel() {
@@ -762,6 +765,15 @@ class VodHubViewModel @Inject constructor(
 
     fun rememberFocusedContentKey(key: String?) {
         _lastFocusedContentKey = key
+    }
+
+    val activePlaylistId = playlistContext.activePlaylistId
+
+    fun readPersistedFocus(playlistId: Long): VodHubPersistedFocusSnapshot? =
+        focusBreadcrumbStore.read(playlistId)
+
+    fun writePersistedFocus(playlistId: Long, snapshot: VodHubPersistedFocusSnapshot) {
+        focusBreadcrumbStore.write(playlistId, snapshot)
     }
 
     val catalogSampleCount: StateFlow<Int> =

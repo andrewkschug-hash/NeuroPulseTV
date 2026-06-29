@@ -17,6 +17,7 @@ import com.grid.tv.data.db.dao.FavoriteDao
 import com.grid.tv.data.db.dao.FavoriteGroupDao
 import com.grid.tv.data.db.dao.EpgSourceChannelDao
 import com.grid.tv.data.db.dao.PlaylistDao
+import com.grid.tv.data.db.dao.PlaylistFavoriteGroupDao
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.db.dao.ProfileFavoriteDao
 import com.grid.tv.data.db.dao.ProfileSettingsDao
@@ -110,6 +111,10 @@ object AppProvidesModule {
     @Provides
     fun providePlaylistDao(db: AppDatabase): PlaylistDao =
         StartupDependencyProbe.traceCreate("PlaylistDao") { db.playlistDao() }
+
+    @Provides
+    fun providePlaylistFavoriteGroupDao(db: AppDatabase): PlaylistFavoriteGroupDao =
+        StartupDependencyProbe.traceCreate("PlaylistFavoriteGroupDao") { db.playlistFavoriteGroupDao() }
 
     @Provides
     fun provideChannelDao(db: AppDatabase): ChannelDao =

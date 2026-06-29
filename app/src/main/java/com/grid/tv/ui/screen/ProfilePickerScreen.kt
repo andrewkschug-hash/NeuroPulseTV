@@ -72,6 +72,10 @@ import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.util.MAX_HOUSEHOLD_PROFILES
+import com.grid.tv.util.ProfileAvatarColors
+import com.grid.tv.util.colorToHex
+import com.grid.tv.util.parseProfileAvatarColor
+import com.grid.tv.util.profileAvatarColorForIndex
 import com.grid.tv.util.profileInitials
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -88,17 +92,6 @@ private val CardWidth = 148.dp
 private val CardHeight = 200.dp
 /** Matches profile card column; wide enough for "Continue as guest" without spanning the screen. */
 private val GuestButtonWidth = 180.dp
-
-val ProfileAvatarColors = listOf(
-    Color(0xFF1C3A6B),
-    Color(0xFF1A3D2B),
-    Color(0xFF3D1A1A),
-    Color(0xFF2A1A3D),
-    Color(0xFF1A4D5C),
-    Color(0xFF4D3A1A),
-    Color(0xFFC45C7A),
-    Color(0xFF8B3BFF)
-)
 
 @Composable
 fun ProfilePickerScreen(
@@ -307,7 +300,7 @@ fun ProfilePickerScreen(
                 restoreFocusRequester = firstProfileFocusRequester,
                 onNameChange = { newProfileName = it },
                 onConfirm = {
-                    val color = ProfileAvatarColors[profiles.size % ProfileAvatarColors.size]
+                    val color = profileAvatarColorForIndex(profiles.size)
                     val profileName = newProfileName.ifBlank { "Profile ${profiles.size + 1}" }
                     scope.launch {
                         val newId = viewModel.createProfileAndGetId(
@@ -682,14 +675,5 @@ private fun ProfileNameDialog(
     }
 }
 
-private fun parseAvatarColor(hex: String, index: Int): Color {
-    return runCatching { Color(android.graphics.Color.parseColor(hex)) }
-        .getOrElse { ProfileAvatarColors[index % ProfileAvatarColors.size] }
-}
-
-private fun colorToHex(color: Color): String {
-    val r = (color.red * 255).toInt()
-    val g = (color.green * 255).toInt()
-    val b = (color.blue * 255).toInt()
-    return String.format("#%02X%02X%02X", r, g, b)
-}
+private fun parseAvatarColor(hex: String, index: Int): Color =
+    parseProfileAvatarColor(hex, colorToHex(profileAvatarColorForIndex(index)))

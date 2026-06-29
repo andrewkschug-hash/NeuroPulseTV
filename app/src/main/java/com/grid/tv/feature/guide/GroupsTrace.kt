@@ -7,6 +7,25 @@ object GroupsTrace {
 
     const val TAG = "GROUPS_TRACE"
 
+    fun logMetadataLoaded(
+        source: String,
+        groupCount: Int,
+        durationMs: Long,
+        cached: Boolean = false,
+        thread: String = Thread.currentThread().name
+    ) {
+        Log.i(
+            TAG,
+            "[GROUPS_TRACE]\n" +
+                "operation=metadataLoaded\n" +
+                "source=$source\n" +
+                "thread=$thread\n" +
+                "groupCount=$groupCount\n" +
+                "durationMs=$durationMs\n" +
+                "cached=$cached"
+        )
+    }
+
     fun logOrganize(
         rawGroupCount: Int,
         durationMs: Long,

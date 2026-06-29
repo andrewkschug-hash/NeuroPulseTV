@@ -41,8 +41,13 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
+    fun isGuestSession(): Boolean = repository.isGuestSession()
+
     fun enterGuestSession() {
-        viewModelScope.launch { repository.enterGuestSession() }
+        viewModelScope.launch {
+            repository.enterGuestSession()
+            refreshActiveProfile()
+        }
     }
 
     suspend fun createProfileAndGetId(

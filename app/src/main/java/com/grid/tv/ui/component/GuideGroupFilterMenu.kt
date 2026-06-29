@@ -147,6 +147,7 @@ fun guideFilterForMenuSelection(
         ?: return GuideChannelFilter(selectedGroups)
     return when (row) {
         GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
+        GuideGroupVisibleRow.FavoriteSectionHeader -> GuideChannelFilter(selectedGroups)
         is GuideGroupVisibleRow.Group -> GuideChannelFilter(
             toggleGuideGroupSelection(selectedGroups, row.fullName)
         )
@@ -162,6 +163,7 @@ fun guideFilterRowAction(
     selectedGroups: Set<String>
 ): GuideChannelFilter? = when (row) {
     GuideGroupVisibleRow.AllChannels -> GuideChannelFilter.All
+    GuideGroupVisibleRow.FavoriteSectionHeader -> null
     is GuideGroupVisibleRow.Group -> GuideChannelFilter(
         toggleGuideGroupSelection(selectedGroups, row.fullName)
     )
@@ -176,6 +178,7 @@ fun isGuideGroupRowSelected(
     selectedGroups: Set<String>
 ): Boolean = when (row) {
     GuideGroupVisibleRow.AllChannels -> selectedGroups.isEmpty()
+    GuideGroupVisibleRow.FavoriteSectionHeader -> false
     is GuideGroupVisibleRow.Group -> row.fullName in selectedGroups
     is GuideGroupVisibleRow.SelectAll -> areAllGroupsSelected(row.groupNames, selectedGroups)
     is GuideGroupVisibleRow.Category -> false
@@ -297,6 +300,7 @@ fun GuideGroupFilterMenu(
                         key = { _, row ->
                             when (row) {
                                 GuideGroupVisibleRow.AllChannels -> "all"
+                                GuideGroupVisibleRow.FavoriteSectionHeader -> "fav_header"
                                 is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
@@ -304,6 +308,7 @@ fun GuideGroupFilterMenu(
                         }
                     ) { index, row ->
                         when (row) {
+                            GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selectedGroups.isEmpty(),
                                 onClick = { onToggle(index) },

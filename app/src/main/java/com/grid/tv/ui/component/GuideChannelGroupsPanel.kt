@@ -2,6 +2,7 @@ package com.grid.tv.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
@@ -37,10 +39,12 @@ val GuideChannelGroupsPanelWidth = 260.dp
 @Composable
 fun GuideChannelGroupsPanel(
     channelGroups: List<String>,
+    favoriteGroups: List<String>,
     selectedGroups: Set<String>,
     groupChannelCounts: Map<String, Int>,
     focusedIndex: Int,
     panelFocused: Boolean,
+    groupsLoading: Boolean,
     panelFocusRequester: FocusRequester,
     gridFocusRequester: FocusRequester,
     navDrawerFocusRequester: FocusRequester,
@@ -50,10 +54,12 @@ fun GuideChannelGroupsPanel(
     onFilterChange: (GuideChannelFilter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (channelGroups.isEmpty()) return
-
-    val visibleRows = remember(channelGroups) {
-        buildFlatProviderVisibleRows(channelGroups)
+    val visibleRows = remember(channelGroups, favoriteGroups) {
+        if (channelGroups.isEmpty() && favoriteGroups.isEmpty()) {
+            emptyList()
+        } else {
+            buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+        }
     }
     val listState = rememberLazyListState()
     val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -64,7 +70,9 @@ fun GuideChannelGroupsPanel(
     LaunchedEffect(panelFocused, focusedIndex, visibleRows) {
         if (!panelFocused || visibleRows.isEmpty()) return@LaunchedEffect
         val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
-        focusRequesterFor(visibleRows[index]).requestFocusSafelyAfterLayout()
+        val row = visibleRows.getOrNull(index) ?: return@LaunchedEffect
+        if (!row.isFocusableGroupRow()) return@LaunchedEffect
+        focusRequesterFor(row).requestFocusSafelyAfterLayout()
     }
 
     LaunchedEffect(focusedIndex, visibleRows) {
@@ -100,6 +108,26 @@ fun GuideChannelGroupsPanel(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         )
 
+        if (groupsLoading && visibleRows.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = "Loading groups…",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
+            return@Column
+        }
+
+        if (visibleRows.isEmpty()) return@Column
+
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -110,16 +138,28 @@ fun GuideChannelGroupsPanel(
                 visibleRows,
                 key = { _, row -> guideGroupVisibleRowKey(row) }
             ) { index, row ->
-                val selected = isGuideGroupRowSelected(row, selectedGroups)
-                val rowFocusRequester = focusRequesterFor(row)
                 when (row) {
-                    GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
-                        checked = selected,
-                        onClick = { onFilterChange(GuideChannelFilter.All) },
-                        focusRequester = rowFocusRequester,
-                        onFocused = { onFocusedIndexChange(index) }
-                    )
+                    GuideGroupVisibleRow.FavoriteSectionHeader -> {
+                        Text(
+                            text = "Your Favourites",
+                            color = EpgColors.TextDimmed,
+                            fontFamily = DmSansFamily,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                        )
+                    }
+                    GuideGroupVisibleRow.AllChannels -> {
+                        val selected = isGuideGroupRowSelected(row, selectedGroups)
+                        GuideGroupAllChannelsRow(
+                            checked = selected,
+                            onClick = { onFilterChange(GuideChannelFilter.All) },
+                            focusRequester = focusRequesterFor(row),
+                            onFocused = { onFocusedIndexChange(index) }
+                        )
+                    }
                     is GuideGroupVisibleRow.Group -> {
+                        val selected = isGuideGroupRowSelected(row, selectedGroups)
                         val count = groupChannelCounts[row.fullName] ?: 0
                         val label = buildString {
                             append(ChannelGroupIdentity.displayLabel(row.fullName))
@@ -131,7 +171,7 @@ fun GuideChannelGroupsPanel(
                             onClick = {
                                 onFilterChange(GuideChannelFilter(setOf(row.fullName)))
                             },
-                            focusRequester = rowFocusRequester,
+                            focusRequester = focusRequesterFor(row),
                             onFocused = { onFocusedIndexChange(index) }
                         )
                     }

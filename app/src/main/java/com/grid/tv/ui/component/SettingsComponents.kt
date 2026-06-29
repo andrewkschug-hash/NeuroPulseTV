@@ -55,6 +55,7 @@ import androidx.tv.material3.Text
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvTextInputSession
+import com.grid.tv.util.parseProfileAvatarColor
 import com.grid.tv.ui.viewmodel.ConnectionDialogState
 
 data class SettingsNavItem(
@@ -506,8 +507,7 @@ fun ProfileAvatarBadge(
     size: Int = 48,
     modifier: Modifier = Modifier
 ) {
-    val color = runCatching { Color(android.graphics.Color.parseColor(colorHex)) }
-        .getOrDefault(EpgColors.Accent)
+    val color = parseProfileAvatarColor(colorHex)
     Box(
         modifier = modifier
             .size(size.dp)

@@ -15,6 +15,9 @@ import com.grid.tv.util.resolveParentGroup
 sealed class GuideGroupVisibleRow {
     data object AllChannels : GuideGroupVisibleRow()
 
+    /** Non-focusable section label above favourite groups. */
+    data object FavoriteSectionHeader : GuideGroupVisibleRow()
+
     data class Category(
         val categoryIndex: Int,
         val displayName: String,
@@ -37,6 +40,7 @@ sealed class GuideGroupVisibleRow {
 
 fun guideGroupVisibleRowKey(row: GuideGroupVisibleRow): String = when (row) {
     GuideGroupVisibleRow.AllChannels -> "all"
+    GuideGroupVisibleRow.FavoriteSectionHeader -> "fav_header"
     is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
     is GuideGroupVisibleRow.SelectAll -> "select_all_${row.categoryIndex}"
     is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
@@ -109,34 +113,57 @@ fun buildVisibleGuideGroupRows(
 /** Flat provider groups straight from M3U/Xtream (`group-title` / live categories). */
 fun buildFlatProviderVisibleRows(
     channelGroups: List<String>,
+    favoriteGroups: List<String> = emptyList(),
 ): List<GuideGroupVisibleRow> = buildList {
-    add(GuideGroupVisibleRow.AllChannels)
-    channelGroups
-        .sortedWith(
-            compareBy(String.CASE_INSENSITIVE_ORDER) {
-                com.grid.tv.domain.model.ChannelGroupIdentity.displayLabel(it)
-            }
-        )
-        .forEach { fullName ->
+    val favoriteSet = favoriteGroups.toSet()
+    val remaining = channelGroups.filter { it !in favoriteSet }
+    if (favoriteGroups.isNotEmpty()) {
+        add(GuideGroupVisibleRow.FavoriteSectionHeader)
+        favoriteGroups.forEach { fullName ->
             add(GuideGroupVisibleRow.Group(fullName = fullName, categoryIndex = -1))
         }
+    }
+    add(GuideGroupVisibleRow.AllChannels)
+    remaining.forEach { fullName ->
+        add(GuideGroupVisibleRow.Group(fullName = fullName, categoryIndex = -1))
+    }
+}
+
+fun GuideGroupVisibleRow.isFocusableGroupRow(): Boolean = when (this) {
+    GuideGroupVisibleRow.AllChannels,
+    is GuideGroupVisibleRow.Group -> true
+    else -> false
+}
+
+fun nextFocusableGroupRowIndex(rows: List<GuideGroupVisibleRow>, from: Int, delta: Int): Int {
+    if (rows.isEmpty()) return 0
+    var index = from
+    repeat(rows.size) {
+        index = (index + delta).coerceIn(0, rows.lastIndex)
+        if (rows[index].isFocusableGroupRow()) return index
+    }
+    return from.coerceIn(0, rows.lastIndex)
 }
 
 fun visibleRowIndexForFlatSelection(
     channelGroups: List<String>,
-    selectedGroups: Set<String>
+    selectedGroups: Set<String>,
+    favoriteGroups: List<String> = emptyList(),
 ): Int {
-    if (selectedGroups.isEmpty()) return 0
-    val rows = buildFlatProviderVisibleRows(channelGroups)
+    if (selectedGroups.isEmpty()) {
+        return if (favoriteGroups.isNotEmpty()) 1 else 0
+    }
+    val rows = buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
     val target = selectedGroups.first()
     return rows.indexOfFirst { row ->
         row is GuideGroupVisibleRow.Group && row.fullName == target
-    }.coerceAtLeast(0)
+    }.coerceAtLeast(if (favoriteGroups.isNotEmpty()) 1 else 0)
 }
 
 fun guideChannelFilterForVisibleRow(row: GuideGroupVisibleRow): com.grid.tv.feature.epg.GuideChannelFilter =
     when (row) {
         GuideGroupVisibleRow.AllChannels -> com.grid.tv.feature.epg.GuideChannelFilter.All
+        GuideGroupVisibleRow.FavoriteSectionHeader -> com.grid.tv.feature.epg.GuideChannelFilter.All
         is GuideGroupVisibleRow.Group -> com.grid.tv.feature.epg.GuideChannelFilter(setOf(row.fullName))
         is GuideGroupVisibleRow.SelectAll -> com.grid.tv.feature.epg.GuideChannelFilter(row.groupNames.toSet())
         is GuideGroupVisibleRow.Category -> com.grid.tv.feature.epg.GuideChannelFilter.All

@@ -184,7 +184,8 @@ fun GridProfileAvatar(
             .tvFocusBorder(
                 focused = showFocused,
                 shape = CircleShape,
-                unfocusedColor = Color.Transparent
+                unfocusedColor = Color.Transparent,
+                focusedColor = EpgColors.LiveGuideFocus
             ),
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         colors = ClickableSurfaceDefaults.colors(
@@ -204,7 +205,7 @@ fun GridProfileAvatar(
                     .background(avatarColor)
                     .border(
                         width = 2.dp,
-                        color = if (showFocused) EpgColors.Accent else Color.White.copy(alpha = 0.15f),
+                        color = if (showFocused) EpgColors.LiveGuideFocus else Color.White.copy(alpha = 0.15f),
                         shape = CircleShape
                     ),
                 contentAlignment = Alignment.Center

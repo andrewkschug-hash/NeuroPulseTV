@@ -35,6 +35,12 @@ interface IptvRepository {
     fun groupChannelCounts(): Flow<Map<String, Int>>
     /** Single Room emission — groups + counts derived together (avoids duplicate GROUP BY work). */
     fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata>
+
+    /** Favourite live channel groups for the active playlist (not profile channel groups). */
+    fun observeFavoriteChannelGroups(playlistId: Long): Flow<List<String>>
+    fun observeIsFavoriteChannelGroup(playlistId: Long, groupKey: String): Flow<Boolean>
+    suspend fun toggleFavoriteChannelGroup(playlistId: Long, groupKey: String)
+    suspend fun getFavoriteChannelGroups(playlistId: Long): List<String>
     fun channels(group: String?, search: String, favoritesOnly: Boolean, favoriteGroupId: Long? = null): Flow<List<Channel>>
     suspend fun channelsPage(
         groups: Set<String> = emptySet(),
@@ -88,6 +94,7 @@ interface IptvRepository {
     suspend fun verifyProfilePin(profileId: Long, pin: String): Boolean
     suspend fun purgeDefaultProfiles()
     suspend fun enterGuestSession()
+    fun isGuestSession(): Boolean
     suspend fun activeProfileId(): Long
     suspend fun activeProfile(): UserProfile?
 

@@ -14,6 +14,7 @@ import com.grid.tv.data.db.dao.EpgResolutionSuggestionDao
 import com.grid.tv.data.db.dao.FavoriteDao
 import com.grid.tv.data.db.dao.FavoriteGroupDao
 import com.grid.tv.data.db.dao.PlaylistDao
+import com.grid.tv.data.db.dao.PlaylistFavoriteGroupDao
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.db.dao.ProfileFavoriteDao
 import com.grid.tv.data.db.dao.ProfileSettingsDao
@@ -53,6 +54,7 @@ import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.data.db.entity.FeaturedBannerStatsEntity
 import com.grid.tv.data.db.entity.ProfileGenreAffinityEntity
 import com.grid.tv.data.db.entity.PlaylistEntity
+import com.grid.tv.data.db.entity.PlaylistFavoriteGroupEntity
 import com.grid.tv.data.db.entity.ProfileFavoriteEntity
 import com.grid.tv.data.db.entity.ProfileSettingsEntity
 import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
@@ -91,6 +93,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
 @Database(
     entities = [
         PlaylistEntity::class,
+        PlaylistFavoriteGroupEntity::class,
         ChannelEntity::class,
         FavoriteEntity::class,
         ProgramEntity::class,
@@ -139,6 +142,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao
+    abstract fun playlistFavoriteGroupDao(): PlaylistFavoriteGroupDao
     abstract fun channelDao(): ChannelDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun programDao(): ProgramDao

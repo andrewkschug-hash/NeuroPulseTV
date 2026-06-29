@@ -80,6 +80,7 @@ fun GuideGroupPickerDialog(
     fun activateRow(row: GuideGroupVisibleRow) {
         when (row) {
             GuideGroupVisibleRow.AllChannels -> selection = emptySet()
+            GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
             is GuideGroupVisibleRow.Category -> {
                 expandedCategories = toggleCategoryExpansion(expandedCategories, row.categoryIndex)
             }
@@ -178,6 +179,7 @@ fun GuideGroupPickerDialog(
                         key = { _, row ->
                             when (row) {
                                 GuideGroupVisibleRow.AllChannels -> "all"
+                                GuideGroupVisibleRow.FavoriteSectionHeader -> "fav_header"
                                 is GuideGroupVisibleRow.Category -> "cat_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.SelectAll -> "all_${row.categoryIndex}"
                                 is GuideGroupVisibleRow.Group -> "grp_${row.fullName}"
@@ -185,6 +187,7 @@ fun GuideGroupPickerDialog(
                         }
                     ) { index, row ->
                         when (row) {
+                            GuideGroupVisibleRow.FavoriteSectionHeader -> Unit
                             GuideGroupVisibleRow.AllChannels -> GuideGroupAllChannelsRow(
                                 checked = selection.isEmpty(),
                                 onClick = { activateRow(row) },

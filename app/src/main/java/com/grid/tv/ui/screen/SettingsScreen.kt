@@ -71,7 +71,7 @@ import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.SettingsFocusButton
 import com.grid.tv.ui.component.SettingsFocusProfileRow
 import com.grid.tv.ui.component.SettingsFocusToggleRow
-import com.grid.tv.ui.screen.ProfileAvatarColors
+import com.grid.tv.util.ProfileAvatarColors
 import com.grid.tv.ui.component.PinEntryDialog
 import com.grid.tv.ui.component.ConnectionLoadingOverlay
 import com.grid.tv.ui.component.ConnectionResultDialog
@@ -977,7 +977,8 @@ private fun ProfileSettingsContent(
         }
         SettingsActiveProfileRow(
             initials = activeProfile?.name?.take(2)?.uppercase() ?: "?",
-            avatarColorHex = activeProfile?.avatarColor ?: "#3B8FFF",
+            avatarColorHex = activeProfile?.avatarColor?.let { com.grid.tv.util.sanitizeProfileAvatarColorHex(it) }
+                ?: com.grid.tv.util.DEFAULT_PROFILE_AVATAR_COLOR,
             title = activeProfile?.name ?: "No profile",
             subtitle = parental,
             onClick = onManageProfiles,

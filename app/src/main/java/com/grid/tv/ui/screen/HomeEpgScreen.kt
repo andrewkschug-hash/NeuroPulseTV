@@ -40,6 +40,7 @@ import com.grid.tv.player.LowEndDeviceMode
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.GuideChannelGroupsPanel
+import com.grid.tv.ui.component.GuideGroupFavoriteMenuDialog
 import com.grid.tv.ui.component.GuideNavDrawer
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
@@ -141,6 +142,8 @@ fun HomeEpgScreen(
     val isReloadingChannels = chrome.isReloadingChannels
     val channelGroups by viewModel.channelGroups.collectAsStateWithLifecycle()
     val groupChannelCounts by viewModel.groupChannelCounts.collectAsStateWithLifecycle()
+    val favoriteChannelGroups by viewModel.favoriteChannelGroups.collectAsStateWithLifecycle()
+    val channelGroupsLoading by viewModel.channelGroupsLoading.collectAsStateWithLifecycle()
     val organizedGuideGroups by viewModel.organizedGuideGroups.collectAsStateWithLifecycle()
     val hasCatalogChannels = chrome.hasCatalogChannels
     val demoFavoriteIds = chrome.demoFavoriteIds
@@ -433,7 +436,6 @@ fun HomeEpgScreen(
         }
         if (!hasCatalogChannels || channelGroups.isEmpty()) return@LaunchedEffect
         if (LowEndDeviceMode.current().active) return@LaunchedEffect
-        delay(StartupTierPolicy.guideGroupMetadataDelayMs())
         if (!guideFiltersConfigured && channelGroups.isNotEmpty()) {
             ui.guideSubScreen = GuideSubScreen.Groups
         }
@@ -569,8 +571,10 @@ fun HomeEpgScreen(
 
     LaunchedEffect(showPreviewSection, previewChannelId, ui.pendingPreviewFocus) {
         if (!showPreviewSection || !ui.pendingPreviewFocus) return@LaunchedEffect
-        controller.focusEpgZone(EpgFocusZone.PREVIEW)
-        ui.pendingPreviewFocus = false
+        val focused = controller.requestPreviewFocusAwait()
+        if (focused) {
+            ui.pendingPreviewFocus = false
+        }
     }
 
     Box(
@@ -607,16 +611,18 @@ fun HomeEpgScreen(
                     }
                 )
                 AnimatedVisibility(
-                    visible = liveViewActive && channelGroups.isNotEmpty(),
+                    visible = liveViewActive && hasCatalogChannels,
                     enter = slideInHorizontally { -it } + fadeIn(),
                     exit = slideOutHorizontally { -it } + fadeOut()
                 ) {
                     GuideChannelGroupsPanel(
                         channelGroups = channelGroups,
+                        favoriteGroups = favoriteChannelGroups,
                         selectedGroups = displayGuideFilter.selectedGroups,
                         groupChannelCounts = groupChannelCounts,
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
+                        groupsLoading = channelGroupsLoading,
                         panelFocusRequester = channelGroupsPanelFocusRequester,
                         gridFocusRequester = gridFocusRequester,
                         navDrawerFocusRequester = navDrawerFocusRequester,
@@ -698,6 +704,16 @@ fun HomeEpgScreen(
             favoriteSavedMessage = favoriteSavedMessage,
             recordingViewModel = recordingViewModel,
         )
+
+        val favoriteMenuTarget = ui.groupFavoriteMenuTarget
+        if (ui.showGroupFavoriteMenu && favoriteMenuTarget != null) {
+            GuideGroupFavoriteMenuDialog(
+                groupKey = favoriteMenuTarget,
+                isFavorite = favoriteMenuTarget in favoriteChannelGroups,
+                onToggleFavorite = controller::toggleGroupFavoriteFromMenu,
+                onDismiss = controller::dismissGroupFavoriteMenu
+            )
+        }
 
         ProfileMenuDropdown(
             expanded = ui.profileMenuOpen,
