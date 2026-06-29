@@ -15,7 +15,6 @@ import com.grid.tv.feature.vod.resolveVodWallFocus
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.SidebarContentFocus
 import com.grid.tv.ui.component.SidebarContentFocus.isLeadingGridColumn
-import com.grid.tv.ui.component.SidebarContentFocus.shouldEnterContentFromHeader
 import com.grid.tv.ui.component.SidebarContentFocus.shouldEnterSidebarFromContent
 import com.grid.tv.ui.component.SidebarContentFocus.sidebarHorizontalResult
 import com.grid.tv.ui.component.GuideNavDrawerItems
@@ -42,6 +41,7 @@ internal data class VodHubFocusDeps(
     val contentFilter: VodContentFilter,
     val searchQuery: String,
     val showGenrePanel: Boolean,
+    val showLibraryNavPanel: Boolean,
     val showBrowseGrid: Boolean,
     val showInlineSearch: Boolean,
     val hasHero: Boolean,
@@ -86,6 +86,7 @@ internal data class VodHubFocusDeps(
     val moviesBrowseGridActivate: (Int) -> Unit,
     val seriesBrowseGridActivate: (Int) -> Unit,
     val ensureValidFocus: () -> Unit,
+    val hubTabsNavigable: () -> Boolean = { true },
 )
 
 internal class VodHubFocusController(
@@ -126,9 +127,12 @@ internal class VodHubFocusController(
         }
     }
 
-    fun moveFilterHighlight(delta: Int) {
+    fun moveLibraryNavHighlight(delta: Int) {
         val nextIndex = (ui.filterFocusIndex + delta).coerceIn(0, VodHubLanguageFilterFocusIndex)
         if (nextIndex == ui.filterFocusIndex) return
+        if (!d.hubTabsNavigable() && nextIndex < VodHubLanguageFilterFocusIndex) {
+            return
+        }
         ui.filterFocusIndex = nextIndex
         if (nextIndex < VodHubLanguageFilterFocusIndex) {
             VodHubTabFilters.getOrNull(nextIndex)?.let { filter ->
@@ -138,24 +142,63 @@ internal class VodHubFocusController(
         }
     }
 
-    fun commitFocusedFilterHighlight() {
-        if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-            d.openLanguagePreferenceDialog()
-            return
-        }
-        d.commitFilterHighlight(ui.filterFocusIndex)
+    fun moveFilterHighlight(delta: Int) {
+        moveLibraryNavHighlight(delta)
     }
 
-    fun focusFilterPanelFromGenre() {
-        persistGenreFocus()
-        transitionToZone(VodFocusZone.FILTER_PANEL)
-        ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter)
+    fun openLibraryNavPanel() {
         ui.rememberFilterFocus()
+        transitionToZone(VodFocusZone.FILTER_PANEL, "openLibraryNav")
+        ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter).coerceIn(0, VodHubLanguageFilterFocusIndex)
         VodHubFocusLogger.filterHighlight(d.contentFilter, ui.filterFocusIndex)
         d.scope.launch {
             d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
+
+    fun returnToContentFromLibraryNav(resetOrigin: Boolean = true) {
+        ui.rememberFilterFocus()
+        transitionToZone(VodFocusZone.CONTENT, "libraryNavRight")
+        when {
+            d.showBrowseGrid -> focusBrowseGridRestored(resetToOrigin = resetOrigin)
+            d.showInlineSearch -> d.focusInlineSearchField()
+            d.hasHero && d.searchQuery.isBlank() && d.contentFilter == VodContentFilter.ALL -> {
+                transitionToZone(VodFocusZone.HERO)
+                d.scope.launch {
+                    d.heroPlayFocusRequester.requestFocusSafelyAfterLayout()
+                }
+            }
+            d.displayWallRows.isNotEmpty() -> {
+                d.setContentRowIndex(0)
+                d.setContentColIndex(0)
+                d.syncFocusedWallItemKey()
+                d.scope.launch {
+                    d.rootFocusRequester.requestFocusSafelyAfterLayout()
+                }
+            }
+            else -> {
+                d.ensureValidFocus()
+            }
+        }
+    }
+
+    fun commitFocusedFilterHighlight() {
+        if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
+            d.openLanguagePreferenceDialog()
+            return
+        }
+        if (!d.hubTabsNavigable() && ui.filterFocusIndex < VodHubLanguageFilterFocusIndex) {
+            val filter = VodHubTabFilters.getOrNull(ui.filterFocusIndex)
+            if (filter != null && filter != d.contentFilter) return
+        }
+        d.commitFilterHighlight(ui.filterFocusIndex)
+    }
+
+    fun focusFilterPanelFromGenre() {
+        openLibraryNavPanel()
+    }
+
+    fun focusLibraryNavFromGenre() = focusFilterPanelFromGenre()
 
     fun focusGenrePanelFromFilter() {
         ui.rememberFilterFocus()
@@ -215,7 +258,7 @@ internal class VodHubFocusController(
         }
     }
 
-    fun focusBrowseGridRestored() {
+    fun focusBrowseGridRestored(resetToOrigin: Boolean = false) {
         persistGenreFocus()
         val count = d.browseGridItemCount()
         if (count <= 0) {
@@ -251,12 +294,16 @@ internal class VodHubFocusController(
         val gridState = d.activeBrowseGridState()
         val firstVisible = gridState?.firstVisibleItemIndex ?: 0
         val memory = ui.gridMemoryFor(d.contentFilter)
-        val resolved = resolveBrowseGridFocusIndex(
-            itemCount = count,
-            saved = memory,
-            keyAtIndex = d.browseGridKeyAtIndex,
-            firstVisibleIndex = firstVisible,
-        )
+        val resolved = if (resetToOrigin) {
+            0
+        } else {
+            resolveBrowseGridFocusIndex(
+                itemCount = count,
+                saved = memory,
+                keyAtIndex = d.browseGridKeyAtIndex,
+                firstVisibleIndex = firstVisible,
+            )
+        }
         val key = d.browseGridKeyAtIndex(resolved)
         ui.rememberGridFor(
             d.contentFilter,
@@ -297,9 +344,10 @@ internal class VodHubFocusController(
 
     fun focusContentFromFilters() {
         ui.rememberFilterFocus()
+        ui.contentScrollDirection = TvLazyFocusScrollDirection.NEUTRAL
         when {
             d.showInlineSearch -> d.focusInlineSearchField()
-            d.showBrowseGrid -> focusBrowseGridRestored()
+            d.showBrowseGrid -> focusBrowseGridRestored(resetToOrigin = true)
             d.hasHero && d.searchQuery.isBlank() -> {
                 transitionToZone(VodFocusZone.HERO)
                 d.scope.launch {
@@ -371,6 +419,10 @@ internal class VodHubFocusController(
             Key.DirectionRight -> {
                 if (ui.navDrawerFocusIndex == GuideNavDrawerProfileFocusIndex) {
                     ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
+                } else if (d.showLibraryNavPanel) {
+                    ui.rememberNavDrawerFocus()
+                    ui.navDrawerOpen = false
+                    openLibraryNavPanel()
                 } else {
                     ui.rememberNavDrawerFocus()
                     closeNavDrawerToContentZone()
@@ -405,48 +457,48 @@ internal class VodHubFocusController(
         }
     }
 
-    fun handleFilterPanelKey(event: KeyEvent): Boolean {
+    fun handleLibraryNavPanelKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
         if (d.navDrawerOpen) return false
         if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
         return when (event.key) {
             Key.DirectionLeft -> {
-                if (ui.filterFocusIndex > 0) {
-                    moveFilterHighlight(-1)
-                } else {
-                    ui.rememberFilterFocus()
-                    d.openNavDrawer()
-                }
-                true
-            }
-            Key.DirectionRight -> {
-                if (ui.filterFocusIndex < VodHubLanguageFilterFocusIndex) {
-                    moveFilterHighlight(1)
-                }
-                true
-            }
-            Key.DirectionDown -> {
-                if (shouldEnterContentFromHeader(event.key)) {
-                    if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-                        d.openLanguagePreferenceDialog()
-                    } else {
-                        focusContentFromFilters()
-                    }
-                }
-                true
-            }
-            Key.DirectionUp -> {
                 ui.rememberFilterFocus()
                 d.openNavDrawer()
                 true
             }
+            Key.DirectionRight -> {
+                if (d.hubTabsNavigable()) {
+                    returnToContentFromLibraryNav(resetOrigin = true)
+                }
+                true
+            }
+            Key.DirectionDown -> {
+                if (ui.filterFocusIndex < VodHubLanguageFilterFocusIndex) {
+                    moveLibraryNavHighlight(1)
+                }
+                true
+            }
+            Key.DirectionUp -> {
+                if (ui.filterFocusIndex > 0) {
+                    moveLibraryNavHighlight(-1)
+                }
+                true
+            }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                commitFocusedFilterHighlight()
+                if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
+                    d.openLanguagePreferenceDialog()
+                } else if (d.hubTabsNavigable()) {
+                    commitFocusedFilterHighlight()
+                    returnToContentFromLibraryNav(resetOrigin = true)
+                }
                 true
             }
             else -> false
         }
     }
+
+    fun handleFilterPanelKey(event: KeyEvent): Boolean = handleLibraryNavPanelKey(event)
 
     fun handleGenrePanelKey(event: KeyEvent): Boolean {
         if (event.type != KeyEventType.KeyDown) return false
@@ -469,15 +521,13 @@ internal class VodHubFocusController(
             }
             Key.DirectionLeft -> {
                 persistGenreFocus()
-                when (sidebarHorizontalResult(event.key, allowLeftToRail = true)) {
-                    SidebarContentFocus.SidebarHorizontalResult.OpenRail -> d.openNavDrawer()
-                    else -> Unit
-                }
+                openLibraryNavPanel()
                 true
             }
             Key.DirectionRight -> {
                 when (sidebarHorizontalResult(event.key, allowLeftToRail = false)) {
-                    SidebarContentFocus.SidebarHorizontalResult.ReturnToContent -> focusBrowseGridRestored()
+                    SidebarContentFocus.SidebarHorizontalResult.ReturnToContent ->
+                        focusBrowseGridRestored()
                     else -> Unit
                 }
                 true
@@ -498,6 +548,7 @@ internal class VodHubFocusController(
         val lastIndex = itemCount - 1
         val handled = when (event.key) {
             Key.DirectionLeft -> {
+                ui.contentScrollDirection = TvLazyFocusScrollDirection.NEUTRAL
                 if (shouldEnterSidebarFromContent(
                         event.key,
                         atLeadingEdge = isLeadingGridColumn(d.browseGridFocusIndex, columns),
@@ -505,13 +556,9 @@ internal class VodHubFocusController(
                     )
                 ) {
                     focusGenrePanelFromGrid()
-                } else if (isLeadingGridColumn(d.browseGridFocusIndex, columns)) {
+                } else if (isLeadingGridColumn(d.browseGridFocusIndex, columns) && d.showLibraryNavPanel) {
                     persistGridFocus()
-                    transitionToZone(VodFocusZone.FILTER_PANEL, "gridLeft")
-                    ui.filterFocusIndex = vodHubTabFilterIndex(d.contentFilter)
-                    d.scope.launch {
-                        d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-                    }
+                    openLibraryNavPanel()
                 } else {
                     d.setBrowseGridFocusIndex(d.browseGridFocusIndex - 1)
                     persistGridFocus()
@@ -519,6 +566,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.DirectionRight -> {
+                ui.contentScrollDirection = TvLazyFocusScrollDirection.NEUTRAL
                 val column = d.browseGridFocusIndex % columns
                 if (column < columns - 1 && d.browseGridFocusIndex < lastIndex) {
                     d.setBrowseGridFocusIndex(d.browseGridFocusIndex + 1)
@@ -527,6 +575,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.DirectionUp -> {
+                ui.contentScrollDirection = TvLazyFocusScrollDirection.UP
                 if (d.browseGridFocusIndex >= columns) {
                     d.setBrowseGridFocusIndex(d.browseGridFocusIndex - columns)
                     persistGridFocus()
@@ -536,6 +585,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.DirectionDown -> {
+                ui.contentScrollDirection = TvLazyFocusScrollDirection.DOWN
                 val next = d.browseGridFocusIndex + columns
                 if (next <= lastIndex) {
                     d.setBrowseGridFocusIndex(next)
@@ -573,6 +623,8 @@ internal class VodHubFocusController(
             Key.DirectionLeft -> {
                 if (d.contentColIndex > 0) {
                     d.setContentColIndex(d.contentColIndex - 1)
+                } else if (d.showLibraryNavPanel) {
+                    openLibraryNavPanel()
                 } else {
                     d.openNavDrawer()
                 }

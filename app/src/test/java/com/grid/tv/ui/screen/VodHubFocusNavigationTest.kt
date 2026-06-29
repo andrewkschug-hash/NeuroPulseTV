@@ -38,6 +38,7 @@ class VodHubFocusNavigationTest {
                 contentFilter = contentFilter,
                 searchQuery = "",
                 showGenrePanel = true,
+                showLibraryNavPanel = true,
                 showBrowseGrid = true,
                 showInlineSearch = false,
                 hasHero = false,
@@ -96,6 +97,14 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
+    fun moveLibraryNavHighlight_stepsVerticallyWithoutZoneChange() {
+        val (ui, controller) = setupController(filterIndex = 1)
+        controller.moveLibraryNavHighlight(1)
+        assertEquals(2, ui.filterFocusIndex)
+        assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
+    }
+
+    @Test
     fun moveFilterHighlight_stepsAcrossTabsWithoutZoneChange() {
         val (ui, controller) = setupController(filterIndex = 1)
         controller.moveFilterHighlight(1)
@@ -109,6 +118,15 @@ class VodHubFocusNavigationTest {
         controller.focusGenrePanelFromGrid()
         assertEquals(VodFocusZone.GENRE_PANEL, ui.focusZone)
         assertEquals(2, ui.genreFocusIndex)
+    }
+
+    @Test
+    fun focusContentFromFilters_entersGridAtOrigin() {
+        val (ui, controller) = setupController(browseIndex = 5)
+        ui.focusZone = VodFocusZone.FILTER_PANEL
+        controller.focusContentFromFilters()
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(0, ui.gridMemoryFor(VodContentFilter.MOVIES).itemIndex)
     }
 
     @Test

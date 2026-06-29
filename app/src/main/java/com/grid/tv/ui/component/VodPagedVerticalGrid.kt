@@ -16,7 +16,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -29,34 +28,8 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.ui.viewmodel.VodCatalogPager
 import com.grid.tv.ui.screen.VodGridFocusRestoreRequest
-import com.grid.tv.ui.screen.awaitGridItemVisible
 import com.grid.tv.ui.screen.restoreGridFocusAnimated
 import kotlinx.coroutines.flow.distinctUntilChanged
-
-private fun LazyGridState.visibleColumnCount(fallback: Int = 4): Int {
-    val info = layoutInfo
-    if (info.visibleItemsInfo.isEmpty()) return fallback
-    val firstRow = info.visibleItemsInfo.first().row
-    return info.visibleItemsInfo.count { it.row == firstRow }.coerceAtLeast(1)
-}
-
-private suspend fun maybePrefetchRowAhead(
-    gridState: LazyGridState,
-    focusedIndex: Int,
-    itemCount: Int,
-) {
-    if (itemCount <= 0 || focusedIndex < 0) return
-    val columns = gridState.visibleColumnCount()
-    val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: return
-    val focusedRow = focusedIndex / columns
-    val lastVisibleRow = lastVisible / columns
-    if (focusedRow >= lastVisibleRow - 1) {
-        val target = ((focusedRow + 2) * columns).coerceAtMost(itemCount - 1)
-        if (target > lastVisible) {
-            gridState.scrollToItem(target)
-        }
-    }
-}
 
 @Composable
 private fun VodGridPrefetchEffect(
@@ -79,19 +52,6 @@ private fun VodGridPrefetchEffect(
 }
 
 @Composable
-private fun VodGridPredictiveScrollEffect(
-    gridState: LazyGridState,
-    focusedItemIndex: Int,
-    itemCount: Int,
-    gridFocused: Boolean,
-) {
-    LaunchedEffect(gridState, focusedItemIndex, itemCount, gridFocused) {
-        if (!gridFocused || focusedItemIndex < 0 || itemCount <= 0) return@LaunchedEffect
-        maybePrefetchRowAhead(gridState, focusedItemIndex, itemCount)
-    }
-}
-
-@Composable
 private fun VodGridAnimatedRestoreEffect(
     gridState: LazyGridState,
     itemCount: Int,
@@ -103,6 +63,26 @@ private fun VodGridAnimatedRestoreEffect(
         if (itemCount <= 0) return@LaunchedEffect
         val resolved = restoreGridFocusAnimated(gridState, request, itemCount)
         onGridRestoreComplete(resolved)
+    }
+}
+
+@Composable
+private fun VodGridColumnCountEffect(
+    gridState: LazyGridState,
+    itemCount: Int,
+    onColumnCountChanged: ((Int) -> Unit)?,
+) {
+    LaunchedEffect(gridState, itemCount) {
+        snapshotFlow { gridState.visibleColumnCount() }
+            .distinctUntilChanged()
+            .collect { columns -> onColumnCountChanged?.invoke(columns) }
+    }
+}
+
+private fun Modifier.consumeBrowseGridDirectionalKeys(gridFocused: Boolean): Modifier {
+    if (!gridFocused) return this
+    return onPreviewKeyEvent { event ->
+        isTvDirectionalKey(event)
     }
 }
 
@@ -185,38 +165,17 @@ fun VodPagedVerticalGrid(
         onGridRestoreComplete = onGridRestoreComplete,
     )
 
-    LaunchedEffect(gridFocused, effectiveFocusedIndex, pagingItems.itemCount, restoreScrollIndex, restoreScrollOffset) {
-        if (gridRestoreRequest != null) return@LaunchedEffect
-        if (!gridFocused || effectiveFocusedIndex < 0 || pagingItems.itemCount == 0) return@LaunchedEffect
-        val index = effectiveFocusedIndex.coerceIn(0, pagingItems.itemCount - 1)
-        if (restoreScrollIndex >= 0) {
-            gridState.scrollToItem(
-                restoreScrollIndex.coerceIn(0, pagingItems.itemCount - 1),
-                restoreScrollOffset
-            )
-        }
-        gridState.scrollToItem(index)
-        awaitGridItemVisible(gridState, index)
-    }
-
     VodGridPrefetchEffect(
         gridState = gridState,
         itemCount = pagingItems.itemCount,
         onLoadMore = { pagingItems[pagingItems.itemCount - 1] },
     )
 
-    VodGridPredictiveScrollEffect(
+    VodGridColumnCountEffect(
         gridState = gridState,
-        focusedItemIndex = effectiveFocusedIndex,
         itemCount = pagingItems.itemCount,
-        gridFocused = gridFocused,
+        onColumnCountChanged = onColumnCountChanged,
     )
-
-    LaunchedEffect(gridState, pagingItems.itemCount) {
-        snapshotFlow { gridState.visibleColumnCount() }
-            .distinctUntilChanged()
-            .collect { columns -> onColumnCountChanged?.invoke(columns) }
-    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -224,7 +183,7 @@ fun VodPagedVerticalGrid(
         contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
         horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
         verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
-        modifier = modifier
+        modifier = modifier.consumeBrowseGridDirectionalKeys(gridFocused)
     ) {
         items(
             count = pagingItems.itemCount,
@@ -296,38 +255,17 @@ fun VodMoviePagedGrid(
         onGridRestoreComplete = onGridRestoreComplete,
     )
 
-    LaunchedEffect(gridFocused, effectiveFocusedIndex, pagingItems.itemCount, restoreScrollIndex, restoreScrollOffset) {
-        if (gridRestoreRequest != null) return@LaunchedEffect
-        if (!gridFocused || effectiveFocusedIndex < 0 || pagingItems.itemCount == 0) return@LaunchedEffect
-        val index = effectiveFocusedIndex.coerceIn(0, pagingItems.itemCount - 1)
-        if (restoreScrollIndex >= 0) {
-            gridState.scrollToItem(
-                restoreScrollIndex.coerceIn(0, pagingItems.itemCount - 1),
-                restoreScrollOffset
-            )
-        }
-        gridState.scrollToItem(index)
-        awaitGridItemVisible(gridState, index)
-    }
-
     VodGridPrefetchEffect(
         gridState = gridState,
         itemCount = pagingItems.itemCount,
         onLoadMore = { pagingItems[pagingItems.itemCount - 1] },
     )
 
-    VodGridPredictiveScrollEffect(
+    VodGridColumnCountEffect(
         gridState = gridState,
-        focusedItemIndex = effectiveFocusedIndex,
         itemCount = pagingItems.itemCount,
-        gridFocused = gridFocused,
+        onColumnCountChanged = onColumnCountChanged,
     )
-
-    LaunchedEffect(gridState, pagingItems.itemCount) {
-        snapshotFlow { gridState.visibleColumnCount() }
-            .distinctUntilChanged()
-            .collect { columns -> onColumnCountChanged?.invoke(columns) }
-    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
@@ -335,7 +273,7 @@ fun VodMoviePagedGrid(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
-        modifier = modifier
+        modifier = modifier.consumeBrowseGridDirectionalKeys(gridFocused)
     ) {
         items(
             count = pagingItems.itemCount,

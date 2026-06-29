@@ -1,6 +1,11 @@
 package com.grid.tv.ui.screen
 
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
@@ -66,19 +71,20 @@ import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
 import com.grid.tv.ui.component.MovieDetailOverlay
 import com.grid.tv.ui.component.NetflixContentWallRow
 import com.grid.tv.ui.component.resolveMovieOverview
+import com.grid.tv.ui.component.VodLibraryNavPanel
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.VodAmbientBackdrop
-import com.grid.tv.ui.component.VodContentFilterTabBar
 import com.grid.tv.domain.model.VodSidebarGenreNormalizer
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
 import com.grid.tv.ui.component.VodHubTabFilters
 import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
-import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingPanel
+import com.grid.tv.ui.component.rememberHubUnifiedLoadingVisible
 import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.VodEmptyState
 import androidx.paging.LoadState
@@ -104,6 +110,7 @@ import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.di.PlayerEntryPoint
 import dagger.hilt.android.EntryPointAccessors
+import com.grid.tv.ui.component.animateScrollGridItemIntoView
 import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.component.animateScrollVodWallRowIntoView
 import com.grid.tv.ui.component.scrollVodWallToTop
@@ -325,6 +332,9 @@ fun VodHubScreen(
                 ).roundToPx()
         }
     }
+    val browseGridScrollSafePaddingPx = remember(density) {
+        with(density) { 48.dp.roundToPx() }
+    }
     val vodWallRowHeightPx = remember(density) {
         with(density) { VodPosterFocusLayout.estimatedWallRowHeight.roundToPx() }
     }
@@ -463,6 +473,35 @@ fun VodHubScreen(
         )
     )
 
+    val moviesOnboardingInputs = VodCatalogOnboardingInputs(
+        catalogLoading = moviesCatalogLoading,
+        progress = catalogProgress,
+        tab = VodCatalogOnboardingTab.MOVIES,
+        browseRowCount = moviesBrowseRows.size,
+        categoryCount = moviesCategories.size,
+        pagedItemCount = moviePagingItems.itemCount,
+        catalogTotalCount = catalogTotalCount,
+    )
+    val seriesOnboardingInputs = VodCatalogOnboardingInputs(
+        catalogLoading = seriesCatalogLoading,
+        progress = catalogProgress,
+        tab = VodCatalogOnboardingTab.SERIES,
+        browseRowCount = seriesBrowseRowsVm.size,
+        categoryCount = seriesCategories.size,
+        pagedItemCount = seriesPagingItems.itemCount,
+        catalogTotalCount = seriesCatalogTotalCount,
+    )
+    val showHubUnifiedLoading = contentFilter != VodContentFilter.SEARCH &&
+        rememberHubUnifiedLoadingVisible(
+            catalogLoading = catalogLoading,
+            catalogProgress = catalogProgress,
+            moviesInputs = moviesOnboardingInputs,
+            seriesInputs = seriesOnboardingInputs,
+            allInputs = onboardingInputs,
+        )
+    val hubCatalogReady = !showHubUnifiedLoading
+    val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
+
     val activeSurfaceState = when (contentFilter) {
         VodContentFilter.MOVIES -> moviesBrowseSurface
         VodContentFilter.SERIES -> seriesBrowseSurface
@@ -505,7 +544,9 @@ fun VodHubScreen(
         catalogProgress = catalogProgress,
     )
 
-    fun isBrowseGridLoading(): Boolean = VodHubSurfaceStateResolver.isBrowseGridLoading(browseGridFocusInputs())
+    fun isBrowseGridLoading(): Boolean =
+        showHubUnifiedLoading ||
+            VodHubSurfaceStateResolver.isBrowseGridLoading(browseGridFocusInputs())
 
     fun focusContentMode() = VodHubSurfaceStateResolver.focusContentMode(
         surfaceState = activeSurfaceState,
@@ -697,6 +738,34 @@ fun VodHubScreen(
         }
     }
 
+    LaunchedEffect(
+        focusUi.focusZone,
+        browseGridFocusIndex,
+        contentFilter,
+        showBrowseGrid,
+        focusUi.contentScrollDirection,
+        focusUi.browseGridColumnCount,
+        focusUi.gridFocusPending,
+    ) {
+        if (focusUi.focusZone != VodFocusZone.CONTENT || !showBrowseGrid || showInlineSearch) return@LaunchedEffect
+        if (contentFilter != VodContentFilter.MOVIES && contentFilter != VodContentFilter.SERIES) return@LaunchedEffect
+        if (focusUi.gridFocusPending) return@LaunchedEffect
+        val state = activeBrowseGridState() ?: return@LaunchedEffect
+        val count = browseGridItemCount()
+        if (count <= 0) return@LaunchedEffect
+        val index = browseGridFocusIndex.coerceIn(0, count - 1)
+        val direction = focusUi.contentScrollDirection
+        state.animateScrollGridItemIntoView(
+            index = index,
+            direction = direction,
+            columnCount = focusUi.browseGridColumnCount,
+            safePaddingPx = browseGridScrollSafePaddingPx,
+        )
+        if (direction != TvLazyFocusScrollDirection.NEUTRAL) {
+            focusUi.contentScrollDirection = TvLazyFocusScrollDirection.NEUTRAL
+        }
+    }
+
     val navDrawerFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
     val browseGridCount = browseGridItemCount()
@@ -819,7 +888,6 @@ fun VodHubScreen(
             1 -> {
                 hubViewModel.setContentFilter(VodContentFilter.SERIES)
                 focusUi.filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.SERIES)
-                hubViewModel.ensureSeriesTabHydrated(VodSeriesHydrationReason.BOOTSTRAP)
                 focusUi.focusZone = VodFocusZone.FILTER_PANEL
                 filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                 VodHubFocusLogger.restore(activePlaylistId, VodContentFilter.SERIES)
@@ -831,9 +899,6 @@ fun VodHubScreen(
                     val filter = runCatching { VodContentFilter.valueOf(snapshot.contentFilter) }
                         .getOrDefault(VodContentFilter.ALL)
                     hubViewModel.setContentFilter(filter)
-                    if (filter == VodContentFilter.SERIES) {
-                        hubViewModel.ensureSeriesTabHydrated(VodSeriesHydrationReason.BOOTSTRAP)
-                    }
                     focusUi.filterFocusIndex = snapshot.filterFocusIndex
                     restoreFilterMemory(filter)
                     val zone = runCatching { VodFocusZone.valueOf(snapshot.focusZone) }
@@ -1139,6 +1204,10 @@ fun VodHubScreen(
             openLanguagePreferenceDialog()
             return
         }
+        if (!hubCatalogReady && index < VodHubLanguageFilterFocusIndex) {
+            val filter = VodHubTabFilters.getOrNull(index)
+            if (filter != null && filter != contentFilter) return
+        }
         val filter = VodHubTabFilters.getOrNull(index) ?: VodContentFilter.ALL
         focusUi.filterFocusIndex = index
         focusUi.rememberFilterFocus()
@@ -1265,12 +1334,33 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(browseGridItemCount(), contentFilter, wallRowsRevision, focusUi.awaitingBrowseGridFocus) {
+    LaunchedEffect(focusUi.awaitingBrowseGridFocus, browseGridItemCount()) {
         if (focusUi.awaitingBrowseGridFocus && browseGridItemCount() > 0) {
             focusUi.awaitingBrowseGridFocus = false
             focusController.focusBrowseGridRestored()
-            return@LaunchedEffect
         }
+    }
+
+    LaunchedEffect(contentFilter) {
+        if (contentFilter != VodContentFilter.MOVIES && contentFilter != VodContentFilter.SERIES) return@LaunchedEffect
+        val count = browseGridItemCount()
+        if (count <= 0) return@LaunchedEffect
+        val memory = focusUi.gridMemoryFor(contentFilter)
+        val keyResolver = when (contentFilter) {
+            VodContentFilter.MOVIES -> moviesBrowseGridHandle::contentKeyAt
+            VodContentFilter.SERIES -> seriesBrowseGridHandle::contentKeyAt
+            else -> { _: Int -> null }
+        }
+        val resolved = resolveBrowseGridFocusIndex(
+            itemCount = count,
+            saved = memory,
+            keyAtIndex = keyResolver,
+            firstVisibleIndex = activeBrowseGridState()?.firstVisibleItemIndex ?: 0,
+        )
+        browseGridFocusIndex = resolved.coerceIn(0, count - 1)
+    }
+
+    LaunchedEffect(browseGridItemCount(), contentFilter, focusUi.focusZone) {
         if (focusUi.focusZone != VodFocusZone.CONTENT) return@LaunchedEffect
         when (contentFilter) {
             VodContentFilter.MOVIES, VodContentFilter.SERIES -> {
@@ -1280,29 +1370,16 @@ fun VodHubScreen(
                         return@LaunchedEffect
                     }
                     ensureValidFocus()
-                    return@LaunchedEffect
-                }
-                val memory = focusUi.gridMemoryFor(contentFilter)
-                val keyResolver = when (contentFilter) {
-                    VodContentFilter.MOVIES -> moviesBrowseGridHandle::contentKeyAt
-                    VodContentFilter.SERIES -> seriesBrowseGridHandle::contentKeyAt
-                    else -> { _: Int -> null }
-                }
-                val resolved = resolveBrowseGridFocusIndex(
-                    itemCount = count,
-                    saved = memory,
-                    keyAtIndex = keyResolver,
-                    firstVisibleIndex = activeBrowseGridState()?.firstVisibleItemIndex ?: 0,
-                )
-                browseGridFocusIndex = resolved.coerceIn(0, count - 1)
-            }
-            VodContentFilter.ALL -> {
-                if (!showBrowseGrid) {
-                    restoreWallFocusAfterRebuild(focusedContentKey)
                 }
             }
             else -> Unit
         }
+    }
+
+    LaunchedEffect(wallRowsRevision, contentFilter, focusedContentKey, focusUi.focusZone) {
+        if (focusUi.focusZone != VodFocusZone.CONTENT) return@LaunchedEffect
+        if (contentFilter != VodContentFilter.ALL || showBrowseGrid) return@LaunchedEffect
+        restoreWallFocusAfterRebuild(focusedContentKey)
     }
 
     LaunchedEffect(focusUi.awaitingBrowseGridFocus, contentFilter) {
@@ -1409,6 +1486,7 @@ fun VodHubScreen(
                 contentFilter = contentFilter,
                 searchQuery = searchQuery,
                 showGenrePanel = showGenrePanel,
+                showLibraryNavPanel = showLibraryNavPanel,
                 showBrowseGrid = showBrowseGrid,
                 showInlineSearch = showInlineSearch,
                 hasHero = hasHero,
@@ -1452,12 +1530,16 @@ fun VodHubScreen(
                 moviesBrowseGridActivate = moviesBrowseGridHandle::activateFocusedIndex,
                 seriesBrowseGridActivate = seriesBrowseGridHandle::activateFocusedIndex,
                 ensureValidFocus = ::ensureValidFocus,
+                hubTabsNavigable = { hubCatalogReady },
             )
         )
     }
 
+    fun handleLibraryNavPanelKey(event: KeyEvent): Boolean =
+        focusController.handleLibraryNavPanelKey(event)
+
     fun handleFilterPanelKey(event: KeyEvent): Boolean =
-        focusController.handleFilterPanelKey(event)
+        handleLibraryNavPanelKey(event)
 
     fun handleGenrePanelKey(event: KeyEvent): Boolean =
         focusController.handleGenrePanelKey(event)
@@ -1597,7 +1679,7 @@ fun VodHubScreen(
                     Key.Back, Key.Escape -> consumeVodLocalBack()
                     else -> when (focusUi.focusZone) {
                         VodFocusZone.NAV_DRAWER -> handleNavDrawerKey(event)
-                        VodFocusZone.FILTER_PANEL -> handleFilterPanelKey(event)
+                        VodFocusZone.FILTER_PANEL -> handleLibraryNavPanelKey(event)
                         VodFocusZone.GENRE_PANEL -> handleGenrePanelKey(event)
                         VodFocusZone.HERO -> handleHeroKey(event)
                         VodFocusZone.CONTENT -> handleContentKey(event)
@@ -1653,6 +1735,33 @@ fun VodHubScreen(
                 onPreviewKey = ::handleNavDrawerKey,
                 selectedItem = GuideNavDrawerItem.Vod
             )
+            AnimatedVisibility(
+                visible = showLibraryNavPanel,
+                enter = slideInHorizontally { -it } + fadeIn(),
+                exit = slideOutHorizontally { -it } + fadeOut(),
+            ) {
+                VodLibraryNavPanel(
+                    selectedFilter = contentFilter,
+                    focusedIndex = focusUi.filterFocusIndex,
+                    panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
+                    languageFilterActive = languageFilterActive,
+                    tabsNavigable = hubCatalogReady,
+                    panelFocusRequester = filterPanelFocusRequester,
+                    contentFocusRequester = rootFocusRequester,
+                    navDrawerFocusRequester = navDrawerFocusRequester,
+                    onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
+                    onFocusedIndexChange = { index ->
+                        focusUi.filterFocusIndex = index
+                    },
+                    onItemSelected = { index ->
+                        if (hubCatalogReady) {
+                            commitFilterHighlight(index)
+                        }
+                    },
+                    onPreviewKey = ::handleLibraryNavPanelKey,
+                    modifier = Modifier.fillMaxHeight(),
+                )
+            }
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -1663,25 +1772,6 @@ fun VodHubScreen(
                 activeRecordingTitle = activeRecordingTitle,
                 onRecordingIndicatorClick = onNavigateRecordings,
                 modifier = Modifier.fillMaxWidth()
-            )
-
-            VodContentFilterTabBar(
-                selectedFilter = contentFilter,
-                focusedFilter = VodHubTabFilters.getOrNull(focusUi.filterFocusIndex) ?: contentFilter,
-                barFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
-                languageFilterActive = languageFilterActive,
-                languageFilterFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL &&
-                    focusUi.filterFocusIndex == VodHubLanguageFilterFocusIndex,
-                onLanguageFilterClick = ::openLanguagePreferenceDialog,
-                onFilterSelected = { filter ->
-                    commitFilterHighlight(vodHubTabFilterIndex(filter))
-                },
-                tabBarFocusRequester = filterPanelFocusRequester,
-                heroPlayFocusRequester = heroPlayFocusRequester,
-                sidebarFocusRequester = navDrawerFocusRequester,
-                linkDownToHero = showHeroIsland,
-                onBarFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
-                onPreviewKey = ::handleFilterPanelKey
             )
 
             Row(
@@ -1695,13 +1785,14 @@ fun VodHubScreen(
                         }
                     )
             ) {
-                if (showGenrePanel && !showInlineSearch && allSurfaceState !is VodHubSurfaceState.Loading) {
+                if (showGenrePanel && hubCatalogReady) {
                     VodGenreSidePanel(
                         genres = genreLabels,
                         selectedIndex = selectedGenreIndex,
                         focusedIndex = focusUi.genreFocusIndex,
                         panelFocused = focusUi.focusZone == VodFocusZone.GENRE_PANEL,
                         contentGridFocusRequester = browseGridFocusRequester,
+                        libraryNavFocusRequester = filterPanelFocusRequester,
                         entryFocusRequester = genrePanelFocusRequester,
                         onFocusedIndexChange = { focusUi.genreFocusIndex = it },
                         onGenreSelected = ::applyGenre,
@@ -1717,10 +1808,10 @@ fun VodHubScreen(
                         .padding(top = 4.dp)
                 ) {
                     when {
-                        allSurfaceState is VodHubSurfaceState.Loading && wallRows.isEmpty() -> {
+                        showHubUnifiedLoading -> {
                             VodCatalogOnboardingPanel(
                                 progress = catalogProgress,
-                                onboardingInputs = allSurfaceState.onboardingInputs,
+                                onboardingInputs = onboardingInputs,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()

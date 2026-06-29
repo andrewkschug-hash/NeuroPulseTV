@@ -4,6 +4,7 @@ import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
+import com.grid.tv.ui.component.shouldShowHubUnifiedLoading
 import com.grid.tv.ui.component.shouldShowVodCatalogOnboarding
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -81,27 +82,103 @@ class VodHubRegressionTest {
     }
 
     @Test
-    fun seriesTab_readyWithPagedItemsWhileMoviesStillLoading() {
-        val state = VodHubSurfaceStateResolver.resolveBrowseTab(
-            VodHubBrowseSurfaceInputs(
-                tab = VodCatalogOnboardingTab.SERIES,
+    fun hubUnifiedLoading_blocksUntilBothCatalogsReady() {
+        val moviesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = VodCatalogProgress(
+                moviesPhaseFinished = false,
+                seriesPhaseFinished = true,
+                isLoading = true,
+            ),
+            tab = VodCatalogOnboardingTab.MOVIES,
+            browseRowCount = 0,
+            categoryCount = 0,
+            catalogTotalCount = 0,
+        )
+        val seriesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = VodCatalogProgress(
+                moviesPhaseFinished = false,
+                seriesPhaseFinished = true,
+                isLoading = true,
+            ),
+            tab = VodCatalogOnboardingTab.SERIES,
+            browseRowCount = 2,
+            categoryCount = 1,
+            pagedItemCount = 16,
+            catalogTotalCount = 40,
+        )
+        val allInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = VodCatalogProgress(
+                moviesPhaseFinished = false,
+                seriesPhaseFinished = true,
+                isLoading = true,
+            ),
+            tab = VodCatalogOnboardingTab.ALL,
+            browseRowCount = 0,
+            categoryCount = 0,
+            catalogTotalCount = 40,
+        )
+        assertTrue(
+            shouldShowHubUnifiedLoading(
                 catalogLoading = true,
                 catalogProgress = VodCatalogProgress(
                     moviesPhaseFinished = false,
                     seriesPhaseFinished = true,
                     isLoading = true,
                 ),
-                catalogStatus = VodCatalogStatus(),
-                catalogTotalCount = 40,
-                filteredTotalCount = 40,
-                browseRowCount = 2,
-                categoryCount = 1,
-                pagedItemCount = 16,
-                pagingRefreshing = false,
-                selectedCategoryId = null,
+                moviesInputs = moviesInputs,
+                seriesInputs = seriesInputs,
+                allInputs = allInputs,
             )
         )
-        assertTrue(state is VodHubSurfaceState.Ready)
+    }
+
+    @Test
+    fun hubUnifiedLoading_clearsWhenBothBrowseSurfacesReady() {
+        val progress = VodCatalogProgress(
+            moviesPhaseFinished = true,
+            seriesPhaseFinished = true,
+            isLoading = false,
+        )
+        val moviesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = false,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.MOVIES,
+            browseRowCount = 2,
+            categoryCount = 1,
+            pagedItemCount = 20,
+            catalogTotalCount = 120,
+        )
+        val seriesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = false,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.SERIES,
+            browseRowCount = 2,
+            categoryCount = 1,
+            pagedItemCount = 16,
+            catalogTotalCount = 40,
+        )
+        val allInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = false,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.ALL,
+            browseRowCount = 2,
+            categoryCount = 0,
+            wallRowCount = 2,
+            wallItemCount = 12,
+            catalogTotalCount = 160,
+        )
+        assertFalse(
+            shouldShowHubUnifiedLoading(
+                catalogLoading = false,
+                catalogProgress = progress,
+                moviesInputs = moviesInputs,
+                seriesInputs = seriesInputs,
+                allInputs = allInputs,
+            )
+        )
     }
 
     @Test

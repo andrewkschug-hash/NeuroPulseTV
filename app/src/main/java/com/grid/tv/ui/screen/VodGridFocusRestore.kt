@@ -1,6 +1,7 @@
 package com.grid.tv.ui.screen
 
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import com.grid.tv.ui.component.scrollGridItemIntoViewIfNeeded
 import kotlinx.coroutines.delay
 
 /** Pending grid restore: scroll viewport first, then focus target index. */
@@ -97,7 +98,7 @@ suspend fun restoreGridFocusAnimated(
             request.scrollOffset
         )
     }
-    gridState.scrollToItem(target)
+    gridState.scrollGridItemIntoViewIfNeeded(target)
     awaitGridItemVisible(gridState, target)
     return target
 }

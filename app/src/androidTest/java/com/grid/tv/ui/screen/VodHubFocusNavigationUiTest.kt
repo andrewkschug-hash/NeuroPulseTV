@@ -33,6 +33,7 @@ class VodHubFocusNavigationUiTest {
                 contentFilter = VodContentFilter.MOVIES,
                 searchQuery = "",
                 showGenrePanel = true,
+                showLibraryNavPanel = true,
                 showBrowseGrid = true,
                 showInlineSearch = false,
                 hasHero = false,

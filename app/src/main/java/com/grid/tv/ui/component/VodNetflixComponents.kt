@@ -563,6 +563,133 @@ fun LazyListScope.netflixSeriesBrowseRows(
     }
 }
 
+/** VOD library filter panel beside the icon rail (mirrors [GuideChannelGroupsPanel]). */
+val VodLibraryNavPanelWidth = 260.dp
+
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun VodLibraryNavPanel(
+    selectedFilter: VodContentFilter,
+    focusedIndex: Int,
+    panelFocused: Boolean,
+    languageFilterActive: Boolean,
+    tabsNavigable: Boolean,
+    panelFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    navDrawerFocusRequester: FocusRequester,
+    onPanelFocused: () -> Unit,
+    onFocusedIndexChange: (Int) -> Unit,
+    onItemSelected: (Int) -> Unit,
+    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val itemCount = VodHubLanguageFilterFocusIndex + 1
+    val listState = rememberLazyListState()
+    val accent = VodNetflixColors.Accent
+    val chipShape = RoundedCornerShape(10.dp)
+
+    LaunchedEffect(focusedIndex, panelFocused, itemCount) {
+        if (!panelFocused || itemCount <= 0) return@LaunchedEffect
+        listState.animateScrollToItem(focusedIndex.coerceIn(0, itemCount - 1))
+    }
+
+    Column(
+        modifier = modifier
+            .width(VodLibraryNavPanelWidth)
+            .fillMaxHeight()
+            .background(EpgColors.SidebarPanelBg)
+            .border(
+                width = 1.dp,
+                color = EpgColors.BorderSubtle,
+                shape = RoundedCornerShape(0.dp),
+            )
+            .focusRequester(panelFocusRequester)
+            .focusable(enabled = panelFocused)
+            .focusProperties {
+                left = navDrawerFocusRequester
+                right = contentFocusRequester
+            }
+            .onFocusChanged { if (it.isFocused) onPanelFocused() }
+            .onPreviewKeyEvent(onPreviewKey),
+    ) {
+        Text(
+            text = "Library",
+            color = EpgColors.TextDimmed,
+            fontFamily = DmSansFamily,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            items(itemCount) { index ->
+                val isLanguages = index == VodHubLanguageFilterFocusIndex
+                val filter = VodHubTabFilters.getOrNull(index)
+                val label = if (isLanguages) {
+                    "Languages"
+                } else {
+                    filter?.let { vodHubTabFilterLabel(it) } ?: ""
+                }
+                val selected = if (isLanguages) {
+                    languageFilterActive
+                } else {
+                    filter == selectedFilter
+                }
+                val focused = panelFocused && index == focusedIndex
+                val emphasized = selected || focused
+                val enabled = tabsNavigable || selected || isLanguages
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(chipShape)
+                        .then(
+                            if (emphasized) {
+                                Modifier
+                                    .background(accent.copy(alpha = 0.28f), chipShape)
+                                    .border(
+                                        width = if (focused) 2.dp else 1.dp,
+                                        color = accent.copy(alpha = if (focused) 0.95f else 0.65f),
+                                        shape = chipShape,
+                                    )
+                            } else {
+                                Modifier.background(Color(0xFF161616), chipShape)
+                            },
+                        )
+                        .then(
+                            if (enabled) {
+                                Modifier.clickable { onItemSelected(index) }
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .focusProperties { canFocus = false }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = label,
+                        color = when {
+                            emphasized -> Color.White
+                            enabled -> Color(0xFFB8BEC8)
+                            else -> Color(0xFF6B7280)
+                        },
+                        fontFamily = DmSansFamily,
+                        fontSize = 14.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun VodGenreSidePanel(
@@ -573,6 +700,7 @@ fun VodGenreSidePanel(
     onGenreSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     contentGridFocusRequester: FocusRequester? = null,
+    libraryNavFocusRequester: FocusRequester? = null,
     entryFocusRequester: FocusRequester? = null,
     onFocusedIndexChange: ((Int) -> Unit)? = null,
     onPreviewKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
@@ -599,6 +727,9 @@ fun VodGenreSidePanel(
                         .focusable(enabled = panelFocused)
                         .focusProperties {
                             canFocus = panelFocused
+                            if (libraryNavFocusRequester != null) {
+                                left = libraryNavFocusRequester
+                            }
                             if (contentGridFocusRequester != null) {
                                 right = contentGridFocusRequester
                             }
@@ -676,6 +807,7 @@ fun VodContentFilterTabBar(
     focusedFilter: VodContentFilter,
     barFocused: Boolean,
     onFilterSelected: (VodContentFilter) -> Unit,
+    tabsNavigable: Boolean = true,
     languageFilterActive: Boolean = false,
     languageFilterFocused: Boolean = false,
     onLanguageFilterClick: () -> Unit = {},
@@ -738,6 +870,7 @@ fun VodContentFilterTabBar(
                 val focused = barFocused && filter == focusedFilter && !languageFilterFocused
                 val emphasized = selected || focused
                 val label = vodHubTabFilterLabel(filter)
+                val tabEnabled = tabsNavigable || filter == selectedFilter
                 Box(
                     modifier = Modifier
                         .clip(chipShape)
@@ -754,13 +887,25 @@ fun VodContentFilterTabBar(
                                 Modifier
                             }
                         )
-                        .clickable { onFilterSelected(filter) }
+                        .then(
+                            if (tabEnabled) {
+                                Modifier.clickable { onFilterSelected(filter) }
+                            } else {
+                                Modifier
+                            }
+                        )
                         .focusProperties { canFocus = false }
                         .padding(horizontal = 22.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = label,
-                        color = if (emphasized) Color.White else Color(0xFFB8BEC8),
+                        color = if (emphasized) {
+                            Color.White
+                        } else if (tabEnabled) {
+                            Color(0xFFB8BEC8)
+                        } else {
+                            Color(0xFF6B7280)
+                        },
                         fontFamily = DmSansFamily,
                         fontSize = 14.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,

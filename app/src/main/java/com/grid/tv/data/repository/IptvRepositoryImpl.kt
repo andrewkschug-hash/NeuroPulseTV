@@ -158,6 +158,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -3478,49 +3480,96 @@ class IptvRepositoryImpl @Inject constructor(
 
             publishProgress(isLoading = true)
 
-            playlists.forEach { playlist ->
-                val result = refreshVodCatalogForPlaylist(
-                    playlist = playlist,
-                    trigger = trigger,
-                    onBatchInserted = { parsedSoFar, total ->
-                        moviesLoaded = parsedSoFar
-                        moviesTotal = total
-                        moviesParsedCount = parsedSoFar
-                        publishProgress(isLoading = true)
+            coroutineScope {
+                val progressLock = Any()
+                var moviesPhaseDone = false
+                var seriesPhaseDone = false
+
+                fun publishParallelProgress(
+                    isLoading: Boolean,
+                    moviesPhaseFinished: Boolean = moviesPhaseDone,
+                    seriesPhaseFinished: Boolean = seriesPhaseDone,
+                ) {
+                    synchronized(progressLock) {
+                        publishProgress(
+                            isLoading = isLoading,
+                            moviesPhaseFinished = moviesPhaseFinished,
+                            seriesPhaseFinished = seriesPhaseFinished,
+                        )
                     }
-                )
-                moviesTotal += result.arrayLength
-                moviesLoaded = result.parsedCount
-                moviesRawLength += result.rawLength
-                moviesParsedCount += result.parsedCount
-                result.error?.let { moviesError = it }
-                result.skippedReason?.let { moviesError = it }
+                }
+
+                val moviesDeferred = async {
+                    playlists.forEach { playlist ->
+                        val result = refreshVodCatalogForPlaylist(
+                            playlist = playlist,
+                            trigger = trigger,
+                            onBatchInserted = { parsedSoFar, total ->
+                                synchronized(progressLock) {
+                                    moviesLoaded = parsedSoFar
+                                    moviesTotal = total
+                                    moviesParsedCount = parsedSoFar
+                                }
+                                publishParallelProgress(isLoading = true)
+                            }
+                        )
+                        synchronized(progressLock) {
+                            moviesTotal += result.arrayLength
+                            moviesLoaded = result.parsedCount
+                            moviesRawLength += result.rawLength
+                            moviesParsedCount += result.parsedCount
+                            result.error?.let { moviesError = it }
+                            result.skippedReason?.let { moviesError = it }
+                        }
+                    }
+                    synchronized(progressLock) {
+                        moviesPhaseDone = true
+                    }
+                    publishParallelProgress(isLoading = true, moviesPhaseFinished = true)
+                }
+
+                val seriesDeferred = async {
+                    playlists.forEach { playlist ->
+                        val result = refreshSeriesCatalogForPlaylist(
+                            playlist = playlist,
+                            trigger = trigger,
+                            onBatchInserted = { parsedSoFar, total ->
+                                synchronized(progressLock) {
+                                    seriesLoaded = parsedSoFar
+                                    seriesTotal = total
+                                    seriesParsedCount = parsedSoFar
+                                }
+                                publishParallelProgress(isLoading = true)
+                            }
+                        )
+                        synchronized(progressLock) {
+                            seriesTotal += result.arrayLength
+                            seriesLoaded = result.parsedCount
+                            seriesRawLength += result.rawLength
+                            seriesParsedCount += result.parsedCount
+                            result.error?.let { seriesError = it }
+                            result.skippedReason?.let { seriesError = it }
+                        }
+                    }
+                    synchronized(progressLock) {
+                        seriesPhaseDone = true
+                    }
+                    publishParallelProgress(isLoading = true, seriesPhaseFinished = true)
+                }
+
+                moviesDeferred.await()
+                seriesDeferred.await()
             }
-            publishProgress(isLoading = true, moviesPhaseFinished = true)
+
             Log.i(
                 VOD_FLOW_TAG,
                 "Movies phase complete trigger=$trigger parsed=$moviesParsedCount rawBytes=$moviesRawLength " +
                     "dbCount=${cachedMoviesCount()}"
             )
-
-            playlists.forEach { playlist ->
-                val result = refreshSeriesCatalogForPlaylist(
-                    playlist = playlist,
-                    trigger = trigger,
-                    onBatchInserted = { parsedSoFar, total ->
-                        seriesLoaded = parsedSoFar
-                        seriesTotal = total
-                        seriesParsedCount = parsedSoFar
-                        publishProgress(isLoading = true, moviesPhaseFinished = true)
-                    }
-                )
-                seriesTotal += result.arrayLength
-                seriesLoaded = result.parsedCount
-                seriesRawLength += result.rawLength
-                seriesParsedCount += result.parsedCount
-                result.error?.let { seriesError = it }
-                result.skippedReason?.let { seriesError = it }
-            }
+            Log.i(
+                VOD_FLOW_TAG,
+                "Series phase complete trigger=$trigger parsed=$seriesParsedCount rawBytes=$seriesRawLength"
+            )
             publishProgress(
                 isLoading = false,
                 moviesPhaseFinished = true,

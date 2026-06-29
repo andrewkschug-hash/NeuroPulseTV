@@ -215,6 +215,67 @@ fun shouldShowVodCatalogEmptyState(
  * Presentation-only gate for the first-time / in-progress VOD catalog build.
  * Uses existing [VodCatalogProgress] and row/category counts — does not trigger loads.
  */
+/**
+ * Hub-level gate: single loading screen until both Movies and Series catalogs are ready.
+ * Stricter than per-tab [shouldShowVodCatalogOnboarding] — does not skip while counts exist on disk.
+ */
+fun shouldShowHubUnifiedLoading(
+    catalogLoading: Boolean,
+    catalogProgress: VodCatalogProgress,
+    moviesInputs: VodCatalogOnboardingInputs,
+    seriesInputs: VodCatalogOnboardingInputs,
+    allInputs: VodCatalogOnboardingInputs,
+): Boolean {
+    if (isVodCatalogPipelineStillRunning(
+            VodCatalogOnboardingTab.ALL,
+            catalogLoading,
+            catalogProgress,
+        )
+    ) {
+        return true
+    }
+    val moviesReady = isVodCatalogContentReady(moviesInputs)
+    val seriesReady = isVodCatalogContentReady(seriesInputs)
+    if (!moviesReady || !seriesReady) {
+        val hasCatalog = moviesInputs.effectiveCatalogCount() > 0 ||
+            seriesInputs.effectiveCatalogCount() > 0 ||
+            allInputs.effectiveCatalogCount() > 0
+        return hasCatalog
+    }
+    if (!isVodCatalogContentReady(allInputs) && allInputs.effectiveCatalogCount() > 0) {
+        return true
+    }
+    return false
+}
+
+@Composable
+fun rememberHubUnifiedLoadingVisible(
+    catalogLoading: Boolean,
+    catalogProgress: VodCatalogProgress,
+    moviesInputs: VodCatalogOnboardingInputs,
+    seriesInputs: VodCatalogOnboardingInputs,
+    allInputs: VodCatalogOnboardingInputs,
+    stabilizationMs: Long = READINESS_STABILIZATION_MS,
+): Boolean {
+    val shouldShow = shouldShowHubUnifiedLoading(
+        catalogLoading = catalogLoading,
+        catalogProgress = catalogProgress,
+        moviesInputs = moviesInputs,
+        seriesInputs = seriesInputs,
+        allInputs = allInputs,
+    )
+    var visible by remember { mutableStateOf(shouldShow) }
+    LaunchedEffect(shouldShow, stabilizationMs) {
+        if (shouldShow) {
+            visible = true
+        } else {
+            delay(stabilizationMs)
+            visible = false
+        }
+    }
+    return visible
+}
+
 fun shouldShowVodCatalogOnboarding(inputs: VodCatalogOnboardingInputs): Boolean {
     if (isVodCatalogContentReady(inputs)) return false
     if (inputs.wallRowCount > 0 && inputs.tab == VodCatalogOnboardingTab.ALL) return false
@@ -338,7 +399,7 @@ fun VodCatalogOnboardingPanel(
             )
             Spacer(modifier = Modifier.height(28.dp))
             Text(
-                text = "Getting your movies and series ready",
+                text = "Getting your library ready",
                 color = VodNetflixColors.TextPrimary,
                 fontFamily = DmSansFamily,
                 fontSize = 22.sp,

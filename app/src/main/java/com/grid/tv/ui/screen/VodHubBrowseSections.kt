@@ -1,5 +1,6 @@
 package com.grid.tv.ui.screen
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,9 +23,7 @@ import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.vod.VodHubBrowseSurfaceInputs
 import com.grid.tv.feature.vod.VodHubSurfaceState
 import com.grid.tv.feature.vod.VodHubSurfaceStateResolver
-import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
-import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodGridCardModel
@@ -108,7 +107,6 @@ fun VodHubMoviesBrowseSection(
             selectedCategoryId = selectedCategoryId,
         )
     )
-    val moviesLoading = catalogProgress.isLoading && !catalogProgress.isMoviesPhaseComplete
     val refreshWarning = catalogStatus.moviesRefreshWarning(catalogTotalCount)
 
     SideEffect {
@@ -130,22 +128,11 @@ fun VodHubMoviesBrowseSection(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        VodCatalogProgressBar(
-            progress = catalogProgress.moviesProgressFraction(),
-            visible = moviesLoading && resolvedSurfaceState !is VodHubSurfaceState.Loading
-        )
-        VodCatalogLoadingBanner(
-            baseMessage = "Fetching your provider's movie catalog. Large libraries can take a minute.",
-            progress = catalogProgress,
-            isMovies = true
-        )
         VodCatalogRefreshWarningBanner(message = refreshWarning)
 
         when (resolvedSurfaceState) {
             is VodHubSurfaceState.Loading -> {
-                com.grid.tv.ui.component.VodCatalogOnboardingPanel(
-                    progress = catalogProgress,
-                    onboardingInputs = resolvedSurfaceState.onboardingInputs,
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -236,9 +223,6 @@ fun VodHubSeriesBrowseSection(
     val browseRows by seriesViewModel.browseRows.collectAsStateWithLifecycle()
     val categories by seriesViewModel.categories.collectAsStateWithLifecycle()
 
-    val seriesLoading = catalogProgress.isLoading &&
-        catalogProgress.isMoviesPhaseComplete &&
-        !catalogProgress.isSeriesPhaseComplete
     val pagingRefreshing = seriesPagingItems.loadState.refresh is LoadState.Loading
     val resolvedSurfaceState = surfaceState ?: VodHubSurfaceStateResolver.resolveBrowseTab(
         VodHubBrowseSurfaceInputs(
@@ -263,7 +247,6 @@ fun VodHubSeriesBrowseSection(
         filteredTotalCount,
         catalogTotalCount,
         selectedCategoryId,
-        seriesLoading,
         catalogProgress.seriesPhaseFinished
     ) {
         if (resolvedSurfaceState is VodHubSurfaceState.Empty) {
@@ -271,7 +254,7 @@ fun VodHubSeriesBrowseSection(
                 "VodCatalogPipeline",
                 "VodHub Series empty-state: reason=${resolvedSurfaceState.reason} paged=${seriesPagingItems.itemCount} " +
                     "filtered=$filteredTotalCount catalog=$catalogTotalCount category=${selectedCategoryId ?: "All"} " +
-                    "loading=$seriesLoading phaseFinished=${catalogProgress.seriesPhaseFinished}"
+                    "phaseFinished=${catalogProgress.seriesPhaseFinished}"
             )
         }
     }
@@ -297,22 +280,11 @@ fun VodHubSeriesBrowseSection(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        VodCatalogProgressBar(
-            progress = catalogProgress.seriesProgressFraction(),
-            visible = seriesLoading && resolvedSurfaceState !is VodHubSurfaceState.Loading
-        )
-        VodCatalogLoadingBanner(
-            baseMessage = "Fetching your provider's series catalog. Large libraries can take a minute.",
-            progress = catalogProgress,
-            isMovies = false
-        )
         VodCatalogRefreshWarningBanner(message = refreshWarning)
 
         when (resolvedSurfaceState) {
             is VodHubSurfaceState.Loading -> {
-                com.grid.tv.ui.component.VodCatalogOnboardingPanel(
-                    progress = catalogProgress,
-                    onboardingInputs = resolvedSurfaceState.onboardingInputs,
+                Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
