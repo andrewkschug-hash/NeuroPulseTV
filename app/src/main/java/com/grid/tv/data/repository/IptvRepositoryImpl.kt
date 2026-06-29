@@ -2801,7 +2801,11 @@ class IptvRepositoryImpl @Inject constructor(
                     seriesCountOnDisk = playlistSeriesCount,
                 )
                 val manualRetry = trigger == VodRefreshTrigger.MANUAL_RETRY
-                if (!manualRetry && hydrationState != SeriesCatalogHydrationState.NEVER_FETCHED) {
+                val userSelectedSeriesTab = trigger == VodRefreshTrigger.SERIES_VIEW_MODEL
+                if (!manualRetry &&
+                    !userSelectedSeriesTab &&
+                    hydrationState != SeriesCatalogHydrationState.NEVER_FETCHED
+                ) {
                     Log.i(
                         VOD_FLOW_TAG,
                         "Skipping series tab auto-fetch hydration=$hydrationState playlist=$playlistId"
@@ -2809,7 +2813,10 @@ class IptvRepositoryImpl @Inject constructor(
                     return@launch
                 }
                 if (playlistSeriesCount <= 0) {
-                    refreshVodSeriesCatalog(trigger = trigger, force = manualRetry)
+                    refreshVodSeriesCatalog(
+                        trigger = trigger,
+                        force = manualRetry || userSelectedSeriesTab,
+                    )
                 }
             } catch (error: Throwable) {
                 Log.e(

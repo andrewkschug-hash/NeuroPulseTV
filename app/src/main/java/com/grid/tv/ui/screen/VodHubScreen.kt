@@ -682,43 +682,62 @@ fun VodHubScreen(
         }
     }
 
-    LaunchedEffect(activePlaylistId) {
+    LaunchedEffect(activePlaylistId, initialTab) {
         if (focusBootstrapComplete || activePlaylistId <= 0L) return@LaunchedEffect
-        val snapshot = hubViewModel.readPersistedFocus(activePlaylistId)
-        if (snapshot != null) {
-            hydrateVodHubFocus(focusUi, snapshot)
-            val filter = runCatching { VodContentFilter.valueOf(snapshot.contentFilter) }
-                .getOrDefault(VodContentFilter.ALL)
-            hubViewModel.setContentFilter(filter)
-            if (filter == VodContentFilter.SERIES) {
-                hubViewModel.ensureSeriesTabHydrated()
+        when (initialTab) {
+            0 -> {
+                hubViewModel.setContentFilter(VodContentFilter.ALL)
+                focusUi.filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.ALL)
+                focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                VodHubFocusLogger.restore(activePlaylistId, VodContentFilter.ALL)
             }
-            focusUi.filterFocusIndex = snapshot.filterFocusIndex
-            restoreFilterMemory(filter)
-            val zone = runCatching { VodFocusZone.valueOf(snapshot.focusZone) }
-                .getOrDefault(VodFocusZone.FILTER_PANEL)
-            when {
-                zone == VodFocusZone.CONTENT &&
-                    (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) -> {
-                    focusUi.focusZone = VodFocusZone.CONTENT
-                    focusController.focusBrowseGridRestored()
-                }
-                zone == VodFocusZone.GENRE_PANEL &&
-                    (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) -> {
-                    focusUi.focusZone = VodFocusZone.GENRE_PANEL
-                    focusUi.restoreGenreFrom(filter)
-                    genrePanelFocusRequester.requestFocusSafelyAfterLayout()
-                }
-                else -> {
+            1 -> {
+                hubViewModel.setContentFilter(VodContentFilter.SERIES)
+                focusUi.filterFocusIndex = vodHubTabFilterIndex(VodContentFilter.SERIES)
+                hubViewModel.ensureSeriesTabHydrated()
+                focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                VodHubFocusLogger.restore(activePlaylistId, VodContentFilter.SERIES)
+            }
+            else -> {
+                val snapshot = hubViewModel.readPersistedFocus(activePlaylistId)
+                if (snapshot != null) {
+                    hydrateVodHubFocus(focusUi, snapshot)
+                    val filter = runCatching { VodContentFilter.valueOf(snapshot.contentFilter) }
+                        .getOrDefault(VodContentFilter.ALL)
+                    hubViewModel.setContentFilter(filter)
+                    if (filter == VodContentFilter.SERIES) {
+                        hubViewModel.ensureSeriesTabHydrated()
+                    }
+                    focusUi.filterFocusIndex = snapshot.filterFocusIndex
+                    restoreFilterMemory(filter)
+                    val zone = runCatching { VodFocusZone.valueOf(snapshot.focusZone) }
+                        .getOrDefault(VodFocusZone.FILTER_PANEL)
+                    when {
+                        zone == VodFocusZone.CONTENT &&
+                            (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) -> {
+                            focusUi.focusZone = VodFocusZone.CONTENT
+                            focusController.focusBrowseGridRestored()
+                        }
+                        zone == VodFocusZone.GENRE_PANEL &&
+                            (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) -> {
+                            focusUi.focusZone = VodFocusZone.CONTENT
+                            focusUi.restoreGenreFrom(filter)
+                            focusController.focusBrowseGridRestored()
+                        }
+                        else -> {
+                            focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                            filterPanelFocusRequester.requestFocusSafelyAfterLayout()
+                        }
+                    }
+                    VodHubFocusLogger.restore(activePlaylistId, filter)
+                } else {
                     focusUi.focusZone = VodFocusZone.FILTER_PANEL
+                    focusUi.filterFocusIndex = vodHubTabFilterIndex(contentFilter)
                     filterPanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
             }
-            VodHubFocusLogger.restore(activePlaylistId, filter)
-        } else {
-            focusUi.focusZone = VodFocusZone.FILTER_PANEL
-            focusUi.filterFocusIndex = vodHubTabFilterIndex(contentFilter)
-            filterPanelFocusRequester.requestFocusSafelyAfterLayout()
         }
         focusBootstrapComplete = true
     }
@@ -1610,8 +1629,8 @@ fun VodHubScreen(
                                 onItemClick = ::openMovieDetail,
                                 gridState = moviesBrowseGridState,
                                 gridFocused = gridFocused,
-                                focusedItemIndex = if (gridFocused && !focusUi.gridFocusPending) {
-                                    browseGridFocusIndex
+                                focusedItemIndex = if (gridFocused && browseGridItemCount() > 0) {
+                                    browseGridFocusIndex.coerceIn(0, browseGridItemCount() - 1)
                                 } else {
                                     -1
                                 },
@@ -1640,8 +1659,8 @@ fun VodHubScreen(
                                 },
                                 gridState = seriesBrowseGridState,
                                 gridFocused = gridFocused,
-                                focusedItemIndex = if (gridFocused && !focusUi.gridFocusPending) {
-                                    browseGridFocusIndex
+                                focusedItemIndex = if (gridFocused && browseGridItemCount() > 0) {
+                                    browseGridFocusIndex.coerceIn(0, browseGridItemCount() - 1)
                                 } else {
                                     -1
                                 },

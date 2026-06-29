@@ -124,14 +124,22 @@ internal class VodHubFocusController(
 
     fun moveFilterHighlight(delta: Int) {
         val nextIndex = (ui.filterFocusIndex + delta).coerceIn(0, VodHubLanguageFilterFocusIndex)
+        if (nextIndex == ui.filterFocusIndex) return
         ui.filterFocusIndex = nextIndex
         if (nextIndex < VodHubLanguageFilterFocusIndex) {
-            val filter = VodHubTabFilters.getOrNull(nextIndex)
-            if (filter != null) {
+            VodHubTabFilters.getOrNull(nextIndex)?.let { filter ->
                 VodHubFocusLogger.filterHighlight(filter, nextIndex)
             }
             d.commitFilterHighlight(nextIndex)
         }
+    }
+
+    fun commitFocusedFilterHighlight() {
+        if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
+            d.openLanguagePreferenceDialog()
+            return
+        }
+        d.commitFilterHighlight(ui.filterFocusIndex)
     }
 
     fun focusFilterPanelFromGenre() {
@@ -222,14 +230,21 @@ internal class VodHubFocusController(
             memory.copy(itemIndex = resolved, contentKey = key)
         )
         transitionToZone(VodFocusZone.CONTENT, "gridRestore")
-        ui.gridFocusPending = true
-        ui.gridRestoreRequest = VodGridFocusRestoreRequest(
-            targetIndex = resolved,
-            scrollIndex = memory.scrollIndex,
-            scrollOffset = memory.scrollOffset,
-            contentKey = key,
-        )
-        VodHubFocusLogger.gridRestore(d.contentFilter, resolved, memory.scrollIndex, key)
+        d.setBrowseGridFocusIndex(resolved)
+        if (d.activeBrowseGridState() == null) {
+            ui.gridFocusPending = false
+            ui.gridRestoreRequest = null
+            VodHubFocusLogger.gridFocus(d.contentFilter, resolved, key)
+        } else {
+            ui.gridFocusPending = true
+            ui.gridRestoreRequest = VodGridFocusRestoreRequest(
+                targetIndex = resolved,
+                scrollIndex = memory.scrollIndex,
+                scrollOffset = memory.scrollOffset,
+                contentKey = key,
+            )
+            VodHubFocusLogger.gridRestore(d.contentFilter, resolved, memory.scrollIndex, key)
+        }
     }
 
     fun onGridRestoreComplete(resolvedIndex: Int) {
@@ -393,11 +408,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-                    d.openLanguagePreferenceDialog()
-                } else {
-                    d.commitFilterHighlight(ui.filterFocusIndex)
-                }
+                commitFocusedFilterHighlight()
                 true
             }
             else -> false

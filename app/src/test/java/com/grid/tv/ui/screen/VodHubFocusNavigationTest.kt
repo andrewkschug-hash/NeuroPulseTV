@@ -103,13 +103,13 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun focusBrowseGridRestored_queuesAnimatedRestoreWithoutImmediateHighlight() {
+    fun focusBrowseGridRestored_withoutGridState_entersContentWithImmediateHighlight() {
         val (ui, controller) = setupController(browseIndex = 5)
         ui.focusZone = VodFocusZone.GENRE_PANEL
         controller.focusBrowseGridRestored()
         assertEquals(VodFocusZone.CONTENT, ui.focusZone)
-        assertEquals(true, ui.gridFocusPending)
-        assertEquals(5, ui.gridRestoreRequest?.targetIndex)
+        assertEquals(false, ui.gridFocusPending)
+        assertEquals(null, ui.gridRestoreRequest)
         assertEquals(5, ui.gridMemoryFor(VodContentFilter.MOVIES).itemIndex)
     }
 

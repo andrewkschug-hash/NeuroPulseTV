@@ -694,9 +694,9 @@ class VodHubViewModel @Inject constructor(
         }
     }
 
-    /** Series tab: hydrate categories + ingest series when the local catalog is movie-only. */
+    /** Series tab: hydrate categories + ingest when needed (explicit tab select may refetch EMPTY catalogs). */
     fun ensureSeriesTabHydrated() {
-        repository.ensureSeriesCatalogForTab(VodRefreshTrigger.VOD_HUB_MOUNT)
+        repository.ensureSeriesCatalogForTab(VodRefreshTrigger.SERIES_VIEW_MODEL)
     }
 
     fun setHeroIndex(index: Int) {
