@@ -40,7 +40,9 @@ data class VodCatalogUiState(
     val movieFilteredTotalCount: Int = 0,
     val seriesFilteredTotalCount: Int = 0,
     val catalogLoading: Boolean = false,
-    val catalogProgress: VodCatalogProgress = VodCatalogProgress()
+    val catalogProgress: VodCatalogProgress = VodCatalogProgress(),
+    /** True while series ingest continues after movies phase (non-blocking for hub gate). */
+    val isSeriesStillLoading: Boolean = false,
 )
 
 /**

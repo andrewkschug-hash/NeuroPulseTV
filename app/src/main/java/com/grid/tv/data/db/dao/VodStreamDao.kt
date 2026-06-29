@@ -40,6 +40,16 @@ interface VodStreamDao {
 
     @Query(
         """
+        SELECT * FROM vod_streams
+        WHERE playlistId = :playlistId
+        ORDER BY rowId
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun pageByPlaylist(playlistId: Long, limit: Int, offset: Int): List<VodStreamEntity>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
           AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')

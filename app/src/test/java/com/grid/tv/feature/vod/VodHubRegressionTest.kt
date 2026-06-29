@@ -4,7 +4,9 @@ import com.grid.tv.domain.model.VodCatalogProgress
 import com.grid.tv.domain.model.VodCatalogStatus
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
+import com.grid.tv.ui.component.isSeriesCatalogStillLoading
 import com.grid.tv.ui.component.shouldShowHubUnifiedLoading
+import com.grid.tv.ui.component.hasHubMinimumIngestProgress
 import com.grid.tv.ui.component.shouldShowVodCatalogOnboarding
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -82,7 +84,7 @@ class VodHubRegressionTest {
     }
 
     @Test
-    fun hubUnifiedLoading_blocksUntilBothCatalogsReady() {
+    fun hubUnifiedLoading_blocksOnColdStartUntilMoviesFinish() {
         val moviesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
             catalogLoading = true,
             progress = VodCatalogProgress(
@@ -131,6 +133,101 @@ class VodHubRegressionTest {
                 moviesInputs = moviesInputs,
                 seriesInputs = seriesInputs,
                 allInputs = allInputs,
+                isColdStart = true,
+            )
+        )
+    }
+
+    @Test
+    fun hubUnifiedLoading_skipsWhenNotColdStart() {
+        val progress = VodCatalogProgress(
+            moviesPhaseFinished = false,
+            seriesPhaseFinished = false,
+            isLoading = true,
+        )
+        val inputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.ALL,
+            browseRowCount = 0,
+            categoryCount = 0,
+            catalogTotalCount = 0,
+        )
+        assertFalse(
+            shouldShowHubUnifiedLoading(
+                catalogLoading = true,
+                catalogProgress = progress,
+                moviesInputs = inputs,
+                seriesInputs = inputs,
+                allInputs = inputs,
+                isColdStart = false,
+            )
+        )
+    }
+
+    @Test
+    fun hubUnifiedLoading_dismissesAfterMoviesAndFirstSeriesBatch() {
+        val progress = VodCatalogProgress(
+            moviesPhaseFinished = true,
+            seriesPhaseFinished = false,
+            seriesLoaded = 100,
+            seriesTotal = 6800,
+            isLoading = true,
+        )
+        val moviesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.MOVIES,
+            browseRowCount = 0,
+            categoryCount = 0,
+            pagedItemCount = 20,
+            catalogTotalCount = 120,
+        )
+        val seriesInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.SERIES,
+            browseRowCount = 0,
+            categoryCount = 0,
+            catalogTotalCount = 100,
+        )
+        val allInputs = com.grid.tv.ui.component.VodCatalogOnboardingInputs(
+            catalogLoading = true,
+            progress = progress,
+            tab = VodCatalogOnboardingTab.ALL,
+            browseRowCount = 1,
+            categoryCount = 0,
+            wallRowCount = 1,
+            wallItemCount = 8,
+            catalogTotalCount = 220,
+        )
+        assertTrue(hasHubMinimumIngestProgress(progress))
+        assertFalse(
+            shouldShowHubUnifiedLoading(
+                catalogLoading = true,
+                catalogProgress = progress,
+                moviesInputs = moviesInputs,
+                seriesInputs = seriesInputs,
+                allInputs = allInputs,
+                isColdStart = true,
+            )
+        )
+    }
+
+    @Test
+    fun isSeriesStillLoading_trueWhileSeriesIngestContinues() {
+        val progress = VodCatalogProgress(
+            moviesPhaseFinished = true,
+            seriesPhaseFinished = false,
+            seriesLoaded = 500,
+            seriesTotal = 6800,
+            isLoading = true,
+        )
+        assertTrue(isSeriesCatalogStillLoading(catalogLoading = true, progress = progress))
+        assertFalse(
+            isSeriesCatalogStillLoading(
+                catalogLoading = false,
+                progress = progress.copy(seriesPhaseFinished = true, isLoading = false),
             )
         )
     }

@@ -84,6 +84,10 @@ import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
 import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingPanel
+import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
+import com.grid.tv.ui.component.isMoviesTabRenderable
+import com.grid.tv.ui.component.isSeriesCatalogStillLoading
+import com.grid.tv.ui.component.isVodHubColdStartLoad
 import com.grid.tv.ui.component.rememberHubUnifiedLoadingVisible
 import com.grid.tv.ui.component.rememberVodCatalogOnboardingVisible
 import com.grid.tv.ui.component.VodEmptyState
@@ -179,6 +183,7 @@ fun VodHubScreen(
 
     /** Stable catalog/filter/wall snapshot — does not include hero carousel index. */
     val contentState by hubViewModel.contentState.collectAsStateWithLifecycle()
+    val tmdbWarning by hubViewModel.tmdbWarningMessage.collectAsStateWithLifecycle()
     val activePlaylistId by hubViewModel.activePlaylistId.collectAsStateWithLifecycle()
     val recommendationFeedbackRevision by hubViewModel.recommendationFeedbackRevision.collectAsStateWithLifecycle()
     var focusBootstrapComplete by remember { mutableStateOf(false) }
@@ -491,15 +496,22 @@ fun VodHubScreen(
         pagedItemCount = seriesPagingItems.itemCount,
         catalogTotalCount = seriesCatalogTotalCount,
     )
-    val showHubUnifiedLoading = contentFilter != VodContentFilter.SEARCH &&
+    val isColdStart = isVodHubColdStartLoad(catalogTotalCount, seriesCatalogTotalCount)
+    val isSeriesStillLoading = isSeriesCatalogStillLoading(catalogLoading, catalogProgress)
+    val showHubUnifiedLoading = contentFilter == VodContentFilter.ALL &&
+        contentFilter != VodContentFilter.SEARCH &&
+        isColdStart &&
         rememberHubUnifiedLoadingVisible(
             catalogLoading = catalogLoading,
             catalogProgress = catalogProgress,
             moviesInputs = moviesOnboardingInputs,
             seriesInputs = seriesOnboardingInputs,
             allInputs = onboardingInputs,
+            isColdStart = isColdStart,
         )
-    val hubCatalogReady = !showHubUnifiedLoading
+    val hubCatalogReady = !isColdStart ||
+        isMoviesTabRenderable(moviesOnboardingInputs, catalogProgress) ||
+        !showHubUnifiedLoading
     val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
 
     val activeSurfaceState = when (contentFilter) {
@@ -545,8 +557,7 @@ fun VodHubScreen(
     )
 
     fun isBrowseGridLoading(): Boolean =
-        showHubUnifiedLoading ||
-            VodHubSurfaceStateResolver.isBrowseGridLoading(browseGridFocusInputs())
+        VodHubSurfaceStateResolver.isBrowseGridLoading(browseGridFocusInputs())
 
     fun focusContentMode() = VodHubSurfaceStateResolver.focusContentMode(
         surfaceState = activeSurfaceState,
@@ -1807,6 +1818,7 @@ fun VodHubScreen(
                         .fillMaxWidth()
                         .padding(top = 4.dp)
                 ) {
+                    VodCatalogRefreshWarningBanner(message = tmdbWarning)
                     when {
                         showHubUnifiedLoading -> {
                             VodCatalogOnboardingPanel(
@@ -1894,6 +1906,7 @@ fun VodHubScreen(
                                 gridRestoreRequest = focusUi.gridRestoreRequest,
                                 onGridRestoreComplete = focusController::onGridRestoreComplete,
                                 surfaceState = seriesBrowseSurface,
+                                isSeriesStillLoading = isSeriesStillLoading,
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()

@@ -4,6 +4,7 @@ import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
 import com.grid.tv.ui.component.countNonPersonalWallRows
+import com.grid.tv.ui.component.isSeriesCatalogStillLoading
 import com.grid.tv.ui.component.shouldShowVodCatalogEmptyState
 import com.grid.tv.ui.component.shouldShowVodCatalogOnboarding
 import com.grid.tv.util.VodPerfLogger
@@ -165,7 +166,11 @@ object VodHubUiStateBuilder {
                 movieFilteredTotalCount = inputs.movieFilteredTotalCount,
                 seriesFilteredTotalCount = inputs.seriesFilteredTotalCount,
                 catalogLoading = inputs.catalogLoading,
-                catalogProgress = inputs.catalogProgress
+                catalogProgress = inputs.catalogProgress,
+                isSeriesStillLoading = isSeriesCatalogStillLoading(
+                    catalogLoading = inputs.catalogLoading,
+                    progress = inputs.catalogProgress,
+                ),
             ),
             hero = VodHeroUiState(
                 featuredCarousel = inputs.featuredCarousel

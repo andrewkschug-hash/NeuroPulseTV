@@ -32,7 +32,10 @@ object VodCategoryGuards {
         val idsByScopedLabel = linkedMapOf<String, MutableSet<String>>()
         categories.forEach { category ->
             if (category.name.isBlank() || !isStreamBackedCategoryId(category.id)) return@forEach
-            val labelKey = VodSidebarGenreNormalizer.scopedComparisonKey(category.playlistId, category.name)
+            val labelKey = VodSidebarGenreNormalizer.scopedPrimaryComparisonKey(
+                category.playlistId,
+                category.name,
+            )
             idsByScopedLabel.getOrPut(labelKey) { linkedSetOf() }.add(category.id)
         }
         return idsByScopedLabel.mapNotNull { (labelKey, ids) ->
@@ -46,7 +49,11 @@ object VodCategoryGuards {
     fun sanitizeStreamBacked(categories: List<VodCategory>): List<VodCategory> =
         partitionStreamBacked(categories).first
 
-    fun filterStreamBacked(categories: List<VodCategory>, source: String): List<VodCategory> {
+    fun filterStreamBacked(
+        categories: List<VodCategory>,
+        source: String,
+        logCollisions: Boolean = false,
+    ): List<VodCategory> {
         if (categories.isEmpty()) return categories
         val (valid, dropped) = partitionStreamBacked(categories)
         dropped.forEach { category ->
@@ -56,7 +63,9 @@ object VodCategoryGuards {
                     "playlist=${category.playlistId} id='${category.id}' name='${category.name}'"
             )
         }
-        logDisplayNameCollisions(valid, source)
+        if (logCollisions) {
+            logDisplayNameCollisions(valid, source)
+        }
         return valid
     }
 

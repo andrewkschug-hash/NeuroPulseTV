@@ -13,5 +13,5 @@ fun redactCredentials(message: String): String =
 
 fun createSafeHttpLogger(tag: String = "OkHttp"): HttpLoggingInterceptor.Logger =
     HttpLoggingInterceptor.Logger { message ->
-        Log.i(tag, redactCredentials(message))
+        runCatching { Log.i(tag, redactCredentials(message)) }
     }

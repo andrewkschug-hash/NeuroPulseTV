@@ -72,7 +72,8 @@ class VodHubViewModel @Inject constructor(
     private val playlistContext: PlaylistContext,
     private val focusBreadcrumbStore: VodHubFocusBreadcrumbStore,
     private val recommendationFeedbackStore: RecommendationFeedbackStore,
-    private val vodCatalogSessionStore: VodCatalogSessionStore
+    private val vodCatalogSessionStore: VodCatalogSessionStore,
+    private val tmdbConnectivityMonitor: com.grid.tv.data.network.tmdb.TmdbConnectivityMonitor,
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
     private val featuredContentRanker = FeaturedContentRanker()
@@ -82,6 +83,8 @@ class VodHubViewModel @Inject constructor(
 
     private val enrichmentByKey = MutableStateFlow<Map<String, TitleEnrichmentEntity>>(emptyMap())
     val enrichmentMap: StateFlow<Map<String, TitleEnrichmentEntity>> = enrichmentByKey.asStateFlow()
+
+    val tmdbWarningMessage: StateFlow<String?> = tmdbConnectivityMonitor.warningMessage
 
     val preferredVodLanguages: StateFlow<Set<String>> = languagePreferenceStore.preferredLanguages
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())

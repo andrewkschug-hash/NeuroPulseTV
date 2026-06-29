@@ -34,6 +34,9 @@ import com.grid.tv.data.db.entity.ProfileWatchHistoryEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
 import com.grid.tv.data.db.entity.UserProfileEntity
 import com.grid.tv.data.cache.VodCatalogDiskCache
+import com.grid.tv.data.cache.VodCatalogCacheManifestStore
+import com.grid.tv.data.cache.sha256FileHex
+import com.grid.tv.data.cache.vodPlaylistCacheVersionKey
 import com.grid.tv.data.io.DiskIoSerialExecutor
 import com.grid.tv.data.db.dao.SeriesCategoryDao
 import com.grid.tv.data.db.dao.SeriesShowDao
@@ -224,6 +227,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val seriesShowDao: SeriesShowDao,
     private val seriesCategoryDao: SeriesCategoryDao,
     private val vodCatalogDiskCache: VodCatalogDiskCache,
+    private val vodCatalogCacheManifestStore: VodCatalogCacheManifestStore,
     private val catalogHydrationGuard: com.grid.tv.data.catalog.CatalogHydrationGuard,
     private val epgDownloadTracker: EpgDownloadTracker,
     private val epgDispatchers: EpgCoroutineDispatchers,
@@ -374,10 +378,42 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private fun seedVodRefreshBaselineIfNeeded(persisted: PersistedCatalogCounts = startupCatalogCountsStore.read()) {
-        if (!persisted.isValid) return
-        if (persisted.movies <= 0 && persisted.series <= 0) return
+        if (!persisted.isValid) {
+            seedVodRefreshBaselineFromManifest()
+            return
+        }
+        if (persisted.movies <= 0 && persisted.series <= 0) {
+            seedVodRefreshBaselineFromManifest()
+            return
+        }
         if (lastVodRefreshCompletedAtMs > 0L) return
         lastVodRefreshCompletedAtMs = persisted.updatedAtMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+        seedVodRefreshBaselineFromManifest()
+    }
+
+    private fun seedVodRefreshBaselineFromManifest() {
+        val manifestSavedAt = vodCatalogCacheManifestStore.latestSavedAtMs()
+        if (manifestSavedAt > lastVodRefreshCompletedAtMs) {
+            lastVodRefreshCompletedAtMs = manifestSavedAt
+        }
+    }
+
+    private suspend fun isVodPlaylistDiskCacheFresh(playlist: PlaylistEntity): Boolean {
+        val manifest = vodCatalogCacheManifestStore.read(playlist.id) ?: return false
+        if (manifest.playlistVersionKey != vodPlaylistCacheVersionKey(playlist)) return false
+        if (!manifest.isFresh(ttlMs = VOD_CACHE_TTL_MS)) return false
+        val roomMovies = vodStreamDao.countByPlaylist(playlist.id)
+        val roomSeries = seriesShowDao.countByPlaylist(playlist.id)
+        val moviesOk = manifest.moviesCount <= 0 || roomMovies >= manifest.moviesCount
+        val seriesOk = manifest.seriesCount <= 0 || roomSeries >= manifest.seriesCount
+        return (roomMovies > 0 || roomSeries > 0) && moviesOk && seriesOk
+    }
+
+    private suspend fun canSkipVodNetworkRefreshFromDiskCache(): Boolean {
+        loadSettings()
+        val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
+        if (playlists.isEmpty()) return false
+        return playlists.all { playlist -> isVodPlaylistDiskCacheFresh(playlist) }
     }
 
     private suspend fun shouldSkipStartupVodNetworkRefresh(trigger: VodRefreshTrigger): Boolean {
@@ -2111,6 +2147,7 @@ class IptvRepositoryImpl @Inject constructor(
             seriesCategoryDao.clearByPlaylist(playlistId)
             seriesShowDao.clearByPlaylist(playlistId)
             vodCatalogDiskCache.clear(playlistId)
+            vodCatalogCacheManifestStore.clear(playlistId)
             bumpVodCatalogRevision()
             throw e
         }
@@ -2267,6 +2304,7 @@ class IptvRepositoryImpl @Inject constructor(
         seriesCategoryDao.clearByPlaylist(playlistId)
         seriesShowDao.clearByPlaylist(playlistId)
         vodCatalogDiskCache.clear(playlistId)
+        vodCatalogCacheManifestStore.clear(playlistId)
         clearSeriesSeasonsForPlaylist(playlistId)
         bumpVodCatalogRevision()
     }
@@ -2917,10 +2955,16 @@ class IptvRepositoryImpl @Inject constructor(
         if (vodDiskCacheLoaded) return
         vodDiskLoadMutex.withLock {
             if (vodDiskCacheLoaded) return
+            val hydrated = tryHydrateVodCatalogFromDiskCache(VodRefreshTrigger.REPOSITORY_INIT)
             val dbMovies = cachedMoviesCount()
             val dbSeries = cachedSeriesCount()
             vodDiskCacheLoaded = true
-            if (dbMovies > 0 || dbSeries > 0) {
+            if (hydrated) {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "VOD catalog hydrated from disk cache movies=$dbMovies series=$dbSeries"
+                )
+            } else if (dbMovies > 0 || dbSeries > 0) {
                 Log.i(
                     VOD_FLOW_TAG,
                     "VOD catalog available in DB movies=$dbMovies series=$dbSeries (lazy paging — no bulk load)"
@@ -2941,10 +2985,255 @@ class IptvRepositoryImpl @Inject constructor(
                     )
                 }
             }
+            seedVodRefreshBaselineFromManifest()
         }
     }
 
+    private suspend fun tryHydrateVodCatalogFromDiskCache(trigger: VodRefreshTrigger): Boolean {
+        loadSettings()
+        val playlists = playlistDao.all().filter { it.type == PlaylistType.XTREAM.name }
+        if (playlists.isEmpty()) return false
+
+        var hydratedAny = false
+        for (playlist in playlists) {
+            val manifest = vodCatalogCacheManifestStore.read(playlist.id) ?: continue
+            if (manifest.playlistVersionKey != vodPlaylistCacheVersionKey(playlist)) continue
+
+            val roomMovies = vodStreamDao.countByPlaylist(playlist.id)
+            val roomSeries = seriesShowDao.countByPlaylist(playlist.id)
+
+            if (roomMovies <= 0 && manifest.moviesCount > 0) {
+                hydratedAny = hydrateMoviesFromDiskCache(playlist, trigger) || hydratedAny
+            }
+            if (roomSeries <= 0 && manifest.seriesCount > 0) {
+                hydratedAny = hydrateSeriesFromDiskCache(playlist, trigger) || hydratedAny
+            }
+        }
+
+        if (!hydratedAny) return false
+
+        lastVodRefreshCompletedAtMs = vodCatalogCacheManifestStore.latestSavedAtMs()
+            .takeIf { it > 0L }
+            ?: System.currentTimeMillis()
+        refreshCatalogCountsFromDb(
+            trigger = trigger,
+            force = true,
+            publishUi = true,
+            persist = true,
+        )
+        publishVodProgressFromDb(trigger)
+        bumpVodCatalogRevision()
+        return true
+    }
+
+    private suspend fun hydrateMoviesFromDiskCache(
+        playlist: PlaylistEntity,
+        trigger: VodRefreshTrigger,
+    ): Boolean {
+        val snapshot = vodCatalogDiskCache.load(playlist.id)
+        val movies = snapshot?.movies.orEmpty()
+        if (movies.isEmpty()) {
+            val rawFile = vodCatalogDiskCache.rawCatalogFile(playlist.id, "movies")
+            if (!rawFile.exists()) return false
+            return ingestMoviesFromLocalCacheFile(playlist, rawFile, trigger)
+        }
+        val syncGeneration = nextVodSyncGeneration()
+        var batchIndex = 0
+        vodCatalogDiskCache.hydrateMoviesBatches(movies) { batch ->
+            startupDiskQueue.run("vod_disk_hydrate_movies_$batchIndex") {
+                vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+            }
+            batchIndex++
+        }
+        return true
+    }
+
+    private suspend fun hydrateSeriesFromDiskCache(
+        playlist: PlaylistEntity,
+        trigger: VodRefreshTrigger,
+    ): Boolean {
+        val snapshot = vodCatalogDiskCache.load(playlist.id)
+        val series = snapshot?.series.orEmpty()
+        if (series.isEmpty()) {
+            val rawFile = vodCatalogDiskCache.rawCatalogFile(playlist.id, "series")
+            if (!rawFile.exists()) return false
+            return ingestSeriesFromLocalCacheFile(playlist, rawFile, trigger)
+        }
+        val syncGeneration = nextVodSyncGeneration()
+        var batchIndex = 0
+        vodCatalogDiskCache.hydrateSeriesBatches(series) { batch ->
+            startupDiskQueue.run("vod_disk_hydrate_series_$batchIndex") {
+                seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+            }
+            batchIndex++
+        }
+        seriesCatalogHydrationStore.setState(
+            playlist.id,
+            com.grid.tv.domain.model.SeriesCatalogHydrationState.POPULATED,
+        )
+        return true
+    }
+
+    private suspend fun ingestMoviesFromLocalCacheFile(
+        playlist: PlaylistEntity,
+        catalogFile: File,
+        trigger: VodRefreshTrigger,
+    ): Boolean {
+        val credentials = resolveVodFetchCredentials(playlist) ?: return false
+        val (server, user, pass) = credentials
+        val syncGeneration = nextVodSyncGeneration()
+        var parsedCount = 0
+        val ingestBatchSize = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.DEFAULT_BATCH_SIZE
+        val streamResult = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.parseVodCatalogStream(
+            input = catalogFile.inputStream(),
+            username = user,
+            password = pass,
+            serverUrl = server,
+            playlistId = playlist.id,
+            batchSize = ingestBatchSize,
+            parser = xtreamParser,
+        ) { batch, batchIndex, _ ->
+            if (batch.isEmpty()) return@parseVodCatalogStream
+            startupDiskQueue.run("vod_disk_hydrate_movies_$batchIndex") {
+                vodStreamDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+            }
+            parsedCount += batch.size
+        }
+        if (parsedCount <= 0) return false
+        vodStreamDao.deleteStaleByPlaylist(playlist.id, syncGeneration)
+        refreshCatalogCountsFromDb(trigger = trigger, force = true, publishUi = true, persist = true)
+        return true
+    }
+
+    private suspend fun ingestSeriesFromLocalCacheFile(
+        playlist: PlaylistEntity,
+        catalogFile: File,
+        trigger: VodRefreshTrigger,
+    ): Boolean {
+        val syncGeneration = nextVodSyncGeneration()
+        var parsedCount = 0
+        val ingestBatchSize = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.DEFAULT_BATCH_SIZE
+        clearSeriesSeasonsForPlaylist(playlist.id)
+        val streamResult = com.grid.tv.data.network.parser.XtreamCatalogStreamParser.parseSeriesCatalogStream(
+            input = catalogFile.inputStream(),
+            playlistId = playlist.id,
+            batchSize = ingestBatchSize,
+            parser = xtreamParser,
+        ) { batch, batchIndex, _ ->
+            if (batch.isEmpty()) return@parseSeriesCatalogStream
+            startupDiskQueue.run("vod_disk_hydrate_series_$batchIndex") {
+                seriesShowDao.insertAll(batch.map { it.toEntity(syncGeneration) })
+            }
+            parsedCount += batch.size
+        }
+        parsedCount = streamResult.parsedCount
+        if (parsedCount <= 0) return false
+        seriesShowDao.deleteStaleByPlaylist(playlist.id, syncGeneration)
+        seriesCatalogHydrationStore.setState(
+            playlist.id,
+            com.grid.tv.domain.model.SeriesCatalogHydrationState.POPULATED,
+        )
+        refreshCatalogCountsFromDb(trigger = trigger, force = true, publishUi = true, persist = true)
+        return true
+    }
+
+    private fun scheduleParsedVodSnapshotExport(playlistId: Long, savedAtMs: Long) {
+        vodRepositoryScope.launch {
+            try {
+                exportVodSnapshotsToDiskCache(playlistId, savedAtMs)
+            } catch (error: Throwable) {
+                Log.w(
+                    VOD_FLOW_TAG,
+                    "VOD parsed snapshot export failed playlist=$playlistId: ${error.message}",
+                    error,
+                )
+            }
+        }
+    }
+
+    private suspend fun exportVodSnapshotsToDiskCache(playlistId: Long, savedAtMs: Long) {
+        startupDiskQueue.run("vod_snapshot_export_$playlistId") {
+            val movies = buildList {
+                var offset = 0
+                while (true) {
+                    val page = vodStreamDao.pageByPlaylist(
+                        playlistId,
+                        VodCatalogDiskCache.HYDRATE_BATCH_SIZE,
+                        offset,
+                    )
+                    if (page.isEmpty()) break
+                    addAll(page.map { it.toDomain() })
+                    offset += page.size
+                }
+            }
+            if (movies.isNotEmpty()) {
+                vodCatalogDiskCache.saveMovies(playlistId, movies, savedAtMs)
+            }
+
+            val series = buildList {
+                var offset = 0
+                while (true) {
+                    val page = seriesShowDao.pageByPlaylist(
+                        playlistId,
+                        VodCatalogDiskCache.HYDRATE_BATCH_SIZE,
+                        offset,
+                    )
+                    if (page.isEmpty()) break
+                    addAll(page.map { it.toDomain() })
+                    offset += page.size
+                }
+            }
+            if (series.isNotEmpty()) {
+                vodCatalogDiskCache.saveSeries(playlistId, series, savedAtMs)
+            }
+        }
+    }
+
+    private suspend fun persistVodDiskCacheAfterMoviesIngest(
+        playlist: PlaylistEntity,
+        catalogFile: File,
+        parsedCount: Int,
+    ) {
+        val versionKey = vodPlaylistCacheVersionKey(playlist)
+        val savedAtMs = System.currentTimeMillis()
+        startupDiskQueue.run("vod_cache_write_movies_${playlist.id}") {
+            val fingerprint = vodCatalogDiskCache.persistRawCatalog(playlist.id, "movies", catalogFile)
+            vodCatalogCacheManifestStore.merge(
+                playlistId = playlist.id,
+                playlistVersionKey = versionKey,
+                savedAtMs = savedAtMs,
+                moviesCount = parsedCount,
+                moviesContentFingerprint = fingerprint,
+            )
+        }
+        scheduleParsedVodSnapshotExport(playlist.id, savedAtMs)
+    }
+
+    private suspend fun persistVodDiskCacheAfterSeriesIngest(
+        playlist: PlaylistEntity,
+        catalogFile: File,
+        parsedCount: Int,
+    ) {
+        val versionKey = vodPlaylistCacheVersionKey(playlist)
+        val savedAtMs = System.currentTimeMillis()
+        startupDiskQueue.run("vod_cache_write_series_${playlist.id}") {
+            val fingerprint = vodCatalogDiskCache.persistRawCatalog(playlist.id, "series", catalogFile)
+            vodCatalogCacheManifestStore.merge(
+                playlistId = playlist.id,
+                playlistVersionKey = versionKey,
+                savedAtMs = savedAtMs,
+                seriesCount = parsedCount,
+                seriesContentFingerprint = fingerprint,
+            )
+        }
+        scheduleParsedVodSnapshotExport(playlist.id, savedAtMs)
+    }
+
     private suspend fun isVodCatalogFresh(): Boolean {
+        if (canSkipVodNetworkRefreshFromDiskCache()) {
+            seedVodRefreshBaselineFromManifest()
+            return true
+        }
         if (lastVodRefreshCompletedAtMs <= 0L) return false
         val ageMs = System.currentTimeMillis() - lastVodRefreshCompletedAtMs
         if (ageMs >= VOD_CACHE_TTL_MS) return false
@@ -3148,19 +3437,18 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun buildStreamFallbackSeriesCategoriesRaw(): List<VodCategory> =
-        VodCategoryGuards.filterStreamBacked(
+        VodCategoryGuards.sanitizeStreamBacked(
             seriesShowDao.distinctCategoryPairs().map { row ->
                 VodCategory(
                     id = row.categoryId,
                     name = row.categoryId,
                     playlistId = row.playlistId
                 )
-            },
-            source = "fallbackSeriesCategoriesRaw"
+            }
         )
 
     private suspend fun buildSeriesGenreHintCategoriesRaw(): List<VodCategory> =
-        VodCategoryGuards.filterStreamBacked(
+        VodCategoryGuards.sanitizeStreamBacked(
             seriesShowDao.distinctCategoryGenreHints().mapNotNull { row ->
                 val genre = row.genre.trim()
                 if (genre.isBlank()) return@mapNotNull null
@@ -3169,8 +3457,7 @@ class IptvRepositoryImpl @Inject constructor(
                     name = genre,
                     playlistId = row.playlistId
                 )
-            },
-            source = "seriesGenreHintCategories"
+            }
         )
 
     private suspend fun mergeAllSeriesCategorySources(stored: List<VodCategory>): List<VodCategory> =
@@ -3196,7 +3483,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun buildFallbackVodCategories(): List<VodCategory> {
         val lookup = buildCategoryNameLookup()
-        return VodCategoryGuards.filterStreamBacked(
+        return VodCategoryGuards.sanitizeStreamBacked(
             vodStreamDao.distinctCategoryPairs().map { row ->
                 VodCategory(
                     id = row.categoryId,
@@ -3208,8 +3495,7 @@ class IptvRepositoryImpl @Inject constructor(
                     ),
                     playlistId = row.playlistId
                 )
-            },
-            source = "fallbackVodCategories"
+            }
         )
     }
 
@@ -3330,7 +3616,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun resolveCategoriesForDisplay(categories: List<VodCategory>): List<VodCategory> {
         if (categories.isEmpty()) return categories
-        val streamBacked = VodCategoryGuards.filterStreamBacked(categories, source = "resolveCategoriesForDisplay")
+        val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
         val lookup = buildCategoryNameLookup()
         return streamBacked.map { category ->
             VodCategoryNameResolver.withResolvedNames(category, lookup)
@@ -3724,6 +4010,37 @@ class IptvRepositoryImpl @Inject constructor(
                 )
             }
 
+            val contentFingerprint = sha256FileHex(catalogFile)
+            val versionKey = vodPlaylistCacheVersionKey(playlist)
+            val manifest = vodCatalogCacheManifestStore.read(playlist.id)
+            if (manifest != null &&
+                manifest.playlistVersionKey == versionKey &&
+                manifest.moviesContentFingerprint == contentFingerprint &&
+                priorCount >= manifest.moviesCount &&
+                manifest.isFresh(ttlMs = VOD_CACHE_TTL_MS)
+            ) {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "Skipping movie batch ingest — disk cache fresh (fingerprint match) " +
+                        "playlist=${playlist.id} count=$priorCount"
+                )
+                startupDiskQueue.run("vod_cache_touch_movies_${playlist.id}") {
+                    vodCatalogDiskCache.persistRawCatalog(playlist.id, "movies", catalogFile)
+                    vodCatalogCacheManifestStore.merge(
+                        playlistId = playlist.id,
+                        playlistVersionKey = versionKey,
+                        savedAtMs = System.currentTimeMillis(),
+                        moviesCount = priorCount,
+                        moviesContentFingerprint = contentFingerprint,
+                    )
+                }
+                return@traceSuspend VodPlaylistRefreshResult(
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    parsedCount = priorCount,
+                    arrayLength = priorCount,
+                )
+            }
+
             try {
             val diagnosis = xtreamParser.diagnoseVodResponse(fetchResult.headPreview)
             if (diagnosis != null && !fetchResult.headPreview.trimStart().startsWith("[")) {
@@ -3829,6 +4146,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "VOD incremental sync playlist=${playlist.id} upserted=$parsedCount " +
                     "prunedStale=$pruned priorCount=$priorCount syncGen=$syncGeneration"
             )
+            persistVodDiskCacheAfterMoviesIngest(playlist, catalogFile, parsedCount)
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes.toInt(),
                 parsedCount = parsedCount,
@@ -3957,6 +4275,41 @@ class IptvRepositoryImpl @Inject constructor(
                 )
             }
 
+            val contentFingerprint = sha256FileHex(catalogFile)
+            val versionKey = vodPlaylistCacheVersionKey(playlist)
+            val manifest = vodCatalogCacheManifestStore.read(playlist.id)
+            if (manifest != null &&
+                manifest.playlistVersionKey == versionKey &&
+                manifest.seriesContentFingerprint == contentFingerprint &&
+                priorCount >= manifest.seriesCount &&
+                manifest.isFresh(ttlMs = VOD_CACHE_TTL_MS)
+            ) {
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "Skipping series batch ingest — disk cache fresh (fingerprint match) " +
+                        "playlist=${playlist.id} count=$priorCount"
+                )
+                startupDiskQueue.run("vod_cache_touch_series_${playlist.id}") {
+                    vodCatalogDiskCache.persistRawCatalog(playlist.id, "series", catalogFile)
+                    vodCatalogCacheManifestStore.merge(
+                        playlistId = playlist.id,
+                        playlistVersionKey = versionKey,
+                        savedAtMs = System.currentTimeMillis(),
+                        seriesCount = priorCount,
+                        seriesContentFingerprint = contentFingerprint,
+                    )
+                }
+                seriesCatalogHydrationStore.setState(
+                    playlist.id,
+                    com.grid.tv.domain.model.SeriesCatalogHydrationState.POPULATED,
+                )
+                return@traceSuspend VodPlaylistRefreshResult(
+                    rawLength = fetchResult.rawBytes.toInt(),
+                    parsedCount = priorCount,
+                    arrayLength = priorCount,
+                )
+            }
+
             try {
             com.grid.tv.util.PlaybackDiagnostics.logMemory("before_series_stream_parse playlist=${playlist.id}")
             val parseStartNs = System.nanoTime()
@@ -4059,6 +4412,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "Series incremental sync playlist=${playlist.id} upserted=$parsedCount " +
                     "prunedStale=$pruned priorCount=$priorCount syncGen=$syncGeneration"
             )
+            persistVodDiskCacheAfterSeriesIngest(playlist, catalogFile, parsedCount)
             VodPlaylistRefreshResult(
                 rawLength = fetchResult.rawBytes.toInt(),
                 parsedCount = parsedCount,
@@ -4852,6 +5206,7 @@ class IptvRepositoryImpl @Inject constructor(
         seriesCategoryDao.clearAll()
         seriesShowDao.clearAll()
         vodCatalogDiskCache.clearAll()
+        vodCatalogCacheManifestStore.clearAll()
         seriesCatalogHydrationStore.clearAll()
         seriesSeasonsCache.clear()
         invalidateCategoryLookupCache()

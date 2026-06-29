@@ -17,6 +17,8 @@ import org.json.JSONObject
 /**
  * Persists VOD movie, category, and series lists per playlist so the catalog survives app restarts.
  * Uses JSON files under [Context.getCacheDir]/vod_catalog/.
+ *
+ * Raw provider JSON is stored under `raw/` for fingerprint-based diff-sync skips.
  */
 @Singleton
 class VodCatalogDiskCache @Inject constructor(
@@ -26,11 +28,14 @@ class VodCatalogDiskCache @Inject constructor(
     companion object {
         private const val TAG = "VodCatalogPipeline"
         private const val DIR_NAME = "vod_catalog"
+        private const val RAW_DIR_NAME = "raw"
         private const val KEY_SAVED_AT = "savedAtMs"
         private const val KEY_ITEMS = "items"
+        const val HYDRATE_BATCH_SIZE = 100
     }
 
     private val cacheDir: File = File(context.cacheDir, DIR_NAME).also { it.mkdirs() }
+    private val rawDir: File = File(cacheDir, RAW_DIR_NAME).also { it.mkdirs() }
 
     data class PlaylistSnapshot(
         val savedAtMs: Long,
@@ -100,6 +105,49 @@ class VodCatalogDiskCache @Inject constructor(
     suspend fun clear(playlistId: Long) = withContext(diskIoSerialExecutor.dispatcher) {
         listOf("movies", "categories", "series").forEach { kind ->
             fileFor(playlistId, kind).delete()
+            rawCatalogFile(playlistId, kind).delete()
+        }
+    }
+
+    fun rawCatalogFile(playlistId: Long, kind: String): File =
+        File(rawDir, "playlist_${playlistId}_$kind.json")
+
+    /** Copies provider JSON to persistent cache and returns its SHA-256 fingerprint. */
+    suspend fun persistRawCatalog(playlistId: Long, kind: String, source: File): String =
+        withContext(diskIoSerialExecutor.dispatcher) {
+            val dest = rawCatalogFile(playlistId, kind)
+            val fingerprint = sha256FileHex(source)
+            source.copyTo(dest, overwrite = true)
+            Log.i(
+                TAG,
+                "VOD raw cache saved playlist=$playlistId kind=$kind bytes=${dest.length()} fp=${fingerprint.take(12)}"
+            )
+            fingerprint
+        }
+
+    fun computeRawCatalogFingerprint(playlistId: Long, kind: String): String? {
+        val file = rawCatalogFile(playlistId, kind)
+        if (!file.exists() || file.length() <= 0L) return null
+        return runCatching { sha256FileHex(file) }.getOrNull()
+    }
+
+    suspend fun hydrateSeriesBatches(
+        series: List<SeriesShow>,
+        insertBatch: suspend (List<SeriesShow>) -> Unit,
+    ) {
+        if (series.isEmpty()) return
+        series.chunked(HYDRATE_BATCH_SIZE).forEach { batch ->
+            insertBatch(batch)
+        }
+    }
+
+    suspend fun hydrateMoviesBatches(
+        movies: List<VodItem>,
+        insertBatch: suspend (List<VodItem>) -> Unit,
+    ) {
+        if (movies.isEmpty()) return
+        movies.chunked(HYDRATE_BATCH_SIZE).forEach { batch ->
+            insertBatch(batch)
         }
     }
 

@@ -39,6 +39,16 @@ interface SeriesShowDao {
 
     @Query(
         """
+        SELECT * FROM series_shows
+        WHERE playlistId = :playlistId
+        ORDER BY rowId
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun pageByPlaylist(playlistId: Long, limit: Int, offset: Int): List<SeriesShowEntity>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
           AND (:search = '' OR name LIKE '%' || :search || '%')

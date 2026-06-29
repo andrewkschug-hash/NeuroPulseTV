@@ -145,7 +145,7 @@ fun resolveVodOnboardingStep(inputs: VodCatalogOnboardingInputs): VodOnboardingS
             VodOnboardingStep.SCANNING
         !progress.moviesPhaseFinished ->
             VodOnboardingStep.ORGANIZING_MOVIES
-        !progress.seriesPhaseFinished ->
+        !progress.hasSeriesFirstBatch && !progress.seriesPhaseFinished ->
             VodOnboardingStep.ORGANIZING_SERIES
         inputs.effectiveCatalogCount() > 0 && !isVodCatalogContentReady(inputs) ->
             VodOnboardingStep.BUILDING_RECOMMENDATIONS
@@ -176,16 +176,65 @@ private fun isVodCatalogPipelineStillRunning(
     catalogLoading: Boolean,
     progress: VodCatalogProgress
 ): Boolean {
-    if (catalogLoading || progress.isLoading) return true
     return when (tab) {
-        VodCatalogOnboardingTab.ALL ->
-            !progress.moviesPhaseFinished ||
-                (progress.isMoviesPhaseComplete && !progress.seriesPhaseFinished)
+        VodCatalogOnboardingTab.ALL -> {
+            if (!progress.moviesPhaseFinished) {
+                catalogLoading || progress.isLoading
+            } else {
+                !progress.hasSeriesFirstBatch && (catalogLoading || progress.isLoading)
+            }
+        }
         VodCatalogOnboardingTab.MOVIES ->
-            !progress.moviesPhaseFinished
+            !progress.moviesPhaseFinished && (catalogLoading || progress.isLoading)
         VodCatalogOnboardingTab.SERIES ->
-            !progress.seriesPhaseFinished
+            !progress.seriesPhaseFinished &&
+                progress.seriesLoaded == 0 &&
+                (catalogLoading || progress.isLoading)
     }
+}
+
+/** True on first hub entry when no catalog exists on disk yet. */
+fun isVodHubColdStartLoad(
+    movieCatalogTotal: Int,
+    seriesCatalogTotal: Int,
+): Boolean = movieCatalogTotal == 0 && seriesCatalogTotal == 0
+
+/** Minimum ingest before the full-screen hub gate can dismiss (movies done + first series batch). */
+fun hasHubMinimumIngestProgress(progress: VodCatalogProgress): Boolean {
+    if (!progress.moviesPhaseFinished) return false
+    return progress.hasSeriesFirstBatch || progress.seriesTotal == 0
+}
+
+/** Series ingest continues in the background after the hub gate opens. */
+fun isSeriesCatalogStillLoading(
+    catalogLoading: Boolean,
+    progress: VodCatalogProgress,
+): Boolean {
+    if (progress.seriesPhaseFinished) return false
+    if (!progress.moviesPhaseFinished) return false
+    return catalogLoading || progress.isLoading
+}
+
+fun isAllTabMinimallyRenderable(
+    allInputs: VodCatalogOnboardingInputs,
+    moviesInputs: VodCatalogOnboardingInputs,
+    progress: VodCatalogProgress,
+): Boolean {
+    if (isVodCatalogContentReady(allInputs)) return true
+    if (!hasHubMinimumIngestProgress(progress)) return false
+    if (allInputs.wallRowCount > 0) return true
+    if (allInputs.browseRowCount > 0) return true
+    if (isVodCatalogContentReady(moviesInputs)) return true
+    return allInputs.effectiveCatalogCount() > 0
+}
+
+fun isMoviesTabRenderable(
+    moviesInputs: VodCatalogOnboardingInputs,
+    progress: VodCatalogProgress,
+): Boolean {
+    if (!progress.moviesPhaseFinished) return false
+    if (isVodCatalogContentReady(moviesInputs)) return true
+    return moviesInputs.catalogTotalCount > 0 || moviesInputs.effectiveCatalogCount() > 0
 }
 
 private fun isBuildingRecommendationsPhase(inputs: VodCatalogOnboardingInputs): Boolean {
@@ -216,8 +265,8 @@ fun shouldShowVodCatalogEmptyState(
  * Uses existing [VodCatalogProgress] and row/category counts — does not trigger loads.
  */
 /**
- * Hub-level gate: single loading screen until both Movies and Series catalogs are ready.
- * Stricter than per-tab [shouldShowVodCatalogOnboarding] — does not skip while counts exist on disk.
+ * Hub-level gate: full-screen loading on cold start until movies finish and the first
+ * series batch lands — does not wait for the entire series catalog.
  */
 fun shouldShowHubUnifiedLoading(
     catalogLoading: Boolean,
@@ -225,27 +274,28 @@ fun shouldShowHubUnifiedLoading(
     moviesInputs: VodCatalogOnboardingInputs,
     seriesInputs: VodCatalogOnboardingInputs,
     allInputs: VodCatalogOnboardingInputs,
+    isColdStart: Boolean = true,
 ): Boolean {
-    if (isVodCatalogPipelineStillRunning(
-            VodCatalogOnboardingTab.ALL,
-            catalogLoading,
-            catalogProgress,
-        )
-    ) {
-        return true
+    if (!isColdStart) return false
+
+    if (!hasHubMinimumIngestProgress(catalogProgress)) {
+        return catalogLoading ||
+            catalogProgress.isLoading ||
+            !catalogProgress.moviesPhaseFinished
     }
-    val moviesReady = isVodCatalogContentReady(moviesInputs)
-    val seriesReady = isVodCatalogContentReady(seriesInputs)
-    if (!moviesReady || !seriesReady) {
-        val hasCatalog = moviesInputs.effectiveCatalogCount() > 0 ||
-            seriesInputs.effectiveCatalogCount() > 0 ||
-            allInputs.effectiveCatalogCount() > 0
-        return hasCatalog
+
+    if (isAllTabMinimallyRenderable(allInputs, moviesInputs, catalogProgress)) {
+        return false
     }
-    if (!isVodCatalogContentReady(allInputs) && allInputs.effectiveCatalogCount() > 0) {
-        return true
+
+    if (isMoviesTabRenderable(moviesInputs, catalogProgress)) {
+        return allInputs.effectiveCatalogCount() > 0 &&
+            allInputs.wallRowCount == 0 &&
+            allInputs.browseRowCount == 0
     }
-    return false
+
+    return moviesInputs.effectiveCatalogCount() > 0 ||
+        allInputs.effectiveCatalogCount() > 0
 }
 
 @Composable
@@ -255,6 +305,7 @@ fun rememberHubUnifiedLoadingVisible(
     moviesInputs: VodCatalogOnboardingInputs,
     seriesInputs: VodCatalogOnboardingInputs,
     allInputs: VodCatalogOnboardingInputs,
+    isColdStart: Boolean = true,
     stabilizationMs: Long = READINESS_STABILIZATION_MS,
 ): Boolean {
     val shouldShow = shouldShowHubUnifiedLoading(
@@ -263,6 +314,7 @@ fun rememberHubUnifiedLoadingVisible(
         moviesInputs = moviesInputs,
         seriesInputs = seriesInputs,
         allInputs = allInputs,
+        isColdStart = isColdStart,
     )
     var visible by remember { mutableStateOf(shouldShow) }
     LaunchedEffect(shouldShow, stabilizationMs) {

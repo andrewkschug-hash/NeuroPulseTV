@@ -1,4 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+  <!-- IPTV playlists may use HTTP; TMDB domains use explicit trust below. -->
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
+
+  <!-- TMDB API + image CDN — backup Let's Encrypt root for emulators with incomplete CA store. -->
+  <domain-config cleartextTrafficPermitted="false">
+    <domain includeSubdomains="true">themoviedb.org</domain>
+    <domain includeSubdomains="true">tmdb.org</domain>
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="@raw/isrg_root_x1" />
+    </trust-anchors>
+  </domain-config>
+
+  <debug-overrides>
+    <trust-anchors>
+      <certificates src="system" />
+      <certificates src="user" />
+      <certificates src="@raw/isrg_root_x1" />
+    </trust-anchors>
+  </debug-overrides>
 </network-security-config>

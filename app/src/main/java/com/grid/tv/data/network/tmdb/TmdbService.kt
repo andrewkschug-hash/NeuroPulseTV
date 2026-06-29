@@ -1,5 +1,6 @@
 package com.grid.tv.data.network.tmdb
 
+import android.util.Log
 import com.grid.tv.BuildConfig
 import com.grid.tv.data.network.AppHttpClient
 import com.grid.tv.data.security.SecureCredentialStore
@@ -7,6 +8,7 @@ import com.grid.tv.feature.enrichment.ApiKeyBootstrap
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.SSLException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -23,9 +25,10 @@ import org.json.JSONObject
 class TmdbService @Inject constructor(
     appHttpClient: AppHttpClient,
     private val secureCredentialStore: SecureCredentialStore,
+    private val connectivityMonitor: TmdbConnectivityMonitor,
     apiKeyBootstrap: ApiKeyBootstrap
 ) {
-    private val client: OkHttpClient = appHttpClient.client()
+    private val client: OkHttpClient = appHttpClient.tmdbClient()
     private val rateLimitMutex = Mutex()
     private val requestTimesMs = ArrayDeque<Long>()
 
@@ -136,16 +139,34 @@ class TmdbService @Inject constructor(
 
     private suspend fun executeWithRetry(path: String, query: Map<String, String>): String {
         var backoffMs = INITIAL_BACKOFF_MS
-        repeat(MAX_RETRIES) { attempt ->
+        var lastError: IOException? = null
+        for (attempt in 0 until MAX_RETRIES) {
             try {
-                return execute(path, query)
+                val body = execute(path, query)
+                connectivityMonitor.recordSuccess()
+                return body
             } catch (e: IOException) {
-                if (attempt == MAX_RETRIES - 1) throw e
+                lastError = e
+                val ssl = e is SSLException || e.cause is SSLException
+                logWarning(
+                    "TMDB request failed attempt=${attempt + 1}/$MAX_RETRIES path=$path " +
+                        "${if (ssl) "ssl=true " else ""}error=${e.message}",
+                )
+                if (attempt == MAX_RETRIES - 1) break
                 delay(backoffMs)
                 backoffMs *= 2
+            } catch (e: IllegalStateException) {
+                connectivityMonitor.recordFailure(e)
+                throw e
             }
         }
-        throw IOException("TMDB request failed after $MAX_RETRIES attempts")
+        val error = lastError ?: IOException("TMDB request failed")
+        connectivityMonitor.recordFailure(error)
+        logWarning(
+            "TMDB unreachable after $MAX_RETRIES attempts path=$path " +
+                "ssl=${connectivityMonitor.lastFailureWasSsl} error=${connectivityMonitor.lastFailureMessage}",
+        )
+        throw error
     }
 
     private suspend fun execute(path: String, query: Map<String, String>): String = withContext(Dispatchers.IO) {
@@ -158,15 +179,22 @@ class TmdbService @Inject constructor(
         urlBuilder.addQueryParameter("api_key", apiKey)
         query.forEach { (k, v) -> urlBuilder.addQueryParameter(k, v) }
         val request = Request.Builder().url(urlBuilder.build()).get().build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            when {
-                response.code == 401 -> throw IllegalStateException("TMDB API key is invalid or unauthorized")
-                response.code == 404 -> return@withContext "{}"
-                response.code == 429 -> throw IOException("TMDB rate limit exceeded")
-                !response.isSuccessful -> throw IOException("TMDB request failed (${response.code})")
+        try {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                when {
+                    response.code == 401 -> throw IllegalStateException("TMDB API key is invalid or unauthorized")
+                    response.code == 404 -> return@withContext "{}"
+                    response.code == 429 -> throw IOException("TMDB rate limit exceeded")
+                    !response.isSuccessful -> throw IOException("TMDB request failed (${response.code})")
+                }
+                body
             }
-            body
+        } catch (e: SSLException) {
+            throw e
+        } catch (e: IOException) {
+            if (e.cause is SSLException) throw SSLException(e.message, e.cause)
+            throw e
         }
     }
 
@@ -305,12 +333,17 @@ class TmdbService @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "TmdbService"
         private const val DEFAULT_BASE_URL = "https://api.themoviedb.org/3"
         private const val DEFAULT_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/"
         private const val MAX_REQUESTS_PER_WINDOW = 40
         private const val WINDOW_MS = 10_000L
         private const val MAX_RETRIES = 3
         private const val INITIAL_BACKOFF_MS = 300L
+
+        private fun logWarning(message: String) {
+            runCatching { Log.w(TAG, message) }
+        }
     }
 }
 

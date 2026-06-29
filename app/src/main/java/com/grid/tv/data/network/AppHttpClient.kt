@@ -42,6 +42,10 @@ class AppHttpClient(
     @Volatile
     private var playbackClient: OkHttpClient? = null
 
+    /** Short-timeout client for TMDB metadata (api + image CDN hostnames). */
+    @Volatile
+    private var tmdbClient: OkHttpClient? = null
+
     fun client(): OkHttpClient = client ?: synchronized(clientLock) {
         client ?: buildClient(settingsSnapshot).also { client = it }
     }
@@ -69,6 +73,11 @@ class AppHttpClient(
         shortEpgClient ?: buildShortEpgClient(settingsSnapshot).also { shortEpgClient = it }
     }
 
+    /** TMDB metadata — moderate timeouts, platform TLS via network security config. */
+    fun tmdbClient(): OkHttpClient = tmdbClient ?: synchronized(clientLock) {
+        tmdbClient ?: buildTmdbClient(settingsSnapshot).also { tmdbClient = it }
+    }
+
     /** Cancel in-flight playback HTTP so a new tune does not overlap with the previous stream. */
     fun cancelInFlightPlaybackRequests(): Int {
         val playback = playbackClient ?: return 0
@@ -93,6 +102,7 @@ class AppHttpClient(
             epgClient = buildEpgClient(settings)
             vodClient = buildVodClient(settings)
             shortEpgClient = buildShortEpgClient(settings)
+            tmdbClient = buildTmdbClient(settings)
             playbackClient = buildPlaybackClient(settings)
         }
     }
@@ -142,6 +152,14 @@ class AppHttpClient(
             .writeTimeout(SHORT_EPG_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .callTimeout(SHORT_EPG_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
+            .build()
+
+    private fun buildTmdbClient(settings: AppSettings): OkHttpClient =
+        baseBuilder(settings, connectTimeoutSeconds = 15)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build()
 
     /**

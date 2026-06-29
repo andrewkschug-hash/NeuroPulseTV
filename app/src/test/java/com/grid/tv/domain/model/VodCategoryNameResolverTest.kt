@@ -151,6 +151,39 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
+    fun prepareMovieCategoriesForSidebar_prefersCategoryWithHighestItemCount() {
+        val categories = listOf(
+            VodCategory(id = "713", name = "Action & Adventure", playlistId = 1L),
+            VodCategory(id = "1403", name = "Action & Adventure", playlistId = 1L),
+        )
+        val itemCounts = mapOf(
+            VodCategoryNameResolver.categoryKey(1L, "713") to 12,
+            VodCategoryNameResolver.categoryKey(1L, "1403") to 480,
+        )
+        val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories, itemCounts)
+        assertEquals(1, sidebar.displayCategories.size)
+        assertEquals("1403", sidebar.displayCategories.single().id)
+        assertEquals(
+            setOf("713", "1403"),
+            sidebar.filterIdsByRepresentativeId[
+                VodCategoryNameResolver.categoryKey(1L, "1403")
+            ],
+        )
+    }
+
+    @Test
+    fun findDisplayNameCollisions_usesPrimaryGenreToken() {
+        val collisions = VodCategoryGuards.findDisplayNameCollisions(
+            listOf(
+                VodCategory(id = "713", name = "Action & Adventure", playlistId = 1L),
+                VodCategory(id = "1403", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+            )
+        )
+        assertEquals(1, collisions.size)
+        assertEquals(setOf("713", "1403"), collisions.single().categoryIds.toSet())
+    }
+
+    @Test
     fun prepareMovieCategoriesForSidebar_mergesNormalizedGenreNameVariants() {
         val categories = listOf(
             VodCategory(id = "1006", name = "ACTION & ADVENTURE", playlistId = 1L),

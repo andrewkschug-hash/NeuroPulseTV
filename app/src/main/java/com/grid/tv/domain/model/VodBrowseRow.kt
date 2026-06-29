@@ -37,15 +37,26 @@ fun buildMovieBrowseRows(
         ?.let { rows += VodBrowseRow("4k", "4K Movies", movies = it) }
 
     categories.distinctBy { categoryKey(it.playlistId, it.id) }
-        .sortedBy { it.name.lowercase() }
-        .forEach { category ->
-            val items = byCategory[category.id].orEmpty()
-                .filter { it.playlistId == category.playlistId }
+        .groupBy {
+            VodSidebarGenreNormalizer.scopedPrimaryComparisonKey(
+                it.playlistId,
+                VodCategoryNameResolver.formatSidebarGenreName(it.name),
+            )
+        }
+        .values
+        .sortedBy { group -> group.minOfOrNull { it.name.lowercase() }.orEmpty() }
+        .forEach { group ->
+            val category = group.minWithOrNull(compareBy<VodCategory> { it.id.toLongOrNull() ?: Long.MAX_VALUE })
+                ?: group.first()
+            val categoryIds = group.map { it.id }.toSet()
+            val items = categoryIds.flatMap { categoryId ->
+                byCategory[categoryId].orEmpty().filter { it.playlistId == category.playlistId }
+            }.distinctBy { "${it.playlistId}_${it.streamId}" }
                 .take(itemsPerRow)
             if (items.isNotEmpty()) {
                 rows += VodBrowseRow(
                     categoryBrowseRowId(category.playlistId, category.id),
-                    category.name,
+                    VodCategoryNameResolver.formatSidebarGenreName(category.name),
                     movies = items
                 )
             }

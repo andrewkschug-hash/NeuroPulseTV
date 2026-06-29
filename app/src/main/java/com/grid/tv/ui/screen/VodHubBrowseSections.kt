@@ -24,6 +24,8 @@ import com.grid.tv.feature.vod.VodHubBrowseSurfaceInputs
 import com.grid.tv.feature.vod.VodHubSurfaceState
 import com.grid.tv.feature.vod.VodHubSurfaceStateResolver
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
+import com.grid.tv.ui.component.VodCatalogLoadingBanner
+import com.grid.tv.ui.component.VodCatalogProgressBar
 import com.grid.tv.ui.component.VodCatalogRefreshWarningBanner
 import com.grid.tv.ui.component.VodEmptyState
 import com.grid.tv.ui.component.VodGridCardModel
@@ -211,6 +213,7 @@ fun VodHubSeriesBrowseSection(
     gridRestoreRequest: VodGridFocusRestoreRequest? = null,
     onGridRestoreComplete: (Int) -> Unit = {},
     surfaceState: VodHubSurfaceState? = null,
+    isSeriesStillLoading: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
@@ -281,6 +284,15 @@ fun VodHubSeriesBrowseSection(
 
     Column(modifier = modifier.fillMaxSize()) {
         VodCatalogRefreshWarningBanner(message = refreshWarning)
+        VodCatalogProgressBar(
+            progress = catalogProgress.seriesProgressFraction(),
+            visible = isSeriesStillLoading,
+        )
+        VodCatalogLoadingBanner(
+            baseMessage = "Organizing series",
+            progress = catalogProgress,
+            isMovies = false,
+        )
 
         when (resolvedSurfaceState) {
             is VodHubSurfaceState.Loading -> {

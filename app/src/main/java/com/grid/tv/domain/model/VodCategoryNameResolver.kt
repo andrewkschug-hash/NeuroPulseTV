@@ -81,7 +81,7 @@ object VodCategoryNameResolver {
 
     fun normalizeList(categories: List<VodCategory>): List<VodCategory> {
         if (categories.isEmpty()) return categories
-        val streamBacked = VodCategoryGuards.filterStreamBacked(categories, source = "normalizeList")
+        val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
         val lookup = buildLookupTable(streamBacked)
         return streamBacked.map { category ->
             category.copy(
@@ -142,23 +142,29 @@ object VodCategoryNameResolver {
         }
     }
 
-    fun prepareSeriesCategoriesForSidebar(categories: List<VodCategory>): SeriesSidebarCategories {
+    fun prepareSeriesCategoriesForSidebar(
+        categories: List<VodCategory>,
+        itemCountByCategoryKey: Map<String, Int> = emptyMap(),
+    ): SeriesSidebarCategories {
         if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
         }
         val merged = mergeSeriesCategorySources(categories)
             .distinctBy { categoryKey(it.playlistId, it.id) }
-        return prepareCategoriesForSidebar(merged, source = "seriesSidebar")
+        return prepareCategoriesForSidebar(merged, source = "seriesSidebar", itemCountByCategoryKey)
     }
 
     /** Movies sidebar: same display-name collapse and multi-id filter mapping as series. */
-    fun prepareMovieCategoriesForSidebar(categories: List<VodCategory>): SeriesSidebarCategories {
+    fun prepareMovieCategoriesForSidebar(
+        categories: List<VodCategory>,
+        itemCountByCategoryKey: Map<String, Int> = emptyMap(),
+    ): SeriesSidebarCategories {
         if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
         }
         val streamBacked = VodCategoryGuards.sanitizeStreamBacked(categories)
             .distinctBy { categoryKey(it.playlistId, it.id) }
-        return prepareCategoriesForSidebar(streamBacked, source = "moviesSidebar")
+        return prepareCategoriesForSidebar(streamBacked, source = "moviesSidebar", itemCountByCategoryKey)
     }
 
     /**
@@ -167,7 +173,8 @@ object VodCategoryNameResolver {
      */
     fun prepareCategoriesForSidebar(
         categories: List<VodCategory>,
-        source: String = "sidebar"
+        source: String = "sidebar",
+        itemCountByCategoryKey: Map<String, Int> = emptyMap(),
     ): SeriesSidebarCategories {
         if (categories.isEmpty()) {
             return SeriesSidebarCategories(emptyList(), emptyMap())
@@ -191,7 +198,7 @@ object VodCategoryNameResolver {
 
         val filterIdsByRepresentativeId = linkedMapOf<String, Set<String>>()
         val displayCategories = grouped.values
-            .map { group -> pickSidebarRepresentative(group) }
+            .map { group -> pickSidebarRepresentative(group, itemCountByCategoryKey) }
             .map { representative ->
                 val canonicalName = VodSidebarGenreNormalizer.pickCanonicalDisplayName(
                     resolved.filter {
@@ -221,11 +228,19 @@ object VodCategoryNameResolver {
         return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
     }
 
-    private fun pickSidebarRepresentative(group: List<VodCategory>): VodCategory {
-        return group.minWithOrNull(
-            compareBy<VodCategory> { isUnresolvedName(it.id, it.name) }
-                .thenBy { it.id.length }
-                .thenBy { it.id }
+    private fun pickSidebarRepresentative(
+        group: List<VodCategory>,
+        itemCountByCategoryKey: Map<String, Int> = emptyMap(),
+    ): VodCategory {
+        return group.maxWithOrNull(
+            compareBy<VodCategory> { categoryItemCount(it, itemCountByCategoryKey) }
+                .thenBy { if (isUnresolvedName(it.id, it.name)) 0 else 1 }
+                .thenBy { -(it.id.toLongOrNull() ?: Long.MAX_VALUE) }
         ) ?: group.first()
     }
+
+    private fun categoryItemCount(
+        category: VodCategory,
+        itemCountByCategoryKey: Map<String, Int>,
+    ): Int = itemCountByCategoryKey[categoryKey(category.playlistId, category.id)] ?: 0
 }

@@ -15,6 +15,10 @@ data class VodCatalogProgress(
     val isSeriesPhaseComplete: Boolean
         get() = seriesPhaseFinished || (seriesTotal > 0 && seriesLoaded >= seriesTotal)
 
+    /** True once at least one series batch has landed (partial catalog is browsable). */
+    val hasSeriesFirstBatch: Boolean
+        get() = seriesLoaded > 0 || seriesPhaseFinished
+
     fun moviesProgressFraction(): Float =
         if (moviesTotal <= 0) {
             0f

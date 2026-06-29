@@ -1,5 +1,6 @@
 package com.grid.tv.feature.enrichment
 
+import android.util.Log
 import com.grid.tv.data.auth.SupabaseClientProvider
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
@@ -38,6 +39,7 @@ class TitleEnrichmentRepository @Inject constructor(
     private val inFlight = ConcurrentHashMap<String, CompletableDeferred<TitleEnrichmentEntity?>>()
 
     companion object {
+        private const val TAG = "TitleEnrichment"
         const val CACHE_TTL_MS = 30L * 24 * 60 * 60 * 1000
         const val MAX_SESSION_ENTRIES = 400
         const val MAX_SESSION_BYTES = 2L * 1024L * 1024L
@@ -110,7 +112,8 @@ class TitleEnrichmentRepository @Inject constructor(
             waiter.complete(entity)
             entity?.let { sessionCache.put(providerKey, it) }
             entity
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            Log.w(TAG, "Enrichment failed for $providerKey: ${error.message}")
             waiter.complete(existing)
             existing
         } finally {
