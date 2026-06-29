@@ -2,6 +2,8 @@ package com.grid.tv.ui.screen
 
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -84,6 +86,7 @@ import com.grid.tv.ui.component.VodLibraryNavPanel
 import com.grid.tv.ui.component.VodLanguageSubmenuPanel
 import com.grid.tv.ui.component.VodLibrarySubPanelOffsetExpanded
 import com.grid.tv.ui.component.VodLibraryNavPanelCollapsedWidth
+import com.grid.tv.ui.component.VodLibraryNavPanelExpandedWidth
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
@@ -91,7 +94,6 @@ import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.domain.model.VodSidebarGenreNormalizer
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
-import com.grid.tv.ui.component.VodContentFilterTabBar
 import com.grid.tv.ui.component.VodHubTabFilters
 import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
@@ -533,13 +535,22 @@ fun VodHubScreen(
     val libraryNavExpanded = showLibraryNavPanel && focusUi.focusZone == VodFocusZone.FILTER_PANEL
     val librarySubPanelOpen = focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
         focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
-    val showLibraryOverlayScrim = libraryNavExpanded || librarySubPanelOpen
+    val showLibraryOverlayScrim = librarySubPanelOpen
     val librarySubPanelOffset = if (libraryNavExpanded) {
         VodLibrarySubPanelOffsetExpanded
     } else {
         VodLibraryNavPanelCollapsedWidth
     }
-    val libraryContentInset = if (showLibraryNavPanel) libraryNavRailWidth else 0.dp
+    val libraryContentInsetTarget = when {
+        !showLibraryNavPanel -> 0.dp
+        libraryNavExpanded -> VodLibraryNavPanelExpandedWidth
+        else -> libraryNavRailWidth
+    }
+    val libraryContentInset by animateDpAsState(
+        targetValue = libraryContentInsetTarget,
+        animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
+        label = "vodLibraryContentInset",
+    )
 
     val activeSurfaceState = when (contentFilter) {
         VodContentFilter.MOVIES -> moviesBrowseSurface
@@ -1856,20 +1867,6 @@ fun VodHubScreen(
                                     .weight(1f)
                                     .fillMaxWidth()
                             ) {
-                                if (searchQuery.isBlank()) {
-                                    VodContentFilterTabBar(
-                                        selectedFilter = contentFilter,
-                                        focusedFilter = contentFilter,
-                                        barFocused = false,
-                                        onFilterSelected = { filter ->
-                                            commitFilterHighlight(vodHubTabFilterIndex(filter))
-                                        },
-                                        tabsNavigable = hubCatalogReady,
-                                        languageFilterActive = languageFilterActive,
-                                        onLanguageFilterClick = ::openLanguagePreferenceDialog,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
                                 VodHubMoviesBrowseSection(
                                     moviesViewModel = moviesViewModel,
                                     progressByKey = vodProgress,
@@ -1906,20 +1903,6 @@ fun VodHubScreen(
                                     .weight(1f)
                                     .fillMaxWidth()
                             ) {
-                                if (searchQuery.isBlank()) {
-                                    VodContentFilterTabBar(
-                                        selectedFilter = contentFilter,
-                                        focusedFilter = contentFilter,
-                                        barFocused = false,
-                                        onFilterSelected = { filter ->
-                                            commitFilterHighlight(vodHubTabFilterIndex(filter))
-                                        },
-                                        tabsNavigable = hubCatalogReady,
-                                        languageFilterActive = languageFilterActive,
-                                        onLanguageFilterClick = ::openLanguagePreferenceDialog,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
                                 VodHubSeriesBrowseSection(
                                     seriesViewModel = seriesViewModel,
                                     progressByKey = vodProgress,
@@ -2133,6 +2116,8 @@ fun VodHubScreen(
                             .fillMaxHeight(),
                     )
                 }
+            }
+                }
                 if (showLibraryNavPanel) {
                     VodLibraryNavPanel(
                         selectedFilter = contentFilter,
@@ -2159,8 +2144,6 @@ fun VodHubScreen(
                             .fillMaxHeight()
                             .zIndex(2f),
                     )
-                }
-            }
                 }
         }
         }

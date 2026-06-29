@@ -77,4 +77,28 @@ class GuideGroupTreeTest {
         assertEquals(2, firstFocusableFlatGroupRowIndex(listOf("Sports"), favoriteGroups = emptyList()))
         assertEquals(1, firstFocusableFlatGroupRowIndex(listOf("Sports"), favoriteGroups = listOf("Sports")))
     }
+
+    @Test
+    fun `resolveChannelGroupsFocusIndex keeps current row when it matches committed filter`() {
+        val groups = listOf("UK| SPORT", "AFR| ETHIOPIA")
+        val focusIndex = resolveChannelGroupsFocusIndex(
+            channelGroups = groups,
+            favoriteGroups = emptyList(),
+            committedFilter = com.grid.tv.feature.epg.GuideChannelFilter(setOf("AFR| ETHIOPIA")),
+            currentIndex = 4,
+        )
+        assertEquals(4, focusIndex)
+    }
+
+    @Test
+    fun `resolveChannelGroupsFocusIndex restores committed group when current row is stale`() {
+        val groups = listOf("UK| SPORT", "AFR| ETHIOPIA")
+        val focusIndex = resolveChannelGroupsFocusIndex(
+            channelGroups = groups,
+            favoriteGroups = emptyList(),
+            committedFilter = com.grid.tv.feature.epg.GuideChannelFilter(setOf("AFR| ETHIOPIA")),
+            currentIndex = 3,
+        )
+        assertEquals(4, focusIndex)
+    }
 }

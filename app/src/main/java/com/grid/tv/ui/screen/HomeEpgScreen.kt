@@ -626,7 +626,7 @@ fun HomeEpgScreen(
                     }
                 )
                 AnimatedVisibility(
-                    visible = liveViewActive && hasCatalogChannels,
+                    visible = liveViewActive && hasCatalogChannels && ui.channelGroupsPanelVisible,
                     enter = slideInHorizontally { -it } + fadeIn(),
                     exit = slideOutHorizontally { -it } + fadeOut()
                 ) {

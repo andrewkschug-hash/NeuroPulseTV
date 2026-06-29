@@ -198,6 +198,25 @@ fun visibleRowIndexForFlatSelection(
     }.coerceAtLeast(firstFocusableFlatGroupRowIndex(channelGroups, favoriteGroups))
 }
 
+/** Keep highlight on the last focused row when reopening the panel from the live grid. */
+fun resolveChannelGroupsFocusIndex(
+    channelGroups: List<String>,
+    favoriteGroups: List<String>,
+    committedFilter: com.grid.tv.feature.epg.GuideChannelFilter,
+    currentIndex: Int,
+): Int {
+    val rows = buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+    val current = rows.getOrNull(currentIndex)
+    val keepCurrent = current != null &&
+        current.isFocusableGroupRow() &&
+        guideChannelFilterForVisibleRow(current) == committedFilter
+    return if (keepCurrent) {
+        currentIndex
+    } else {
+        visibleRowIndexForFlatSelection(channelGroups, committedFilter.selectedGroups, favoriteGroups)
+    }
+}
+
 fun guideChannelFilterForVisibleRow(row: GuideGroupVisibleRow): com.grid.tv.feature.epg.GuideChannelFilter =
     when (row) {
         GuideGroupVisibleRow.AllChannels -> com.grid.tv.feature.epg.GuideChannelFilter.All

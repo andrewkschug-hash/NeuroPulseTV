@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
@@ -31,6 +30,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -115,7 +115,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private enum class SettingsSection(val title: String, val subtitle: String) {
     Profile("Profile", "Who's watching & parental"),
@@ -234,15 +233,23 @@ fun SettingsScreen(
         List(sections.size) { FocusRequester() }
     }
     val topNavFocusRequester = remember { FocusRequester() }
-    val contentFocusScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(focusPanel, sidebarFocusIndex, showGuideGroupPicker) {
+    LaunchedEffect(focusPanel, sidebarFocusIndex, selectedSection, showGuideGroupPicker) {
         if (showGuideGroupPicker) return@LaunchedEffect
         when (focusPanel) {
             SettingsFocusPanel.TOP_BAR -> topNavFocusRequester.requestFocusSafelyAfterLayout()
             SettingsFocusPanel.LEFT ->
                 sidebarItemFocusRequesters.getOrNull(sidebarFocusIndex)?.requestFocusSafelyAfterLayout()
-            SettingsFocusPanel.RIGHT -> Unit
+            SettingsFocusPanel.RIGHT -> {
+                focusManager.clearFocus(force = true)
+                withFrameMillis { }
+                val requester = sectionEntryFocusRequesters.getOrNull(selectedSection) ?: return@LaunchedEffect
+                if (!requester.requestFocusSafelyAfterLayout()) {
+                    delay(48)
+                    requester.requestFocusSafelyAfterLayout()
+                }
+            }
         }
     }
 
@@ -282,10 +289,6 @@ fun SettingsScreen(
         selectedSection = clamped
         sidebarFocusIndex = clamped
         focusPanel = SettingsFocusPanel.RIGHT
-        contentFocusScope.launch {
-            withFrameMillis { }
-            sectionEntryFocusRequesters.getOrNull(selectedSection)?.requestFocusSafelyAfterLayout()
-        }
     }
 
     fun handleBackKey(): Boolean {
@@ -314,6 +317,15 @@ fun SettingsScreen(
             else -> return false
         }
         return true
+    }
+
+    fun handleContentKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        if (event.type != KeyEventType.KeyDown) return false
+        return when (event.key) {
+            Key.Back, Key.Escape -> handleBackKey()
+            else -> false
+        }
     }
 
     ScreenBackHandler(
@@ -476,7 +488,11 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .clip(RectangleShape)
                         .background(EpgColors.ChannelColumnBg)
-                        .onFocusChanged { if (it.hasFocus) focusPanel = SettingsFocusPanel.LEFT }
+                        .onFocusChanged { state ->
+                            if (state.hasFocus && focusPanel != SettingsFocusPanel.RIGHT) {
+                                focusPanel = SettingsFocusPanel.LEFT
+                            }
+                        }
                         .onPreviewKeyEvent {
                             if (focusPanel == SettingsFocusPanel.LEFT) {
                                 handleSidebarKey(it)
@@ -516,6 +532,9 @@ fun SettingsScreen(
                             up = topNavFocusRequester
                         }
                         .focusGroup()
+                        .onPreviewKeyEvent { event ->
+                            if (focusPanel == SettingsFocusPanel.RIGHT) handleContentKey(event) else false
+                        }
                 ) {
                     TvScrollContainer(
                         modifier = Modifier
@@ -532,6 +551,9 @@ fun SettingsScreen(
                             settings = settings,
                             includeUntaggedVodContent = includeUntaggedVodContent,
                             sectionEntryFocusRequester = sectionEntryFocusRequesters[SettingsSection.Profile.ordinal],
+                            sidebarBackFocusRequester = sidebarItemFocusRequesters.getOrElse(lastActiveSidebarIndex) {
+                                sidebarItemFocusRequesters.first()
+                            },
                             onManageProfiles = {
                                 Log.d("SettingsScreen", "Manage profiles clicked — opening inline editor")
                                 showManageProfilesOverlay = true
@@ -957,6 +979,7 @@ private fun ProfileSettingsContent(
     settings: com.grid.tv.domain.model.AppSettings,
     includeUntaggedVodContent: Boolean,
     sectionEntryFocusRequester: FocusRequester? = null,
+    sidebarBackFocusRequester: FocusRequester? = null,
     onManageProfiles: () -> Unit,
     onSelectProfile: (Long) -> Unit,
     onToggleIncludeUntaggedVodContent: () -> Unit,
@@ -982,7 +1005,14 @@ private fun ProfileSettingsContent(
             title = activeProfile?.name ?: "No profile",
             subtitle = parental,
             onClick = onManageProfiles,
-            focusRequester = sectionEntryFocusRequester
+            focusRequester = sectionEntryFocusRequester,
+            modifier = Modifier.then(
+                if (sidebarBackFocusRequester != null) {
+                    Modifier.focusProperties { left = sidebarBackFocusRequester }
+                } else {
+                    Modifier
+                }
+            ),
         )
     }
 
