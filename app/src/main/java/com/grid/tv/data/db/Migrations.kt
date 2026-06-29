@@ -976,21 +976,48 @@ object DbMigrations {
                 CREATE TABLE IF NOT EXISTS playlist_favorite_groups (
                     playlistId INTEGER NOT NULL,
                     groupKey TEXT NOT NULL,
-                    sortOrder INTEGER NOT NULL DEFAULT 0,
-                    createdAt INTEGER NOT NULL DEFAULT 0,
+                    sortOrder INTEGER NOT NULL,
+                    createdAt INTEGER NOT NULL,
+                    PRIMARY KEY(playlistId, groupKey)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
+    /**
+     * Repairs v37 installs where [MIGRATION_36_37] used SQL DEFAULTs and an index that
+     * [PlaylistFavoriteGroupEntity] does not declare (Room schema validation failure).
+     */
+    val MIGRATION_37_38 = object : Migration(37, 38) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP INDEX IF EXISTS index_playlist_favorite_groups_playlistId")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS playlist_favorite_groups_new (
+                    playlistId INTEGER NOT NULL,
+                    groupKey TEXT NOT NULL,
+                    sortOrder INTEGER NOT NULL,
+                    createdAt INTEGER NOT NULL,
                     PRIMARY KEY(playlistId, groupKey)
                 )
                 """.trimIndent()
             )
             db.execSQL(
-                "CREATE INDEX IF NOT EXISTS index_playlist_favorite_groups_playlistId " +
-                    "ON playlist_favorite_groups(playlistId)"
+                """
+                INSERT INTO playlist_favorite_groups_new
+                    (playlistId, groupKey, sortOrder, createdAt)
+                SELECT playlistId, groupKey, sortOrder, createdAt
+                FROM playlist_favorite_groups
+                """.trimIndent()
             )
+            db.execSQL("DROP TABLE playlist_favorite_groups")
+            db.execSQL("ALTER TABLE playlist_favorite_groups_new RENAME TO playlist_favorite_groups")
         }
     }
 
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 37
+    const val SCHEMA_VERSION = 38
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -1031,6 +1058,7 @@ object DbMigrations {
         MIGRATION_33_34,
         MIGRATION_34_35,
         MIGRATION_35_36,
-        MIGRATION_36_37
+        MIGRATION_36_37,
+        MIGRATION_37_38
     )
 }
