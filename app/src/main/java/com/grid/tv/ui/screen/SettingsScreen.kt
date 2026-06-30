@@ -79,7 +79,6 @@ import com.grid.tv.ui.component.DestructiveConfirmDialog
 import com.grid.tv.ui.component.FactoryResetConfirmDialog
 import com.grid.tv.ui.component.GuideGroupPickerDialog
 import com.grid.tv.ui.component.TvScrollContainer
-import com.grid.tv.ui.component.SettingsChip
 import com.grid.tv.ui.component.SettingsActiveProfileRow
 import com.grid.tv.ui.component.SettingsConnectionRow
 import com.grid.tv.ui.component.SettingsFocusPanel
@@ -545,7 +544,7 @@ fun SettingsScreen(
                                     .fillMaxSize()
                                     .background(EpgColors.GridBg)
                                     .padding(24.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(20.dp),
                             ) {
                                 val section = sections[activeSectionIndex]
                                 Text(
@@ -1109,26 +1108,25 @@ private fun ProfileSettingsContent(
             label = "Parental PIN lock",
             description = "Require PIN to switch profiles or open restricted content",
             enabled = settings.parentalPinLockEnabled,
-            onToggle = onToggleParentalPinLock,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleParentalPinLock
         )
-        Text(
-            text = "Max content rating",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        val ratingLabels = listOf("All ages", "PG", "14+", "18+")
-        SettingsFocusPillGroup(
-            labels = ratingLabels,
-            selectedIndex = MaxContentRating.entries.indexOf(settings.maxContentRating).coerceAtLeast(0),
-            onSelect = { index -> onMaxContentRating(MaxContentRating.entries[index]) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Max content rating",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val ratingLabels = listOf("All ages", "PG", "14+", "18+")
+            SettingsFocusPillGroup(
+                labels = ratingLabels,
+                selectedIndex = MaxContentRating.entries.indexOf(settings.maxContentRating).coerceAtLeast(0),
+                onSelect = { index -> onMaxContentRating(MaxContentRating.entries[index]) }
+            )
+        }
         SettingsFocusButton(
             text = if (activeProfile?.hasPin == true) "Change PIN" else "Set PIN",
-            onClick = onChangePin,
-            modifier = Modifier.padding(top = 12.dp)
+            onClick = onChangePin
         )
     }
 }
@@ -1229,8 +1227,7 @@ private fun ConnectionsListPanel(
         SettingsFocusButton(
             text = "+ Add connection",
             onClick = onStartNewConnection,
-            focusRequester = sectionEntryFocusRequester,
-            modifier = Modifier.padding(bottom = 8.dp)
+            focusRequester = sectionEntryFocusRequester
         )
         if (playlists.isEmpty()) {
             Text(
@@ -1299,7 +1296,6 @@ private fun ConnectionFormPanel(
         title = formTitle,
         description = "Link your IPTV provider using M3U or Xtream Codes."
     ) {
-        Column(modifier = Modifier.focusGroup(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SettingsFocusTextField(
             label = "Connection name",
             value = name,
@@ -1355,31 +1351,31 @@ private fun ConnectionFormPanel(
             onValueChange = onRefreshHoursChange,
             placeholder = "24"
         )
-        Text(
-            text = "Connection timeout",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        val timeoutOptions = listOf(60, 120, 300, 600)
-        SettingsFocusPillGroup(
-            labels = timeoutOptions.map { seconds ->
-                when {
-                    seconds < 60 -> "${seconds}s"
-                    seconds % 60 == 0 -> "${seconds / 60}m"
-                    else -> "${seconds}s"
-                }
-            },
-            selectedIndex = timeoutOptions.indexOf(settings.connectionTimeoutSeconds).coerceAtLeast(0),
-            onSelect = { index -> onConnectionTimeout(timeoutOptions[index]) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Connection timeout",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val timeoutOptions = listOf(60, 120, 300, 600)
+            SettingsFocusPillGroup(
+                labels = timeoutOptions.map { seconds ->
+                    when {
+                        seconds < 60 -> "${seconds}s"
+                        seconds % 60 == 0 -> "${seconds / 60}m"
+                        else -> "${seconds}s"
+                    }
+                },
+                selectedIndex = timeoutOptions.indexOf(settings.connectionTimeoutSeconds).coerceAtLeast(0),
+                onSelect = { index -> onConnectionTimeout(timeoutOptions[index]) }
+            )
+        }
         SettingsFocusToggleRow(
             label = "Use proxy",
             description = "Route playlist and stream requests through a proxy server",
             enabled = settings.useProxy,
-            onToggle = onToggleUseProxy,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleUseProxy
         )
         if (settings.useProxy) {
             SettingsFocusTextField(
@@ -1415,7 +1411,6 @@ private fun ConnectionFormPanel(
             fontFamily = DmSansFamily,
             fontSize = 13.sp
         )
-        }
     }
 }
 
@@ -1460,17 +1455,18 @@ private fun GuideSettingsContent(
             settings.guideChannelGroups.size == 1 -> settings.guideChannelGroups.first()
             else -> "${settings.guideChannelGroups.size} groups selected"
         }
-        Text(
-            text = summary,
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        SettingsFocusButton(
-            text = "Edit channel groups",
-            onClick = onEditChannelGroups
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = summary,
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusButton(
+                text = "Edit channel groups",
+                onClick = onEditChannelGroups
+            )
+        }
     }
     SettingsPanel(
         title = "Guide row height"
@@ -1488,49 +1484,53 @@ private fun GuideSettingsContent(
         title = "Channel Scanner",
         description = "Background checks stream URLs without playing them."
     ) {
-        Text(
-            text = "Enable Auto-Scan",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("On", "Turn off"),
-            selectedIndex = if (settings.autoScanEnabled) 0 else 1,
-            onSelect = { index -> onToggleAutoScan(index == 0) }
-        )
-        Text(
-            text = "Scan interval (live channels)",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        val scanIntervals = listOf(1, 2, 5, 10, 30)
-        SettingsFocusPillGroup(
-            labels = scanIntervals.map { "${it}m" },
-            selectedIndex = scanIntervals.indexOf(settings.scanIntervalMinutes).coerceAtLeast(0),
-            onSelect = { index -> onScanInterval(scanIntervals[index]) }
-        )
-        Text(
-            text = "Concurrent checks",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        val concurrentCounts = listOf(5, 10, 20, 50)
-        SettingsFocusPillGroup(
-            labels = concurrentCounts.map { it.toString() },
-            selectedIndex = concurrentCounts.indexOf(settings.concurrentChecks).coerceAtLeast(0),
-            onSelect = { index -> onConcurrentChecks(concurrentCounts[index]) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Enable Auto-Scan",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("On", "Turn off"),
+                selectedIndex = if (settings.autoScanEnabled) 0 else 1,
+                onSelect = { index -> onToggleAutoScan(index == 0) }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Scan interval (live channels)",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val scanIntervals = listOf(1, 2, 5, 10, 30)
+            SettingsFocusPillGroup(
+                labels = scanIntervals.map { "${it}m" },
+                selectedIndex = scanIntervals.indexOf(settings.scanIntervalMinutes).coerceAtLeast(0),
+                onSelect = { index -> onScanInterval(scanIntervals[index]) }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Concurrent checks",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val concurrentCounts = listOf(5, 10, 20, 50)
+            SettingsFocusPillGroup(
+                labels = concurrentCounts.map { it.toString() },
+                selectedIndex = concurrentCounts.indexOf(settings.concurrentChecks).coerceAtLeast(0),
+                onSelect = { index -> onConcurrentChecks(concurrentCounts[index]) }
+            )
+        }
         SettingsFocusToggleRow(
             label = "Scan on metered / mobile connections",
             enabled = settings.scanOnMetered,
             onToggle = { onToggleScanOnMetered(!settings.scanOnMetered) }
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SettingsFocusButton(
                 text = if (scannerRuntime.isScanning) "Scanning…" else "Scan Now",
                 onClick = onScanNow,
@@ -1549,8 +1549,7 @@ private fun GuideSettingsContent(
             text = "${scannerRuntime.liveCount} of ${scannerRuntime.totalCount} channels live · Last full scan: $lastFullScanLabel",
             color = EpgColors.TextDimmed,
             fontFamily = DmSansFamily,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 8.dp)
+            fontSize = 13.sp
         )
     }
     SettingsPanel(
@@ -1567,8 +1566,7 @@ private fun GuideSettingsContent(
             label = "Start channel from beginning when catch-up is available",
             description = "Jump to programme start instead of joining live edge",
             enabled = settings.startChannelFromBeginningOnCatchup,
-            onToggle = onToggleCatchupFromBeginning,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleCatchupFromBeginning
         )
     }
 }
@@ -1602,63 +1600,64 @@ private fun PlaybackSettingsContent(
     SettingsPanel(
         title = "Stream playback"
     ) {
-        Text(
-            "Stream retries: ${settings.streamRetries}",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(2, 3, 5).forEachIndexed { index, n ->
-                SettingsFocusButton(
-                    text = "$n",
-                    onClick = { onRetries(n) },
-                    focusRequester = if (index == 0) sectionEntryFocusRequester else null
-                )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                "Stream retries: ${settings.streamRetries}",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(2, 3, 5).forEachIndexed { index, n ->
+                    SettingsFocusButton(
+                        text = "$n",
+                        onClick = { onRetries(n) },
+                        focusRequester = if (index == 0) sectionEntryFocusRequester else null
+                    )
+                }
             }
         }
-        Text(
-            text = "Default stream quality",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Auto", "1080p", "720p", "480p"),
-            selectedIndex = StreamQuality.entries.indexOf(settings.defaultStreamQuality).coerceAtLeast(0),
-            onSelect = { index -> onDefaultQuality(StreamQuality.entries[index]) }
-        )
-        Text(
-            text = "Buffer size",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Low", "Medium", "High"),
-            selectedIndex = BufferSize.entries.indexOf(settings.bufferSize).coerceAtLeast(0),
-            onSelect = { index -> onBufferSize(BufferSize.entries[index]) }
-        )
-        Text(
-            text = "Low: ~0.5 GB/hr  Medium: ~1.5 GB/hr  High: ~3 GB/hr. Buffer is stored temporarily and cleared on channel change.",
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(top = 6.dp)
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Default stream quality",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Auto", "1080p", "720p", "480p"),
+                selectedIndex = StreamQuality.entries.indexOf(settings.defaultStreamQuality).coerceAtLeast(0),
+                onSelect = { index -> onDefaultQuality(StreamQuality.entries[index]) }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Buffer size",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Low", "Medium", "High"),
+                selectedIndex = BufferSize.entries.indexOf(settings.bufferSize).coerceAtLeast(0),
+                onSelect = { index -> onBufferSize(BufferSize.entries[index]) }
+            )
+            Text(
+                text = "Low: ~0.5 GB/hr  Medium: ~1.5 GB/hr  High: ~3 GB/hr. Buffer is stored temporarily and cleared on channel change.",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp
+            )
+        }
         SettingsFocusToggleRow(
             label = "Auto-reconnect on drop",
             enabled = settings.autoReconnectOnDrop,
-            onToggle = onToggleAutoReconnect,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleAutoReconnect
         )
         SettingsFocusToggleRow(
             label = "Prefer hardware decoding",
             enabled = settings.preferHardwareDecoding,
-            onToggle = onToggleHardwareDecoding,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleHardwareDecoding
         )
     }
     SettingsPanel(
@@ -1676,17 +1675,19 @@ private fun PlaybackSettingsContent(
     SettingsPanel(
         title = "Video display"
     ) {
-        Text(
-            text = "Aspect ratio",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Auto", "16:9", "4:3", "Stretch"),
-            selectedIndex = AspectRatioSetting.entries.indexOf(settings.aspectRatio).coerceAtLeast(0),
-            onSelect = { index -> onAspectRatio(AspectRatioSetting.entries[index]) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Aspect ratio",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Auto", "16:9", "4:3", "Stretch"),
+                selectedIndex = AspectRatioSetting.entries.indexOf(settings.aspectRatio).coerceAtLeast(0),
+                onSelect = { index -> onAspectRatio(AspectRatioSetting.entries[index]) }
+            )
+        }
     }
     SettingsPanel(
         title = "Subtitles"
@@ -1702,53 +1703,55 @@ private fun PlaybackSettingsContent(
             onValueChange = onSubtitleLanguage,
             placeholder = "en"
         )
-        Text(
-            text = "Font size",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Small", "Medium", "Large"),
-            selectedIndex = SubtitleFontSize.entries.indexOf(settings.subtitleFontSize).coerceAtLeast(0),
-            onSelect = { index -> onSubtitleFontSize(SubtitleFontSize.entries[index]) }
-        )
-        Text(
-            text = "Position",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Bottom", "Middle", "Top"),
-            selectedIndex = SubtitlePosition.entries.indexOf(settings.subtitlePosition).coerceAtLeast(0),
-            onSelect = { index -> onSubtitlePosition(SubtitlePosition.entries[index]) }
-        )
-        Text(
-            text = "Delay: ${settings.subtitleDelayMs}ms",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SettingsFocusButton(
-                text = "-500ms",
-                onClick = { onSubtitleDelayMs(settings.subtitleDelayMs - 500L) }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Font size",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
             )
-            SettingsFocusButton(
-                text = "+500ms",
-                onClick = { onSubtitleDelayMs(settings.subtitleDelayMs + 500L) }
+            SettingsFocusPillGroup(
+                labels = listOf("Small", "Medium", "Large"),
+                selectedIndex = SubtitleFontSize.entries.indexOf(settings.subtitleFontSize).coerceAtLeast(0),
+                onSelect = { index -> onSubtitleFontSize(SubtitleFontSize.entries[index]) }
             )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Position",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Bottom", "Middle", "Top"),
+                selectedIndex = SubtitlePosition.entries.indexOf(settings.subtitlePosition).coerceAtLeast(0),
+                onSelect = { index -> onSubtitlePosition(SubtitlePosition.entries[index]) }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Delay: ${settings.subtitleDelayMs}ms",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingsFocusButton(
+                    text = "-500ms",
+                    onClick = { onSubtitleDelayMs(settings.subtitleDelayMs - 500L) }
+                )
+                SettingsFocusButton(
+                    text = "+500ms",
+                    onClick = { onSubtitleDelayMs(settings.subtitleDelayMs + 500L) }
+                )
+            }
         }
         SettingsFocusToggleRow(
             label = "Deinterlacing",
             description = "Convert interlaced video to progressive frames",
             enabled = settings.deinterlacingEnabled,
-            onToggle = onToggleDeinterlacing,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleDeinterlacing
         )
     }
     SettingsPanel(
@@ -1768,23 +1771,21 @@ private fun PlaybackSettingsContent(
                 "Off — set a timer manually from the player menu"
             },
             enabled = settings.sleepTimerAutoEnabled,
-            onToggle = onToggleSleepTimerAuto,
-            modifier = Modifier.padding(top = 8.dp)
+            onToggle = onToggleSleepTimerAuto
         )
-        Text(
-            "Default: ${settings.sleepTimerMinutes} minutes",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp)
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(15, 30, 45, 60, 90).forEachIndexed { index, min ->
-                SettingsFocusButton(
-                    text = "$min",
-                    onClick = { onSleepTimer(min) }
-                )
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Sleep timer duration",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val sleepTimerOptions = listOf(15, 30, 45, 60, 90)
+            SettingsFocusPillGroup(
+                labels = sleepTimerOptions.map { "${it}m" },
+                selectedIndex = sleepTimerOptions.indexOf(settings.sleepTimerMinutes).coerceAtLeast(0),
+                onSelect = { index -> onSleepTimer(sleepTimerOptions[index]) }
+            )
         }
     }
 }
@@ -1803,20 +1804,22 @@ private fun InterfaceSettingsContent(
         title = "Sidebar",
         description = "Guide sidebar behavior."
     ) {
-        Text(
-            text = "Sidebar auto-hide timeout",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
-        val hideOptions = listOf(3, 5, 10, -1)
-        val hideLabels = listOf("3s", "5s", "10s", "Never")
-        SettingsFocusPillGroup(
-            labels = hideLabels,
-            selectedIndex = hideOptions.indexOf(settings.sidebarAutoHideSeconds).coerceAtLeast(0),
-            onSelect = { index -> onSidebarAutoHide(hideOptions[index]) },
-            entryFocusRequester = sectionEntryFocusRequester
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Sidebar auto-hide timeout",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            val hideOptions = listOf(3, 5, 10, -1)
+            val hideLabels = listOf("3s", "5s", "10s", "Never")
+            SettingsFocusPillGroup(
+                labels = hideLabels,
+                selectedIndex = hideOptions.indexOf(settings.sidebarAutoHideSeconds).coerceAtLeast(0),
+                onSelect = { index -> onSidebarAutoHide(hideOptions[index]) },
+                entryFocusRequester = sectionEntryFocusRequester
+            )
+        }
     }
     SettingsPanel(
         title = "Guide navigation"
@@ -1830,29 +1833,32 @@ private fun InterfaceSettingsContent(
     SettingsPanel(
         title = "Remote & clock"
     ) {
-        Text(
-            text = "D-pad sidebar sensitivity",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Instant", "Normal", "Slow"),
-            selectedIndex = DpadSensitivity.entries.indexOf(settings.dpadSidebarSensitivity).coerceAtLeast(0),
-            onSelect = { index -> onDpadSensitivity(DpadSensitivity.entries[index]) }
-        )
-        Text(
-            text = "Clock display",
-            color = EpgColors.TextSecondary,
-            fontFamily = DmSansFamily,
-            fontSize = 14.sp,
-            modifier = Modifier.padding(top = 12.dp)
-        )
-        SettingsFocusPillGroup(
-            labels = listOf("Off", "12-hour", "24-hour"),
-            selectedIndex = ClockDisplay.entries.indexOf(settings.clockDisplay).coerceAtLeast(0),
-            onSelect = { index -> onClockDisplay(ClockDisplay.entries[index]) }
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "D-pad sidebar sensitivity",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Instant", "Normal", "Slow"),
+                selectedIndex = DpadSensitivity.entries.indexOf(settings.dpadSidebarSensitivity).coerceAtLeast(0),
+                onSelect = { index -> onDpadSensitivity(DpadSensitivity.entries[index]) }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Clock display",
+                color = EpgColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 14.sp
+            )
+            SettingsFocusPillGroup(
+                labels = listOf("Off", "12-hour", "24-hour"),
+                selectedIndex = ClockDisplay.entries.indexOf(settings.clockDisplay).coerceAtLeast(0),
+                onSelect = { index -> onClockDisplay(ClockDisplay.entries[index]) }
+            )
+        }
     }
     SettingsPanel(
         title = "Theme",
@@ -1893,16 +1899,14 @@ private fun RecordingsSettingsContent(
                 text = usbStorageStatusLine ?: (currentStorageLabel ?: "USB Drive"),
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
+                fontSize = 14.sp
             )
         } else {
             Text(
                 text = com.grid.tv.feature.recording.StorageUtils.USB_REQUIRED_MESSAGE,
                 color = EpgColors.TextDimmed,
                 fontFamily = DmSansFamily,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(bottom = 8.dp)
+                fontSize = 14.sp
             )
         }
         storageOptions.forEachIndexed { index, option ->
@@ -1979,8 +1983,7 @@ private fun AboutSettingsContent(
                     text = label,
                     color = EpgColors.TextPrimary,
                     fontFamily = DmSansFamily,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    fontSize = 14.sp
                 )
             }
             SettingsFocusButton(
@@ -2011,34 +2014,32 @@ private fun AboutSettingsContent(
         Text("Version $appVersion", color = EpgColors.TextSecondary, fontFamily = DmSansFamily, fontSize = 14.sp)
         Text("Live TV Guide for Android TV", color = EpgColors.TextDimmed, fontFamily = DmSansFamily, fontSize = 13.sp)
         if (lowEndDeviceModeActive) {
-            Text(
-                text = "Low-End Device Mode active",
-                color = EpgColors.Accent,
-                fontFamily = DmSansFamily,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            lowEndDeviceSummary?.let {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = it,
-                    color = EpgColors.TextDimmed,
+                    text = "Low-End Device Mode active",
+                    color = EpgColors.Accent,
                     fontFamily = DmSansFamily,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 4.dp)
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
+                lowEndDeviceSummary?.let {
+                    Text(
+                        text = it,
+                        color = EpgColors.TextDimmed,
+                        fontFamily = DmSansFamily,
+                        fontSize = 12.sp
+                    )
+                }
             }
         }
         SettingsFocusButton(
             text = "Export .grid backup",
             onClick = onExportBackup,
-            focusRequester = if (!accountEntryConsumed) sectionEntryFocusRequester else null,
-            modifier = Modifier.padding(top = 12.dp)
+            focusRequester = if (!accountEntryConsumed) sectionEntryFocusRequester else null
         )
         SettingsFocusButton(
             text = "Clear cache",
-            onClick = onClearCache,
-            modifier = Modifier.padding(top = 8.dp)
+            onClick = onClearCache
         )
         cacheMessage?.let {
             Text(it, color = EpgColors.Accent, fontFamily = DmSansFamily, fontSize = 13.sp)
@@ -2076,8 +2077,7 @@ private fun AboutSettingsContent(
                     else -> EpgColors.TextDimmed
                 },
                 fontFamily = DmSansFamily,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp)
+                fontSize = 13.sp
             )
         }
         SettingsFocusButton(
@@ -2088,14 +2088,12 @@ private fun AboutSettingsContent(
             },
             onClick = onCheckForUpdates,
             enabled = updateUiState !is ManualUpdateUiState.Checking &&
-                updateUiState !is ManualUpdateUiState.Downloading,
-            modifier = Modifier.padding(top = 12.dp)
+                updateUiState !is ManualUpdateUiState.Downloading
         )
         if (updateUiState is ManualUpdateUiState.UpdateAvailable) {
             SettingsFocusButton(
                 text = "Update now",
-                onClick = onDownloadUpdate,
-                modifier = Modifier.padding(top = 8.dp)
+                onClick = onDownloadUpdate
             )
         }
     }
@@ -2111,19 +2109,16 @@ private fun AboutSettingsContent(
                 text = "Unstable channels: ${playbackHealthSummary.problemChannels.joinToString()}",
                 color = EpgColors.TextPrimary,
                 fontFamily = DmSansFamily,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(top = 8.dp)
+                fontSize = 13.sp
             )
         }
         SettingsFocusButton(
             text = "Refresh health summary",
-            onClick = onRefreshPlaybackHealth,
-            modifier = Modifier.padding(top = 12.dp)
+            onClick = onRefreshPlaybackHealth
         )
         SettingsFocusButton(
             text = "Log diagnostics to logcat",
-            onClick = onLogPlaybackHealth,
-            modifier = Modifier.padding(top = 8.dp)
+            onClick = onLogPlaybackHealth
         )
     }
     SettingsPanel(

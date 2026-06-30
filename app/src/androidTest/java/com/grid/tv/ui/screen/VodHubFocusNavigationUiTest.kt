@@ -72,7 +72,7 @@ class VodHubFocusNavigationUiTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = listOf("EN", "FR"),
-                openNavDrawer = {
+                openNavDrawer = { _ ->
                     ui.navDrawerOpen = true
                     ui.focusZone = VodFocusZone.NAV_DRAWER
                 },

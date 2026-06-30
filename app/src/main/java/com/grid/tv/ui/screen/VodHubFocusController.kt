@@ -81,7 +81,8 @@ internal data class VodHubFocusDeps(
     val togglePreferredLanguage: (String?) -> Unit,
     val languageFilterActive: Boolean,
     val availableLanguages: List<String>,
-    val openNavDrawer: () -> Unit,
+    /** When non-null, focus this nav-drawer row instead of [VodHubFocusUiState.lastNavDrawerFocusIndex]. */
+    val openNavDrawer: (forcedFocusIndex: Int?) -> Unit,
     val closeNavDrawer: (restoreFilter: Boolean) -> Unit,
     val selectVodDrawerItem: (GuideNavDrawerItem) -> Unit,
     val focusInlineSearchField: () -> Unit,
@@ -584,7 +585,7 @@ internal class VodHubFocusController(
             Key.DirectionLeft -> {
                 ui.rememberFilterFocus()
                 transitionToZone(VodFocusZone.NAV_DRAWER, "libraryNavLeft")
-                d.openNavDrawer()
+                d.openNavDrawer(GuideNavDrawerProfileFocusIndex)
                 true
             }
             Key.DirectionRight -> {
@@ -602,7 +603,8 @@ internal class VodHubFocusController(
                     moveLibraryNavHighlight(-1)
                 } else {
                     ui.rememberFilterFocus()
-                    d.openNavDrawer()
+                    transitionToZone(VodFocusZone.NAV_DRAWER, "libraryNavUp")
+                    d.openNavDrawer(GuideNavDrawerProfileFocusIndex)
                 }
                 true
             }
@@ -750,7 +752,7 @@ internal class VodHubFocusController(
                     if (d.showLibraryNavPanel) {
                         openLibraryNavPanel()
                     } else {
-                        d.openNavDrawer()
+                        d.openNavDrawer(null)
                     }
                     true
                 }
@@ -765,7 +767,7 @@ internal class VodHubFocusController(
                 } else if (d.showLibraryNavPanel) {
                     openLibraryNavPanel()
                 } else {
-                    d.openNavDrawer()
+                    d.openNavDrawer(null)
                 }
                 true
             }
@@ -836,7 +838,7 @@ internal class VodHubFocusController(
                         d.showGenrePanel -> VodFocusZone.GENRE_PANEL
                         d.searchQuery.isBlank() -> VodFocusZone.FILTER_PANEL
                         else -> {
-                            d.openNavDrawer()
+                            d.openNavDrawer(null)
                             VodFocusZone.NAV_DRAWER
                         }
                     }
@@ -856,7 +858,7 @@ internal class VodHubFocusController(
                         !d.showBrowseGrid && d.hasHero && d.searchQuery.isBlank() -> VodFocusZone.HERO
                         d.searchQuery.isBlank() -> VodFocusZone.FILTER_PANEL
                         else -> {
-                            d.openNavDrawer()
+                            d.openNavDrawer(null)
                             VodFocusZone.NAV_DRAWER
                         }
                     }

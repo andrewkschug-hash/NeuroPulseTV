@@ -46,4 +46,6 @@ internal class HomeEpgUiState {
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
     /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
     var channelGroupsPanelVisible by mutableStateOf(false)
+    /** After committing a group filter, land on channel 0 once the filtered list reloads. */
+    var focusChannelAfterGroupFilter by mutableStateOf(false)
 }

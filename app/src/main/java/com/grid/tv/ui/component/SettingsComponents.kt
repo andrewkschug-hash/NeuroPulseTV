@@ -10,13 +10,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -62,104 +59,6 @@ data class SettingsNavItem(
     val title: String,
     val subtitle: String
 )
-
-@Composable
-fun SettingsSidebar(
-    items: List<SettingsNavItem>,
-    selectedIndex: Int,
-    focusedIndex: Int,
-    sidebarFocused: Boolean,
-    itemFocusRequesters: List<FocusRequester>,
-    sectionEntryFocusRequesters: List<FocusRequester>,
-    onItemFocused: (Int) -> Unit,
-    onSectionSelected: (Int) -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .width(260.dp)
-            .fillMaxHeight()
-            .background(EpgColors.ChannelColumnBg)
-            .padding(vertical = 12.dp)
-    ) {
-        Text(
-            text = "Settings",
-            color = EpgColors.TextPrimary,
-            fontFamily = DmSansFamily,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
-        )
-        items.forEachIndexed { index, item ->
-            val selected = index == selectedIndex
-            val focused = sidebarFocused && index == focusedIndex
-            val bg = when {
-                focused -> EpgColors.Accent.copy(alpha = 0.22f)
-                selected -> EpgColors.ChannelRowFocusBg
-                else -> Color.Transparent
-            }
-            GridFocusSurface(
-                onClick = { onSectionSelected(index) },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = Color.Transparent,
-                    focusedContainerColor = Color.Transparent,
-                    pressedContainerColor = Color.Transparent
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 2.dp)
-                    .then(
-                        itemFocusRequesters.getOrNull(index)?.let { Modifier.focusRequester(it) }
-                            ?: Modifier
-                    )
-                    .focusProperties {
-                        canFocus = true
-                        sectionEntryFocusRequesters.getOrNull(index)?.let { right = it }
-                    }
-                    .focusable()
-                    .onFocusChanged { if (it.isFocused) onItemFocused(index) }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(bg, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (selected || focused) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(36.dp)
-                                .background(EpgColors.Accent, RoundedCornerShape(2.dp))
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.padding(start = if (selected || focused) 10.dp else 0.dp)
-                    ) {
-                        Text(
-                            text = item.title,
-                            color = if (selected || focused) EpgColors.TextPrimary else EpgColors.TextSecondary,
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal
-                        )
-                        Text(
-                            text = item.subtitle,
-                            color = EpgColors.TextDimmed,
-                            fontFamily = DmSansFamily,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** Full-width settings section picker — one row per category; Enter opens the detail screen. */
 @Composable
@@ -371,8 +270,7 @@ fun SettingsToggleRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             SettingsChip(
                 label = if (enabled) "On" else "Off",
-                selected = enabled,
-                focused = focused
+                selected = enabled
             )
             GlowFocusButton(
                 onClick = onToggle,
@@ -394,28 +292,20 @@ fun SettingsToggleRow(
 fun SettingsChip(
     label: String,
     selected: Boolean = false,
-    focused: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val borderWidth = when {
-        focused || selected -> 2.dp
-        else -> 0.dp
-    }
+    val borderWidth = if (selected) 2.dp else 0.dp
     val backgroundColor = when {
         selected -> EpgColors.Accent.copy(alpha = 0.22f)
         else -> Color(0xFF2E2E3E)
     }
-    val borderColor = when {
-        focused -> EpgColors.FocusBorder
-        selected -> EpgColors.Accent
-        else -> Color.Transparent
-    }
+    val borderColor = if (selected) EpgColors.Accent else Color.Transparent
     Text(
         text = label,
         color = Color.White,
         fontFamily = DmSansFamily,
         fontSize = 13.sp,
-        fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Normal,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         modifier = modifier
             .background(backgroundColor, RoundedCornerShape(6.dp))
             .border(borderWidth, borderColor, RoundedCornerShape(6.dp))

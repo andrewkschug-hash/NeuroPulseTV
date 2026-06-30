@@ -482,17 +482,27 @@ internal class HomeEpgGuideController(
 
     fun openChannelGroupsPanel() {
         if (!canShowChannelGroupsPanel()) return
-        val activeFilter = boundDeps.viewModel.currentGuideFilter()
+        boundDeps.viewModel.clearPreviewGuideFilter(reloadCommitted = true)
+        val committedFilter = boundDeps.committedGuideFilter
         ui.channelGroupsFocusIndex = resolveChannelGroupsFocusIndex(
             channelGroups = boundDeps.channelGroups,
             favoriteGroups = boundDeps.viewModel.favoriteChannelGroups.value,
-            committedFilter = activeFilter,
+            committedFilter = committedFilter,
             currentIndex = ui.lastChannelGroupsFocusIndex,
             lastRowKey = ui.lastChannelGroupRowKey,
         )
         rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
         ui.channelGroupsPanelVisible = true
         focusEpgZone(EpgFocusZone.CHANNEL_GROUPS)
+        val row = flatVisibleGroupRows().getOrNull(ui.channelGroupsFocusIndex)
+        if (row != null && guideChannelFilterForVisibleRow(row) != committedFilter) {
+            previewChannelGroupForFocusedRow()
+        }
+    }
+
+    fun onChannelGroupsFocusedIndexChanged(index: Int) {
+        if (!ui.channelGroupsPanelVisible) return
+        rememberChannelGroupsRowFocus(index)
         previewChannelGroupForFocusedRow()
     }
 
@@ -529,6 +539,9 @@ internal class HomeEpgGuideController(
     fun applyChannelGroupFilter(filter: GuideChannelFilter) {
         boundDeps.viewModel.setGuideFilter(filter, markConfigured = true)
         ui.focusChannelIndex = 0
+        ui.focusProgramIndex = 0
+        ui.focusOnChannelColumn = true
+        ui.focusChannelAfterGroupFilter = true
         ui.hasRequestedInitialGridFocus = false
         rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
     }

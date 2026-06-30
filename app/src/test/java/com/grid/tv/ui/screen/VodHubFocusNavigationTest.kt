@@ -90,7 +90,7 @@ class VodHubFocusNavigationTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = emptyList(),
-                openNavDrawer = {
+                openNavDrawer = { _ ->
                     ui.navDrawerOpen = true
                     ui.focusZone = VodFocusZone.NAV_DRAWER
                 },
@@ -186,7 +186,7 @@ class VodHubFocusNavigationTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = emptyList(),
-                openNavDrawer = {},
+                openNavDrawer = { _ -> },
                 closeNavDrawer = {},
                 selectVodDrawerItem = {},
                 focusInlineSearchField = {},
@@ -355,7 +355,7 @@ class VodHubFocusNavigationTest {
             togglePreferredLanguage = {},
             languageFilterActive = true,
             availableLanguages = listOf("EN"),
-            openNavDrawer = {},
+            openNavDrawer = { _ -> },
             closeNavDrawer = {},
             selectVodDrawerItem = {},
             focusInlineSearchField = {},
@@ -457,7 +457,7 @@ class VodHubFocusNavigationTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = emptyList(),
-                openNavDrawer = {},
+                openNavDrawer = { _ -> },
                 closeNavDrawer = {},
                 selectVodDrawerItem = {},
                 focusInlineSearchField = {},
@@ -526,7 +526,7 @@ class VodHubFocusNavigationTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = emptyList(),
-                openNavDrawer = {},
+                openNavDrawer = { _ -> },
                 closeNavDrawer = {},
                 selectVodDrawerItem = {},
                 focusInlineSearchField = {},
@@ -595,7 +595,7 @@ class VodHubFocusNavigationTest {
                 togglePreferredLanguage = {},
                 languageFilterActive = false,
                 availableLanguages = emptyList(),
-                openNavDrawer = {},
+                openNavDrawer = { _ -> },
                 closeNavDrawer = {},
                 selectVodDrawerItem = {},
                 focusInlineSearchField = {},

@@ -704,8 +704,7 @@ fun VodHubScreen(
             contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
         }
         if (searchQuery.isBlank() && wallRows.isEmpty() && focusUi.focusZone == VodFocusZone.CONTENT) {
-            focusUi.libraryNavPanelVisible = true
-            focusUi.focusZone = VodFocusZone.FILTER_PANEL
+            focusController.openLibraryNavPanel()
         }
     }
 
@@ -1076,7 +1075,7 @@ fun VodHubScreen(
         focusUi.focusZone = VodFocusZone.FILTER_PANEL
     }
 
-    fun openNavDrawer() {
+    fun openNavDrawer(forcedFocusIndex: Int? = null) {
         when (focusUi.focusZone) {
             VodFocusZone.FILTER_PANEL -> focusUi.rememberFilterFocus()
             VodFocusZone.GENRE_PANEL, VodFocusZone.CONTENT -> saveCurrentFilterMemory()
@@ -1084,7 +1083,7 @@ fun VodHubScreen(
         }
         focusUi.rememberNavDrawerFocus()
         focusUi.navDrawerOpen = true
-        focusUi.navDrawerFocusIndex = focusUi.lastNavDrawerFocusIndex
+        focusUi.navDrawerFocusIndex = forcedFocusIndex ?: focusUi.lastNavDrawerFocusIndex
         focusUi.focusZone = VodFocusZone.NAV_DRAWER
         com.grid.tv.ui.screen.VodHubFocusLogger.sidebar("open")
         scope.launch {
@@ -1549,7 +1548,7 @@ fun VodHubScreen(
                 togglePreferredLanguage = ::togglePreferredLanguage,
                 languageFilterActive = languageFilterActive,
                 availableLanguages = availableVodLanguages,
-                openNavDrawer = ::openNavDrawer,
+                openNavDrawer = { forcedIndex -> openNavDrawer(forcedIndex) },
                 closeNavDrawer = ::closeNavDrawer,
                 selectVodDrawerItem = ::selectVodDrawerItem,
                 focusInlineSearchField = ::focusInlineSearchField,

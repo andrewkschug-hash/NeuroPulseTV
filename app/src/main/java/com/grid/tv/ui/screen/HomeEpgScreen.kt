@@ -454,7 +454,13 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(displayChannels.size, isReloadingChannels, programmeIndex, lastPlayedChannel?.id) {
+    LaunchedEffect(
+        displayChannels.size,
+        isReloadingChannels,
+        programmeIndex,
+        lastPlayedChannel?.id,
+        ui.focusChannelAfterGroupFilter,
+    ) {
         if (isReloadingChannels) return@LaunchedEffect
         if (displayChannels.isEmpty()) {
             if (channels.isEmpty()) {
@@ -462,6 +468,15 @@ fun HomeEpgScreen(
                 ui.focusProgramIndex = 0
                 ui.focusOnChannelColumn = false
             }
+            return@LaunchedEffect
+        }
+        if (ui.focusChannelAfterGroupFilter) {
+            ui.focusChannelIndex = 0
+            ui.focusProgramIndex = 0
+            ui.focusOnChannelColumn = true
+            ui.focusChannelAfterGroupFilter = false
+            listState.scrollToItem(0)
+            controller.focusGuideChannels(0)
             return@LaunchedEffect
         }
         val liveChannelId = livePlayerManager.playbackUiState.value.activeChannelId
@@ -643,9 +658,8 @@ fun HomeEpgScreen(
                         navDrawerFocusRequester = navDrawerFocusRequester,
                         onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
                         onFocusedIndexChange = { index ->
-                            ui.channelGroupsFocusIndex = index
                             ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
-                            controller.previewChannelGroupForFocusedRow()
+                            controller.onChannelGroupsFocusedIndexChanged(index)
                         },
                         onPreviewKey = controller::handleChannelGroupsKey,
                         onFilterChange = controller::applyChannelGroupFilter

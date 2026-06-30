@@ -103,14 +103,14 @@ class GuideGroupTreeTest {
     }
 
     @Test
-    fun `resolveChannelGroupsFocusIndex prefers last row key over stale filter`() {
+    fun `resolveChannelGroupsFocusIndex prefers committed filter over stale last row key`() {
         val groups = listOf("UK| SPORT", "AFR| ETHIOPIA")
         val focusIndex = resolveChannelGroupsFocusIndex(
             channelGroups = groups,
             favoriteGroups = emptyList(),
-            committedFilter = com.grid.tv.feature.epg.GuideChannelFilter.All,
+            committedFilter = com.grid.tv.feature.epg.GuideChannelFilter(setOf("AFR| ETHIOPIA")),
             currentIndex = 2,
-            lastRowKey = "grp_Catalog_AFR| ETHIOPIA",
+            lastRowKey = "all",
         )
         assertEquals(4, focusIndex)
     }

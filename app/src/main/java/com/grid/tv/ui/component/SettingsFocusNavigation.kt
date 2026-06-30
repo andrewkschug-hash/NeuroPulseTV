@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -182,8 +183,38 @@ fun SettingsFocusPillGroup(
     modifier: Modifier = Modifier,
     entryFocusRequester: FocusRequester? = null
 ) {
+    if (labels.isEmpty()) return
+
+    val pillFocusRequesters = remember(labels.size) { List(labels.size) { FocusRequester() } }
+    var focusedIndex by remember(labels.size) { mutableIntStateOf(0) }
+
+    fun requesterFor(index: Int): FocusRequester =
+        if (index == 0 && entryFocusRequester != null) entryFocusRequester else pillFocusRequesters[index]
+
     Row(
-        modifier = modifier.focusGroup(),
+        modifier = modifier
+            .focusGroup()
+            .onPreviewKeyEvent { event ->
+                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> {
+                        val next = (focusedIndex - 1).coerceAtLeast(0)
+                        if (next != focusedIndex) {
+                            requesterFor(next).requestFocus()
+                        }
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        val next = (focusedIndex + 1).coerceAtMost(labels.lastIndex)
+                        if (next != focusedIndex) {
+                            requesterFor(next).requestFocus()
+                        }
+                        true
+                    }
+                    else -> false
+                }
+            },
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         labels.forEachIndexed { index, label ->
@@ -191,7 +222,10 @@ fun SettingsFocusPillGroup(
                 label = label,
                 selected = index == selectedIndex,
                 onClick = { onSelect(index) },
-                focusRequester = if (index == 0) entryFocusRequester else null
+                focusRequester = requesterFor(index),
+                onFocusChanged = { focused ->
+                    if (focused) focusedIndex = index
+                }
             )
         }
     }

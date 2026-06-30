@@ -207,6 +207,17 @@ fun resolveChannelGroupsFocusIndex(
     lastRowKey: String? = null,
 ): Int {
     val rows = buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+    if (committedFilter.isActive) {
+        val byCommitted = visibleRowIndexForFlatSelection(
+            channelGroups,
+            committedFilter.selectedGroups,
+            favoriteGroups,
+        )
+        val committedRow = rows.getOrNull(byCommitted)
+        if (committedRow != null && committedRow.isFocusableGroupRow()) {
+            return byCommitted
+        }
+    }
     if (!lastRowKey.isNullOrBlank()) {
         val byKey = rows.indexOfFirst { guideGroupVisibleRowKey(it) == lastRowKey }
         if (byKey >= 0 && rows[byKey].isFocusableGroupRow()) {

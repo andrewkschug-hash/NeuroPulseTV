@@ -21,7 +21,6 @@ import com.grid.tv.domain.model.Playlist
 import com.grid.tv.domain.model.XtreamAccountInfo
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.player.LivePlayerManager
-import com.grid.tv.player.PictureInPictureController
 import com.grid.tv.ui.theme.ThemeManager
 import com.grid.tv.feature.dashboard.DashboardController
 import com.grid.tv.feature.recording.RecordingStorageManager
@@ -72,7 +71,6 @@ class SettingsViewModel @Inject constructor(
     private val channelScanner: ChannelScanner,
     private val epgScheduler: EpgScheduler,
     private val themeManager: ThemeManager,
-    private val pipController: PictureInPictureController,
     private val livePlayerManager: LivePlayerManager,
     private val streamHealthAnalytics: com.grid.tv.feature.health.intelligence.StreamHealthAnalyticsService,
     private val vodLanguagePreferenceStore: VodLanguagePreferenceStore,
@@ -469,10 +467,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun updateMiniPlayerAudio(enabled: Boolean) {
-        persistSettings(_settings.value.copy(miniPlayerAudioEnabled = enabled))
-    }
-
     private fun persistSettings(updated: AppSettings) {
         _settings.value = updated
         viewModelScope.launch(Dispatchers.IO) { repository.saveSettings(updated) }
@@ -560,10 +554,6 @@ class SettingsViewModel @Inject constructor(
         persistSettings(_settings.value.copy(deinterlacingEnabled = enabled))
     }
 
-    fun updateMiniPlayerEnabled(enabled: Boolean) {
-        persistSettings(_settings.value.copy(miniPlayerEnabled = enabled))
-    }
-
     fun updateSidebarAutoHideSeconds(seconds: Int) {
         persistSettings(_settings.value.copy(sidebarAutoHideSeconds = seconds))
     }
@@ -585,11 +575,6 @@ class SettingsViewModel @Inject constructor(
             themeManager.setTheme(themeId)
             persistSettings(_settings.value.copy(themeId = themeId))
         }
-    }
-
-    fun updatePictureInPictureEnabled(enabled: Boolean) {
-        pipController.pictureInPictureEnabled = enabled
-        persistSettings(_settings.value.copy(pictureInPictureEnabled = enabled))
     }
 
     fun clearCache() {
