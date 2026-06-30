@@ -83,13 +83,6 @@ private fun VodGridColumnCountEffect(
     }
 }
 
-private fun Modifier.consumeBrowseGridDirectionalKeys(gridFocused: Boolean): Modifier {
-    if (!gridFocused) return this
-    return onPreviewKeyEvent { event ->
-        isTvDirectionalKey(event)
-    }
-}
-
 private fun Modifier.interceptLeadingEdgeLeft(
     focusedIndex: Int,
     columnCount: Int,
@@ -213,7 +206,6 @@ fun VodPagedVerticalGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
         verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
         modifier = modifier
-            .consumeBrowseGridDirectionalKeys(gridFocused)
             .interceptLeadingEdgeLeft(
                 focusedIndex = leadingEdgeIndex,
                 columnCount = columnCount,
@@ -315,7 +307,6 @@ fun VodMoviePagedGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = modifier
-            .consumeBrowseGridDirectionalKeys(gridFocused)
             .interceptLeadingEdgeLeft(
                 focusedIndex = leadingEdgeIndex,
                 columnCount = columnCount,

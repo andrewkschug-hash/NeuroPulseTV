@@ -50,6 +50,17 @@ interface IptvRepository {
         limit: Int,
         offset: Int
     ): List<Channel>
+    /**
+     * Returns a channel page warmed during startup when [groups]/favorites match the cache.
+     * Consumes the cache (one-shot) so the guide bootstrap avoids a duplicate SQL round-trip.
+     */
+    suspend fun takeGuideBootstrapChannelPage(
+        groups: Set<String>,
+        favoritesOnly: Boolean,
+        favoriteGroupId: Long?,
+        hideAdultContent: Boolean,
+        limit: Int,
+    ): List<Channel>?
     fun channelsPaging(
         group: String? = null,
         search: String = "",

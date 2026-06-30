@@ -411,23 +411,18 @@ internal class VodHubFocusController(
         ui.navDrawerOpen = false
         if (!restoreFilter) return
         ui.navDrawerFocusIndex = ui.lastNavDrawerFocusIndex
-        val targetZone = when {
-            d.showGenrePanel -> VodFocusZone.GENRE_PANEL
-            else -> VodFocusZone.FILTER_PANEL
-        }
-        transitionToZone(targetZone, "closeDrawer")
-        d.scope.launch {
-            when (targetZone) {
-                VodFocusZone.GENRE_PANEL -> {
-                    ui.restoreGenreFrom(d.contentFilter)
+        when {
+            d.showLibraryNavPanel -> openLibraryNavPanel()
+            d.showGenrePanel -> {
+                transitionToZone(VodFocusZone.GENRE_PANEL, "closeDrawer")
+                ui.restoreGenreFrom(d.contentFilter)
+                d.scope.launch {
                     d.genrePanelFocusRequester.requestFocusSafelyAfterLayout()
                 }
-                VodFocusZone.FILTER_PANEL -> {
-                    ui.libraryNavPanelVisible = true
-                    ui.filterFocusIndex = ui.lastFilterFocusIndex.coerceAtLeast(0)
-                    d.filterPanelFocusRequester.requestFocusSafelyAfterLayout()
-                }
-                else -> Unit
+            }
+            else -> {
+                transitionToZone(VodFocusZone.CONTENT, "closeDrawer")
+                d.ensureValidFocus()
             }
         }
     }
@@ -508,11 +503,7 @@ internal class VodHubFocusController(
             return
         }
         if (!d.hubTabsNavigable()) return
-        if (d.showGenrePanel && d.genreLabels.isNotEmpty()) {
-            focusGenrePanelFromFilter()
-        } else {
-            returnToContentFromLibraryNav(resetOrigin = true)
-        }
+        returnToContentFromLibraryNav(resetOrigin = false)
     }
 
     fun openLanguageSubmenu() {
@@ -616,11 +607,13 @@ internal class VodHubFocusController(
                         openLanguageSubmenu()
                     }
                 } else if (d.hubTabsNavigable()) {
+                    val targetFilter = VodHubTabFilters.getOrNull(ui.filterFocusIndex)
+                    val switchingTab = targetFilter != null && targetFilter != d.contentFilter
                     commitFocusedFilterHighlight()
-                    if (d.showGenrePanel && d.genreLabels.isNotEmpty()) {
+                    if (switchingTab && d.showGenrePanel && d.genreLabels.isNotEmpty()) {
                         focusGenrePanelFromFilter()
                     } else {
-                        returnToContentFromLibraryNav(resetOrigin = true)
+                        returnToContentFromLibraryNav(resetOrigin = switchingTab)
                     }
                 }
                 true
@@ -672,6 +665,14 @@ internal class VodHubFocusController(
         return handled
     }
 
+    fun navigateUpFromBrowseGridFirstRow() {
+        if (d.showGenrePanel) {
+            focusGenrePanelFromGrid()
+        } else if (d.showLibraryNavPanel) {
+            openLibraryNavPanel()
+        }
+    }
+
     fun handleBrowseGridLeadingEdgeLeft() {
         if (shouldEnterSidebarFromContent(
                 Key.DirectionLeft,
@@ -717,7 +718,7 @@ internal class VodHubFocusController(
                     d.setBrowseGridFocusIndex(d.browseGridFocusIndex - columns)
                     persistGridFocus()
                 } else {
-                    focusFilterPanelFromGenre()
+                    navigateUpFromBrowseGridFirstRow()
                 }
                 true
             }

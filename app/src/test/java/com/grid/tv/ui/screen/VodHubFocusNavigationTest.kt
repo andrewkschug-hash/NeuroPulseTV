@@ -123,15 +123,15 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun routeLibraryNavRight_onMoviesOrSeriesTab_entersGenrePanel() {
+    fun routeLibraryNavRight_onMoviesOrSeriesTab_returnsToContent() {
         val (ui, controller) = setupController(
             contentFilter = VodContentFilter.SERIES,
             filterIndex = 2,
             genreIndex = 1,
         )
         controller.routeLibraryNavRight()
-        assertEquals(VodFocusZone.GENRE_PANEL, ui.focusZone)
-        assertEquals(1, ui.genreFocusIndex)
+        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertFalse(ui.libraryNavPanelVisible)
     }
 
     @Test
@@ -229,13 +229,13 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun closeNavDrawerToContentZone_returnsToGenreOnMoviesTab() {
+    fun closeNavDrawerToContentZone_returnsToLibraryOnMoviesTab() {
         val (ui, controller) = setupController(genreIndex = 2)
         ui.focusZone = VodFocusZone.NAV_DRAWER
         ui.navDrawerOpen = true
         controller.closeNavDrawerToContentZone()
-        assertEquals(VodFocusZone.GENRE_PANEL, ui.focusZone)
-        assertEquals(2, ui.genreFocusIndex)
+        assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
+        assertTrue(ui.libraryNavPanelVisible)
     }
 
     @Test

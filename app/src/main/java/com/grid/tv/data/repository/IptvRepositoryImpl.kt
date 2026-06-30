@@ -137,6 +137,7 @@ import com.grid.tv.feature.epg.EpgCoroutineDispatchers
 import com.grid.tv.feature.epg.EpgFlowLogger
 import com.grid.tv.feature.epg.EpgJobCoordinator
 import com.grid.tv.feature.epg.GuideChannelFilter
+import com.grid.tv.feature.parental.ProfileAccessGuard
 import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.data.db.entity.FavoriteGroupEntity
 import com.grid.tv.feature.backup.GridBackupManager
@@ -615,6 +616,23 @@ class IptvRepositoryImpl @Inject constructor(
     private fun invalidateCatalogCountCache() {
         sessionCatalogCounts = null
         sessionDbCountsLoaded = false
+        invalidateGuideBootstrapChannelCache()
+    }
+
+    private data class GuideBootstrapChannelCache(
+        val groups: Set<String>,
+        val favoritesOnly: Boolean,
+        val favoriteGroupId: Long?,
+        val hideAdultContent: Boolean,
+        val limit: Int,
+        val channels: List<Channel>,
+    )
+
+    @Volatile
+    private var guideBootstrapChannelCache: GuideBootstrapChannelCache? = null
+
+    private fun invalidateGuideBootstrapChannelCache() {
+        guideBootstrapChannelCache = null
     }
     private val seriesSeasonsCache = BoundedMemoryCache<Pair<Long, Long>, SeriesDetail>(
         name = "series_seasons",
@@ -801,9 +819,17 @@ class IptvRepositoryImpl @Inject constructor(
         return unique.size
     }
 
-    private suspend fun mapChannelEntities(entities: List<com.grid.tv.data.db.entity.ChannelEntity>): List<Channel> {
+    private suspend fun mapChannelEntities(
+        entities: List<com.grid.tv.data.db.entity.ChannelEntity>,
+        bootstrapFast: Boolean = false,
+    ): List<Channel> {
         if (entities.isEmpty()) return emptyList()
         val playlistNames = playlistNameMap()
+        if (bootstrapFast) {
+            return entities.map { entity ->
+                channelFromEntity(entity, playlistNames[entity.playlistId])
+            }
+        }
         val playlists = playlistDao.all().associateBy { it.id }
         val channelIds = entities.map { it.id }
         val health = healthForChannelIds(channelIds)
@@ -1063,6 +1089,74 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         mapChannelEntities(rows)
+    }
+
+    override suspend fun takeGuideBootstrapChannelPage(
+        groups: Set<String>,
+        favoritesOnly: Boolean,
+        favoriteGroupId: Long?,
+        hideAdultContent: Boolean,
+        limit: Int,
+    ): List<Channel>? = withContext(Dispatchers.IO) {
+        val cached = guideBootstrapChannelCache ?: return@withContext null
+        val matches = cached.groups == groups &&
+            cached.favoritesOnly == favoritesOnly &&
+            cached.favoriteGroupId == favoriteGroupId &&
+            cached.hideAdultContent == hideAdultContent &&
+            cached.limit == limit
+        if (!matches) return@withContext null
+        guideBootstrapChannelCache = null
+        StartupProfiler.mark(
+            "guide_bootstrap_channels_cache_hit",
+            "count=${cached.channels.size} groups=${groups.size}",
+        )
+        cached.channels
+    }
+
+    private suspend fun warmGuideBootstrapChannelPage(settings: AppSettings) {
+        if (getCachedCatalogCounts().channels <= 0) return
+        val groups = GuideChannelFilter(settings.guideChannelGroups).selectedGroups
+        val limit = StartupTierPolicy.guideInitialChannelPageSize()
+        val hideAdult = settings.hideAdultContent
+        val rows = if (groups.isEmpty()) {
+            channelDao.channelsPage(
+                filterPlaylistId = -1L,
+                filterGroupName = null,
+                search = "",
+                onlyFavorites = false,
+                profileId = activeProfileId,
+                favoriteGroupId = -1L,
+                limit = limit,
+                offset = 0,
+            )
+        } else {
+            channelDao.channelsPageInGroups(
+                groupKeys = groups.toList(),
+                search = "",
+                onlyFavorites = false,
+                profileId = activeProfileId,
+                favoriteGroupId = -1L,
+                limit = limit,
+                offset = 0,
+            )
+        }
+        var channels = mapChannelEntities(rows, bootstrapFast = true)
+        if (hideAdult) {
+            channels = channels.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
+        }
+        if (channels.isEmpty()) return
+        guideBootstrapChannelCache = GuideBootstrapChannelCache(
+            groups = groups,
+            favoritesOnly = false,
+            favoriteGroupId = null,
+            hideAdultContent = hideAdult,
+            limit = limit,
+            channels = channels,
+        )
+        StartupProfiler.mark(
+            "guide_bootstrap_channels_warmed",
+            "count=${channels.size} groups=${groups.size}",
+        )
     }
 
     override fun channelsPaging(
@@ -2783,6 +2877,12 @@ class IptvRepositoryImpl @Inject constructor(
             )
         }
         vodDiskCacheLoaded = true
+        if (persisted.isValid && persisted.channels > 0) {
+            runCatching { warmGuideBootstrapChannelPage(cachedSettings) }
+                .onFailure {
+                    Log.w(IPTV_REPO_LOG_TAG, "guide bootstrap channel warm failed: ${it.message}")
+                }
+        }
         StartupProfiler.mark("repository_warm_minimal_complete")
     }
 
@@ -2882,18 +2982,12 @@ class IptvRepositoryImpl @Inject constructor(
         if (counts.channels > 0 && !startupSafety.shouldDeferChannelPageWarm()) {
             yield()
             delay(50)
-            mapChannelEntities(
-                channelDao.channelsPage(
-                    filterPlaylistId = -1L,
-                    filterGroupName = null,
-                    search = "",
-                    onlyFavorites = false,
-                    profileId = activeProfileId,
-                    favoriteGroupId = -1L,
-                    limit = CHANNEL_PAGE_SIZE,
-                    offset = 0
-                )
-            )
+            if (guideBootstrapChannelCache == null) {
+                runCatching { warmGuideBootstrapChannelPage(cachedSettings) }
+                    .onFailure {
+                        Log.w(IPTV_REPO_LOG_TAG, "guide bootstrap channel warm failed: ${it.message}")
+                    }
+            }
         }
         Log.i(
             IPTV_REPO_LOG_TAG,
@@ -5184,6 +5278,7 @@ class IptvRepositoryImpl @Inject constructor(
             guideChannelGroups = groups,
             guideFiltersConfigured = configured
         )
+        invalidateGuideBootstrapChannelCache()
     }
 
     /** Avoid wiping a persisted guide filter when unrelated settings are saved from stale UI state. */

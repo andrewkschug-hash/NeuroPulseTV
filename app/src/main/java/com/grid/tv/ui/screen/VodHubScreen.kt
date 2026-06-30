@@ -1686,18 +1686,7 @@ fun VodHubScreen(
                         VodFocusZone.GENRE_PANEL -> handleGenrePanelKey(event)
                         VodFocusZone.LANGUAGE_SUBMENU -> handleLanguageSubmenuKey(event)
                         VodFocusZone.HERO -> false
-                        VodFocusZone.CONTENT -> {
-                            if (
-                                focusUi.libraryNavPanelVisible &&
-                                event.type == KeyEventType.KeyDown &&
-                                isVodDirectionalKey(event)
-                            ) {
-                                focusUi.focusZone = VodFocusZone.FILTER_PANEL
-                                handleLibraryNavPanelKey(event)
-                            } else {
-                                handleContentKey(event)
-                            }
-                        }
+                        VodFocusZone.CONTENT -> handleContentKey(event)
                     }
                 }
                 if (handled) return@onPreviewKeyEvent true
@@ -1835,7 +1824,7 @@ fun VodHubScreen(
                                     contentGridFocusRequester = browseGridFocusRequester,
                                     emptyStateRetryFocusRequester = browseEmptyStateFocusRequester,
                                     onColumnCountChanged = { focusUi.browseGridColumnCount = it },
-                                    onNavigateUpFromFirstRow = ::focusFilterPanelFromGenre,
+                                    onNavigateUpFromFirstRow = focusController::navigateUpFromBrowseGridFirstRow,
                                     onLeadingEdgeNavigateLeft = focusController::handleBrowseGridLeadingEdgeLeft,
                                     restoreScrollIndex = -1,
                                     restoreScrollOffset = moviesGridMemory.scrollOffset,
@@ -1873,7 +1862,7 @@ fun VodHubScreen(
                                     contentGridFocusRequester = browseGridFocusRequester,
                                     emptyStateRetryFocusRequester = browseEmptyStateFocusRequester,
                                     onColumnCountChanged = { focusUi.browseGridColumnCount = it },
-                                    onNavigateUpFromFirstRow = ::focusFilterPanelFromGenre,
+                                    onNavigateUpFromFirstRow = focusController::navigateUpFromBrowseGridFirstRow,
                                     onLeadingEdgeNavigateLeft = focusController::handleBrowseGridLeadingEdgeLeft,
                                     restoreScrollIndex = -1,
                                     restoreScrollOffset = seriesGridMemory.scrollOffset,
@@ -2039,7 +2028,7 @@ fun VodHubScreen(
                         selectedIndex = selectedGenreIndex,
                         focusedIndex = focusUi.genreFocusIndex,
                         panelFocused = true,
-                        contentGridFocusRequester = browseGridFocusRequester,
+                        contentGridFocusRequester = rootFocusRequester,
                         libraryNavFocusRequester = filterPanelFocusRequester,
                         entryFocusRequester = genrePanelFocusRequester,
                         onFocusedIndexChange = { focusUi.genreFocusIndex = it },

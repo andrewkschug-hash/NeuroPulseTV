@@ -567,7 +567,6 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            startupSafety.awaitInputSafe(StartupTierPolicy.guideInputSafeTimeoutMs())
             delay(StartupTierPolicy.guideBootstrapDelayMs())
             StartupProfiler.mark("guide_bootstrap_start")
             bootstrapGuideFromSettings()
@@ -665,8 +664,8 @@ class HomeEpgViewModel @Inject constructor(
             livePlayerManager.setAutoReconnectOnDrop(settings.autoReconnectOnDrop)
             livePlayerManager.setStreamRetries(settings.streamRetries)
         }
-        _guideSettingsLoaded.value = true
         loadBootstrapChannelPage()
+        _guideSettingsLoaded.value = true
         guideBootstrapComplete = true
         epgScheduler.scheduleEpgOnGuideOpen()
         enableGuideGroupMetadataSubscription(settings.guideChannelGroups, settings.guideFiltersConfigured)
@@ -708,7 +707,17 @@ class HomeEpgViewModel @Inject constructor(
         loadingChannels = true
         try {
             val limit = StartupTierPolicy.guideInitialChannelPageSize()
-            val page = fetchFilteredChannelPage(offset = 0, limit = limit)
+            val page = if (!_recentChannelsOnly.value && _favoriteGroupFilter.value == null) {
+                repository.takeGuideBootstrapChannelPage(
+                    groups = effectiveGuideFilter().selectedGroups,
+                    favoritesOnly = false,
+                    favoriteGroupId = null,
+                    hideAdultContent = _hideAdultContent.value,
+                    limit = limit,
+                ) ?: fetchFilteredChannelPage(offset = 0, limit = limit)
+            } else {
+                fetchFilteredChannelPage(offset = 0, limit = limit)
+            }
             channelDbOffset = page.size
             _hasMoreChannels.value = page.size >= limit
             if (page.isEmpty()) return
