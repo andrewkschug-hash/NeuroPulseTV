@@ -1,6 +1,7 @@
 package com.grid.tv.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +38,10 @@ import com.grid.tv.ui.component.GridOutlinedButton
 import com.grid.tv.ui.component.GoogleSignInBlock
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.SkipSignInDialog
+import com.grid.tv.ui.component.rememberTvFocusChain
 import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
+import com.grid.tv.ui.component.tvFocusChainNavigation
+import com.grid.tv.ui.component.tvVerticalDpadNavigation
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthUiState
@@ -51,8 +55,16 @@ fun LoginScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val googleButtonFocus = remember { FocusRequester() }
     val googleConfigured = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
+    val focusButtonCount = if (googleConfigured) 2 else 1
+    val googleButtonIndex = 0
+    val skipButtonIndex = if (googleConfigured) 1 else 0
+    val focusChain = rememberTvFocusChain(count = focusButtonCount, startIndex = 0)
+    val googleFocusRequester = if (googleConfigured) {
+        focusChain.requesters[googleButtonIndex]
+    } else {
+        remember { androidx.compose.ui.focus.FocusRequester() }
+    }
     var showSkipDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState) {
@@ -61,9 +73,10 @@ fun LoginScreen(
         }
     }
 
-    LaunchedEffect(showSkipDialog) {
+    LaunchedEffect(showSkipDialog, googleConfigured) {
         if (!showSkipDialog && (uiState is AuthUiState.Unauthenticated || uiState is AuthUiState.Error)) {
-            googleButtonFocus.requestFocusSafelyAfterLayout()
+            val target = if (googleConfigured) googleButtonIndex else skipButtonIndex
+            focusChain.requesters[target].requestFocusSafelyAfterLayout()
         }
     }
 
@@ -142,46 +155,70 @@ fun LoginScreen(
                 }
 
                 is AuthUiState.Unauthenticated, is AuthUiState.Error -> {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth(0.42f)
-                            .focusProperties { canFocus = !showSkipDialog },
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .tvVerticalDpadNavigation(
+                                chain = focusChain,
+                                onBack = { showSkipDialog = true },
+                                isEditing = { showSkipDialog },
+                                onDismissEditing = { showSkipDialog = false }
+                            )
                     ) {
-                        if (!googleConfigured) {
-                            Text(
-                                text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
-                                color = Color(0xFFFFB020),
-                                fontFamily = DmSansFamily,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center,
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusGroup(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (!googleConfigured) {
+                                Text(
+                                    text = "Google Sign-In is not configured yet. Add GOOGLE_WEB_CLIENT_ID to .env and rebuild.",
+                                    color = Color(0xFFFFB020),
+                                    fontFamily = DmSansFamily,
+                                    fontSize = 14.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 16.dp)
+                                )
+                            }
+
+                            GoogleSignInBlock(
+                                supabaseClient = supabaseClient,
+                                viewModel = viewModel,
+                                fillMaxWidthFraction = 1f,
+                                focusRequester = googleFocusRequester,
+                                requestInitialFocus = googleConfigured && !showSkipDialog,
+                                enabled = googleConfigured && !showSkipDialog,
+                                chain = if (googleConfigured) focusChain else null,
+                                chainIndex = googleButtonIndex,
+                                onNavigateBack = { showSkipDialog = true }
+                            )
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            GridOutlinedButton(
+                                text = "Skip for now",
+                                onClick = { showSkipDialog = true },
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 16.dp)
+                                    .focusRequester(focusChain.requesters[skipButtonIndex])
+                                    .onFocusChanged {
+                                        if (it.isFocused) focusChain.onItemFocused(skipButtonIndex)
+                                    }
+                                    .tvFocusChainNavigation(
+                                        chain = focusChain,
+                                        index = skipButtonIndex,
+                                        onBack = { showSkipDialog = true }
+                                    ),
+                                height = 56.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                enabled = !showSkipDialog
                             )
                         }
-
-                        GoogleSignInBlock(
-                            supabaseClient = supabaseClient,
-                            viewModel = viewModel,
-                            fillMaxWidthFraction = 1f,
-                            focusRequester = googleButtonFocus,
-                            requestInitialFocus = !showSkipDialog,
-                            enabled = googleConfigured && !showSkipDialog
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        GridOutlinedButton(
-                            text = "Skip for now",
-                            onClick = { showSkipDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            height = 56.dp,
-                            shape = RoundedCornerShape(10.dp),
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            enabled = !showSkipDialog
-                        )
                     }
 
                     if (state is AuthUiState.Error) {

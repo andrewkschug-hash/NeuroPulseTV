@@ -6,6 +6,7 @@ import com.grid.tv.domain.model.AuthAccount
 import com.grid.tv.domain.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,8 @@ class AuthViewModel @Inject constructor(
 
     private val _signedInAccount = MutableStateFlow<AuthAccount?>(null)
     val signedInAccount: StateFlow<AuthAccount?> = _signedInAccount.asStateFlow()
+
+    private var signInTimeoutJob: Job? = null
 
     val isSignedIn: Boolean
         get() = _uiState.value is AuthUiState.Authenticated
@@ -96,6 +99,7 @@ class AuthViewModel @Inject constructor(
                 delay(200)
             }
             if (_uiState.value is AuthUiState.SigningIn) {
+                clearSigningInTimeout()
                 _uiState.value = AuthUiState.Error("Sign-in was interrupted. Please try again.")
             }
         }
@@ -108,7 +112,29 @@ class AuthViewModel @Inject constructor(
     }
 
     fun onGoogleSignInStarted() {
-        _uiState.value = AuthUiState.SigningIn("Google")
+        beginSigningIn("Google")
+    }
+
+    fun onSignInResumed() {
+        if (_uiState.value is AuthUiState.SigningIn) {
+            onOAuthSessionEstablished()
+        }
+    }
+
+    private fun beginSigningIn(providerLabel: String) {
+        _uiState.value = AuthUiState.SigningIn(providerLabel)
+        signInTimeoutJob?.cancel()
+        signInTimeoutJob = viewModelScope.launch {
+            delay(SIGN_IN_TIMEOUT_MS)
+            if (_uiState.value is AuthUiState.SigningIn) {
+                _uiState.value = AuthUiState.Error("Sign-in timed out. Please try again.")
+            }
+        }
+    }
+
+    private fun clearSigningInTimeout() {
+        signInTimeoutJob?.cancel()
+        signInTimeoutJob = null
     }
 
     fun onGoogleSignInSuccess() {
@@ -122,6 +148,7 @@ class AuthViewModel @Inject constructor(
     private suspend fun completeSignIn(): Boolean {
         if (_uiState.value is AuthUiState.Authenticated) return true
         return runCatching {
+            clearSigningInTimeout()
             authRepository.setSkippedSignIn(false)
             val account = authRepository.getCurrentAccount()
                 ?: return false
@@ -130,6 +157,7 @@ class AuthViewModel @Inject constructor(
             _uiState.value = AuthUiState.Authenticated(account.userId)
             true
         }.getOrElse { error ->
+            clearSigningInTimeout()
             _uiState.value = AuthUiState.Error(
                 error.message ?: "We couldn't finish signing you in. Please try again."
             )
@@ -138,6 +166,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun onGoogleSignInCancelled() {
+        clearSigningInTimeout()
         if (authRepository.hasSkippedSignIn()) {
             _uiState.value = AuthUiState.Guest
         } else {
@@ -146,6 +175,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun onGoogleSignInFailed(message: String) {
+        clearSigningInTimeout()
         _uiState.value = AuthUiState.Error(message)
     }
 
@@ -174,14 +204,19 @@ class AuthViewModel @Inject constructor(
 
     fun startOAuthFallback() {
         viewModelScope.launch {
-            _uiState.value = AuthUiState.SigningIn("Google")
+            beginSigningIn("Google")
             runCatching {
                 authRepository.signInWithOAuth(com.grid.tv.domain.model.OAuthProviderId.Google)
             }.onFailure { error ->
+                clearSigningInTimeout()
                 _uiState.value = AuthUiState.Error(
                     error.message ?: "Google sign-in failed. Please try again."
                 )
             }
         }
+    }
+
+    companion object {
+        private const val SIGN_IN_TIMEOUT_MS = 120_000L
     }
 }

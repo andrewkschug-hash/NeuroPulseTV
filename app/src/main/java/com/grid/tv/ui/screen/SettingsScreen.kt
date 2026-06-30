@@ -36,6 +36,7 @@ import com.grid.tv.ui.component.EpgTopBar
 import com.grid.tv.ui.component.FactoryResetConfirmDialog
 import com.grid.tv.ui.component.GridNavTabs
 import com.grid.tv.ui.component.GuideGroupPickerDialog
+import com.grid.tv.ui.component.launchGoogleSignIn
 import com.grid.tv.ui.screen.ManageProfilesOverlay
 import com.grid.tv.ui.component.PinEntryDialog
 import com.grid.tv.ui.component.ScreenBackHandler
@@ -56,6 +57,7 @@ import com.grid.tv.ui.screen.settings.focusableOptionIndices
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthUiState
 import com.grid.tv.ui.viewmodel.AuthViewModel
+import com.grid.tv.util.isTelevision
 import com.grid.tv.ui.viewmodel.ProfileViewModel
 import com.grid.tv.ui.viewmodel.SettingsViewModel
 import com.grid.tv.ui.viewmodel.UpdateViewModel
@@ -122,6 +124,7 @@ fun SettingsScreen(
     }
     var startGoogleSignIn: () -> Unit = {}
     if (supabaseClient != null) {
+        val isTelevision = context.isTelevision()
         val googleSignIn = supabaseClient.composeAuth.rememberSignInWithGoogle(
             onResult = { result ->
                 when (result) {
@@ -137,9 +140,9 @@ fun SettingsScreen(
             },
         )
         startGoogleSignIn = {
-            authViewModel.clearError()
-            authViewModel.onGoogleSignInStarted()
-            googleSignIn.startFlow()
+            launchGoogleSignIn(isTelevision, authViewModel) {
+                googleSignIn.startFlow()
+            }
         }
     }
 

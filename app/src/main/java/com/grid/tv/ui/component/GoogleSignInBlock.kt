@@ -17,6 +17,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,10 +27,25 @@ import com.grid.tv.BuildConfig
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.viewmodel.AuthViewModel
+import com.grid.tv.util.isTelevision
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.compose.auth.composeAuth
 import io.github.jan.supabase.compose.auth.composable.NativeSignInResult
 import io.github.jan.supabase.compose.auth.composable.rememberSignInWithGoogle
+
+internal fun launchGoogleSignIn(
+    isTelevision: Boolean,
+    viewModel: AuthViewModel,
+    startNativeFlow: () -> Unit
+) {
+    viewModel.clearError()
+    if (isTelevision) {
+        viewModel.startOAuthFallback()
+    } else {
+        viewModel.onGoogleSignInStarted()
+        startNativeFlow()
+    }
+}
 
 @Composable
 fun SettingsGoogleSignInButton(
@@ -38,6 +54,7 @@ fun SettingsGoogleSignInButton(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null
 ) {
+    val isTelevision = LocalContext.current.isTelevision()
     val googleSignIn = supabaseClient.composeAuth.rememberSignInWithGoogle(
         onResult = { result ->
             when (result) {
@@ -56,9 +73,9 @@ fun SettingsGoogleSignInButton(
     SettingsFocusButton(
         text = "Sign in with Google",
         onClick = {
-            viewModel.clearError()
-            viewModel.onGoogleSignInStarted()
-            googleSignIn.startFlow()
+            launchGoogleSignIn(isTelevision, viewModel) {
+                googleSignIn.startFlow()
+            }
         },
         focusRequester = focusRequester,
         modifier = modifier,
@@ -75,9 +92,13 @@ fun GoogleSignInBlock(
     fillMaxWidthFraction: Float = 1f,
     focusRequester: FocusRequester = remember { FocusRequester() },
     requestInitialFocus: Boolean = false,
-    enabled: Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
+    enabled: Boolean = BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank(),
+    chain: TvFocusChain? = null,
+    chainIndex: Int = 0,
+    onNavigateBack: () -> Unit = {}
 ) {
     var focused by remember { mutableStateOf(false) }
+    val isTelevision = LocalContext.current.isTelevision()
 
     val googleSignIn = supabaseClient.composeAuth.rememberSignInWithGoogle(
         onResult = { result ->
@@ -103,16 +124,26 @@ fun GoogleSignInBlock(
     val shape = RoundedCornerShape(10.dp)
     GridFocusSurface(
         onClick = {
-            viewModel.clearError()
-            viewModel.onGoogleSignInStarted()
-            googleSignIn.startFlow()
+            launchGoogleSignIn(isTelevision, viewModel) {
+                googleSignIn.startFlow()
+            }
         },
         enabled = enabled,
         modifier = modifier
             .fillMaxWidth(fillMaxWidthFraction)
             .height(56.dp)
             .focusRequester(focusRequester)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) chain?.onItemFocused(chainIndex)
+            }
+            .then(
+                if (chain != null) {
+                    Modifier.tvFocusChainNavigation(chain, chainIndex, onNavigateBack)
+                } else {
+                    Modifier
+                }
+            )
             .tvFocusBorder(focused = focused, shape = shape),
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
