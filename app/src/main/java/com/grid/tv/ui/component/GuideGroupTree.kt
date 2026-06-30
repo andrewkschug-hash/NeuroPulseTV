@@ -1,5 +1,6 @@
 package com.grid.tv.ui.component
 
+import android.util.Log
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -78,10 +79,21 @@ fun expandedCategoriesForSelection(
     categories: List<GuideGroupCategory>,
     selectedGroups: Set<String>
 ): Set<Int> {
-    val index = categories.indexOfFirst { category ->
-        category.groups.any { it in selectedGroups }
-    }
+    val focusGroup = primarySelectedGroupForFocus(categories, selectedGroups) ?: return emptySet()
+    val index = categories.indexOfFirst { focusGroup in it.groups }
     return if (index >= 0) setOf(index) else emptySet()
+}
+
+/**
+ * Stable focus target for the nested category picker: lexicographically first selected group
+ * that still exists in [categories]. [GuideChannelFilter.decode] preserves sorted encode order
+ * in a [LinkedHashSet], so iteration is deterministic — not random [HashSet] order.
+ */
+internal fun primarySelectedGroupForFocus(
+    categories: List<GuideGroupCategory>,
+    selectedGroups: Set<String>
+): String? = selectedGroups.sorted().firstOrNull { group ->
+    categories.any { category -> group in category.groups }
 }
 
 fun buildVisibleGuideGroupRows(
@@ -251,12 +263,32 @@ fun visibleRowIndexForSelection(
     selectedGroups: Set<String>
 ): Int {
     if (selectedGroups.isEmpty()) return 0
+    val focusGroup = primarySelectedGroupForFocus(categories, selectedGroups)
+    if (focusGroup == null) {
+        Log.w(
+            GUIDE_GROUP_FOCUS_TAG,
+            "visibleRowIndexForSelection fallback=0 reason=focus_group_not_in_categories " +
+                "selectedGroups=$selectedGroups categoryCount=${categories.size}"
+        )
+        return 0
+    }
     val rows = buildVisibleGuideGroupRows(categories, expandedCategories)
-    val target = selectedGroups.first()
-    return rows.indexOfFirst { row ->
-        row is GuideGroupVisibleRow.Group && row.fullName == target
-    }.takeIf { it >= 0 } ?: 0
+    val index = rows.indexOfFirst { row ->
+        row is GuideGroupVisibleRow.Group && row.fullName == focusGroup
+    }
+    if (index < 0) {
+        Log.w(
+            GUIDE_GROUP_FOCUS_TAG,
+            "visibleRowIndexForSelection fallback=0 reason=row_not_visible " +
+                "target=$focusGroup expandedCategories=$expandedCategories " +
+                "visibleRowCount=${rows.size} selectedGroups=$selectedGroups"
+        )
+        return 0
+    }
+    return index
 }
+
+private const val GUIDE_GROUP_FOCUS_TAG = "GuideGroupFocus"
 
 /** Only one parent category may be expanded at a time. */
 fun toggleCategoryExpansion(

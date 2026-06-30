@@ -103,6 +103,34 @@ class GuideGroupTreeTest {
     }
 
     @Test
+    fun `visibleRowIndexForSelection expands category containing focus group not first match`() {
+        val categories = listOf(
+            GuideGroupCategory(displayName = "Africa", groups = listOf("ZAF| SPORT")),
+            GuideGroupCategory(displayName = "Europe", groups = listOf("UK| BBC")),
+        )
+        val selected = setOf("UK| BBC", "ZAF| SPORT")
+        val expanded = expandedCategoriesForSelection(categories, selected)
+        val index = visibleRowIndexForSelection(categories, expanded, selected)
+        val rows = buildVisibleGuideGroupRows(categories, expanded)
+        val focusedRow = rows[index]
+
+        assertEquals(setOf(1), expanded)
+        assertEquals("UK| BBC", (focusedRow as GuideGroupVisibleRow.Group).fullName)
+    }
+
+    @Test
+    fun `primarySelectedGroupForFocus uses stable sorted order from encoded filter`() {
+        val categories = listOf(
+            GuideGroupCategory(displayName = "Africa", groups = listOf("ZAF|")),
+            GuideGroupCategory(displayName = "Europe", groups = listOf("UK|")),
+        )
+        val decoded = com.grid.tv.feature.epg.GuideChannelFilter.decode(
+            com.grid.tv.feature.epg.GuideChannelFilter.encode(setOf("ZAF|", "UK|"))
+        )
+        assertEquals("UK|", primarySelectedGroupForFocus(categories, decoded))
+    }
+
+    @Test
     fun `resolveChannelGroupsFocusIndex prefers committed filter over stale last row key`() {
         val groups = listOf("UK| SPORT", "AFR| ETHIOPIA")
         val focusIndex = resolveChannelGroupsFocusIndex(

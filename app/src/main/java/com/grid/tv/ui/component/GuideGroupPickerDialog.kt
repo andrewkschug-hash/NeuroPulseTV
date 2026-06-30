@@ -52,14 +52,14 @@ fun GuideGroupPickerDialog(
     val categories = remember(channelGroups, groupChannelCounts) {
         buildGuideGroupCategories(channelGroups, groupChannelCounts)
     }
-    var expandedCategories by remember {
+    var expandedCategories by remember(initialSelection, categories) {
         mutableStateOf(expandedCategoriesForSelection(categories, initialSelection))
     }
     val visibleRows = remember(categories, expandedCategories) {
         buildVisibleGuideGroupRows(categories, expandedCategories)
     }
 
-    var focusedRowIndex by remember {
+    var focusedRowIndex by remember(initialSelection, categories) {
         mutableIntStateOf(
             visibleRowIndexForSelection(
                 categories,
@@ -94,10 +94,10 @@ fun GuideGroupPickerDialog(
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(visibleRows.size, focusedRowIndex) {
         if (visibleRows.isNotEmpty()) {
             val index = focusedRowIndex.coerceIn(0, visibleRows.lastIndex)
-            rowFocusRequesters[index].requestFocusSafelyAfterLayout()
+            rowFocusRequesters.getOrNull(index)?.requestFocusSafelyAfterLayout()
         }
     }
 

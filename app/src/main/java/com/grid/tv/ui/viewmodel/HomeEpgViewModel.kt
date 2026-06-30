@@ -715,10 +715,6 @@ class HomeEpgViewModel @Inject constructor(
             _channels.value = page
             yield()
             skipNextChannelWindowSchedule = true
-            viewModelScope.launch(Dispatchers.IO) {
-                delay(StartupTierPolicy.guideEpgHydrateDelayMs())
-                loadWindow()
-            }
         } finally {
             loadingChannels = false
         }

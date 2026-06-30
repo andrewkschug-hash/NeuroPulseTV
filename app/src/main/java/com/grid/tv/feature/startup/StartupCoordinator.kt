@@ -33,7 +33,7 @@ class StartupCoordinator @Inject constructor(
         }
     }
 
-    /** Phase 2B — background COUNT queries + channel page (runs after interactive delay). */
+    /** Phase 2B — apply persisted catalog counts; refresh from SQLite only when prefs are empty. */
     suspend fun runPhase2BackgroundCounts() {
         runCatching {
             StartupProfiler.mark("startup_phase2b_start")

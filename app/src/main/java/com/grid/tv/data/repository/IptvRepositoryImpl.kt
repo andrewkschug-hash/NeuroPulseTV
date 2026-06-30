@@ -314,6 +314,7 @@ class IptvRepositoryImpl @Inject constructor(
     private val _epgDataRevision = MutableStateFlow(0L)
     @Volatile
     private var epgLinkResolversByPlaylist: MutableMap<Long, EpgChannelLinkResolver>? = null
+    private val epgLinkResolverRebuildMutexes = java.util.concurrent.ConcurrentHashMap<Long, Mutex>()
 
     private var cachedSettings = AppSettings()
     private var activeProfileId = 1L
@@ -466,6 +467,11 @@ class IptvRepositoryImpl @Inject constructor(
     private fun cachedSeriesCount(): Int = sessionCatalogCounts?.series ?: _seriesShowCountFlow.value
 
     private fun cachedChannelsCount(): Int = sessionCatalogCounts?.channels ?: _channelCountFlow.value
+
+    private suspend fun queryChannelCountFromDb(): Int =
+        withContext(diskIoSerialExecutor.dispatcher) {
+            channelDao.countTotal()
+        }
 
     private suspend fun queryCatalogCountsFromDbChunked(): CatalogCountsSnapshot {
         StartupProfiler.mark("phase2_count_query_start")
@@ -1604,9 +1610,12 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun ensureEpgLinkResolver(playlistId: Long): EpgChannelLinkResolver {
-        val cache = epgLinkResolversByPlaylist
-        cache?.get(playlistId)?.let { return it }
-        return rebuildEpgLinkResolver(playlistId)
+        epgLinkResolversByPlaylist?.get(playlistId)?.let { return it }
+        val mutex = epgLinkResolverRebuildMutexes.getOrPut(playlistId) { Mutex() }
+        return mutex.withLock {
+            epgLinkResolversByPlaylist?.get(playlistId)?.let { return it }
+            rebuildEpgLinkResolver(playlistId)
+        }
     }
 
     private suspend fun rebuildEpgLinkResolver(playlistId: Long): EpgChannelLinkResolver =
@@ -2661,6 +2670,21 @@ class IptvRepositoryImpl @Inject constructor(
             )
             return
         }
+        val persisted = startupCatalogCountsStore.read()
+        if (persisted.isValid) {
+            sessionDbCountsLoaded = true
+            applyCatalogCounts(
+                counts = persisted.toSnapshot(CatalogCountSource.PERSISTED),
+                trigger = trigger,
+                persist = false,
+                publishUi = true
+            )
+            StartupProfiler.mark(
+                "vod_instant_hydrate_complete",
+                "movies=${persisted.movies} series=${persisted.series} persisted=true"
+            )
+            return
+        }
         refreshCatalogCountsFromDb(
             trigger = trigger,
             force = true,
@@ -2710,6 +2734,7 @@ class IptvRepositoryImpl @Inject constructor(
             }
             if (trigger != VodRefreshTrigger.MANUAL_RETRY && isVodCatalogFresh()) {
                 Log.i(VOD_FLOW_TAG, "Skipping deferred VOD refresh — catalog still fresh trigger=$trigger")
+                publishVodProgressFromDb(trigger = trigger)
                 return@launch
             }
             if (shouldSkipStartupVodNetworkRefresh(trigger)) {
@@ -2745,6 +2770,7 @@ class IptvRepositoryImpl @Inject constructor(
 
         val persisted = startupCatalogCountsStore.read()
         if (persisted.isValid) {
+            sessionDbCountsLoaded = true
             applyCatalogCounts(
                 counts = persisted.toSnapshot(CatalogCountSource.PERSISTED),
                 trigger = VodRefreshTrigger.REPOSITORY_INIT,
@@ -2787,6 +2813,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "valid=${cached.isValid}"
         )
         if (!cached.isValid) return
+        sessionDbCountsLoaded = true
         applyCatalogCounts(
             counts = CatalogCountsSnapshot(
                 movies = cached.movies,
@@ -2806,20 +2833,53 @@ class IptvRepositoryImpl @Inject constructor(
         loadSettings()
 
         val persisted = startupCatalogCountsStore.read()
-        val dbCounts = queryCatalogCountsFromDbChunked()
-        sessionDbCountsLoaded = true
-        val countsChanged = !persisted.isValid ||
-            persisted.movies != dbCounts.movies ||
-            persisted.series != dbCounts.series ||
-            persisted.channels != dbCounts.channels
+        val previous = sessionCatalogCounts
+        val counts = if (persisted.isValid) {
+            StartupProfiler.mark(
+                "phase2_count_query_skipped",
+                "movies=${persisted.movies} series=${persisted.series} channels=${persisted.channels}"
+            )
+            Log.i(
+                IPTV_REPO_LOG_TAG,
+                "updateCountsInBackground: using persisted catalog counts " +
+                    "(movies=${persisted.movies} series=${persisted.series} channels=${persisted.channels})"
+            )
+            persisted.toSnapshot(CatalogCountSource.PERSISTED)
+        } else {
+            StartupProfiler.mark("phase2_count_query_start", "mode=channels_only")
+            val channelsStart = SystemClock.elapsedRealtime()
+            val channels = queryChannelCountFromDb()
+            val channelsMs = SystemClock.elapsedRealtime() - channelsStart
+            StartupProfiler.mark(
+                "phase2_count_query_end",
+                "mode=channels_only total=${channelsMs}ms channels=${channelsMs}ms($channels)"
+            )
+            Log.i(
+                IPTV_REPO_LOG_TAG,
+                "updateCountsInBackground: first-run channel count only=${channels}ms/$channels " +
+                    "(movie/series totals refresh after VOD sync)"
+            )
+            CatalogCountsSnapshot(
+                movies = 0,
+                series = 0,
+                channels = channels,
+                updatedAtMs = System.currentTimeMillis(),
+                source = CatalogCountSource.DATABASE
+            )
+        }
+        sessionDbCountsLoaded = persisted.isValid
+        val publishUi = previous == null ||
+            previous.movies != counts.movies ||
+            previous.series != counts.series ||
+            previous.channels != counts.channels
         applyCatalogCounts(
-            counts = dbCounts,
+            counts = counts,
             trigger = VodRefreshTrigger.REPOSITORY_INIT,
-            persist = true,
-            publishUi = countsChanged || !persisted.isValid
+            persist = !persisted.isValid,
+            publishUi = publishUi
         )
 
-        if (dbCounts.channels > 0 && !startupSafety.shouldDeferChannelPageWarm()) {
+        if (counts.channels > 0 && !startupSafety.shouldDeferChannelPageWarm()) {
             yield()
             delay(50)
             mapChannelEntities(
@@ -2838,7 +2898,8 @@ class IptvRepositoryImpl @Inject constructor(
         Log.i(
             IPTV_REPO_LOG_TAG,
             "updateCountsInBackground complete profileId=$activeProfileId " +
-                "channels=${dbCounts.channels} movies=${dbCounts.movies} series=${dbCounts.series}"
+                "channels=${counts.channels} movies=${counts.movies} series=${counts.series} " +
+                "source=${counts.source}"
         )
         appCacheRegistry.logInventory("warm_local_ui_cache")
     }
@@ -3690,7 +3751,16 @@ class IptvRepositoryImpl @Inject constructor(
     }
 
     private suspend fun publishVodProgressFromDb(trigger: VodRefreshTrigger) {
-        refreshCatalogCountsFromDb(trigger = trigger, force = true)
+        val cached = sessionCatalogCounts
+        if (sessionDbCountsLoaded && cached != null) {
+            publishVodCatalogCounts(
+                trigger = trigger,
+                moviesCount = cached.movies,
+                seriesCount = cached.series
+            )
+            return
+        }
+        refreshCatalogCountsFromDb(trigger = trigger, force = true, persist = true)
     }
 
     private fun publishVodCatalogCounts(
