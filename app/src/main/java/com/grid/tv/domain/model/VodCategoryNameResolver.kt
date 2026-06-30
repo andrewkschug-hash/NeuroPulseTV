@@ -222,8 +222,16 @@ object VodCategoryNameResolver {
             compareBy<VodCategory> { VodSidebarGenreNormalizer.sidebarSortRank(it.name) }
                 .thenBy { it.name.lowercase() }
         )
+        .filter { category ->
+            itemCountByCategoryKey.isEmpty() ||
+                categoryItemCount(category, itemCountByCategoryKey) > 0
+        }
 
-    return SeriesSidebarCategories(displayCategories, filterIdsByRepresentativeId)
+    val prunedFilterIds = filterIdsByRepresentativeId.filterKeys { key ->
+        displayCategories.any { categoryKey(it.playlistId, it.id) == key }
+    }
+
+    return SeriesSidebarCategories(displayCategories, prunedFilterIds)
 }
 
     private fun pickSidebarRepresentative(

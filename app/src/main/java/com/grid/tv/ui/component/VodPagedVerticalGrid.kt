@@ -129,9 +129,9 @@ fun VodPagedVerticalGrid(
   LazyVerticalGrid(
     columns = GridCells.Adaptive(minSize = minCellSize),
     state = gridState,
-    contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
-    horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
-    verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
+    contentPadding = VodLayout.gridContentPadding(),
+    horizontalArrangement = Arrangement.spacedBy(VodLayout.PosterSpacing + VodPosterFocusLayout.gridEdgePadding),
+    verticalArrangement = Arrangement.spacedBy(VodLayout.RowSpacing + VodPosterFocusLayout.gridEdgePadding),
     modifier = modifier
   ) {
     items(
@@ -202,9 +202,9 @@ fun VodPagedVerticalGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
         state = gridState,
-        contentPadding = PaddingValues(vertical = 8.dp + VodPosterFocusLayout.gridEdgePadding),
-        horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
-        verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
+        contentPadding = VodLayout.gridContentPadding(),
+        horizontalArrangement = Arrangement.spacedBy(VodLayout.PosterSpacing + VodPosterFocusLayout.gridEdgePadding),
+        verticalArrangement = Arrangement.spacedBy(VodLayout.RowSpacing + VodPosterFocusLayout.gridEdgePadding),
         modifier = modifier
     ) {
         items(
@@ -298,9 +298,9 @@ fun VodMoviePagedGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = minCellSize),
         state = gridState,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = VodLayout.gridContentPadding(),
+        horizontalArrangement = Arrangement.spacedBy(VodLayout.PosterSpacing),
+        verticalArrangement = Arrangement.spacedBy(VodLayout.RowSpacing),
         modifier = modifier
     ) {
         items(

@@ -35,9 +35,19 @@ object VodHubUiStateBuilder {
 
         val sidebarMovie = partitions.movieSidebarBundle.displayCategories
         val sidebarSeries = partitions.seriesSidebarBundle.displayCategories
+        val moviesGenresReady = moviesGenresReady(inputs)
+        val seriesGenresReady = seriesGenresReady(inputs)
         val genreLabels = when (inputs.contentFilter) {
-            VodContentFilter.MOVIES -> listOf("All") + sidebarMovie.map { it.name }
-            VodContentFilter.SERIES -> listOf("All") + sidebarSeries.map { it.name }
+            VodContentFilter.MOVIES -> if (moviesGenresReady) {
+                listOf("All") + sidebarMovie.map { it.name }
+            } else {
+                emptyList()
+            }
+            VodContentFilter.SERIES -> if (seriesGenresReady) {
+                listOf("All") + sidebarSeries.map { it.name }
+            } else {
+                emptyList()
+            }
             else -> emptyList()
         }
         val selectedGenreIndex = resolveSelectedGenreIndex(
@@ -183,6 +193,18 @@ object VodHubUiStateBuilder {
             catalogPartitions = partitions
         )
     }
+
+    internal fun moviesGenresReady(inputs: VodHubUiBuildInputs): Boolean =
+        !inputs.catalogLoading &&
+            inputs.catalogProgress.moviesPhaseFinished &&
+            inputs.movieBrowseRows.isNotEmpty() &&
+            inputs.catalogPartitions.movieSidebarBundle.displayCategories.isNotEmpty()
+
+    internal fun seriesGenresReady(inputs: VodHubUiBuildInputs): Boolean =
+        !inputs.catalogLoading &&
+            inputs.catalogProgress.seriesPhaseFinished &&
+            inputs.seriesBrowseRows.isNotEmpty() &&
+            inputs.catalogPartitions.seriesSidebarBundle.displayCategories.isNotEmpty()
 
     private fun resolveSelectedGenreIndex(
         contentFilter: VodContentFilter,

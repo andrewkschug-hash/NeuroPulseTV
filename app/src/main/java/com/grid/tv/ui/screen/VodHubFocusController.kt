@@ -485,11 +485,7 @@ internal class VodHubFocusController(
 
     fun routeLibraryNavRight() {
         if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-            if (d.languageFilterActive) {
-                returnToContentFromLibraryNav(resetOrigin = true)
-            } else {
-                openLanguageSubmenu()
-            }
+            openLanguageSubmenu()
             return
         }
         val filter = VodHubTabFilters.getOrNull(ui.filterFocusIndex) ?: d.contentFilter
@@ -506,11 +502,7 @@ internal class VodHubFocusController(
 
     fun activateLibraryNavItem(index: Int) {
         if (index == VodHubLanguageFilterFocusIndex) {
-            if (d.languageFilterActive) {
-                returnToContentFromLibraryNav(resetOrigin = true)
-            } else {
-                openLanguageSubmenu()
-            }
+            openLanguageSubmenu()
             return
         }
         if (!d.hubTabsNavigable() && index < VodHubLanguageFilterFocusIndex) {

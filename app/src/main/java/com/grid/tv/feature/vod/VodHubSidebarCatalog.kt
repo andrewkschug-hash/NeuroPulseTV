@@ -28,6 +28,9 @@ internal fun prepareMovieSidebarCategories(
     primary: List<VodCategory>,
     browseIndex: VodBrowseRowCategoryIndex,
 ): VodCategoryNameResolver.SeriesSidebarCategories {
+    if (browseIndex.itemCountByCategoryKey.isEmpty()) {
+        return VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap())
+    }
     val raw = if (primary.isNotEmpty()) {
         primary
     } else {
@@ -40,6 +43,9 @@ internal fun prepareSeriesSidebarCategories(
     primary: List<VodCategory>,
     browseIndex: VodBrowseRowCategoryIndex,
 ): VodCategoryNameResolver.SeriesSidebarCategories {
+    if (browseIndex.itemCountByCategoryKey.isEmpty()) {
+        return VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap())
+    }
     val raw = VodCategoryNameResolver.mergeSeriesCategorySources(primary, browseIndex.categoriesFromRows)
     return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw, browseIndex.itemCountByCategoryKey)
 }

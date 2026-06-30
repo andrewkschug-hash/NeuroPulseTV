@@ -313,7 +313,7 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun routeLibraryNavRight_onLanguagesWithFilter_skipsToContent() {
+    fun routeLibraryNavRight_onLanguagesWithFilter_opensLanguageSubmenu() {
         val (ui, controller) = setupController(
             filterIndex = VodHubLanguageFilterFocusIndex,
             showGenrePanel = false,
@@ -373,7 +373,7 @@ class VodHubFocusNavigationTest {
         ui.focusZone = VodFocusZone.FILTER_PANEL
         ui.filterFocusIndex = VodHubLanguageFilterFocusIndex
         controller.routeLibraryNavRight()
-        assertEquals(VodFocusZone.CONTENT, ui.focusZone)
+        assertEquals(VodFocusZone.LANGUAGE_SUBMENU, ui.focusZone)
     }
 
     private fun sampleWallRows(): List<VodWallRow> {

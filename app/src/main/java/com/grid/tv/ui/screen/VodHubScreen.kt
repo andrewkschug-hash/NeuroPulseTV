@@ -93,6 +93,7 @@ import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.VodAmbientBackdrop
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
+import com.grid.tv.ui.component.VodLayout
 import com.grid.tv.ui.component.VodHubTabFilters
 import com.grid.tv.ui.component.vodHubTabFilterIndex
 import com.grid.tv.ui.component.VodLanguagePreferenceDialog
@@ -328,15 +329,15 @@ fun VodHubScreen(
     val vodWallScrollSafePaddingPx = remember(density) {
         with(density) {
             (
-                VodPosterFocusLayout.categoryRowTopPadding +
-                    24.dp +
+                VodLayout.ContentTopPadding +
+                    VodPosterFocusLayout.categoryRowTopPadding +
                     VodPosterFocusLayout.categoryTitleBottomGap +
                     VodPosterFocusLayout.netflixEdgePaddingVertical
                 ).roundToPx()
         }
     }
     val browseGridScrollSafePaddingPx = remember(density) {
-        with(density) { 48.dp.roundToPx() }
+        with(density) { (VodLayout.ContentTopPadding + VodPosterFocusLayout.gridEdgePadding).roundToPx() }
     }
     val vodWallRowHeightPx = remember(density) {
         with(density) { VodPosterFocusLayout.estimatedWallRowHeight.roundToPx() }
@@ -1703,7 +1704,6 @@ fun VodHubScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(top = 4.dp)
                         .then(
                             if (vodContentHasFocus) {
                                 Modifier
@@ -1894,7 +1894,7 @@ fun VodHubScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth(),
-                                contentPadding = PaddingValues(bottom = 64.dp)
+                                contentPadding = VodLayout.wallLazyColumnPadding()
                             ) {
                                 itemsIndexed(homeLeadWallRows, key = { _, row -> row.id }) { index, row ->
                                     val rowListState = remember(row.id) { LazyListState() }

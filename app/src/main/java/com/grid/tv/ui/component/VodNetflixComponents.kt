@@ -1688,8 +1688,13 @@ fun VodInlineSearchContent(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .padding(
+                start = VodLayout.ContentHorizontalPadding,
+                end = VodLayout.ContentHorizontalPadding,
+                top = VodLayout.ContentTopPadding,
+            )
             .focusProperties { canFocus = false },
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(VodLayout.RowSpacing)
     ) {
         Text(
             text = "Search movies & series",
