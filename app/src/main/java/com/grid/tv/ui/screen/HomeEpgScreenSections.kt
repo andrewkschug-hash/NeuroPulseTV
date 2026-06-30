@@ -950,8 +950,7 @@ private fun EpgGuideChannelRow(
             .fillMaxWidth()
             .heightIn(min = EpgLayout.RowHeight)
             .height(EpgLayout.RowHeight)
-            .focusProperties { canFocus = false }
-            .background(if (isActiveRow) EpgColors.LiveGuideFocusBg.copy(alpha = 0.35f) else Color.Transparent)
+            .focusProperties { canFocus = false },
     ) {
         EpgChannelCell(
             channel = channel,

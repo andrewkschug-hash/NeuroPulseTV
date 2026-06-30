@@ -188,7 +188,7 @@ internal class VodHubFocusController(
         if (d.contentFilter != VodContentFilter.ALL || d.showBrowseGrid) {
             collapseLibraryNavPanel()
         } else {
-            ui.libraryNavPanelVisible = true
+            ui.libraryNavPanelVisible = false
         }
         ui.rememberFilterFocus()
         when {
@@ -213,7 +213,7 @@ internal class VodHubFocusController(
         if (d.contentFilter != VodContentFilter.ALL || d.showBrowseGrid) {
             collapseLibraryNavPanel()
         } else {
-            ui.libraryNavPanelVisible = true
+            ui.libraryNavPanelVisible = false
         }
         transitionToZoneInternal(VodFocusZone.CONTENT, if (resetToOrigin) "wallOrigin" else "wallRestore")
         if (resetToOrigin) {
@@ -244,6 +244,7 @@ internal class VodHubFocusController(
     fun focusLibraryNavFromGenre() = focusFilterPanelFromGenre()
 
     fun focusGenrePanelFromFilter() {
+        ui.libraryNavPanelVisible = true
         ui.rememberFilterFocus()
         transitionToZoneInternal(VodFocusZone.GENRE_PANEL, "fromFilter")
         ui.restoreGenreFrom(d.contentFilter)
@@ -491,7 +492,54 @@ internal class VodHubFocusController(
             }
             return
         }
+        val filter = VodHubTabFilters.getOrNull(ui.filterFocusIndex) ?: d.contentFilter
+        if (
+            (filter == VodContentFilter.MOVIES || filter == VodContentFilter.SERIES) &&
+            filter == d.contentFilter &&
+            d.genreLabels.isNotEmpty()
+        ) {
+            focusGenrePanelFromFilter()
+            return
+        }
         returnToContentFromLibraryNav(resetOrigin = false)
+    }
+
+    fun activateLibraryNavItem(index: Int) {
+        if (index == VodHubLanguageFilterFocusIndex) {
+            if (d.languageFilterActive) {
+                returnToContentFromLibraryNav(resetOrigin = true)
+            } else {
+                openLanguageSubmenu()
+            }
+            return
+        }
+        if (!d.hubTabsNavigable() && index < VodHubLanguageFilterFocusIndex) {
+            val filter = VodHubTabFilters.getOrNull(index)
+            if (filter != null && filter != d.contentFilter) return
+        }
+        val targetFilter = VodHubTabFilters.getOrNull(index) ?: return
+        val switchingTab = targetFilter != d.contentFilter
+        ui.filterFocusIndex = index
+        ui.rememberFilterFocus()
+        ui.libraryNavPanelVisible = true
+        if (switchingTab) {
+            d.commitFilterHighlight(index)
+        }
+        when (targetFilter) {
+            VodContentFilter.MOVIES, VodContentFilter.SERIES -> {
+                if (switchingTab) {
+                    ui.openGenrePanelOnNextFilter = true
+                } else if (d.genreLabels.isNotEmpty()) {
+                    focusGenrePanelFromFilter()
+                }
+            }
+            VodContentFilter.ALL -> {
+                if (switchingTab) {
+                    returnToContentFromLibraryNav(resetOrigin = true)
+                }
+            }
+            else -> Unit
+        }
     }
 
     private fun openNavDrawerFromLibraryNav() {
@@ -584,22 +632,7 @@ internal class VodHubFocusController(
                 true
             }
             Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> {
-                if (ui.filterFocusIndex == VodHubLanguageFilterFocusIndex) {
-                    if (d.languageFilterActive) {
-                        returnToContentFromLibraryNav(resetOrigin = true)
-                    } else {
-                        openLanguageSubmenu()
-                    }
-                } else if (d.hubTabsNavigable()) {
-                    val targetFilter = VodHubTabFilters.getOrNull(ui.filterFocusIndex)
-                    val switchingTab = targetFilter != null && targetFilter != d.contentFilter
-                    commitFocusedFilterHighlight()
-                    if (switchingTab && d.showGenrePanel && d.genreLabels.isNotEmpty()) {
-                        focusGenrePanelFromFilter()
-                    } else {
-                        returnToContentFromLibraryNav(resetOrigin = switchingTab)
-                    }
-                }
+                activateLibraryNavItem(ui.filterFocusIndex)
                 true
             }
             else -> false

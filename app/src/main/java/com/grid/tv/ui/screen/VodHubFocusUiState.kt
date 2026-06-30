@@ -36,6 +36,7 @@ internal class VodHubFocusUiState {
     var navDrawerOpen by mutableStateOf(false)
     /** Library category popout — hidden until D-pad Left from content; full labeled panel when visible. */
     var libraryNavPanelVisible by mutableStateOf(false)
+    var openGenrePanelOnNextFilter by mutableStateOf(false)
     var navDrawerFocusIndex by mutableIntStateOf(
         guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Vod)
     )

@@ -85,6 +85,7 @@ import androidx.compose.ui.zIndex
 import com.grid.tv.ui.component.VodLibraryNavPanel
 import com.grid.tv.ui.component.VodLanguageSubmenuPanel
 import com.grid.tv.ui.component.VodLibrarySubPanelOffsetExpanded
+import com.grid.tv.ui.component.VodLibraryNavPanelCollapsedWidth
 import com.grid.tv.ui.component.VodLibraryNavPanelExpandedWidth
 import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
@@ -504,18 +505,21 @@ fun VodHubScreen(
         isMoviesTabRenderable(moviesOnboardingInputs, catalogProgress) ||
         !showHubUnifiedLoading
     val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
-    val showLibraryRail = when {
-        hubCatalogReady &&
-            !showInlineSearch &&
-            contentFilter == VodContentFilter.ALL &&
-            !showBrowseGrid -> true
-        else -> showLibraryNavPanel && focusUi.libraryNavPanelVisible
-    }
+    val showLibraryNavRail = hubCatalogReady && !showInlineSearch && showLibraryNavPanel
+    val showLibraryNavExpanded = showLibraryNavRail && (
+        focusUi.libraryNavPanelVisible ||
+            focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
+            focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
+        )
     val librarySubPanelOpen = focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
         focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
     val showLibraryOverlayScrim = librarySubPanelOpen
-    val librarySubPanelOffset = if (showLibraryRail) VodLibrarySubPanelOffsetExpanded else 0.dp
-    val libraryContentInsetTarget = if (showLibraryRail) VodLibraryNavPanelExpandedWidth else 0.dp
+    val libraryContentInsetTarget = when {
+        !showLibraryNavRail -> 0.dp
+        showLibraryNavExpanded -> VodLibraryNavPanelExpandedWidth
+        else -> VodLibraryNavPanelCollapsedWidth
+    }
+    val librarySubPanelOffset = libraryContentInsetTarget
     val libraryContentInsetAnimated by animateDpAsState(
         targetValue = libraryContentInsetTarget,
         animationSpec = spring(stiffness = 420f, dampingRatio = 0.86f),
@@ -1327,6 +1331,13 @@ fun VodHubScreen(
         }
     }
 
+    LaunchedEffect(contentFilter, focusUi.openGenrePanelOnNextFilter, genreLabels.size) {
+        if (!focusUi.openGenrePanelOnNextFilter) return@LaunchedEffect
+        if (!showGenrePanel || genreLabels.isEmpty()) return@LaunchedEffect
+        focusUi.openGenrePanelOnNextFilter = false
+        focusController.focusGenrePanelFromFilter()
+    }
+
     LaunchedEffect(focusUi.awaitingBrowseGridFocus, browseGridItemCount()) {
         if (focusUi.awaitingBrowseGridFocus && browseGridItemCount() > 0) {
             focusUi.awaitingBrowseGridFocus = false
@@ -1985,34 +1996,29 @@ fun VodHubScreen(
                 }
             }
                 }
-                if (showLibraryNavPanel) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showLibraryRail,
-                        enter = slideInHorizontally { -it } + fadeIn(),
-                        exit = slideOutHorizontally { -it } + fadeOut(),
-                    ) {
-                        VodLibraryNavPanel(
-                            selectedFilter = contentFilter,
-                            focusedIndex = focusUi.filterFocusIndex,
-                            panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
-                            languageFilterActive = languageFilterActive,
-                            tabsNavigable = hubCatalogReady,
-                            rowFocusRequesters = libraryRowFocusRequesters,
-                            onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
-                            onFocusedIndexChange = { index ->
-                                focusUi.filterFocusIndex = index
-                            },
-                            onItemSelected = { index ->
-                                if (hubCatalogReady) {
-                                    commitFilterHighlight(index)
-                                }
-                            },
-                            modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .fillMaxHeight()
-                                .zIndex(2f),
-                        )
-                    }
+                if (showLibraryNavRail) {
+                    VodLibraryNavPanel(
+                        selectedFilter = contentFilter,
+                        focusedIndex = focusUi.filterFocusIndex,
+                        panelFocused = focusUi.focusZone == VodFocusZone.FILTER_PANEL,
+                        expanded = showLibraryNavExpanded,
+                        languageFilterActive = languageFilterActive,
+                        tabsNavigable = hubCatalogReady,
+                        rowFocusRequesters = libraryRowFocusRequesters,
+                        onPanelFocused = { focusUi.focusZone = VodFocusZone.FILTER_PANEL },
+                        onFocusedIndexChange = { index ->
+                            focusUi.filterFocusIndex = index
+                        },
+                        onItemSelected = { index ->
+                            if (hubCatalogReady) {
+                                focusController.activateLibraryNavItem(index)
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .fillMaxHeight()
+                            .zIndex(2f),
+                    )
                 }
         }
         }

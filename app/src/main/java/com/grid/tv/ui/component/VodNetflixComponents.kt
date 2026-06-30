@@ -734,13 +734,13 @@ fun LazyListScope.netflixSeriesBrowseRows(
     }
 }
 
-/** Full-width library popout panel (Home / Movies / Series / Languages). */
+/** Icon-only library rail when collapsed. */
+val VodLibraryNavPanelCollapsedWidth = 64.dp
+
+/** Full library popout with labels when expanded. */
 val VodLibraryNavPanelExpandedWidth = 200.dp
 
-@Deprecated("Icon-only rail removed — library is a labeled popout only.", level = DeprecationLevel.HIDDEN)
-val VodLibraryNavPanelCollapsedWidth = VodLibraryNavPanelExpandedWidth
-
-/** Genre / language sub-panels overlay at the expanded sidebar's trailing edge. */
+/** Genre / language sub-panels overlay at the library's trailing edge. */
 val VodLibrarySubPanelOffsetExpanded = VodLibraryNavPanelExpandedWidth
 
 /** Overlay width for genre and language sub-panels. */
@@ -763,6 +763,7 @@ fun VodLibraryNavPanel(
     selectedFilter: VodContentFilter,
     focusedIndex: Int,
     panelFocused: Boolean,
+    expanded: Boolean,
     languageFilterActive: Boolean,
     tabsNavigable: Boolean,
     rowFocusRequesters: List<FocusRequester>,
@@ -775,6 +776,11 @@ fun VodLibraryNavPanel(
     val listState = rememberLazyListState()
     val accent = VodNetflixColors.Accent
     val chipShape = RoundedCornerShape(10.dp)
+    val panelWidth by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (expanded) VodLibraryNavPanelExpandedWidth else VodLibraryNavPanelCollapsedWidth,
+        animationSpec = androidx.compose.animation.core.spring(stiffness = 420f, dampingRatio = 0.86f),
+        label = "vodLibraryNavWidth",
+    )
 
     LaunchedEffect(focusedIndex, panelFocused, itemCount) {
         if (!panelFocused || itemCount <= 0) return@LaunchedEffect
@@ -783,7 +789,7 @@ fun VodLibraryNavPanel(
 
     Column(
         modifier = modifier
-            .width(VodLibraryNavPanelExpandedWidth)
+            .width(panelWidth)
             .fillMaxHeight()
             .zIndex(2f)
             .background(EpgColors.SidebarPanelBg.copy(alpha = 0.97f))
@@ -793,20 +799,27 @@ fun VodLibraryNavPanel(
                 shape = RoundedCornerShape(0.dp),
             )
     ) {
-        Text(
-            text = "Library",
-            color = EpgColors.TextDimmed,
-            fontFamily = DmSansFamily,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        )
+        if (expanded) {
+            Text(
+                text = "Library",
+                color = EpgColors.TextDimmed,
+                fontFamily = DmSansFamily,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(
+                horizontal = if (expanded) 8.dp else 6.dp,
+                vertical = 8.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(itemCount) { index ->
@@ -852,45 +865,70 @@ fun VodLibraryNavPanel(
                         pressedContainerColor = accent.copy(alpha = 0.22f),
                     ),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                    ) {
+                    if (expanded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier.width(20.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = icon,
+                                    color = if (rowFocused || tabSelected) Color.White else Color(0xFFB8BEC8),
+                                    fontSize = 16.sp,
+                                    textAlign = TextAlign.Center,
+                                )
+                                if (showLanguageDot) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .size(6.dp)
+                                            .background(Color.White, androidx.compose.foundation.shape.CircleShape),
+                                    )
+                                }
+                            }
+                            Text(
+                                text = label,
+                                color = when {
+                                    rowFocused || tabSelected -> Color.White
+                                    enabled -> Color(0xFFB8BEC8)
+                                    else -> Color(0xFF6B7280)
+                                },
+                                fontFamily = DmSansFamily,
+                                fontSize = 14.sp,
+                                fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
                         Box(
-                            modifier = Modifier.width(20.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = icon,
                                 color = if (rowFocused || tabSelected) Color.White else Color(0xFFB8BEC8),
-                                fontSize = 16.sp,
+                                fontSize = 18.sp,
                                 textAlign = TextAlign.Center,
                             )
                             if (showLanguageDot) {
                                 Box(
                                     modifier = Modifier
-                                        .align(Alignment.BottomEnd)
+                                        .align(Alignment.TopEnd)
+                                        .padding(end = 10.dp)
                                         .size(6.dp)
                                         .background(Color.White, androidx.compose.foundation.shape.CircleShape),
                                 )
                             }
                         }
-                        Text(
-                            text = label,
-                            color = when {
-                                rowFocused || tabSelected -> Color.White
-                                enabled -> Color(0xFFB8BEC8)
-                                else -> Color(0xFF6B7280)
-                            },
-                            fontFamily = DmSansFamily,
-                            fontSize = 14.sp,
-                            fontWeight = if (tabSelected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
                     }
                 }
             }

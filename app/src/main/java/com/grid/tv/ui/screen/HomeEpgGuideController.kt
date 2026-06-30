@@ -562,14 +562,15 @@ internal class HomeEpgGuideController(
         boundDeps.viewModel.previewGuideFilter(filter)
     }
 
-    fun applyChannelGroupFilter(filter: GuideChannelFilter) {
+    fun applyChannelGroupFilter(filter: GuideChannelFilter, refocusGrid: Boolean = true) {
         boundDeps.viewModel.setGuideFilter(filter, markConfigured = true)
+        rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
+        if (!refocusGrid) return
         ui.focusChannelIndex = 0
         ui.focusProgramIndex = 0
         ui.focusOnChannelColumn = true
         ui.focusChannelAfterGroupFilter = true
         ui.hasRequestedInitialGridFocus = false
-        rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
     }
 
     /** Persist the focused group and optionally return focus to the live grid. */
@@ -578,7 +579,10 @@ internal class HomeEpgGuideController(
         val visibleRows = flatVisibleGroupRows()
         val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex)
         if (row != null) {
-            applyChannelGroupFilter(guideChannelFilterForVisibleRow(row))
+            applyChannelGroupFilter(
+                guideChannelFilterForVisibleRow(row),
+                refocusGrid = focusGrid,
+            )
         }
         if (focusGrid) {
             collapseChannelGroupsPanel(focusGrid = true)

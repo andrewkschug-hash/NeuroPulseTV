@@ -110,10 +110,17 @@ Shared package: `com.grid.tv.ui.focus`
 
 ### Settings (`SettingsScreen`)
 
-- **Controller:** implicit via `SettingsFocusPanel` enum + local handlers
-- **Dispatcher:** `LaunchedEffect(focusPanel, listFocusIndex, …)` in screen
-- **Zones:** `TOP_BAR`, `LIST`, `DETAIL`
-- **Duplicate risk:** `SettingsComponents` dialog `LaunchedEffect`; `SettingsFocusNavigation` pill `requestFocus()`
+**Status: MIGRATED (two-column + canonical focus pattern)**
+
+| Concern | Owner |
+|---------|--------|
+| Zone state | `SettingsFocusUiState` |
+| `requestFocus()` | `SettingsFocusDispatcher` only |
+| D-pad | `TvScreenFocusRoot` → `SettingsFocusController.handleKey()` |
+
+**Focus zones:** `TOP_BAR`, `CATEGORIES`, `OPTIONS`
+
+**Tests:** `SettingsFocusNavigationTest`
 
 ### Recordings (`RecordingsScreen`)
 

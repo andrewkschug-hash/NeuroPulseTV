@@ -667,10 +667,16 @@ fun HomeEpgScreen(
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
                         groupsLoading = channelGroupsLoading,
                         rowFocusRegistry = channelGroupsFocusRegistry,
-                        onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
+                        onPanelFocused = {
+                            if (ui.focusZone != EpgFocusZone.NAV_DRAWER) {
+                                ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
+                            }
+                        },
                         onFocusedIndexChange = { index ->
-                            ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
-                            controller.onChannelGroupsFocusedIndexChanged(index)
+                            if (ui.focusZone != EpgFocusZone.NAV_DRAWER) {
+                                ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
+                                controller.onChannelGroupsFocusedIndexChanged(index)
+                            }
                         },
                         onFilterChange = controller::applyChannelGroupFilter
                     )

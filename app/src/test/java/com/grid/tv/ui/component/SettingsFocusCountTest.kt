@@ -1,12 +1,13 @@
 package com.grid.tv.ui.component
 
-import org.junit.Assert.assertNotNull
+import com.grid.tv.ui.screen.settings.SettingsCategory
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SettingsFocusCountTest {
 
     @Test
-    fun settingsRowShapeIsDefined() {
-        assertNotNull(SettingsRowShape)
+    fun settingsCategoryCount_isStable() {
+        assertEquals(6, SettingsCategory.entries.size)
     }
 }

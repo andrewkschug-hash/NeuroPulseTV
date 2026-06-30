@@ -219,4 +219,15 @@ class HomeEpgFocusNavigationTest {
         ui.guideSubScreen = GuideSubScreen.Search
         assertFalse(controller.handleKey(mockk(relaxed = true)))
     }
+
+    @Test
+    fun applyChannelGroupFilter_withoutRefocusGrid_doesNotQueueGridFocus() {
+        val (ui, controller) = setupController(
+            initialZone = EpgFocusZone.CHANNEL_GROUPS,
+            channelGroupsPanelVisible = true,
+        )
+        controller.applyChannelGroupFilter(GuideChannelFilter.All, refocusGrid = false)
+        assertFalse(ui.focusChannelAfterGroupFilter)
+        assertEquals(EpgFocusZone.CHANNEL_GROUPS, ui.focusZone)
+    }
 }

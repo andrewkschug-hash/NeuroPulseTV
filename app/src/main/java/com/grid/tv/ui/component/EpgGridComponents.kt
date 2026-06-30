@@ -380,13 +380,12 @@ fun EpgChannelCell(
     modifier: Modifier = Modifier
 ) {
     val bgColor = when {
-        isRowHighlighted -> EpgColors.LiveGuideFocusBg
+        isRowHighlighted -> EpgColors.ChannelRowFocusBg
         else -> EpgColors.ChannelColumnBg
     }
-    val emphasized = isRowHighlighted
-    val logoTint = if (emphasized) EpgColors.TextPrimary else EpgColors.TextSecondary
-    val nameColor = if (emphasized) EpgColors.LiveGuideFocus else EpgColors.TextPrimary
-    val numberColor = if (emphasized) EpgColors.LiveGuideFocus else EpgColors.TextSecondary
+    val nameColor = EpgColors.TextPrimary
+    val numberColor = if (isRowHighlighted) EpgColors.Accent else EpgColors.TextSecondary
+    val logoTint = EpgColors.TextSecondary
     val showAccentBar = isFocused
     val initials = channel.name.take(2).uppercase()
     val logoModel = remember(channel.id, channel.logoUrl) { channel.logoUrl }
@@ -403,18 +402,7 @@ fun EpgChannelCell(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(bgColor)
-                .then(
-                    if (isRowHighlighted) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = EpgColors.LiveGuideFocus,
-                            shape = RoundedCornerShape(0.dp)
-                        )
-                    } else {
-                        Modifier
-                    }
-                ),
+                .background(bgColor),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (showAccentBar) {
@@ -422,7 +410,7 @@ fun EpgChannelCell(
                     modifier = Modifier
                         .width(3.dp)
                         .fillMaxHeight()
-                        .background(EpgColors.LiveGuideFocus)
+                        .background(EpgColors.Accent)
                 )
             }
             Text(
@@ -473,7 +461,7 @@ fun EpgChannelCell(
                 color = nameColor,
                 fontFamily = DmSansFamily,
                 fontSize = 14.sp,
-                fontWeight = if (emphasized) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = if (isRowHighlighted) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
