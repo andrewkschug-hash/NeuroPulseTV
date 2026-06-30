@@ -504,7 +504,13 @@ fun VodHubScreen(
         isMoviesTabRenderable(moviesOnboardingInputs, catalogProgress) ||
         !showHubUnifiedLoading
     val showLibraryNavPanel = hubCatalogReady && !showInlineSearch
-    val showLibraryRail = showLibraryNavPanel && focusUi.libraryNavPanelVisible
+    val showLibraryRail = when {
+        hubCatalogReady &&
+            !showInlineSearch &&
+            contentFilter == VodContentFilter.ALL &&
+            !showBrowseGrid -> true
+        else -> showLibraryNavPanel && focusUi.libraryNavPanelVisible
+    }
     val librarySubPanelOpen = focusUi.focusZone == VodFocusZone.GENRE_PANEL ||
         focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU
     val showLibraryOverlayScrim = librarySubPanelOpen
@@ -764,6 +770,17 @@ fun VodHubScreen(
     val contentFocusRequester = remember { FocusRequester() }
     val browseGridFocusRequester = remember { FocusRequester() }
     val browseEmptyStateFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(contentFilter, hubCatalogReady, showBrowseGrid, showInlineSearch) {
+        if (
+            contentFilter == VodContentFilter.ALL &&
+            hubCatalogReady &&
+            !showBrowseGrid &&
+            !showInlineSearch
+        ) {
+            focusUi.libraryNavPanelVisible = true
+        }
+    }
 
     LaunchedEffect(wallRowsRevision, preferredVodLanguages, includeUntaggedVodContent) {
         val focusBefore = focusedContentKey
@@ -1825,7 +1842,7 @@ fun VodHubScreen(
                                     emptyStateRetryFocusRequester = browseEmptyStateFocusRequester,
                                     onColumnCountChanged = { focusUi.browseGridColumnCount = it },
                                     onNavigateUpFromFirstRow = focusController::navigateUpFromBrowseGridFirstRow,
-                                    onLeadingEdgeNavigateLeft = focusController::handleBrowseGridLeadingEdgeLeft,
+                                    onLeadingEdgeNavigateLeft = focusController::enterLibraryNavFromContent,
                                     restoreScrollIndex = -1,
                                     restoreScrollOffset = moviesGridMemory.scrollOffset,
                                     gridRestoreRequest = focusUi.gridRestoreRequest,
@@ -1863,7 +1880,7 @@ fun VodHubScreen(
                                     emptyStateRetryFocusRequester = browseEmptyStateFocusRequester,
                                     onColumnCountChanged = { focusUi.browseGridColumnCount = it },
                                     onNavigateUpFromFirstRow = focusController::navigateUpFromBrowseGridFirstRow,
-                                    onLeadingEdgeNavigateLeft = focusController::handleBrowseGridLeadingEdgeLeft,
+                                    onLeadingEdgeNavigateLeft = focusController::enterLibraryNavFromContent,
                                     restoreScrollIndex = -1,
                                     restoreScrollOffset = seriesGridMemory.scrollOffset,
                                     gridRestoreRequest = focusUi.gridRestoreRequest,
@@ -1943,7 +1960,13 @@ fun VodHubScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
-                                    .focusGroup(),
+                                    .focusGroup()
+                                    .onPreviewKeyEvent { event ->
+                                        focusUi.focusZone == VodFocusZone.CONTENT &&
+                                            !showBrowseGrid &&
+                                            searchQuery.isBlank() &&
+                                            handleContentKey(event)
+                                    },
                                 contentPadding = PaddingValues(bottom = 64.dp)
                             ) {
                                 itemsIndexed(homeLeadWallRows, key = { _, row -> row.id }) { index, row ->

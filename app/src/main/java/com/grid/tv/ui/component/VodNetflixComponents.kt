@@ -800,7 +800,6 @@ fun VodLibraryNavPanel(
             .focusable()
             .focusProperties {
                 left = navDrawerFocusRequester
-                right = genrePanelFocusRequester ?: contentFocusRequester
             }
             .onFocusChanged { if (it.isFocused) onPanelFocused() }
             .onPreviewKeyEvent(onPreviewKey),
@@ -1521,18 +1520,7 @@ fun NetflixContentWallRow(
                             Modifier
                         }
                     )
-                    .focusProperties {
-                        canFocus = false
-                        if (index == 0 && sidebarFocusRequester != null) {
-                            left = sidebarFocusRequester
-                            if (rowIndex == 0) {
-                                up = sidebarFocusRequester
-                            }
-                        }
-                        if (linkUpToHero && index == 0 && heroPlayFocusRequester != null) {
-                            up = heroPlayFocusRequester
-                        }
-                    }
+                    .focusProperties { canFocus = false }
                 when (item) {
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item

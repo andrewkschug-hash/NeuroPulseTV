@@ -280,7 +280,7 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun handleBrowseGridLeadingEdgeLeft_withGenrePanel_entersGenrePanel() {
+    fun handleBrowseGridLeadingEdgeLeft_withGenrePanel_opensLibraryNav() {
         val (ui, controller) = setupController(
             contentFilter = VodContentFilter.MOVIES,
             browseIndex = 4,
@@ -289,8 +289,8 @@ class VodHubFocusNavigationTest {
         ui.focusZone = VodFocusZone.CONTENT
         ui.browseGridColumnCount = 4
         controller.handleBrowseGridLeadingEdgeLeft()
-        assertEquals(VodFocusZone.GENRE_PANEL, ui.focusZone)
-        assertEquals(2, ui.genreFocusIndex)
+        assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
+        assertEquals(1, ui.filterFocusIndex)
     }
 
     @Test
@@ -540,7 +540,7 @@ class VodHubFocusNavigationTest {
         assertEquals(VodFocusZone.CONTENT, ui.focusZone)
         assertEquals(0, rowIndex)
         assertEquals(0, colIndex)
-        assertFalse(ui.libraryNavPanelVisible)
+        assertTrue(ui.libraryNavPanelVisible)
     }
 
     @Test
