@@ -37,6 +37,7 @@ import io.github.jan.supabase.SupabaseClient
 @Composable
 fun AuthGate(
     onAuthenticated: () -> Unit,
+    blocking: Boolean = true,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -76,9 +77,9 @@ fun AuthGate(
     }
 
     when (uiState) {
-        AuthUiState.Checking,
+        AuthUiState.Checking -> if (blocking) AuthLoadingScreen()
         is AuthUiState.Authenticated,
-        is AuthUiState.Guest -> AuthLoadingScreen()
+        is AuthUiState.Guest -> if (blocking) AuthLoadingScreen()
         else -> {
             val client = supabaseClient
             if (client != null) {

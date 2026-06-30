@@ -35,9 +35,11 @@ import com.grid.tv.data.db.dao.SeriesFollowDao
 import com.grid.tv.data.db.dao.VodCatalogEpisodeDao
 import com.grid.tv.data.db.dao.FeaturedCurationDao
 import com.grid.tv.data.db.dao.VodCategoryDao
+import com.grid.tv.data.db.dao.VodSearchDao
 import com.grid.tv.data.db.dao.VodStreamDao
 import com.grid.tv.data.db.dao.SeriesCategoryDao
 import com.grid.tv.data.db.dao.SeriesShowDao
+import com.grid.tv.data.db.dao.SmartGroupCacheDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
@@ -80,6 +82,7 @@ import com.grid.tv.data.db.entity.VodCategoryEntity
 import com.grid.tv.data.db.entity.VodStreamEntity
 import com.grid.tv.data.db.entity.SeriesCategoryEntity
 import com.grid.tv.data.db.entity.SeriesShowEntity
+import com.grid.tv.data.db.entity.SmartGroupCacheEntity
 import com.grid.tv.data.db.entity.VodUserNotificationEntity
 import com.grid.tv.data.db.entity.StreamFailoverStatsEntity
 import com.grid.tv.data.db.entity.StreamHealthEntity
@@ -134,6 +137,7 @@ import com.grid.tv.data.db.entity.WatchHistoryEntity
         VodCategoryEntity::class,
         SeriesShowEntity::class,
         SeriesCategoryEntity::class,
+        SmartGroupCacheEntity::class,
         ProfileGenreAffinityEntity::class,
         FeaturedBannerStatsEntity::class
     ],
@@ -179,9 +183,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun vodCatalogEpisodeDao(): VodCatalogEpisodeDao
     abstract fun vodUserNotificationDao(): VodUserNotificationDao
     abstract fun vodStreamDao(): VodStreamDao
+    abstract fun vodSearchDao(): VodSearchDao
     abstract fun vodCategoryDao(): VodCategoryDao
     abstract fun seriesShowDao(): SeriesShowDao
     abstract fun seriesCategoryDao(): SeriesCategoryDao
+    abstract fun smartGroupCacheDao(): SmartGroupCacheDao
     abstract fun featuredCurationDao(): FeaturedCurationDao
 
     /** Single transaction for VOD playlist refresh — avoids per-batch WAL fsync churn. */
@@ -247,6 +253,20 @@ abstract class AppDatabase : RoomDatabase() {
             playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))
         }
         return resetCount
+    }
+
+    @Transaction
+    open suspend fun importEpgChannelsForPlaylist(
+        sourceKey: String,
+        sourceChannels: List<EpgSourceChannelEntity>,
+        playlist: PlaylistEntity,
+        refreshedAt: Long,
+    ) {
+        if (sourceChannels.isNotEmpty()) {
+            epgSourceChannelDao().clearBySource(sourceKey)
+            epgSourceChannelDao().insertAll(sourceChannels)
+        }
+        playlistDao().update(playlist.copy(lastRefreshed = refreshedAt))
     }
 
     private companion object {

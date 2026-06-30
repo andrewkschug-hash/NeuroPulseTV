@@ -67,12 +67,14 @@ class HomeEpgFocusNavigationTest {
         every { hScroll.maxValue } returns 0
 
         val listState = mockk<LazyListState>(relaxed = true)
+        val channelGroupsListState = mockk<LazyListState>(relaxed = true)
 
         controller.bind(
             HomeEpgGuideDeps(
                 context = context,
                 scope = scope,
                 listState = listState,
+                channelGroupsListState = channelGroupsListState,
                 hScroll = hScroll,
                 channels = channels,
                 displayChannels = channels,

@@ -17,7 +17,9 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index("playlistId"),
-        Index(value = ["playlistId", "seriesId"], unique = true)
+        Index(value = ["playlistId", "seriesId"], unique = true),
+        Index("searchTitle"),
+        Index(value = ["playlistId", "searchTitle"])
     ]
 )
 data class SeriesShowEntity(
@@ -25,6 +27,8 @@ data class SeriesShowEntity(
     val playlistId: Long,
     val seriesId: Long,
     val name: String,
+    /** Lowercase, tag-stripped title for indexed prefix search. */
+    val searchTitle: String = "",
     val coverUrl: String? = null,
     val categoryId: String? = null,
     val genre: String? = null,

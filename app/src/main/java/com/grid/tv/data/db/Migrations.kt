@@ -1016,8 +1016,83 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_38_39 = object : Migration(38, 39) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE channels ADD COLUMN searchTitle TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE vod_streams ADD COLUMN searchTitle TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE series_shows ADD COLUMN searchTitle TEXT NOT NULL DEFAULT ''")
+            db.execSQL(
+                "UPDATE channels SET searchTitle = lower(trim(name)) WHERE searchTitle = '' OR searchTitle IS NULL"
+            )
+            db.execSQL(
+                "UPDATE vod_streams SET searchTitle = lower(trim(title)) WHERE searchTitle = '' OR searchTitle IS NULL"
+            )
+            db.execSQL(
+                "UPDATE series_shows SET searchTitle = lower(trim(name)) WHERE searchTitle = '' OR searchTitle IS NULL"
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_channels_searchTitle ON channels(searchTitle)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_vod_streams_searchTitle ON vod_streams(searchTitle)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_series_shows_searchTitle ON series_shows(searchTitle)")
+        }
+    }
+
+    val MIGRATION_39_40 = object : Migration(39, 40) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS smart_group_cache (
+                    playlistId INTEGER NOT NULL,
+                    groupKey TEXT NOT NULL,
+                    rawGroupName TEXT NOT NULL,
+                    normalizedName TEXT NOT NULL,
+                    country TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    channelCount INTEGER NOT NULL,
+                    syncGeneration INTEGER NOT NULL,
+                    PRIMARY KEY(playlistId, groupKey)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_smart_group_cache_playlistId ON smart_group_cache(playlistId)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_smart_group_cache_country ON smart_group_cache(country)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_smart_group_cache_category ON smart_group_cache(category)")
+            db.execSQL(
+                "ALTER TABLE profile_settings ADD COLUMN channelGroupNavigationMode TEXT NOT NULL DEFAULT 'SMART'"
+            )
+        }
+    }
+
+    val MIGRATION_40_41 = object : Migration(40, 41) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE vod_catalog_episodes ADD COLUMN extension TEXT NOT NULL DEFAULT 'mp4'"
+            )
+            db.execSQL(
+                "ALTER TABLE vod_catalog_episodes ADD COLUMN streamUrl TEXT NOT NULL DEFAULT ''"
+            )
+            db.execSQL("ALTER TABLE vod_catalog_episodes ADD COLUMN plot TEXT")
+            db.execSQL("ALTER TABLE vod_catalog_episodes ADD COLUMN duration TEXT")
+            db.execSQL("ALTER TABLE vod_catalog_episodes ADD COLUMN seriesPlot TEXT")
+            db.execSQL(
+                "ALTER TABLE vod_catalog_episodes ADD COLUMN fetchedAt INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_channels_playlistId_searchTitle ON channels(playlistId, searchTitle)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_vod_streams_playlistId_searchTitle ON vod_streams(playlistId, searchTitle)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_series_shows_playlistId_searchTitle ON series_shows(playlistId, searchTitle)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_vod_catalog_episodes_playlistId_seriesId ON vod_catalog_episodes(playlistId, seriesId)"
+            )
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 38
+    const val SCHEMA_VERSION = 41
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -1059,6 +1134,9 @@ object DbMigrations {
         MIGRATION_34_35,
         MIGRATION_35_36,
         MIGRATION_36_37,
-        MIGRATION_37_38
+        MIGRATION_37_38,
+        MIGRATION_38_39,
+        MIGRATION_39_40,
+        MIGRATION_40_41
     )
 }

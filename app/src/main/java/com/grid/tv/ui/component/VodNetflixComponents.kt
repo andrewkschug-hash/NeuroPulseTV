@@ -83,6 +83,8 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodSearchEntry
+import com.grid.tv.domain.model.SearchUiState
 import com.grid.tv.domain.model.VodWallItem
 import com.grid.tv.domain.model.VodWallRow
 import com.grid.tv.domain.model.formatContinueWatchingRemaining
@@ -1002,7 +1004,7 @@ fun VodGenreSidePanel(
         ) {
             items(
                 count = genres.size,
-                key = { index -> index }
+                key = { index -> genres[index] }
             ) { index ->
                 val label = genres[index]
                 val selected = index == selectedIndex
@@ -1107,7 +1109,9 @@ fun VodLanguageSubmenuPanel(
         ) {
             items(
                 count = itemCount,
-                key = { index -> index },
+                key = { index ->
+                    if (index == 0) "all-languages" else availableLanguages.getOrNull(index - 1) ?: "lang-$index"
+                },
             ) { index ->
                 val isAllLanguages = index == 0
                 val code = availableLanguages.getOrNull(index - 1)
@@ -1655,8 +1659,10 @@ fun VodInlineSearchContent(
     searchFocusRequester: FocusRequester,
     resultsFocusRequester: FocusRequester,
     contentFilter: VodContentFilter,
+    unifiedPagingItems: LazyPagingItems<VodSearchEntry>? = null,
     moviePagingItems: LazyPagingItems<VodItem>?,
     seriesPagingItems: LazyPagingItems<SeriesShow>?,
+    searchUiState: SearchUiState? = null,
     progressByKey: Map<Pair<Long, Long>, Long>,
     movieProgressFraction: (VodItem, Map<Pair<Long, Long>, Long>) -> Float?,
     onMovieClick: (VodItem) -> Unit,
@@ -1668,18 +1674,21 @@ fun VodInlineSearchContent(
 ) {
     val showMovies = contentFilter != VodContentFilter.SERIES
     val showSeries = contentFilter != VodContentFilter.MOVIES
+    val unifiedRefreshComplete = unifiedPagingItems?.loadState?.refresh !is LoadState.Loading
     val movieRefreshComplete = moviePagingItems?.loadState?.refresh !is LoadState.Loading
     val seriesRefreshComplete = seriesPagingItems?.loadState?.refresh !is LoadState.Loading
+    val hasUnifiedResults = unifiedPagingItems != null && (unifiedPagingItems.itemCount > 0)
     val hasMovieResults = showMovies && (moviePagingItems?.itemCount ?: 0) > 0
     val hasSeriesResults = showSeries && (seriesPagingItems?.itemCount ?: 0) > 0
-    val hasResults = hasMovieResults || hasSeriesResults
-    val showNoResults = query.isNotBlank() &&
-        (if (showMovies) movieRefreshComplete else true) &&
-        (if (showSeries) seriesRefreshComplete else true) &&
-        !hasResults
-    val firstResultsFocusRequester = if (hasMovieResults) {
-        resultsFocusRequester
-    } else if (hasSeriesResults) {
+    val hasResults = hasUnifiedResults || hasMovieResults || hasSeriesResults
+    val resolvedSearchState = searchUiState
+    val showNoResults = resolvedSearchState?.shouldShowNoResults == true ||
+        (resolvedSearchState == null && query.isNotBlank() &&
+            (if (showMovies) movieRefreshComplete else true) &&
+            (if (showSeries) seriesRefreshComplete else true) &&
+            !hasResults)
+    val showSearching = resolvedSearchState?.shouldShowSearching == true
+    val firstResultsFocusRequester = if (hasUnifiedResults || hasMovieResults || hasSeriesResults) {
         resultsFocusRequester
     } else {
         null
@@ -1736,6 +1745,38 @@ fun VodInlineSearchContent(
                     modifier = Modifier.focusProperties { canFocus = false }
                 )
             }
+            unifiedPagingItems != null -> {
+                if (hasUnifiedResults) {
+                    VodUnifiedSearchGrid(
+                        pagingItems = unifiedPagingItems,
+                        progressByKey = progressByKey,
+                        movieProgressFraction = movieProgressFraction,
+                        onMovieClick = onMovieClick,
+                        onSeriesCardClick = onSeriesCardClick,
+                        firstItemFocusRequester = resultsFocusRequester,
+                        onNavigateUpFromFirstRow = onNavigateUpFromResults,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    )
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (showMovies) {
+                            VodSearchCategoryHeader(title = "Movies")
+                            VodSearchSkeletonRow()
+                        }
+                        if (showSeries) {
+                            VodSearchCategoryHeader(title = "Series")
+                            VodSearchSkeletonRow()
+                        }
+                    }
+                }
+            }
             moviePagingItems != null && seriesPagingItems != null -> {
                 Column(
                     modifier = Modifier
@@ -1743,33 +1784,41 @@ fun VodInlineSearchContent(
                         .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (hasMovieResults) {
+                    if (showMovies) {
                         VodSearchCategoryHeader(title = "Movies")
-                        VodMoviePagedGrid(
-                            pagingItems = moviePagingItems,
-                            progressByKey = progressByKey,
-                            progressFraction = movieProgressFraction,
-                            onItemClick = onMovieClick,
-                            firstItemFocusRequester = resultsFocusRequester,
-                            onNavigateUpFromFirstRow = onNavigateUpFromResults,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        )
+                        if (hasMovieResults) {
+                            VodMoviePagedGrid(
+                                pagingItems = moviePagingItems,
+                                progressByKey = progressByKey,
+                                progressFraction = movieProgressFraction,
+                                onItemClick = onMovieClick,
+                                firstItemFocusRequester = resultsFocusRequester,
+                                onNavigateUpFromFirstRow = onNavigateUpFromResults,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            )
+                        } else {
+                            VodSearchSkeletonRow()
+                        }
                     }
-                    if (hasSeriesResults) {
+                    if (showSeries) {
                         VodSearchCategoryHeader(title = "Series")
-                        VodPagedVerticalGrid(
-                            pagingItems = seriesPagingItems,
-                            progressByKey = progressByKey,
-                            progressFraction = { _, _ -> null },
-                            onItemClick = onSeriesCardClick,
-                            firstItemFocusRequester = if (!hasMovieResults) resultsFocusRequester else null,
-                            onNavigateUpFromFirstRow = onNavigateUpFromResults,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        )
+                        if (hasSeriesResults) {
+                            VodPagedVerticalGrid(
+                                pagingItems = seriesPagingItems,
+                                progressByKey = progressByKey,
+                                progressFraction = { _, _ -> null },
+                                onItemClick = onSeriesCardClick,
+                                firstItemFocusRequester = if (!hasMovieResults) resultsFocusRequester else null,
+                                onNavigateUpFromFirstRow = onNavigateUpFromResults,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                            )
+                        } else {
+                            VodSearchSkeletonRow()
+                        }
                     }
                 }
             }

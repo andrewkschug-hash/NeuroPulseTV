@@ -24,10 +24,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
+import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.grid.tv.ui.component.ChannelBrowserSkeletonGrid
 import com.grid.tv.ui.component.FocusCard
 import com.grid.tv.util.TvImageSizing
 import com.grid.tv.ui.viewmodel.BrowserViewModel
@@ -44,6 +46,7 @@ fun ChannelBrowserScreen(
     val groups by viewModel.groups.collectAsStateWithLifecycle()
     val channelPagingItems = viewModel.pagedChannels.collectAsLazyPagingItems()
     val filteredTotalCount by viewModel.filteredTotalCount.collectAsStateWithLifecycle()
+    val searchUiState by viewModel.searchUiState.collectAsStateWithLifecycle()
     var searchInput by remember { mutableStateOf("") }
     var focusedChannel by remember { mutableStateOf<Long?>(null) }
 
@@ -51,6 +54,10 @@ fun ChannelBrowserScreen(
         delay(250)
         viewModel.setSearchQuery(searchInput)
     }
+
+    val showSkeleton = searchUiState.shouldShowSearching ||
+        (searchInput.isNotBlank() && channelPagingItems.loadState.refresh is LoadState.Loading &&
+            channelPagingItems.itemCount == 0)
 
     Column(modifier = Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -71,8 +78,17 @@ fun ChannelBrowserScreen(
             singleLine = true
         )
 
+        if (searchUiState.shouldShowSearching) {
+            // Skeleton grid carries the loading affordance — no blank gap.
+        } else if (searchUiState.shouldShowNoResults) {
+            Text("No channels match your search.")
+        }
+
         Text("Total channels: $filteredTotalCount (loaded ${channelPagingItems.itemCount})")
 
+        if (showSkeleton) {
+            ChannelBrowserSkeletonGrid(modifier = Modifier.weight(1f))
+        } else {
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -128,6 +144,7 @@ fun ChannelBrowserScreen(
                     }
                 }
             }
+        }
         }
     }
 }

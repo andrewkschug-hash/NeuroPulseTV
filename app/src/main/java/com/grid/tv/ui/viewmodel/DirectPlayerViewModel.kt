@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.dao.ProfileDao
 import com.grid.tv.data.db.dao.RecordedMediaDao
 import com.grid.tv.data.db.entity.RecordedMediaEntity
+import com.grid.tv.data.network.tmdb.TmdbYearParser
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
 import com.grid.tv.feature.vod.VodResumeResolver
@@ -274,10 +275,7 @@ class DirectPlayerViewModel @Inject constructor(
         }
     }
 
-    private fun parseYear(title: String): Int? {
-        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(title) ?: return null
-        return match.value.toIntOrNull()
-    }
+    private fun parseYear(title: String): Int? = TmdbYearParser.parse(title)
 
     fun loadRecordedMedia(recordingId: Long) {
         if (recordingId <= 0L) {

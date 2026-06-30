@@ -2,7 +2,7 @@ package com.grid.tv.domain.model
 
 /** Playlist-scoped live TV channel group identity (replaces bare groupName keys). */
 object ChannelGroupIdentity {
-    private const val SEPARATOR = '\u001F'
+    const val SEPARATOR = '\u001F'
 
     fun groupKey(playlistId: Long, groupName: String): String =
         if (playlistId <= 0L) groupName.trim()

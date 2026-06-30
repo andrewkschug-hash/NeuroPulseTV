@@ -47,21 +47,64 @@ class TmdbService @Inject constructor(
         val queryParams = mutableMapOf("query" to title, "include_adult" to "false")
         year?.let { queryParams["year"] = it.toString() }
         val json = getJson("/search/movie", queryParams)
-        return json.optJSONArray("results")?.optJSONObject(0)
+        val results = json.optJSONArray("results") ?: return null
+        return TmdbMatchRanker.pickBest(title, year, results, TmdbMatchRanker.MediaType.MOVIE)
     }
 
     suspend fun searchTV(title: String, year: Int? = null): JSONObject? {
         val queryParams = mutableMapOf("query" to title, "include_adult" to "false")
         year?.let { queryParams["first_air_date_year"] = it.toString() }
         val json = getJson("/search/tv", queryParams)
-        return json.optJSONArray("results")?.optJSONObject(0)
+        val results = json.optJSONArray("results") ?: return null
+        return TmdbMatchRanker.pickBest(title, year, results, TmdbMatchRanker.MediaType.TV)
+    }
+
+    suspend fun searchMulti(title: String): JSONObject? {
+        val json = getJson(
+            "/search/multi",
+            mapOf("query" to title, "include_adult" to "false")
+        )
+        val results = json.optJSONArray("results") ?: return null
+        return TmdbMatchRanker.pickBest(title, null, results, TmdbMatchRanker.MediaType.MULTI)
     }
 
     suspend fun resolveMovieId(title: String, year: Int? = null): Long? =
-        searchMovie(title, year)?.optLong("id")?.takeIf { it > 0L }
+        findBestMovieResult(title, year)?.optLong("id")?.takeIf { it > 0L }
 
     suspend fun resolveTvId(title: String, year: Int? = null): Long? =
-        searchTV(title, year)?.optLong("id")?.takeIf { it > 0L }
+        findBestTvResult(title, year)?.optLong("id")?.takeIf { it > 0L }
+
+    private suspend fun findBestMovieResult(rawTitle: String, year: Int?): JSONObject? =
+        findBestResult(rawTitle, year, isTv = false)
+
+    private suspend fun findBestTvResult(rawTitle: String, year: Int?): JSONObject? =
+        findBestResult(rawTitle, year, isTv = true)
+
+    /**
+     * Retry pipeline: normalized+year → without year → further stripped → /search/multi.
+     * Stops at the first ranked match above the similarity threshold.
+     */
+    private suspend fun findBestResult(rawTitle: String, year: Int?, isTv: Boolean): JSONObject? {
+        val normalized = TmdbTitleNormalizer.normalizeForSearch(rawTitle)
+        if (normalized.isBlank()) return null
+        val parsedYear = year ?: TmdbYearParser.parse(rawTitle)
+
+        val attempts = buildList {
+            add(normalized to parsedYear)
+            add(normalized to null)
+            val stripped = TmdbTitleNormalizer.stripForRetry(normalized)
+            if (stripped.isNotBlank() && stripped != normalized) {
+                add(stripped to null)
+            }
+        }
+
+        for ((query, attemptYear) in attempts) {
+            val hit = if (isTv) searchTV(query, attemptYear) else searchMovie(query, attemptYear)
+            if (hit != null) return hit
+        }
+
+        return searchMulti(normalized)
+    }
 
     suspend fun resolveImdbMatch(imdbId: String): Pair<Long, String>? {
         val found = findByIMDbId(imdbId) ?: return null
@@ -111,13 +154,13 @@ class TmdbService @Inject constructor(
     }
 
     suspend fun enrichMovieFromTitle(title: String, year: Int?): TmdbEnrichment? {
-        val found = searchMovie(title, year) ?: return null
+        val found = findBestMovieResult(title, year) ?: return null
         val id = found.optLong("id", -1L).takeIf { it > 0 } ?: return null
         return mapMovieDetails(getMovieDetails(id))
     }
 
     suspend fun enrichTvFromTitle(title: String, year: Int?): TmdbEnrichment? {
-        val found = searchTV(title, year) ?: return null
+        val found = findBestTvResult(title, year) ?: return null
         val id = found.optLong("id", -1L).takeIf { it > 0 } ?: return null
         return mapTvDetails(getTVDetails(id))
     }

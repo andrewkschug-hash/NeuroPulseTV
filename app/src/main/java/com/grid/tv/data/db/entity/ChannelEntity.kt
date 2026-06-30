@@ -15,12 +15,21 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("playlistId"), Index("number"), Index("groupName"), Index("epgId")]
+    indices = [
+        Index("playlistId"),
+        Index("number"),
+        Index("groupName"),
+        Index("epgId"),
+        Index("searchTitle"),
+        Index(value = ["playlistId", "searchTitle"])
+    ]
 )
 data class ChannelEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val number: Int,
     val name: String,
+    /** Lowercase, tag-stripped title for indexed prefix search. */
+    val searchTitle: String = "",
     val groupName: String,
     val logoUrl: String?,
     val epgId: String?,

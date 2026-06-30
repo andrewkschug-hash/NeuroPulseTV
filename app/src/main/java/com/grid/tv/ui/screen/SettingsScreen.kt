@@ -346,6 +346,7 @@ fun SettingsScreen(
             onRefreshEpg = { viewModel.refreshEpg() },
             onOpenEpgResolver = onOpenEpgResolver,
             onEditChannelGroups = { showGuideGroupPicker = true },
+            onChannelGroupNavigationMode = { viewModel.updateChannelGroupNavigationMode(it) },
             onRowHeight = { viewModel.updateRowHeight(it) },
             onToggleAutoScan = { viewModel.updateAutoScanEnabled(it) },
             onScanInterval = { viewModel.updateScanIntervalMinutes(it) },

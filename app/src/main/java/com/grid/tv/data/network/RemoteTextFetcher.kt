@@ -2,6 +2,7 @@ package com.grid.tv.data.network
 
 import android.content.Context
 import android.util.Log
+import com.grid.tv.data.db.entity.ProgramEntity
 import com.grid.tv.data.network.parser.ParsedXmlTv
 import com.grid.tv.data.network.parser.XmlTvParser
 import com.grid.tv.data.io.DiskIoSerialExecutor
@@ -235,7 +236,8 @@ class RemoteTextFetcher @Inject constructor(
         rawUrl: String,
         parser: XmlTvParser,
         playlistId: Long,
-        playlistName: String
+        playlistName: String,
+        onProgramBatch: (suspend (List<ProgramEntity>) -> Unit)? = null,
     ): EpgXmlTvFetchOutcome =
         withContext(epgDispatchers.io) {
             val url = normalizeRemoteUrl(rawUrl)
@@ -243,7 +245,7 @@ class RemoteTextFetcher @Inject constructor(
             var lastRetryable: Exception? = null
             repeat(MAX_FETCH_ATTEMPTS) { attempt ->
                 try {
-                    when (val outcome = executeEpgFetch(url, parser, playlistId, playlistName)) {
+                    when (val outcome = executeEpgFetch(url, parser, playlistId, playlistName, onProgramBatch)) {
                         is InternalEpgFetch.Ok -> {
                             EpgFlowLogger.downloadCompleted(
                                 playlistId,
@@ -347,7 +349,8 @@ class RemoteTextFetcher @Inject constructor(
         url: String,
         parser: XmlTvParser,
         playlistId: Long,
-        playlistName: String
+        playlistName: String,
+        onProgramBatch: (suspend (List<ProgramEntity>) -> Unit)? = null,
     ): InternalEpgFetch = withContext(diskIoSerialExecutor.dispatcher) {
         val cacheFile = createEpgCacheFile(playlistId)
         var contentEncoding: String? = null
@@ -394,8 +397,17 @@ class RemoteTextFetcher @Inject constructor(
 
             EpgFlowLogger.parseStarted(playlistId, playlistName, url)
             val parsed = try {
-                // Cache file always holds decompressed XML after spooling.
-                parser.parseFile(cacheFile, contentEncoding = null, sourceUrl = url, playlistId = playlistId)
+                if (onProgramBatch != null) {
+                    parser.parseFileBatched(
+                        file = cacheFile,
+                        contentEncoding = null,
+                        sourceUrl = url,
+                        playlistId = playlistId,
+                        onProgramBatch = onProgramBatch,
+                    )
+                } else {
+                    parser.parseFile(cacheFile, contentEncoding = null, sourceUrl = url, playlistId = playlistId)
+                }
             } catch (e: Exception) {
                 Log.e(
                     EPG_FLOW_TAG,
@@ -408,7 +420,7 @@ class RemoteTextFetcher @Inject constructor(
                 playlistId,
                 playlistName,
                 parsed.channelsById.size,
-                parsed.programs.size
+                parsed.programCount
             )
             InternalEpgFetch.Ok(
                 EpgParsedFetchResult(

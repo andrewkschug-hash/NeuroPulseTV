@@ -18,6 +18,9 @@ interface StreamHealthDao {
     @Query("SELECT * FROM stream_health WHERE channelId IN (:channelIds)")
     suspend fun getForChannelIds(channelIds: List<Long>): List<StreamHealthEntity>
 
+    @Query("SELECT * FROM stream_health WHERE channelId IN (:channelIds)")
+    fun observeForChannelIds(channelIds: List<Long>): Flow<List<StreamHealthEntity>>
+
     @Query("SELECT * FROM stream_health ORDER BY reliabilityScore DESC LIMIT :limit")
     fun best(limit: Int): Flow<List<StreamHealthEntity>>
 

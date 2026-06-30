@@ -9,6 +9,7 @@ import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.AspectRatioSetting
 import com.grid.tv.domain.model.BufferSize
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ClockDisplay
 import com.grid.tv.domain.model.DpadSensitivity
 import com.grid.tv.domain.model.EpgRowHeight
@@ -229,6 +230,14 @@ class SettingsViewModel @Inject constructor(
     fun updateHideAdultContent(enabled: Boolean) {
         viewModelScope.launch {
             val updated = _settings.value.copy(hideAdultContent = enabled)
+            _settings.value = updated
+            repository.saveSettings(updated)
+        }
+    }
+
+    fun updateChannelGroupNavigationMode(mode: ChannelGroupNavigationMode) {
+        viewModelScope.launch {
+            val updated = _settings.value.copy(channelGroupNavigationMode = mode)
             _settings.value = updated
             repository.saveSettings(updated)
         }

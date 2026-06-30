@@ -18,6 +18,7 @@ import com.grid.tv.domain.model.StreamHealth
 import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodSearchEntry
 import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.model.WatchHistory
 import com.grid.tv.domain.model.XtreamAccountInfo
@@ -166,6 +167,11 @@ interface IptvRepository {
         search: String = "",
         playlistId: Long? = null
     ): Flow<PagingData<SeriesShow>>
+    fun vodUnifiedSearchPaging(
+        categoryIds: Set<String>? = null,
+        search: String = "",
+        playlistId: Long? = null
+    ): Flow<PagingData<VodSearchEntry>>
     suspend fun vodFilteredCount(
         categoryIds: Set<String>? = null,
         search: String = "",

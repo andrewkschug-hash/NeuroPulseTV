@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.grid.tv.feature.startup.StartupTiming
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -18,9 +19,14 @@ internal object AppDatabaseHolder {
 
     private val lock = Any()
     private val prewarmLatch = CountDownLatch(1)
+    private val roomOpenExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "room-open").apply { isDaemon = true }
+    }
 
     @Volatile
     private var instance: AppDatabase? = null
+
+    fun isReady(): Boolean = instance != null
 
     fun get(context: Context): AppDatabase {
         StartupTiming.log("AppDatabaseHolder.get() entered")
@@ -29,33 +35,45 @@ internal object AppDatabaseHolder {
             return it
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            StartupTiming.log("AppDatabaseHolder.get() on MAIN — waiting for prewarm")
-            waitForPrewarm()
-            instance?.let {
-                StartupTiming.log("AppDatabaseHolder.get() returning instance after prewarm wait")
-                return it
-            }
             StartupTiming.log(
-                "AppDatabaseHolder.get() prewarm incomplete — opening Room on MAIN (fallback)"
+                "AppDatabaseHolder.get() on MAIN — delegating Room open to background executor"
             )
+            return roomOpenExecutor.submit<AppDatabase> {
+                openDatabaseOffMain(context.applicationContext)
+            }.get()
         }
-        return openDatabase(context.applicationContext)
+        return openDatabaseOffMain(context.applicationContext)
     }
 
     /** Opens the database file on the calling thread — call from a background dispatcher. */
     fun prewarm(context: Context) {
         StartupTiming.log("AppDatabaseHolder.prewarm() start")
         try {
-            openDatabase(context.applicationContext)
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                roomOpenExecutor.submit {
+                    openDatabase(context.applicationContext)
+                }.get()
+            } else {
+                openDatabase(context.applicationContext)
+            }
         } finally {
             prewarmLatch.countDown()
             StartupTiming.log("AppDatabaseHolder.prewarm() latch released")
         }
     }
 
+    private fun openDatabaseOffMain(context: Context): AppDatabase {
+        waitForPrewarm()
+        return openDatabase(context)
+    }
+
     private fun waitForPrewarm() {
         if (prewarmLatch.count == 0L) {
             StartupTiming.log("AppDatabaseHolder.waitForPrewarm() skipped — latch already open")
+            return
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            StartupTiming.log("AppDatabaseHolder.waitForPrewarm() skipped on MAIN")
             return
         }
         StartupTiming.log("AppDatabaseHolder.waitForPrewarm() CountDownLatch.await($PREWARM_WAIT_MS) start")

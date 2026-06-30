@@ -6,6 +6,7 @@ import com.grid.tv.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
+import com.grid.tv.data.network.tmdb.TmdbYearParser
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.feature.vod.personalization.RecommendationFeedbackStore
 import com.grid.tv.feature.vod.personalization.RecommendationVote
@@ -16,6 +17,7 @@ import com.grid.tv.domain.model.VodRefreshTrigger
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.enrichment.VisibleRowEnrichmentPrefetcher
 import com.grid.tv.feature.vod.VodBrowseRowCategoryIndex
 import com.grid.tv.feature.vod.VodCatalogPartitionInputs
 import com.grid.tv.feature.vod.VodCatalogPartitions
@@ -60,9 +62,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.grid.tv.ui.component.VodGridCardModel
+import com.grid.tv.ui.component.parseVodDurationMs
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.withContext
 
+@OptIn(FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class VodHubViewModel @Inject constructor(
     private val repository: IptvRepository,
@@ -75,6 +84,7 @@ class VodHubViewModel @Inject constructor(
     private val focusBreadcrumbStore: VodHubFocusBreadcrumbStore,
     private val recommendationFeedbackStore: RecommendationFeedbackStore,
     private val vodCatalogSessionStore: VodCatalogSessionStore,
+    private val visibleRowEnrichmentPrefetcher: VisibleRowEnrichmentPrefetcher,
     private val tmdbConnectivityMonitor: com.grid.tv.data.network.tmdb.TmdbConnectivityMonitor,
 ) : ViewModel() {
     private val tasteGenomeEngine = TasteGenomeEngine()
@@ -82,6 +92,29 @@ class VodHubViewModel @Inject constructor(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    private val debouncedSearchQuery = _searchQuery
+        .debounce(300)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "")
+
+    @OptIn(FlowPreview::class)
+    val pagedVodSearch = combine(
+        repository.vodCatalogRevision(),
+        debouncedSearchQuery,
+        playlistContext.activePlaylistId
+    ) { _, query, playlistId ->
+        query to playlistId
+    }.flatMapLatest { (query, playlistId) ->
+        if (query.isBlank()) {
+            flow { emit(PagingData.empty()) }
+        } else {
+            repository.vodUnifiedSearchPaging(
+                categoryIds = null,
+                search = query,
+                playlistId = playlistId
+            )
+        }
+    }.cachedIn(viewModelScope)
 
     private val enrichmentByKey = MutableStateFlow<Map<String, TitleEnrichmentEntity>>(emptyMap())
     val enrichmentMap: StateFlow<Map<String, TitleEnrichmentEntity>> = enrichmentByKey.asStateFlow()
@@ -794,6 +827,13 @@ class VodHubViewModel @Inject constructor(
         _searchQuery.value = query
     }
 
+    fun movieProgressFraction(item: VodItem, progressByKey: Map<Pair<Long, Long>, Long>): Float? {
+        val durationMs = parseVodDurationMs(item.duration) ?: return null
+        val progressMs = progressByKey[item.playlistId to item.streamId] ?: return null
+        if (durationMs <= 0L) return null
+        return (progressMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    }
+
     fun setPreferredVodLanguages(languages: Set<String>) {
         VodPerfLogger.markInput("languageFilter", "languages=${languages.joinToString(",")}")
         val started = System.currentTimeMillis()
@@ -951,25 +991,17 @@ class VodHubViewModel @Inject constructor(
     }
 
     private suspend fun prefetchEnrichmentForCatalog(items: List<VodItem>) {
-        items.forEach { item -> prefetchEnrichmentForItem(item) }
+        visibleRowEnrichmentPrefetcher.prefetchVodItems(items)
     }
 
     private suspend fun prefetchEnrichmentForContinueWatching(items: List<ContinueWatchingItem>) {
-        if (items.isEmpty()) return
+        visibleRowEnrichmentPrefetcher.prefetchContinueWatching(items)
         val keys = items.map { TitleEnrichmentRepository.continueWatchingKey(it) }
         val cached = titleEnrichmentRepository.getCachedBatch(keys)
         enrichmentByKey.value = enrichmentByKey.value + cached
-        items.forEach { item ->
-            titleEnrichmentRepository.enrichContinueWatching(item)?.let { entity ->
-                enrichmentByKey.value = enrichmentByKey.value + (entity.providerKey to entity)
-            }
-        }
     }
 
-    private fun parseYear(value: String): Int? {
-        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
-        return match.value.toIntOrNull()
-    }
+    private fun parseYear(value: String): Int? = TmdbYearParser.parse(value)
 
     fun recommendationVoteFor(movie: VodItem): RecommendationVote? {
         val profileId = activeProfileId.value ?: return null

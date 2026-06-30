@@ -46,6 +46,11 @@ interface VodCatalogEpisodeDao {
     @Query("SELECT MAX(addedAt) FROM vod_catalog_episodes WHERE playlistId = :playlistId")
     suspend fun lastCatalogUpdate(playlistId: Long): Long?
 
+    @Query(
+        "DELETE FROM vod_catalog_episodes WHERE playlistId = :playlistId AND seriesId = :seriesId"
+    )
+    suspend fun deleteForSeries(playlistId: Long, seriesId: Long)
+
     @Query("DELETE FROM vod_catalog_episodes WHERE playlistId = :playlistId")
     suspend fun deleteForPlaylist(playlistId: Long)
 

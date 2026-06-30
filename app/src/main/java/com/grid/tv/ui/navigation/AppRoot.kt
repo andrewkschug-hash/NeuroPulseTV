@@ -1,33 +1,52 @@
 package com.grid.tv.ui.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import com.grid.tv.ui.screen.ProfilePickerScreen
+import androidx.compose.ui.Modifier
+import com.grid.tv.data.db.AppDatabaseHolder
 import com.grid.tv.ui.screen.SplashScreen
-
-private enum class AppPhase { Splash, Auth, Profile, Setup, Main }
+import kotlinx.coroutines.delay
 
 @Composable
 fun AppRoot(
     onPickLocalFile: () -> Unit,
     onPickTiviMateZip: () -> Unit
 ) {
-    var phase by rememberSaveable { mutableStateOf(AppPhase.Splash) }
+    var showSplash by rememberSaveable { mutableStateOf(true) }
+    val splashReady = rememberSplashReady()
 
-    when (phase) {
-        AppPhase.Splash -> SplashScreen(onFinished = { phase = AppPhase.Auth })
-        AppPhase.Auth -> AuthGate(onAuthenticated = { phase = AppPhase.Profile })
-        AppPhase.Profile -> ProfilePickerScreen(onProfileSelected = { phase = AppPhase.Setup })
-        AppPhase.Setup -> SetupGate(onComplete = { phase = AppPhase.Main })
-        AppPhase.Main -> MainContentGate(
+    Box(modifier = Modifier.fillMaxSize()) {
+        HomeShell(
             onPickLocalFile = onPickLocalFile,
             onPickTiviMateZip = onPickTiviMateZip,
-            onSwitchProfile = { phase = AppPhase.Profile },
-            onRestartToOnboarding = { phase = AppPhase.Splash },
-            onSignOut = { phase = AppPhase.Auth }
+            onRestartToOnboarding = {},
+            onSignOut = {}
         )
+
+        if (showSplash) {
+            SplashScreen(
+                isReady = splashReady,
+                onFinished = { showSplash = false }
+            )
+        }
     }
+}
+
+@Composable
+private fun rememberSplashReady(): Boolean {
+    var ready by remember { mutableStateOf(AppDatabaseHolder.isReady()) }
+    LaunchedEffect(Unit) {
+        while (!ready) {
+            delay(32)
+            ready = AppDatabaseHolder.isReady()
+        }
+    }
+    return ready
 }

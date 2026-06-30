@@ -11,7 +11,13 @@ data class GuideChannelFilter(
     val label: String
         get() = when {
             selectedGroups.isEmpty() -> "All channels"
-            selectedGroups.size == 1 -> com.grid.tv.domain.model.ChannelGroupIdentity.groupName(selectedGroups.first())
+            selectedGroups.size == 1 -> selectedGroups.first().let { key ->
+                if (com.grid.tv.feature.guide.SmartGroupFilterKey.isSmartKey(key)) {
+                    com.grid.tv.ui.component.smartGroupDisplayLabel(key)
+                } else {
+                    com.grid.tv.domain.model.ChannelGroupIdentity.groupName(key)
+                }
+            }
             else -> "${selectedGroups.size} groups"
         }
 

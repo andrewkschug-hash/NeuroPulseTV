@@ -20,7 +20,9 @@ import androidx.room.PrimaryKey
         Index("streamId"),
         Index("categoryId"),
         Index("addedEpochSec"),
-        Index(value = ["playlistId", "streamId"], unique = true)
+        Index(value = ["playlistId", "streamId"], unique = true),
+        Index("searchTitle"),
+        Index(value = ["playlistId", "searchTitle"])
     ]
 )
 data class VodStreamEntity(
@@ -28,6 +30,8 @@ data class VodStreamEntity(
     val playlistId: Long,
     val streamId: Long,
     val title: String,
+    /** Lowercase, tag-stripped title for indexed prefix search. */
+    val searchTitle: String = "",
     val streamUrl: String,
     val posterUrl: String? = null,
     val plot: String? = null,

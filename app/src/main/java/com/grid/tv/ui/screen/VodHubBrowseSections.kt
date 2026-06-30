@@ -18,11 +18,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.grid.tv.domain.model.VodCatalogEmptyReason
+import com.grid.tv.domain.model.SearchUiState
+import com.grid.tv.domain.model.SearchSurfaceLogic
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.vod.VodHubBrowseSurfaceInputs
 import com.grid.tv.feature.vod.VodHubSurfaceState
 import com.grid.tv.feature.vod.VodHubSurfaceStateResolver
+import com.grid.tv.ui.component.VodCatalogSkeletonWall
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
 import com.grid.tv.ui.component.VodCatalogLoadingBanner
 import com.grid.tv.ui.component.VodCatalogProgressBar
@@ -33,8 +36,10 @@ import com.grid.tv.ui.component.VodInlineSearchContent
 import com.grid.tv.ui.component.VodMoviePagedGrid
 import com.grid.tv.ui.component.VodPagedVerticalGrid
 import com.grid.tv.ui.component.toGridCardModel
+import com.grid.tv.ui.component.VodUnifiedSearchGrid
 import com.grid.tv.ui.viewmodel.MoviesViewModel
 import com.grid.tv.ui.viewmodel.SeriesViewModel
+import com.grid.tv.ui.viewmodel.VodHubViewModel
 
 @Stable
 class VodHubBrowseGridHandle {
@@ -135,7 +140,7 @@ fun VodHubMoviesBrowseSection(
 
         when (resolvedSurfaceState) {
             is VodHubSurfaceState.Loading -> {
-                Box(
+                VodCatalogSkeletonWall(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -302,7 +307,7 @@ fun VodHubSeriesBrowseSection(
 
         when (resolvedSurfaceState) {
             is VodHubSurfaceState.Loading -> {
-                Box(
+                VodCatalogSkeletonWall(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -367,6 +372,7 @@ fun VodHubSeriesBrowseSection(
 @Composable
 fun VodHubSearchSection(
     query: String,
+    hubViewModel: VodHubViewModel,
     moviesViewModel: MoviesViewModel,
     seriesViewModel: SeriesViewModel,
     progressByKey: Map<Pair<Long, Long>, Long>,
@@ -390,10 +396,11 @@ fun VodHubSearchSection(
             searchFocusRequester = searchFocusRequester,
             resultsFocusRequester = resultsFocusRequester,
             contentFilter = VodContentFilter.ALL,
+            unifiedPagingItems = null,
             moviePagingItems = null,
             seriesPagingItems = null,
             progressByKey = progressByKey,
-            movieProgressFraction = { _, _ -> null },
+            movieProgressFraction = { movie, map -> hubViewModel.movieProgressFraction(movie, map) },
             onMovieClick = onMovieClick,
             onSeriesCardClick = onSeriesCardClick,
             onFocusSearchField = onFocusSearchField,
@@ -404,9 +411,15 @@ fun VodHubSearchSection(
         return
     }
 
-    val moviePagingItems = moviesViewModel.pagedMovies.collectAsLazyPagingItems()
-    val seriesPagingItems = seriesViewModel.pagedSeries.collectAsLazyPagingItems()
-    val hasResults = moviePagingItems.itemCount > 0 || seriesPagingItems.itemCount > 0
+    val unifiedPagingItems = hubViewModel.pagedVodSearch.collectAsLazyPagingItems()
+    val isRefreshLoading = unifiedPagingItems.loadState.refresh is LoadState.Loading
+    val searchUiState = SearchSurfaceLogic.pagedSearchState(
+        query = query,
+        isRefreshLoading = isRefreshLoading,
+        itemCount = unifiedPagingItems.itemCount,
+        lastCompletedQuery = if (!isRefreshLoading) query else "",
+    )
+    val hasResults = searchUiState.hasAnyResults
 
     LaunchedEffect(hasResults) {
         onHasResultsChange(hasResults)
@@ -419,10 +432,12 @@ fun VodHubSearchSection(
         searchFocusRequester = searchFocusRequester,
         resultsFocusRequester = resultsFocusRequester,
         contentFilter = VodContentFilter.ALL,
-        moviePagingItems = moviePagingItems,
-        seriesPagingItems = seriesPagingItems,
+        unifiedPagingItems = unifiedPagingItems,
+        moviePagingItems = null,
+        seriesPagingItems = null,
+        searchUiState = searchUiState,
         progressByKey = progressByKey,
-        movieProgressFraction = { movie, map -> moviesViewModel.progressFraction(movie, map) },
+        movieProgressFraction = { movie, map -> hubViewModel.movieProgressFraction(movie, map) },
         onMovieClick = onMovieClick,
         onSeriesCardClick = onSeriesCardClick,
         onFocusSearchField = onFocusSearchField,

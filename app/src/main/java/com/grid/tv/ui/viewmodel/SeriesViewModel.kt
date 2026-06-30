@@ -7,6 +7,7 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.db.dao.ProfileDao
+import com.grid.tv.data.network.tmdb.TmdbYearParser
 import com.grid.tv.data.repository.ContinueWatchingRepository
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.VodBrowseRow
@@ -23,6 +24,7 @@ import com.grid.tv.ui.component.episodeWatchStatus
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.domain.session.PlaylistContext
 import com.grid.tv.feature.enrichment.TitleEnrichmentRepository
+import com.grid.tv.feature.enrichment.VisibleRowEnrichmentPrefetcher
 import com.grid.tv.feature.recording.SeriesRuleScheduler
 import com.grid.tv.feature.vod.VodCatalogSessionStore
 import com.grid.tv.feature.vod.VodLanguageFilterOptions
@@ -65,6 +67,7 @@ class SeriesViewModel @Inject constructor(
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val profileDao: ProfileDao,
     private val titleEnrichmentRepository: TitleEnrichmentRepository,
+    private val visibleRowEnrichmentPrefetcher: VisibleRowEnrichmentPrefetcher,
     private val languagePreferenceStore: VodLanguagePreferenceStore,
     private val playlistContext: PlaylistContext,
     private val vodCatalogSessionStore: VodCatalogSessionStore
@@ -180,6 +183,12 @@ class SeriesViewModel @Inject constructor(
                     if (!params.filterOptions.isActive) return@collect
                     logLanguageFilterCounts(params)
                 }
+        }
+        viewModelScope.launch {
+            browseRows.collect { rows ->
+                val shows = rows.flatMap { it.series }.distinctBy { "${it.playlistId}_${it.id}" }
+                visibleRowEnrichmentPrefetcher.prefetchSeriesShows(shows)
+            }
         }
     }
 
@@ -561,10 +570,7 @@ class SeriesViewModel @Inject constructor(
     private fun parseVodDurationMs(durationRaw: String?): Long? =
         com.grid.tv.ui.component.parseVodDurationMs(durationRaw)
 
-    private fun parseYear(value: String): Int? {
-        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
-        return match.value.toIntOrNull()
-    }
+    private fun parseYear(value: String): Int? = TmdbYearParser.parse(value)
 
     private fun resolveResumeEpisodeNumber(
         episodes: List<SeriesEpisode>,

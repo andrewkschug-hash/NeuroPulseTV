@@ -1,6 +1,7 @@
 package com.grid.tv.data.network.parser
 
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.feature.search.SearchTitleNormalizer
 import com.grid.tv.domain.model.EpgResolutionStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -34,10 +35,9 @@ class M3uParser {
     }
 
     fun parseAsFlow(playlistId: Long, content: String): Flow<M3uParseProgress> = flow {
-        val lines = content.lineSequence().toList()
-        val extinfLines = lines.count { it.trim().startsWith("#EXTINF", ignoreCase = true) }
         val batch = mutableListOf<ChannelEntity>()
         var parsedCount = 0
+        var extinfLines = 0
 
         var name = "Unknown"
         var tvgName: String? = null
@@ -51,9 +51,10 @@ class M3uParser {
         var catchupSource: String? = null
         var catchupDays = 0
 
-        for (raw in lines) {
+        for (raw in content.lineSequence()) {
             val line = raw.trim()
             if (line.startsWith("#EXTINF", ignoreCase = true)) {
+                extinfLines++
                 name = line.substringAfterLast(",", "Unknown").trim().ifBlank { "Unknown" }
                 tvgName = attr(line, "tvg-name")
                 group = attr(line, "group-title") ?: "General"
@@ -67,9 +68,11 @@ class M3uParser {
                 catchupDays = attr(line, "catchup-days")?.toIntOrNull() ?: 0
             } else if (line.isNotBlank() && !line.startsWith("#")) {
                 val pipeBackups = backupUrl?.split('|')?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+                val displayName = (tvgName ?: name).ifBlank { "Channel ${parsedCount + 1}" }
                 val channel = ChannelEntity(
                     number = parsedCount + 1,
-                    name = (tvgName ?: name).ifBlank { "Channel ${parsedCount + 1}" },
+                    name = displayName,
+                    searchTitle = SearchTitleNormalizer.normalize(displayName),
                     groupName = group.ifBlank { "General" },
                     logoUrl = logo,
                     epgId = epgId,

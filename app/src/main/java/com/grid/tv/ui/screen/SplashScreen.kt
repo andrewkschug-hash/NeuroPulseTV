@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.grid.tv.ui.component.GridBrandWordmark
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import android.os.SystemClock
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
@@ -49,19 +50,26 @@ private val SplashBase = Color(0xFF040408)
 private val SplashMid = Color(0xFF08081A)
 private val Accent = Color(0xFF3B8FFF)
 
-private const val REVEAL_MS = 900L
-private const val HOLD_MS = 1_600L
-private const val EXIT_MS = 550L
+private const val MIN_SPLASH_MS = 400L
+private const val EXIT_MS = 350L
+private const val REVEAL_ANIM_MS = 700L
 
 @Composable
-fun SplashScreen(onFinished: () -> Unit) {
+fun SplashScreen(
+    isReady: Boolean = true,
+    onFinished: () -> Unit
+) {
     var revealStarted by remember { mutableStateOf(false) }
     var exitStarted by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        delay(120)
+    LaunchedEffect(isReady) {
+        delay(80)
         revealStarted = true
-        delay(REVEAL_MS + HOLD_MS)
+        val minEnd = SystemClock.elapsedRealtime() + MIN_SPLASH_MS
+        while (!isReady || SystemClock.elapsedRealtime() < minEnd) {
+            delay(16)
+        }
+        delay(REVEAL_ANIM_MS.coerceAtMost(400L))
         exitStarted = true
         delay(EXIT_MS)
         onFinished()

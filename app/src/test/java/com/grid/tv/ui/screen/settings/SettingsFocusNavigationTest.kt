@@ -187,6 +187,7 @@ class SettingsFocusNavigationTest {
             onRefreshEpg = {},
             onOpenEpgResolver = {},
             onEditChannelGroups = {},
+            onChannelGroupNavigationMode = {},
             onRowHeight = {},
             onToggleAutoScan = {},
             onScanInterval = {},

@@ -7,6 +7,8 @@ import com.grid.tv.data.db.entity.TitleEnrichmentEntity
 import com.grid.tv.data.mapper.MovieDetailsEnrichmentMapper
 import com.grid.tv.data.network.tmdb.TmdbEnrichment
 import com.grid.tv.data.network.tmdb.TmdbService
+import com.grid.tv.data.network.tmdb.TmdbTitleNormalizer
+import com.grid.tv.data.network.tmdb.TmdbYearParser
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.VodPlaybackMeta
@@ -14,6 +16,7 @@ import com.grid.tv.domain.repository.MovieRepository
 import com.grid.tv.util.cache.AppCacheRegistry
 import com.grid.tv.util.cache.BoundedMemoryCache
 import com.grid.tv.util.cache.CacheSizeEstimators
+import com.grid.tv.util.PerformanceTelemetryTracker
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -63,17 +66,37 @@ class TitleEnrichmentRepository @Inject constructor(
     fun observe(providerKey: String) = dao.observe(providerKey)
 
     suspend fun getCached(providerKey: String): TitleEnrichmentEntity? {
-        sessionCache.get(providerKey)?.takeIf { isFresh(it) }?.let { return it }
+        if (TmdbNegativeCache.isSessionMiss(providerKey)) return null
+        sessionCache.get(providerKey)?.takeIf { entity ->
+            when {
+                TmdbNegativeCache.isNegative(entity) -> TmdbNegativeCache.isNegativeFresh(entity)
+                else -> isFresh(entity) && entity.tmdbId != null
+            }
+        }?.let { return it }
         val cached = dao.get(providerKey) ?: return null
-        return cached.takeIf { isFresh(cached) }?.also { sessionCache.put(providerKey, it) }
+        return when {
+            TmdbNegativeCache.isNegative(cached) && TmdbNegativeCache.isNegativeFresh(cached) -> cached
+            isFresh(cached) && cached.tmdbId != null -> cached.also { sessionCache.put(providerKey, it) }
+            else -> null
+        }
     }
 
     suspend fun getCachedBatch(providerKeys: List<String>): Map<String, TitleEnrichmentEntity> {
         if (providerKeys.isEmpty()) return emptyMap()
         val now = System.currentTimeMillis()
         return providerKeys.mapNotNull { key ->
-            sessionCache.get(key)?.takeIf { isFresh(it) }
-                ?: dao.get(key)?.takeIf { now - it.updatedAt < CACHE_TTL_MS }
+            if (TmdbNegativeCache.isSessionMiss(key)) return@mapNotNull null
+            sessionCache.get(key)?.takeIf { entity ->
+                when {
+                    TmdbNegativeCache.isNegative(entity) -> TmdbNegativeCache.isNegativeFresh(entity)
+                    else -> isFresh(entity) && entity.tmdbId != null
+                }
+            } ?: dao.get(key)?.takeIf { entity ->
+                when {
+                    TmdbNegativeCache.isNegative(entity) -> now - entity.updatedAt < TmdbNegativeCache.NEGATIVE_CACHE_TTL_MS
+                    else -> now - entity.updatedAt < CACHE_TTL_MS && entity.tmdbId != null
+                }
+            }
         }.associateBy { it.providerKey }
             .also { batch -> batch.forEach { (key, entity) -> sessionCache.put(key, entity) } }
     }
@@ -85,12 +108,24 @@ class TitleEnrichmentRepository @Inject constructor(
         isTv: Boolean = false,
         imdbId: String? = null
     ): TitleEnrichmentEntity? {
-        sessionCache.get(providerKey)?.takeIf { isFresh(it) && it.tmdbId != null }?.let { return it }
+        if (TmdbNegativeCache.isSessionMiss(providerKey)) return null
+
+        sessionCache.get(providerKey)?.let { cached ->
+            if (TmdbNegativeCache.isNegative(cached) && TmdbNegativeCache.isNegativeFresh(cached)) return null
+            if (isFresh(cached) && cached.tmdbId != null) return cached
+        }
 
         val existing = dao.get(providerKey)
-        if (existing != null && isFresh(existing) && existing.tmdbId != null) {
-            sessionCache.put(providerKey, existing)
-            return existing
+        if (existing != null) {
+            if (TmdbNegativeCache.isNegative(existing) && TmdbNegativeCache.isNegativeFresh(existing)) {
+                sessionCache.put(providerKey, existing)
+                TmdbNegativeCache.markSessionMiss(providerKey)
+                return null
+            }
+            if (isFresh(existing) && existing.tmdbId != null) {
+                sessionCache.put(providerKey, existing)
+                return existing
+            }
         }
 
         inFlight[providerKey]?.let { return it.await() }
@@ -101,13 +136,26 @@ class TitleEnrichmentRepository @Inject constructor(
         if (existingWaiter != null) return existingWaiter.await()
 
         return try {
+            val started = System.currentTimeMillis()
+            val searchTitle = TmdbTitleNormalizer.normalizeForSearch(title)
+            if (searchTitle.isBlank()) {
+                waiter.complete(existing)
+                return existing
+            }
+            val searchYear = TmdbYearParser.parse(title) ?: releaseYear
             val entity = fetchAndPersist(
                 providerKey = providerKey,
                 title = title,
-                releaseYear = releaseYear ?: parseYear(title),
+                searchTitle = searchTitle,
+                releaseYear = searchYear,
                 isTv = isTv,
                 imdbId = imdbId,
                 prior = existing
+            )
+            PerformanceTelemetryTracker.tmdbEnrichment(
+                providerKey = providerKey,
+                elapsedMs = System.currentTimeMillis() - started,
+                hit = entity != null && !TmdbNegativeCache.isNegative(entity)
             )
             waiter.complete(entity)
             entity?.let { sessionCache.put(providerKey, it) }
@@ -128,7 +176,7 @@ class TitleEnrichmentRepository @Inject constructor(
         enrichOnDemand(
             providerKey = providerKey,
             title = title,
-            releaseYear = parseYear(title),
+            releaseYear = TmdbYearParser.parse(title),
             isTv = meta.isTv
         )
     }
@@ -137,7 +185,7 @@ class TitleEnrichmentRepository @Inject constructor(
         enrichOnDemand(
             providerKey = continueWatchingKey(item),
             title = item.title,
-            releaseYear = parseYear(item.title),
+            releaseYear = TmdbYearParser.parse(item.title),
             isTv = item.contentType == ContinueWatchingContentType.SERIES
         )
 
@@ -152,18 +200,31 @@ class TitleEnrichmentRepository @Inject constructor(
     private suspend fun fetchAndPersist(
         providerKey: String,
         title: String,
+        searchTitle: String,
         releaseYear: Int?,
         isTv: Boolean,
         imdbId: String?,
         prior: TitleEnrichmentEntity?
     ): TitleEnrichmentEntity? {
         val enrichment = runCatching {
-            fetchEnrichment(title, releaseYear, isTv, imdbId)
-        }.getOrNull() ?: return prior
+            fetchEnrichment(searchTitle, title, releaseYear, isTv, imdbId)
+        }.getOrNull()
+        if (enrichment == null) {
+            val negative = TmdbNegativeCache.buildNegativeEntity(
+                providerKey = providerKey,
+                normalizedTitle = normalizeTitle(searchTitle),
+                releaseYear = releaseYear,
+                prior = prior,
+            )
+            dao.upsert(negative)
+            sessionCache.put(providerKey, negative)
+            TmdbNegativeCache.markSessionMiss(providerKey)
+            return null
+        }
 
         val entity = mapEnrichmentEntity(
             providerKey = providerKey,
-            normalizedTitle = normalizeTitle(title),
+            normalizedTitle = normalizeTitle(searchTitle),
             releaseYear = releaseYear,
             enrichment = enrichment,
             prior = prior
@@ -173,26 +234,28 @@ class TitleEnrichmentRepository @Inject constructor(
     }
 
     private suspend fun fetchEnrichment(
-        title: String,
+        searchTitle: String,
+        rawTitle: String,
         releaseYear: Int?,
         isTv: Boolean,
         imdbId: String?
     ): TmdbEnrichment? = withContext(Dispatchers.IO) {
         when {
             !imdbId.isNullOrBlank() -> tmdbService.enrichByImdb(imdbId)
-            isTv -> tmdbService.enrichTvFromTitle(title, releaseYear)
+            isTv -> tmdbService.enrichTvFromTitle(rawTitle, releaseYear)
             supabaseClientProvider.isConfigured ->
-                enrichMovieViaEdgeFunction(title, releaseYear, imdbId = null)
-            else -> tmdbService.enrichMovieFromTitle(title, releaseYear)
+                enrichMovieViaEdgeFunction(searchTitle, rawTitle, releaseYear, imdbId = null)
+            else -> tmdbService.enrichMovieFromTitle(rawTitle, releaseYear)
         }
     }
 
     private suspend fun enrichMovieViaEdgeFunction(
-        title: String,
+        searchTitle: String,
+        rawTitle: String,
         releaseYear: Int?,
         imdbId: String?
     ): TmdbEnrichment? {
-        val movieId = resolveMovieTmdbId(title, releaseYear, imdbId) ?: return null
+        val movieId = resolveMovieTmdbId(searchTitle, rawTitle, releaseYear, imdbId) ?: return null
         val details = runCatching {
             movieRepository.getMovieDetails(movieId, forceRefresh = false)
         }.getOrNull() ?: return null
@@ -200,7 +263,8 @@ class TitleEnrichmentRepository @Inject constructor(
     }
 
     private suspend fun resolveMovieTmdbId(
-        title: String,
+        searchTitle: String,
+        rawTitle: String,
         releaseYear: Int?,
         imdbId: String?
     ): Long? {
@@ -208,7 +272,7 @@ class TitleEnrichmentRepository @Inject constructor(
             val match = tmdbService.resolveImdbMatch(imdbId) ?: return null
             return match.first.takeIf { match.second == "movie" }
         }
-        return tmdbService.resolveMovieId(title, releaseYear)
+        return tmdbService.resolveMovieId(rawTitle, releaseYear)
     }
 
     private fun isFresh(entity: TitleEnrichmentEntity): Boolean =
@@ -264,9 +328,4 @@ class TitleEnrichmentRepository @Inject constructor(
 
     private fun normalizeTitle(value: String): String =
         value.trim().lowercase().replace(Regex("[^a-z0-9 ]"), "").replace(Regex("\\s+"), " ")
-
-    private fun parseYear(value: String): Int? {
-        val match = Regex("\\b(19\\d{2}|20\\d{2})\\b").find(value) ?: return null
-        return match.value.toIntOrNull()
-    }
 }

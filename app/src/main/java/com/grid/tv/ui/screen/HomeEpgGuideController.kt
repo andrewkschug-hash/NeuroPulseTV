@@ -56,6 +56,7 @@ import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.TvTextInputSession
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 internal const val TopBarSearchIndex = 0
@@ -64,6 +65,7 @@ internal data class HomeEpgGuideDeps(
     val context: Context,
     val scope: CoroutineScope,
     val listState: LazyListState,
+    val channelGroupsListState: LazyListState,
     val hScroll: ScrollState,
     val channels: List<Channel>,
     val displayChannels: List<Channel>,
@@ -110,6 +112,8 @@ internal class HomeEpgGuideController(
 ) : TvFocusController<EpgFocusZone> {
     private var deps: HomeEpgGuideDeps? = null
     private var channelScrollJob: Job? = null
+    private var channelGroupsPressJob: Job? = null
+    private var channelGroupsPressedGroupKey: String? = null
 
     override val focusZone: EpgFocusZone
         get() = ui.focusZone
@@ -117,6 +121,7 @@ internal class HomeEpgGuideController(
     private companion object {
         const val TAG = "HomeEpgGuideController"
         const val GRID_VIEWPORT_CENTER_PX = 420f
+        const val CHANNEL_GROUPS_LONG_PRESS_MS = 500L
     }
 
     fun bind(deps: HomeEpgGuideDeps) {
@@ -495,6 +500,7 @@ internal class HomeEpgGuideController(
     }
 
     fun collapseChannelGroupsPanel(focusGrid: Boolean = true) {
+        cancelChannelGroupsLongPress()
         if (ui.focusZone == EpgFocusZone.CHANNEL_GROUPS) {
             rememberChannelGroupsRowFocus(ui.channelGroupsFocusIndex)
         }
@@ -528,6 +534,9 @@ internal class HomeEpgGuideController(
 
     fun onChannelGroupsFocusedIndexChanged(index: Int) {
         if (!ui.channelGroupsPanelVisible) return
+        if (index != ui.channelGroupsFocusIndex) {
+            cancelChannelGroupsLongPress()
+        }
         rememberChannelGroupsRowFocus(index)
         previewChannelGroupForFocusedRow()
     }
@@ -545,6 +554,17 @@ internal class HomeEpgGuideController(
             boundDeps.channelGroups,
             boundDeps.viewModel.favoriteChannelGroups.value
         )
+
+    private fun currentFocusedGroupKey(): String? {
+        val row = flatVisibleGroupRows().getOrNull(ui.channelGroupsFocusIndex)
+        return (row as? GuideGroupVisibleRow.Group)?.fullName
+    }
+
+    private fun cancelChannelGroupsLongPress() {
+        channelGroupsPressJob?.cancel()
+        channelGroupsPressJob = null
+        channelGroupsPressedGroupKey = null
+    }
 
     private fun rememberChannelGroupsRowFocus(index: Int) {
         val rows = flatVisibleGroupRows()
@@ -611,23 +631,46 @@ internal class HomeEpgGuideController(
         if (!showChannelGroupsPanel()) return false
         val visibleRows = flatVisibleGroupRows()
         if (visibleRows.isEmpty()) return false
-        val row = visibleRows.getOrNull(ui.channelGroupsFocusIndex)
 
-        if (event.type == KeyEventType.KeyDown && (event.isTvLongPress() || event.key == Key.Menu)) {
-            if (row is GuideGroupVisibleRow.Group) {
-                toggleChannelGroupFavorite(row.fullName)
-                return true
-            }
+        if (boundDeps.channelGroupsListState.isScrollInProgress) {
+            cancelChannelGroupsLongPress()
+        }
+
+        if (event.type == KeyEventType.KeyDown &&
+            (event.key == Key.DirectionDown || event.key == Key.DirectionUp)
+        ) {
+            cancelChannelGroupsLongPress()
+        }
+
+        if (event.type == KeyEventType.KeyDown && event.key == Key.Menu) {
+            currentFocusedGroupKey()?.let(::toggleChannelGroupFavorite)
+            return true
         }
 
         if (isTvActivateKey(event) || isTvActivateKeyUp(event)) {
             when (event.type) {
                 KeyEventType.KeyDown -> {
+                    if (boundDeps.channelGroupsListState.isScrollInProgress) return true
                     if (event.isTvLongPress()) return true
+
+                    channelGroupsPressedGroupKey = currentFocusedGroupKey()
+                    channelGroupsPressJob?.cancel()
+                    channelGroupsPressJob = boundDeps.scope.launch {
+                        delay(CHANNEL_GROUPS_LONG_PRESS_MS)
+                        val pressed = channelGroupsPressedGroupKey
+                        Log.d(
+                            "FAVORITE_DEBUG",
+                            "Pressed=$pressed, Focus=${currentFocusedGroupKey()}"
+                        )
+                        pressed?.let(::toggleChannelGroupFavorite)
+                        channelGroupsPressedGroupKey = null
+                        channelGroupsPressJob = null
+                    }
                     ui.channelGroupsActivatePending = true
                     return true
                 }
                 KeyEventType.KeyUp -> {
+                    cancelChannelGroupsLongPress()
                     if (!ui.channelGroupsActivatePending) return true
                     ui.channelGroupsActivatePending = false
                     val activeRow = visibleRows.getOrNull(ui.channelGroupsFocusIndex) ?: return true

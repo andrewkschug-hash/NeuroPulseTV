@@ -29,6 +29,7 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.domain.model.VodSearchEntry
 import com.grid.tv.ui.component.toGridCardModel
 import com.grid.tv.ui.viewmodel.VodCatalogPager
 import com.grid.tv.ui.screen.VodGridFocusRestoreRequest
@@ -212,7 +213,7 @@ fun VodPagedVerticalGrid(
             key = pagingItems.itemKey { show -> "${show.playlistId}_${show.id}" }
         ) { index ->
             val show = pagingItems[index] ?: return@items
-            val card = show.toGridCardModel()
+            val card = remember(show.playlistId, show.id) { show.toGridCardModel() }
             val externallyFocused = gridFocused && index == effectiveFocusedIndex
             val itemModifier = when {
                 useNativeFocus && index == 0 && gridFocusRequester != null -> Modifier
@@ -308,7 +309,7 @@ fun VodMoviePagedGrid(
             key = pagingItems.itemKey { movie -> "${movie.playlistId}_${movie.streamId}" }
         ) { index ->
             val movie = pagingItems[index] ?: return@items
-            val card = movie.toGridCardModel()
+            val card = remember(movie.playlistId, movie.streamId) { movie.toGridCardModel() }
             val externallyFocused = gridFocused && index == effectiveFocusedIndex
             val itemModifier = when {
                 useNativeFocus && index == 0 && gridFocusRequester != null -> Modifier
@@ -337,6 +338,94 @@ fun VodMoviePagedGrid(
                 externallyFocused = externallyFocused,
                 modifier = itemModifier
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun VodUnifiedSearchGrid(
+    pagingItems: LazyPagingItems<VodSearchEntry>,
+    progressByKey: Map<Pair<Long, Long>, Long>,
+    movieProgressFraction: (VodItem, Map<Pair<Long, Long>, Long>) -> Float?,
+    onMovieClick: (VodItem) -> Unit,
+    onSeriesCardClick: (VodGridCardModel) -> Unit,
+    firstItemFocusRequester: FocusRequester? = null,
+    onNavigateUpFromFirstRow: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    minCellSize: androidx.compose.ui.unit.Dp = 112.dp
+) {
+    val gridState = rememberLazyGridState()
+    VodGridPrefetchEffect(
+        gridState = gridState,
+        itemCount = pagingItems.itemCount,
+        onLoadMore = { pagingItems[pagingItems.itemCount - 1] },
+    )
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = minCellSize),
+        state = gridState,
+        contentPadding = VodLayout.gridContentPadding(),
+        horizontalArrangement = Arrangement.spacedBy(VodLayout.PosterSpacing),
+        verticalArrangement = Arrangement.spacedBy(VodLayout.RowSpacing),
+        modifier = modifier
+    ) {
+        items(
+            count = pagingItems.itemCount,
+            key = pagingItems.itemKey { entry ->
+                when (entry) {
+                    is VodSearchEntry.Movie -> "movie_${entry.item.playlistId}_${entry.item.streamId}"
+                    is VodSearchEntry.Series -> "series_${entry.show.playlistId}_${entry.show.id}"
+                }
+            }
+        ) { index ->
+            when (val entry = pagingItems[index]) {
+                is VodSearchEntry.Movie -> {
+                    val card = remember(entry.item.playlistId, entry.item.streamId) {
+                        entry.item.toGridCardModel()
+                    }
+                    val itemModifier = if (index == 0 && firstItemFocusRequester != null) {
+                        Modifier
+                            .focusRequester(firstItemFocusRequester)
+                            .onPreviewKeyEvent { event ->
+                                if (event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionUp &&
+                                    onNavigateUpFromFirstRow != null
+                                ) {
+                                    onNavigateUpFromFirstRow()
+                                    true
+                                } else {
+                                    false
+                                }
+                            }
+                    } else {
+                        Modifier
+                    }
+                    VodPosterCard(
+                        title = card.title,
+                        posterUrl = card.posterUrl,
+                        progressFraction = movieProgressFraction(entry.item, progressByKey),
+                        showHdBadge = card.showHdBadge,
+                        onClick = { onMovieClick(entry.item) },
+                        externallyFocused = false,
+                        modifier = itemModifier
+                    )
+                }
+                is VodSearchEntry.Series -> {
+                    val card = remember(entry.show.playlistId, entry.show.id) {
+                        entry.show.toGridCardModel()
+                    }
+                    VodPosterCard(
+                        title = card.title,
+                        posterUrl = card.posterUrl,
+                        progressFraction = null,
+                        showHdBadge = card.showHdBadge,
+                        onClick = { onSeriesCardClick(card) },
+                        externallyFocused = false,
+                        modifier = Modifier
+                    )
+                }
+                null -> Unit
+            }
         }
     }
 }

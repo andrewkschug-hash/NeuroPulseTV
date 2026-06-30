@@ -40,6 +40,7 @@ import com.grid.tv.data.db.dao.FeaturedCurationDao
 import com.grid.tv.data.db.dao.VodStreamDao
 import com.grid.tv.data.db.dao.SeriesCategoryDao
 import com.grid.tv.data.db.dao.SeriesShowDao
+import com.grid.tv.data.db.dao.SmartGroupCacheDao
 import com.grid.tv.data.db.dao.VodUserNotificationDao
 import com.grid.tv.data.db.dao.StreamFailoverStatsDao
 import com.grid.tv.data.db.dao.StreamHealthDao
@@ -272,6 +273,10 @@ object AppProvidesModule {
     @Provides
     fun provideSeriesCategoryDao(db: AppDatabase): SeriesCategoryDao =
         StartupDependencyProbe.traceCreate("SeriesCategoryDao") { db.seriesCategoryDao() }
+
+    @Provides
+    fun provideSmartGroupCacheDao(db: AppDatabase): SmartGroupCacheDao =
+        StartupDependencyProbe.traceCreate("SmartGroupCacheDao") { db.smartGroupCacheDao() }
 
     @Provides
     fun provideFeaturedCurationDao(db: AppDatabase): FeaturedCurationDao =

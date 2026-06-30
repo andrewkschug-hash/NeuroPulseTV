@@ -52,5 +52,6 @@ data class ProfileSettingsEntity(
     val pictureInPictureEnabled: Boolean = true,
     /** Pipe-separated Xtream live group names shown in the guide; empty = all groups. */
     val guideChannelGroups: String = "",
-    val guideFiltersConfigured: Boolean = false
+    val guideFiltersConfigured: Boolean = false,
+    val channelGroupNavigationMode: String = "SMART",
 )

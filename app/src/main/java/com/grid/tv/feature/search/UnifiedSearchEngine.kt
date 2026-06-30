@@ -2,6 +2,7 @@ package com.grid.tv.feature.search
 
 import com.grid.tv.data.db.dao.ProfileWatchHistoryDao
 import com.grid.tv.data.db.dao.TitleEnrichmentDao
+import com.grid.tv.domain.model.SearchProgress
 import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.SearchResultType
 import com.grid.tv.domain.model.SeriesShow
@@ -11,6 +12,7 @@ import com.grid.tv.ui.component.buildMovieSearchSecondaryLine
 import com.grid.tv.ui.component.cleanVodDisplayTitle
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.player.LowEndDeviceMode
+import com.grid.tv.util.PerformanceTelemetryTracker
 import com.grid.tv.feature.epg.ChannelCategoryPresets
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import javax.inject.Inject
@@ -24,6 +26,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
 @Singleton
@@ -58,29 +65,111 @@ class UnifiedSearchEngine @Inject constructor(
         }
     }
 
-    suspend fun search(query: String): UnifiedSearchResults = withContext(Dispatchers.Default) {
+    private companion object {
+        const val PROGRESSIVE_LIMIT = 120
+    }
+
+    /**
+     * Emits progressively: index/base → channels → VOD → series.
+     * Keeps existing prefix SQL; does not wait for all sources before first emission.
+     */
+    fun searchProgressive(
+        query: String,
+        searchGeneration: Long = 0L,
+        isCurrentGeneration: () -> Boolean = { true },
+    ): Flow<SearchProgress> = flow {
+        val telemetryToken = PerformanceTelemetryTracker.searchStarted(query, searchGeneration)
         ensureIndexReady()
+        if (!isCurrentGeneration()) return@flow
         val recent = historyStore.recentSearches()
         val trending = buildTrending()
-        val base = index.search(
+        var merged = index.search(
             query = query,
             recentSearches = recent,
             trendingSearches = trending
         )
         val trimmed = query.trim()
-        if (trimmed.isEmpty()) return@withContext base
-        val channelMatches = repository.searchChannels(trimmed, limit = 500).map(::channelSearchResult)
-        val vodMatches = repository.searchVod(trimmed, limit = 500).map(::vodSearchResult)
-        val seriesMatches = repository.searchSeriesShows(trimmed, limit = 500).map(::seriesSearchResult)
-        base.copy(
-            channels = (channelMatches + base.channels).distinctBy { it.id },
-            movies = (vodMatches + base.movies).distinctBy {
+        if (trimmed.isEmpty()) {
+            emit(
+                SearchProgress(
+                    results = merged,
+                    channelsReady = true,
+                    vodReady = true,
+                    seriesReady = true,
+                    isComplete = true,
+                )
+            )
+            PerformanceTelemetryTracker.searchCompleted(telemetryToken, 0, 0, 0)
+            return@flow
+        }
+        if (!isCurrentGeneration()) return@flow
+        emit(
+            SearchProgress(
+                results = merged,
+                channelsReady = false,
+                vodReady = false,
+                seriesReady = false,
+                isComplete = false,
+            )
+        )
+
+        val channelMatches = withContext(Dispatchers.IO) {
+            if (!isCurrentGeneration()) return@withContext emptyList()
+            repository.searchChannels(trimmed, limit = PROGRESSIVE_LIMIT).map(::channelSearchResult)
+        }
+        if (!isCurrentGeneration()) return@flow
+        if (channelMatches.isNotEmpty()) {
+            PerformanceTelemetryTracker.searchFirstResult(telemetryToken, "channels")
+        }
+        merged = merged.copy(
+            channels = (channelMatches + merged.channels).distinctBy { it.id }
+        )
+        emit(
+            SearchProgress(
+                results = merged,
+                channelsReady = true,
+                vodReady = false,
+                seriesReady = false,
+                isComplete = false,
+            )
+        )
+
+        val vodMatches = withContext(Dispatchers.IO) {
+            if (!isCurrentGeneration()) return@withContext emptyList()
+            repository.searchVod(trimmed, limit = PROGRESSIVE_LIMIT).map(::vodSearchResult)
+        }
+        if (!isCurrentGeneration()) return@flow
+        if (vodMatches.isNotEmpty() && channelMatches.isEmpty()) {
+            PerformanceTelemetryTracker.searchFirstResult(telemetryToken, "vod")
+        }
+        merged = merged.copy(
+            movies = (vodMatches + merged.movies).distinctBy {
                 com.grid.tv.domain.model.VodSearchIdentity.vodDedupKey(
                     it.vodItem?.playlistId ?: 0L,
                     it.vodItem?.streamId ?: 0L
                 )
-            },
-            series = (seriesMatches + base.series).distinctBy {
+            }
+        )
+        emit(
+            SearchProgress(
+                results = merged,
+                channelsReady = true,
+                vodReady = true,
+                seriesReady = false,
+                isComplete = false,
+            )
+        )
+
+        val seriesMatches = withContext(Dispatchers.IO) {
+            if (!isCurrentGeneration()) return@withContext emptyList()
+            repository.searchSeriesShows(trimmed, limit = PROGRESSIVE_LIMIT).map(::seriesSearchResult)
+        }
+        if (!isCurrentGeneration()) return@flow
+        if (seriesMatches.isNotEmpty() && channelMatches.isEmpty() && vodMatches.isEmpty()) {
+            PerformanceTelemetryTracker.searchFirstResult(telemetryToken, "series")
+        }
+        merged = merged.copy(
+            series = (seriesMatches + merged.series).distinctBy {
                 com.grid.tv.domain.model.VodSearchIdentity.vodDedupKey(
                     it.seriesShow?.playlistId ?: 0L,
                     0L,
@@ -88,6 +177,33 @@ class UnifiedSearchEngine @Inject constructor(
                 )
             }
         )
+        PerformanceTelemetryTracker.searchCompleted(
+            telemetryToken,
+            merged.channels.size,
+            merged.movies.size,
+            merged.series.size
+        )
+        emit(
+            SearchProgress(
+                results = merged,
+                channelsReady = true,
+                vodReady = true,
+                seriesReady = true,
+                isComplete = true,
+            )
+        )
+    }
+
+    suspend fun search(
+        query: String,
+        searchGeneration: Long = 0L,
+        isCurrentGeneration: () -> Boolean = { true },
+    ): UnifiedSearchResults? = withContext(Dispatchers.Default) {
+        var latest: UnifiedSearchResults? = null
+        searchProgressive(query, searchGeneration, isCurrentGeneration).collect { progress ->
+            if (isCurrentGeneration()) latest = progress.results
+        }
+        latest
     }
 
     private fun channelSearchResult(channel: com.grid.tv.domain.model.Channel): SearchResultItem =

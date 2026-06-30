@@ -52,23 +52,23 @@ interface VodStreamDao {
         """
         SELECT COUNT(*) FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFiltered(categoryId: String?, search: String): Int
+    suspend fun countFiltered(categoryId: String?, searchPrefix: String): Int
 
     @Query(
         """
         SELECT * FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         LIMIT :limit OFFSET :offset
         """
     )
     suspend fun vodPage(
         categoryId: String?,
-        search: String,
+        searchPrefix: String,
         limit: Int,
         offset: Int
     ): List<VodStreamEntity>
@@ -175,17 +175,17 @@ interface VodStreamDao {
         SELECT COUNT(*) FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
           AND playlistId = :playlistId
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFilteredForPlaylist(playlistId: Long, categoryId: String?, search: String): Int
+    suspend fun countFilteredForPlaylist(playlistId: Long, categoryId: String?, searchPrefix: String): Int
 
     @Query(
         """
         SELECT * FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
           AND playlistId = :playlistId
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         LIMIT :limit OFFSET :offset
         """
@@ -193,7 +193,7 @@ interface VodStreamDao {
     suspend fun vodPageForPlaylist(
         playlistId: Long,
         categoryId: String?,
-        search: String,
+        searchPrefix: String,
         limit: Int,
         offset: Int
     ): List<VodStreamEntity>
@@ -201,13 +201,16 @@ interface VodStreamDao {
     @Query(
         """
         SELECT * FROM vod_streams
-        WHERE title LIKE '%' || :query || '%'
-           OR IFNULL(genre, '') LIKE '%' || :query || '%'
+        WHERE searchTitle LIKE :searchPrefix ESCAPE '\'
+           OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\'
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         LIMIT :limit
         """
     )
-    suspend fun search(query: String, limit: Int): List<VodStreamEntity>
+    suspend fun search(searchPrefix: String, limit: Int): List<VodStreamEntity>
+
+    @Query("SELECT * FROM vod_streams WHERE rowId IN (:rowIds)")
+    suspend fun byRowIds(rowIds: List<Long>): List<VodStreamEntity>
 
     @Query(
         """
@@ -231,63 +234,63 @@ interface VodStreamDao {
         """
         SELECT * FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
     )
-    fun vodPagingSource(categoryId: String?, search: String): PagingSource<Int, VodStreamEntity>
+    fun vodPagingSource(categoryId: String?, searchPrefix: String): PagingSource<Int, VodStreamEntity>
 
     @Query(
         """
         SELECT * FROM vod_streams
         WHERE (:categoryId IS NULL OR categoryId = :categoryId)
           AND playlistId = :playlistId
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
     )
     fun vodPagingSourceForPlaylist(
         playlistId: Long,
         categoryId: String?,
-        search: String
+        searchPrefix: String
     ): PagingSource<Int, VodStreamEntity>
 
     @Query(
         """
         SELECT COUNT(*) FROM vod_streams
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, search: String): Int
+    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, searchPrefix: String): Int
 
     @Query(
         """
         SELECT COUNT(*) FROM vod_streams
         WHERE playlistId = :playlistId
           AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
     suspend fun countFilteredByIdsForPlaylist(
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): Int
 
     @Query(
         """
         SELECT * FROM vod_streams
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
     )
     fun vodPagingSourceByIds(
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): PagingSource<Int, VodStreamEntity>
 
     @Query(
@@ -295,7 +298,7 @@ interface VodStreamDao {
         SELECT * FROM vod_streams
         WHERE playlistId = :playlistId
           AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR title LIKE '%' || :search || '%' OR IFNULL(genre, '') LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
     )
@@ -303,7 +306,7 @@ interface VodStreamDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): PagingSource<Int, VodStreamEntity>
 
     @Query(

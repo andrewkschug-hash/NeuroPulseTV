@@ -13,5 +13,6 @@ data class M3uParseProgress(
 
 data class ParsedXmlTv(
     val channelsById: Map<String, String>,
-    val programs: List<ProgramEntity>
+    val programs: List<ProgramEntity>,
+    val programCount: Int = programs.size,
 )

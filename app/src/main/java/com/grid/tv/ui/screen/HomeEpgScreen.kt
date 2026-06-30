@@ -39,6 +39,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grid.tv.domain.epg.ProgrammeIndex
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.feature.epg.EpgPlaceholderData
 import com.grid.tv.feature.startup.StartupTierPolicy
@@ -154,6 +155,8 @@ fun HomeEpgScreen(
     val channelGroupFavoriteToast by viewModel.channelGroupFavoriteToastMessage.collectAsStateWithLifecycle()
     val channelGroupsLoading by viewModel.channelGroupsLoading.collectAsStateWithLifecycle()
     val organizedGuideGroups by viewModel.organizedGuideGroups.collectAsStateWithLifecycle()
+    val channelGroupNavigationMode by viewModel.channelGroupNavigationMode.collectAsStateWithLifecycle()
+    val smartGroupCounts by viewModel.smartGroupCounts.collectAsStateWithLifecycle()
     val hasCatalogChannels = chrome.hasCatalogChannels
     val demoFavoriteIds = chrome.demoFavoriteIds
     val favoriteGroups = chrome.favoriteGroups
@@ -280,6 +283,7 @@ fun HomeEpgScreen(
 
     val hScroll = rememberScrollState()
     val listState = rememberLazyListState()
+    val channelGroupsListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
     val gridFilterFocusRequester = remember { FocusRequester() }
@@ -528,6 +532,7 @@ fun HomeEpgScreen(
         context = context,
         scope = scope,
         listState = listState,
+        channelGroupsListState = channelGroupsListState,
         hScroll = hScroll,
         channels = channels,
         displayChannels = displayChannels,
@@ -662,11 +667,17 @@ fun HomeEpgScreen(
                         channelGroups = channelGroups,
                         favoriteGroups = favoriteChannelGroups,
                         selectedGroups = displayGuideFilter.selectedGroups,
-                        groupChannelCounts = groupChannelCounts,
+                        groupChannelCounts = if (channelGroupNavigationMode == ChannelGroupNavigationMode.SMART) {
+                            smartGroupCounts
+                        } else {
+                            groupChannelCounts
+                        },
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
                         groupsLoading = channelGroupsLoading,
                         rowFocusRegistry = channelGroupsFocusRegistry,
+                        smartMode = channelGroupNavigationMode == ChannelGroupNavigationMode.SMART,
+                        smartCategories = organizedGuideGroups.flatCategories,
                         onPanelFocused = {
                             if (ui.focusZone != EpgFocusZone.NAV_DRAWER) {
                                 ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
@@ -678,7 +689,8 @@ fun HomeEpgScreen(
                                 controller.onChannelGroupsFocusedIndexChanged(index)
                             }
                         },
-                        onFilterChange = controller::applyChannelGroupFilter
+                        onFilterChange = controller::applyChannelGroupFilter,
+                        listState = channelGroupsListState,
                     )
                 }
             }

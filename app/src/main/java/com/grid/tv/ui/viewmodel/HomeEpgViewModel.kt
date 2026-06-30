@@ -21,6 +21,7 @@ import com.grid.tv.domain.model.Recommendation
 import com.grid.tv.domain.model.UserProfile
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.data.repository.IptvRepositoryImpl.Companion.CHANNEL_PAGE_SIZE
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ChannelScanSnapshot
 import com.grid.tv.domain.model.ScannerRuntimeState
 import com.grid.tv.feature.startup.StartupGroupMetadataStore
@@ -33,6 +34,8 @@ import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.guide.GuideCategoryProcessor
 import com.grid.tv.feature.guide.GuideGroupMetadata
 import com.grid.tv.feature.guide.GroupsTrace
+import com.grid.tv.feature.guide.SmartGroupFilterKey
+import com.grid.tv.feature.guide.SmartGroupService
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import com.grid.tv.domain.epg.EpgTime
@@ -88,7 +91,8 @@ class HomeEpgViewModel @Inject constructor(
     private val channelScanner: ChannelScanner,
     private val epgScheduler: EpgScheduler,
     private val startupSafety: StartupSafety,
-    private val startupGroupMetadataStore: StartupGroupMetadataStore
+    private val startupGroupMetadataStore: StartupGroupMetadataStore,
+    private val smartGroupService: SmartGroupService,
 ) : ViewModel() {
 
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
@@ -281,15 +285,33 @@ class HomeEpgViewModel @Inject constructor(
     private val _hideAdultContent = MutableStateFlow(true)
     val hideAdultContent: StateFlow<Boolean> = _hideAdultContent.asStateFlow()
 
+    private val _channelGroupNavigationMode = MutableStateFlow(ChannelGroupNavigationMode.SMART)
+    val channelGroupNavigationMode: StateFlow<ChannelGroupNavigationMode> =
+        _channelGroupNavigationMode.asStateFlow()
+
+    val smartGroupCache = smartGroupService.observeCache()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val smartGroupCounts: StateFlow<Map<String, Int>> = smartGroupCache
+        .map { cache ->
+            cache.groupBy { SmartGroupFilterKey.encode(it.country, it.category) }
+                .mapValues { (_, entries) -> entries.sumOf { it.channelCount } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     /**
      * Precomputed off the main thread — one [GuideCategoryProcessor.organizeGroups] per metadata update.
      * [flatCategories] replaces duplicate Compose-side [buildGuideGroupCategories] calls.
      */
     val organizedGuideGroups: StateFlow<GuideCategoryProcessor.OrganizedGuideGroups> = combine(
         groupMetadata,
-        hideAdultContent
-    ) { metadata, hideAdult -> metadata to hideAdult }
-        .flatMapLatest { (metadata, hideAdult) ->
+        hideAdultContent,
+        channelGroupNavigationMode,
+        smartGroupCache,
+    ) { metadata, hideAdult, navigationMode, smartCache ->
+        Quadruple(metadata, hideAdult, navigationMode, smartCache)
+    }
+        .flatMapLatest { (metadata, hideAdult, navigationMode, smartCache) ->
             flow {
                 if (metadata.groups.isEmpty()) {
                     emit(GuideCategoryProcessor.OrganizedGuideGroups.EMPTY)
@@ -297,11 +319,21 @@ class HomeEpgViewModel @Inject constructor(
                 }
                 val startNs = System.nanoTime()
                 val organized = withContext(Dispatchers.Default) {
-                    GuideCategoryProcessor.organizeGroups(
-                        channelGroups = metadata.groups,
-                        groupChannelCounts = metadata.counts,
-                        hideAdult = hideAdult
-                    )
+                    when (navigationMode) {
+                        ChannelGroupNavigationMode.SMART -> {
+                            val cache = smartCache.ifEmpty {
+                                smartGroupService.ensureCachePopulated()
+                                smartGroupService.observeCache().first()
+                            }
+                            smartGroupService.organizeFromCache(cache, hideAdult = hideAdult)
+                        }
+                        ChannelGroupNavigationMode.PROVIDER ->
+                            GuideCategoryProcessor.organizeGroups(
+                                channelGroups = metadata.groups,
+                                groupChannelCounts = metadata.counts,
+                                hideAdult = hideAdult,
+                            )
+                    }
                 }
                 val durationMs = (System.nanoTime() - startNs) / 1_000_000L
                 GroupsTrace.logOrganize(
@@ -318,6 +350,13 @@ class HomeEpgViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5000),
             GuideCategoryProcessor.OrganizedGuideGroups.EMPTY
         )
+
+    private data class Quadruple<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D,
+    )
 
     /** True when the playlist has imported at least one channel (ignores category/favorite filters). */
     val hasCatalogChannels: StateFlow<Boolean> = repository.hasChannels()
@@ -655,6 +694,8 @@ class HomeEpgViewModel @Inject constructor(
         val settings = repository.loadSettings()
         _miniPlayerAudioEnabled.value = settings.miniPlayerAudioEnabled
         _hideAdultContent.value = settings.hideAdultContent
+        _channelGroupNavigationMode.value = settings.channelGroupNavigationMode
+        viewModelScope.launch(Dispatchers.IO) { smartGroupService.ensureCachePopulated() }
         val restoredFilter = GuideChannelFilter(settings.guideChannelGroups)
         _guideFilter.value = restoredFilter
         _guideFiltersConfigured.value = settings.guideFiltersConfigured ||
@@ -837,6 +878,17 @@ class HomeEpgViewModel @Inject constructor(
     private fun effectiveGuideFilter(): GuideChannelFilter =
         _previewGuideFilter.value ?: _guideFilter.value
 
+    private fun GuideChannelFilter.appliesToChannel(channel: Channel): Boolean {
+        val selected = selectedGroups
+        if (selected.isEmpty()) return true
+        if (_channelGroupNavigationMode.value == ChannelGroupNavigationMode.SMART &&
+            selected.any { SmartGroupFilterKey.isSmartKey(it) }
+        ) {
+            return smartGroupService.appliesSmartFilter(channel, selected, smartGroupCache.value)
+        }
+        return appliesTo(channel)
+    }
+
     /** Active live-guide filter (preview while browsing groups, else committed). */
     fun currentGuideFilter(): GuideChannelFilter = effectiveGuideFilter()
 
@@ -860,6 +912,7 @@ class HomeEpgViewModel @Inject constructor(
             val filterChanged = _guideFilter.value != nextFilter
             _guideFilter.value = nextFilter
             _guideFiltersConfigured.value = settings.guideFiltersConfigured
+            _channelGroupNavigationMode.value = settings.channelGroupNavigationMode
             _guideSettingsLoaded.value = true
             _previewGuideFilter.value = null
             if (filterChanged && guideBootstrapComplete) {
@@ -1314,7 +1367,7 @@ class HomeEpgViewModel @Inject constructor(
                         list
                     }
                 }
-                .filter { effectiveGuideFilter().appliesTo(it) }
+                .filter { effectiveGuideFilter().appliesToChannel(it) }
         }
         val favoriteFilter = _favoriteGroupFilter.value
         val groups = effectiveGuideFilter().selectedGroups
@@ -1330,7 +1383,7 @@ class HomeEpgViewModel @Inject constructor(
             page.filter { !ProfileAccessGuard.isAdultGroup(it.group) }
         } else {
             page
-        }.filter { effectiveGuideFilter().appliesTo(it) }
+        }.filter { effectiveGuideFilter().appliesToChannel(it) }
     }
 
     private suspend fun appendProgramsForChannels(newChannels: List<Channel>) {

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.cachedIn
 import com.grid.tv.domain.model.Program
+import com.grid.tv.domain.model.SearchUiState
+import com.grid.tv.domain.model.SearchSurfaceLogic
 import com.grid.tv.domain.repository.IptvRepository
 import com.grid.tv.feature.preview.PreviewPlayerManager
 import com.grid.tv.util.ChannelBrowserMetrics
@@ -32,6 +34,9 @@ class BrowserViewModel @Inject constructor(
 
     private val _filteredTotalCount = MutableStateFlow(0)
     val filteredTotalCount: StateFlow<Int> = _filteredTotalCount.asStateFlow()
+
+    private val _searchUiState = MutableStateFlow<SearchUiState>(SearchUiState.Initial)
+    val searchUiState: StateFlow<SearchUiState> = _searchUiState.asStateFlow()
 
     val groups = repository.groups().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -75,6 +80,12 @@ class BrowserViewModel @Inject constructor(
                     sportsEpgIds = params.sportsEpgIds
                 )
                 _filteredTotalCount.value = total
+                _searchUiState.value = SearchSurfaceLogic.pagedSearchState(
+                    query = params.search,
+                    isRefreshLoading = false,
+                    itemCount = total,
+                    lastCompletedQuery = params.search,
+                )
                 ChannelBrowserMetrics.logFilterApplied(
                     group = params.group,
                     favoritesOnly = params.favoritesOnly,
@@ -87,7 +98,13 @@ class BrowserViewModel @Inject constructor(
     }
 
     fun setSearchQuery(query: String) {
+        val trimmed = query.trim()
         searchQuery.value = query
+        _searchUiState.value = SearchSurfaceLogic.pagedSearchState(
+            query = query,
+            isRefreshLoading = trimmed.isNotEmpty(),
+            itemCount = _filteredTotalCount.value,
+        )
     }
 
     fun selectAll() {

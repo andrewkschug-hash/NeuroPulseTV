@@ -205,9 +205,7 @@ fun VodHubScreen(
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
     val activeRecordingTitle by recordingViewModel.activeRecordingTitle.collectAsStateWithLifecycle()
     val imeTypingActive = TvTextInputSession.isActiveState.value
-    val globalSearchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
-    val globalSearchResults by searchViewModel.results.collectAsStateWithLifecycle()
-    val globalUnifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val globalSearchUiState by searchViewModel.searchUiState.collectAsStateWithLifecycle()
     val globalSearchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
     val movieFilteredTotalCount by moviesViewModel.filteredTotalCount.collectAsStateWithLifecycle()
     val seriesFilteredTotalCount by seriesViewModel.filteredTotalCount.collectAsStateWithLifecycle()
@@ -1126,7 +1124,7 @@ fun VodHubScreen(
             }
             else -> Unit
         }
-        searchViewModel.recordSelection(globalSearchQuery)
+        searchViewModel.recordSelection(globalSearchUiState.query)
         dismissGlobalSearch()
         when (result.type) {
             SearchResultType.CHANNEL, SearchResultType.PROGRAM ->
@@ -1733,6 +1731,7 @@ fun VodHubScreen(
                         showInlineSearch -> {
                             VodHubSearchSection(
                                 query = searchQuery,
+                                hubViewModel = hubViewModel,
                                 moviesViewModel = moviesViewModel,
                                 seriesViewModel = seriesViewModel,
                                 progressByKey = vodProgress,
@@ -2079,9 +2078,7 @@ fun VodHubScreen(
                 dismissGlobalSearch()
             }
             SearchOverlay(
-                query = globalSearchQuery,
-                unifiedResults = globalUnifiedSearchResults,
-                flatResults = globalSearchResults,
+                searchUiState = globalSearchUiState,
                 searchBarState = globalSearchBarState,
                 onQueryChange = searchViewModel::updateQuery,
                 onClear = searchViewModel::clearQuery,

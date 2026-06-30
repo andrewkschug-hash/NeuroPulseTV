@@ -63,5 +63,6 @@ data class AppSettings(
     val pictureInPictureEnabled: Boolean = true,
     /** Xtream/provider live groups shown in the guide; empty = all channels. */
     val guideChannelGroups: Set<String> = emptySet(),
-    val guideFiltersConfigured: Boolean = false
+    val guideFiltersConfigured: Boolean = false,
+    val channelGroupNavigationMode: ChannelGroupNavigationMode = ChannelGroupNavigationMode.SMART,
 )

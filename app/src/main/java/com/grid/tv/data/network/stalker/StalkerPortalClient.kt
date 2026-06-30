@@ -1,6 +1,7 @@
 package com.grid.tv.data.network.stalker
 
 import com.grid.tv.data.db.entity.ChannelEntity
+import com.grid.tv.feature.search.SearchTitleNormalizer
 import com.grid.tv.domain.model.EpgResolutionStatus
 import com.grid.tv.data.network.AppHttpClient
 import okhttp3.Request
@@ -94,6 +95,7 @@ class StalkerPortalClient @Inject constructor(
             out += ChannelEntity(
                 number = number,
                 name = name,
+                searchTitle = SearchTitleNormalizer.normalize(name),
                 groupName = "Live",
                 logoUrl = logo,
                 epgId = null,

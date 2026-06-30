@@ -52,26 +52,28 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Text
-import coil.compose.AsyncImage
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
-import com.grid.tv.domain.model.UnifiedSearchResults
+import com.grid.tv.domain.model.SearchUiState
+import androidx.compose.foundation.lazy.items
+import com.grid.tv.domain.model.SearchSectionSnapshot
+import com.grid.tv.domain.model.SearchSectionUi
 import com.grid.tv.ui.focus.TvScreenFocusRoot
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
+import com.grid.tv.ui.theme.UiMotion
 import com.grid.tv.util.TvImageSizing
 
 private sealed class SearchListRow {
-    data class Header(val title: String) : SearchListRow()
+    data class Header(val title: String, val sectionKey: String) : SearchListRow()
     data class Chip(val label: String, val isRecent: Boolean) : SearchListRow()
     data class Result(val item: SearchResultItem, val flatIndex: Int) : SearchListRow()
+    data class Skeleton(val sectionKey: String, val index: Int) : SearchListRow()
 }
 
 @Composable
 fun SearchOverlay(
-    query: String,
-    unifiedResults: UnifiedSearchResults,
-    flatResults: List<SearchResultItem>,
+    searchUiState: SearchUiState,
     searchBarState: SearchBarState,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
@@ -82,20 +84,28 @@ fun SearchOverlay(
     onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val query = searchUiState.query
+    val sections by remember {
+        derivedStateOf { SearchSectionUi.snapshot(searchUiState) }
+    }
+    val flatResults = sections.flatSelectableResults
     val focusUi = remember { SearchFocusUiState() }
     val controller = remember(focusUi) { SearchFocusController(focusUi) }
     val modalTrapFocusRequester = remember { FocusRequester() }
     val fieldFocusRequester = remember { FocusRequester() }
     val micFocusRequester = remember { FocusRequester() }
 
-    val recentSearches = unifiedResults.recentSearches
+    val recentSearches = searchUiState.results.recentSearches
     val showRecentChips = query.isBlank() && recentSearches.isNotEmpty()
 
-    val rows = remember(unifiedResults, query) {
-        buildSearchRows(unifiedResults, query)
+    val rows by remember {
+        derivedStateOf { buildSearchRows(sections, query) }
     }
-    val selectableRows = remember(rows) { rows.filterIsInstance<SearchListRow.Result>() }
-    val selectableResults = remember(selectableRows) { selectableRows.map { it.item } }
+    val selectableResults by remember {
+        derivedStateOf {
+            rows.filterIsInstance<SearchListRow.Result>().map { it.item }
+        }
+    }
     val listState = rememberLazyListState()
 
     controller.bind(
@@ -162,7 +172,10 @@ fun SearchOverlay(
     val micPulse by pulseTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.18f,
-        animationSpec = infiniteRepeatable(animation = tween(700), repeatMode = RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            animation = tween(UiMotion.MicPulseDurationMs),
+            repeatMode = RepeatMode.Reverse
+        ),
         label = "micPulseScale"
     )
 
@@ -220,7 +233,10 @@ fun SearchOverlay(
                 )
             }
 
-            if (query.isNotBlank() && unifiedResults.isEmpty && searchBarState != SearchBarState.LISTENING) {
+            if (searchUiState.shouldShowNoResults &&
+                searchBarState != SearchBarState.LISTENING &&
+                !sections.hasRenderableContent
+            ) {
                 Text(
                     text = "No results for \"$query\"",
                     color = EpgColors.TextSecondary,
@@ -235,38 +251,14 @@ fun SearchOverlay(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    rows.forEach { row ->
-                        when (row) {
-                            is SearchListRow.Header -> item(key = "header-${row.title}") {
-                                SearchSectionHeader(title = row.title)
-                            }
-                            is SearchListRow.Result -> item(key = row.item.id) {
-                                SearchResultRow(
-                                    result = row.item,
-                                    focused = focusUi.focusZone == SearchFocusZone.RESULTS &&
-                                        focusUi.focusedIndex == row.flatIndex,
-                                    onClick = { onResultSelected(row.item) }
-                                )
-                            }
-                            is SearchListRow.Chip -> Unit
-                        }
-                    }
-                    if (flatResults.isNotEmpty()) {
-                        item(key = "search-results-hint") {
-                            Text(
-                                text = "↓ results  ·  Enter to open",
-                                color = EpgColors.TextDimmed,
-                                fontFamily = DmSansFamily,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
-                }
+                SearchOverlayResultsList(
+                    rows = rows,
+                    flatResultsCount = flatResults.size,
+                    listState = listState,
+                    focusZone = focusUi.focusZone,
+                    focusedIndex = focusUi.focusedIndex,
+                    onResultSelected = onResultSelected,
+                )
                 if (stickySectionTitle != null) {
                     SearchSectionHeader(
                         title = stickySectionTitle!!,
@@ -276,6 +268,76 @@ fun SearchOverlay(
             }
         }
     }
+}
+
+@Composable
+private fun SearchOverlayResultsList(
+    rows: List<SearchListRow>,
+    flatResultsCount: Int,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    focusZone: SearchFocusZone,
+    focusedIndex: Int,
+    onResultSelected: (SearchResultItem) -> Unit,
+) {
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(
+            items = rows,
+            key = { row ->
+                when (row) {
+                    is SearchListRow.Header -> "hdr-${row.sectionKey}"
+                    is SearchListRow.Result -> "res-${row.item.id}"
+                    is SearchListRow.Skeleton -> "sk-${row.sectionKey}-${row.index}"
+                    is SearchListRow.Chip -> "chip-${row.label}"
+                }
+            },
+            contentType = { row ->
+                when (row) {
+                    is SearchListRow.Header -> 0
+                    is SearchListRow.Result -> 1
+                    is SearchListRow.Skeleton -> 2
+                    is SearchListRow.Chip -> 3
+                }
+            }
+        ) { row ->
+            when (row) {
+                is SearchListRow.Header -> SearchSectionHeader(title = row.title)
+                is SearchListRow.Result -> SearchResultRowItem(
+                    result = row.item,
+                    focused = focusZone == SearchFocusZone.RESULTS && focusedIndex == row.flatIndex,
+                    onClick = { onResultSelected(row.item) }
+                )
+                is SearchListRow.Skeleton -> SearchResultSkeletonRow()
+                is SearchListRow.Chip -> Unit
+            }
+        }
+        if (flatResultsCount > 0) {
+            item(key = "search-results-hint", contentType = 4) {
+                Text(
+                    text = "↓ results  ·  Enter to open",
+                    color = EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultRowItem(
+    result: SearchResultItem,
+    focused: Boolean,
+    onClick: () -> Unit,
+) {
+    SearchResultRow(
+        result = result,
+        focused = focused,
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -303,7 +365,10 @@ private fun RecentSearchesSection(
             modifier = Modifier.padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            itemsIndexed(recentSearches) { index, term ->
+            itemsIndexed(
+                recentSearches,
+                key = { _, term -> "recent-$term" }
+            ) { index, term ->
                 RecentSearchChip(
                     label = term,
                     focused = focusZone == SearchFocusZone.RECENT && focusedChipIndex == index,
@@ -444,24 +509,80 @@ private fun SearchSectionHeader(title: String, modifier: Modifier = Modifier) {
     }
 }
 
-private fun buildSearchRows(unified: UnifiedSearchResults, query: String): List<SearchListRow> {
+private fun buildSearchRows(sections: SearchSectionSnapshot, query: String): List<SearchListRow> {
     if (query.isBlank()) return emptyList()
     val rows = mutableListOf<SearchListRow>()
     var flatIndex = 0
-    fun addSection(title: String, items: List<SearchResultItem>) {
-        if (items.isEmpty()) return
-        rows += SearchListRow.Header(title)
-        items.forEach { item ->
-            rows += SearchListRow.Result(item, flatIndex++)
+
+    fun addSection(
+        sectionKey: String,
+        title: String,
+        items: List<SearchResultItem>,
+        showSkeleton: Boolean,
+        skeletonCount: Int,
+    ) {
+        if (!showSkeleton && items.isEmpty()) return
+        rows += SearchListRow.Header(title, sectionKey)
+        if (showSkeleton) {
+            repeat(skeletonCount) { index ->
+                rows += SearchListRow.Skeleton(sectionKey, index)
+            }
+        } else {
+            items.forEach { item ->
+                rows += SearchListRow.Result(item, flatIndex++)
+            }
         }
     }
-    addSection("Channels", unified.channels)
-    addSection("Movies", unified.movies)
-    addSection("Series", unified.series)
-    addSection("Episodes", unified.episodes)
-    addSection("Actors", unified.actors)
-    addSection("Genres", unified.genres)
-    if (unified.programs.isNotEmpty()) addSection("Live & Upcoming", unified.programs)
+
+    addSection(
+        sectionKey = "channels",
+        title = "Channels",
+        items = sections.channels,
+        showSkeleton = sections.showChannelsSkeleton,
+        skeletonCount = SearchSectionUi.CHANNEL_SKELETON_COUNT,
+    )
+    addSection(
+        sectionKey = "movies",
+        title = "Movies",
+        items = sections.movies,
+        showSkeleton = sections.showVodSkeleton,
+        skeletonCount = SearchSectionUi.VOD_SKELETON_COUNT,
+    )
+    addSection(
+        sectionKey = "series",
+        title = "Series",
+        items = sections.series,
+        showSkeleton = sections.showSeriesSkeleton,
+        skeletonCount = SearchSectionUi.SERIES_SKELETON_COUNT,
+    )
+    addSection(
+        sectionKey = "episodes",
+        title = "Episodes",
+        items = sections.episodes,
+        showSkeleton = false,
+        skeletonCount = 0,
+    )
+    addSection(
+        sectionKey = "actors",
+        title = "Actors",
+        items = sections.actors,
+        showSkeleton = false,
+        skeletonCount = 0,
+    )
+    addSection(
+        sectionKey = "genres",
+        title = "Genres",
+        items = sections.genres,
+        showSkeleton = false,
+        skeletonCount = 0,
+    )
+    addSection(
+        sectionKey = "programs",
+        title = "Live & Upcoming",
+        items = sections.programs,
+        showSkeleton = false,
+        skeletonCount = 0,
+    )
     return rows
 }
 
@@ -641,35 +762,22 @@ private fun SearchResultRow(
                         .background(EpgColors.Accent)
                 )
             }
-            if (result.imageUrl != null) {
-                AsyncImage(
-                    model = TvImageSizing.sizedRequest(
-                        context = context,
-                        data = result.imageUrl,
-                        widthPx = logoPx,
-                        heightPx = logoPx
-                    ),
+            Box(
+                modifier = Modifier
+                    .padding(start = 12.dp)
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(4.dp))
+            ) {
+                TvPosterImage(
+                    url = result.imageUrl,
                     contentDescription = null,
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                    kind = PosterImageKind.Custom,
+                    widthPx = logoPx,
+                    heightPx = logoPx,
+                    placeholderLetter = displayTitle,
+                    placeholderFontSize = 14.sp,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xFF1A1A22)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = result.primaryTitle.take(1),
-                        color = EpgColors.TextSecondary,
-                        fontSize = 14.sp
-                    )
-                }
             }
             Column(modifier = Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(

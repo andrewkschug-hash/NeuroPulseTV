@@ -43,7 +43,13 @@ class CatalogMonitor @Inject constructor(
                         episodeNumber = epNum,
                         episodeId = ep.id,
                         episodeTitle = ep.title,
-                        addedAt = detectedAt
+                        addedAt = detectedAt,
+                        extension = ep.extension,
+                        streamUrl = ep.streamUrl,
+                        plot = ep.plot,
+                        duration = ep.duration,
+                        seriesPlot = null,
+                        fetchedAt = detectedAt
                     )
                     incoming.add(entity)
                     added.add(entity.toDomain())
@@ -103,6 +109,12 @@ class CatalogMonitor @Inject constructor(
         episodeNumber = episodeNumber,
         episodeId = episodeId,
         episodeTitle = episodeTitle,
-        addedAt = addedAt
+        addedAt = addedAt,
+        extension = "mp4",
+        streamUrl = "",
+        plot = null,
+        duration = null,
+        seriesPlot = null,
+        fetchedAt = addedAt
     )
 }

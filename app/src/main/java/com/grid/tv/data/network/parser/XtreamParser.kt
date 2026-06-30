@@ -9,6 +9,7 @@ import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.epg.EpgProgramTextDecoder
+import com.grid.tv.feature.search.SearchTitleNormalizer
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import java.net.URI
@@ -231,6 +232,7 @@ class XtreamParser {
             out += ChannelEntity(
                 number = number,
                 name = name,
+                searchTitle = SearchTitleNormalizer.normalize(name),
                 groupName = group,
                 logoUrl = logo,
                 epgId = epgId,
@@ -244,6 +246,84 @@ class XtreamParser {
         }
         return out
     }
+
+    /**
+     * Parses live channels in fixed-size batches to avoid building the full catalog list in memory.
+     */
+    suspend fun parseLiveChannelsBatched(
+        playlistId: Long,
+        raw: String,
+        username: String,
+        password: String,
+        serverUrl: String,
+        categories: Map<String, String>,
+        batchSize: Int = 100,
+        onBatch: suspend (List<ChannelEntity>) -> Unit,
+    ): LiveChannelParseStats {
+        val arr = parseJsonArray(raw) ?: return LiveChannelParseStats()
+        val batch = ArrayList<ChannelEntity>(batchSize)
+        var parsedCount = 0
+        var epgFromProvider = 0
+        var epgFromStreamId = 0
+        suspend fun flush() {
+            if (batch.isEmpty()) return
+            onBatch(batch.toList())
+            batch.clear()
+        }
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val streamId = item.optString("stream_id")
+            if (streamId.isBlank()) continue
+            val name = item.optString("name").ifBlank { "Live $streamId" }
+            val logo = item.optString("stream_icon").ifBlank { null }
+            val epgChannelId = item.optString("epg_channel_id").ifBlank { null }
+            val epgId = epgChannelId ?: streamId
+            val epgSource = if (epgChannelId != null) "xtream" else "xtream:stream_id"
+            if (epgChannelId != null) epgFromProvider++ else epgFromStreamId++
+            parsedCount++
+            val catId = item.optString("category_id")
+            val group = categories[catId] ?: item.optString("category_name").ifBlank { "Live" }
+            val number = item.optString("num").toIntOrNull() ?: (i + 1)
+            val directSource = sanitizeDirectSource(item.optString("direct_source"))
+            val containerExt = item.optString("container_extension").ifBlank { "m3u8" }
+            val streamUrl = buildLiveStreamUrl(
+                serverUrl, username, password, streamId, containerExt, directSource
+            )
+            val backupExt = if (containerExt.equals("ts", ignoreCase = true)) "m3u8" else "ts"
+            val backupUrl = if (directSource == null) {
+                buildLiveStreamUrl(serverUrl, username, password, streamId, backupExt, null)
+            } else {
+                null
+            }
+            batch += ChannelEntity(
+                number = number,
+                name = name,
+                searchTitle = SearchTitleNormalizer.normalize(name),
+                groupName = group,
+                logoUrl = logo,
+                epgId = epgId,
+                streamUrl = streamUrl,
+                backupStreamUrl = backupUrl?.takeIf { it != streamUrl },
+                playlistId = playlistId,
+                epgResolutionStatus = EpgResolutionStatus.CONFIRMED.name,
+                epgResolutionConfidence = 100,
+                epgResolutionSource = epgSource
+            )
+            if (batch.size >= batchSize) flush()
+        }
+        flush()
+        return LiveChannelParseStats(
+            parsedCount = parsedCount,
+            epgFromProvider = epgFromProvider,
+            epgFromStreamId = epgFromStreamId,
+        )
+    }
+
+    data class LiveChannelParseStats(
+        val parsedCount: Int = 0,
+        val epgFromProvider: Int = 0,
+        val epgFromStreamId: Int = 0,
+    )
 
     fun parseVodCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
         val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()

@@ -51,23 +51,23 @@ interface SeriesShowDao {
         """
         SELECT COUNT(*) FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFiltered(category: String, search: String): Int
+    suspend fun countFiltered(category: String, searchPrefix: String): Int
 
     @Query(
         """
         SELECT * FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         LIMIT :limit OFFSET :offset
         """
     )
     suspend fun seriesPage(
         category: String,
-        search: String,
+        searchPrefix: String,
         limit: Int,
         offset: Int
     ): List<SeriesShowEntity>
@@ -134,12 +134,15 @@ interface SeriesShowDao {
     @Query(
         """
         SELECT * FROM series_shows
-        WHERE name LIKE '%' || :query || '%'
+        WHERE searchTitle LIKE :searchPrefix ESCAPE '\'
         ORDER BY name COLLATE NOCASE
         LIMIT :limit
         """
     )
-    suspend fun search(query: String, limit: Int): List<SeriesShowEntity>
+    suspend fun search(searchPrefix: String, limit: Int): List<SeriesShowEntity>
+
+    @Query("SELECT * FROM series_shows WHERE rowId IN (:rowIds)")
+    suspend fun byRowIds(rowIds: List<Long>): List<SeriesShowEntity>
 
     @Query(
         """
@@ -173,31 +176,31 @@ interface SeriesShowDao {
         """
         SELECT COUNT(*) FROM series_shows
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, search: String): Int
+    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, searchPrefix: String): Int
 
     @Query(
         """
         SELECT COUNT(*) FROM series_shows
         WHERE playlistId = :playlistId
           AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
     suspend fun countFilteredByIdsForPlaylist(
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): Int
 
     @Query(
         """
         SELECT * FROM series_shows
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         LIMIT :limit OFFSET :offset
         """
@@ -205,7 +208,7 @@ interface SeriesShowDao {
     suspend fun filteredBatchByIds(
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String,
+        searchPrefix: String,
         limit: Int,
         offset: Int
     ): List<SeriesShowEntity>
@@ -215,7 +218,7 @@ interface SeriesShowDao {
         SELECT * FROM series_shows
         WHERE playlistId = :playlistId
           AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         LIMIT :limit OFFSET :offset
         """
@@ -224,7 +227,7 @@ interface SeriesShowDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String,
+        searchPrefix: String,
         limit: Int,
         offset: Int
     ): List<SeriesShowEntity>
@@ -233,14 +236,14 @@ interface SeriesShowDao {
         """
         SELECT * FROM series_shows
         WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         """
     )
     fun seriesPagingSourceByIds(
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): PagingSource<Int, SeriesShowEntity>
 
     @Query(
@@ -248,7 +251,7 @@ interface SeriesShowDao {
         SELECT * FROM series_shows
         WHERE playlistId = :playlistId
           AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         """
     )
@@ -256,16 +259,16 @@ interface SeriesShowDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        search: String
+        searchPrefix: String
     ): PagingSource<Int, SeriesShowEntity>
 
     @Query(
         """
         SELECT * FROM series_shows
         WHERE (:category = 'All' OR IFNULL(categoryId, '') = :category OR IFNULL(genre, '') LIKE '%' || :category || '%')
-          AND (:search = '' OR name LIKE '%' || :search || '%')
+          AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         """
     )
-    fun seriesPagingSource(category: String, search: String): PagingSource<Int, SeriesShowEntity>
+    fun seriesPagingSource(category: String, searchPrefix: String): PagingSource<Int, SeriesShowEntity>
 }

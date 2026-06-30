@@ -9,6 +9,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.grid.tv.di.StartupEntryPoint
 import com.grid.tv.di.MemoryEntryPoint
+import com.grid.tv.data.db.AppDatabaseHolder
 import com.grid.tv.feature.startup.MemoryPressureHandler
 import com.grid.tv.feature.startup.MemoryPressureMonitor
 import com.grid.tv.feature.startup.StartupProfiler
@@ -29,6 +30,9 @@ class StreamFlowApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         StartupTiming.markProcessStart()
+        StartupTiming.trace("AppDatabaseHolder.earlyPrewarm") {
+            Thread({ AppDatabaseHolder.prewarm(this) }, "db-prewarm-early").start()
+        }
         StartupTiming.log("Application.onCreate() start")
         StartupTiming.trace("Application.super.onCreate (Hilt Application inject)") {
             super.onCreate()

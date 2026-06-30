@@ -132,6 +132,44 @@ fun buildVisibleGuideGroupRows(
     }
 }
 
+/** Flat smart buckets: Country → Category as selectable rows. */
+fun buildFlatSmartBucketRows(
+    categories: List<GuideGroupCategory>,
+    favoriteGroups: List<String> = emptyList(),
+): List<GuideGroupVisibleRow> = buildList {
+    add(GuideGroupVisibleRow.FavoriteSectionHeader)
+    if (favoriteGroups.isEmpty()) {
+        add(GuideGroupVisibleRow.FavoriteSectionEmpty)
+    } else {
+        favoriteGroups.forEach { fullName ->
+            add(
+                GuideGroupVisibleRow.Group(
+                    fullName = fullName,
+                    categoryIndex = -1,
+                    listSection = GuideGroupVisibleRow.ListSection.Favorites,
+                )
+            )
+        }
+    }
+    add(GuideGroupVisibleRow.AllChannels)
+    categories.forEach { country ->
+        country.groups.forEach { smartKey ->
+            add(
+                GuideGroupVisibleRow.Group(
+                    fullName = smartKey,
+                    categoryIndex = -1,
+                    listSection = GuideGroupVisibleRow.ListSection.Catalog,
+                )
+            )
+        }
+    }
+}
+
+fun smartGroupDisplayLabel(key: String): String {
+    val bucket = com.grid.tv.feature.guide.SmartGroupFilterKey.decode(key) ?: return key
+    return "${bucket.first} · ${bucket.second}"
+}
+
 /** Flat provider groups straight from M3U/Xtream (`group-title` / live categories). */
 fun buildFlatProviderVisibleRows(
     channelGroups: List<String>,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,12 +47,18 @@ fun GuideChannelGroupsPanel(
     onFocusedIndexChange: (Int) -> Unit,
     onFilterChange: (GuideChannelFilter) -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
+    smartMode: Boolean = false,
+    smartCategories: List<GuideGroupCategory> = emptyList(),
 ) {
-    val visibleRows = remember(channelGroups, favoriteGroups) {
-        buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+    val visibleRows = remember(channelGroups, favoriteGroups, smartMode, smartCategories) {
+        if (smartMode && smartCategories.isNotEmpty()) {
+            buildFlatSmartBucketRows(smartCategories, favoriteGroups)
+        } else {
+            buildFlatProviderVisibleRows(channelGroups, favoriteGroups)
+        }
     }
     val favoriteGroupSet = remember(favoriteGroups) { favoriteGroups.toSet() }
-    val listState = rememberLazyListState()
 
     LaunchedEffect(focusedIndex, panelFocused, visibleRows) {
         if (!panelFocused || visibleRows.isEmpty()) return@LaunchedEffect
@@ -146,7 +153,10 @@ fun GuideChannelGroupsPanel(
                         val selected = isGuideGroupRowSelected(row, selectedGroups)
                         val count = groupChannelCounts[row.fullName] ?: 0
                         val label = buildString {
-                            append(ChannelGroupIdentity.displayLabel(row.fullName))
+                            append(
+                                if (smartMode) smartGroupDisplayLabel(row.fullName)
+                                else ChannelGroupIdentity.displayLabel(row.fullName)
+                            )
                             if (count > 0) append(" ($count)")
                         }
                         val showFavoriteStar = row.listSection == GuideGroupVisibleRow.ListSection.Catalog &&

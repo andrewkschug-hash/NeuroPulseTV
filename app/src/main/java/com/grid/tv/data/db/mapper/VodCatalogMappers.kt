@@ -7,11 +7,13 @@ import com.grid.tv.data.db.entity.VodStreamEntity
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodItem
+import com.grid.tv.feature.search.SearchTitleNormalizer
 
 fun VodItem.toEntity(syncGeneration: Long = 0L): VodStreamEntity = VodStreamEntity(
     playlistId = playlistId,
     streamId = streamId,
     title = title,
+    searchTitle = SearchTitleNormalizer.normalize(title),
     streamUrl = streamUrl,
     posterUrl = posterUrl,
     plot = plot,
@@ -70,6 +72,7 @@ fun SeriesShow.toEntity(syncGeneration: Long = 0L): SeriesShowEntity = SeriesSho
     playlistId = playlistId,
     seriesId = id,
     name = name,
+    searchTitle = SearchTitleNormalizer.normalize(name),
     coverUrl = coverUrl,
     categoryId = categoryId,
     genre = genre,

@@ -51,10 +51,71 @@ class XmlTvParser {
         }
     }
 
+    /**
+     * Streams programme rows to [onProgramBatch] during parse so large EPG files are not held in memory.
+     */
+    suspend fun parseFileBatched(
+        file: File,
+        contentEncoding: String? = null,
+        sourceUrl: String? = null,
+        playlistId: Long = 0L,
+        batchSize: Int = PROGRAM_BATCH_SIZE,
+        onProgramBatch: suspend (List<ProgramEntity>) -> Unit,
+    ): ParsedXmlTv {
+        require(file.exists()) { "EPG cache file does not exist: ${file.absolutePath}" }
+        require(file.length() > 0L) { "EPG cache file is empty: ${file.absolutePath}" }
+        FileInputStream(file).use { fileStream ->
+            openDecompressedStream(BufferedInputStream(fileStream), contentEncoding, sourceUrl).use { decoded ->
+                val parser = newPullParser().apply {
+                    setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+                    setInput(decoded, Charsets.UTF_8.name())
+                }
+                return parseDocumentBatched(parser, playlistId, batchSize, onProgramBatch)
+            }
+        }
+    }
+
     private fun parseDocument(parser: XmlPullParser, playlistId: Long): ParsedXmlTv {
         val channelMap = mutableMapOf<String, String>()
         val programs = mutableListOf<ProgramEntity>()
+        parseDocumentLoop(parser, playlistId, channelMap) { programs += it }
+        return ParsedXmlTv(channelMap, programs, programs.size)
+    }
 
+    private suspend fun parseDocumentBatched(
+        parser: XmlPullParser,
+        playlistId: Long,
+        batchSize: Int,
+        onProgramBatch: suspend (List<ProgramEntity>) -> Unit,
+    ): ParsedXmlTv {
+        val channelMap = mutableMapOf<String, String>()
+        val batch = ArrayList<ProgramEntity>(batchSize)
+        var programCount = 0
+
+        suspend fun flushBatch() {
+            if (batch.isEmpty()) return
+            onProgramBatch(batch.toList())
+            batch.clear()
+        }
+
+        parseDocumentLoop(parser, playlistId, channelMap) { entity ->
+            programCount++
+            batch += entity
+            if (batch.size >= batchSize) {
+                // Loop body is synchronous; flush via coroutine scope owned by caller's suspend parse.
+                kotlinx.coroutines.runBlocking { flushBatch() }
+            }
+        }
+        flushBatch()
+        return ParsedXmlTv(channelMap, emptyList(), programCount)
+    }
+
+    private inline fun parseDocumentLoop(
+        parser: XmlPullParser,
+        playlistId: Long,
+        channelMap: MutableMap<String, String>,
+        onProgram: (ProgramEntity) -> Unit,
+    ) {
         var event = parser.eventType
         var currentTag = ""
         var channelId = ""
@@ -104,15 +165,17 @@ class XmlTvParser {
                         }
                         "programme" -> {
                             if (pChannel.isNotBlank() && pEnd > pStart) {
-                                programs += ProgramEntity(
-                                    id = stableProgramId(playlistId, pChannel, pStart),
-                                    playlistId = playlistId,
-                                    channelEpgId = pChannel,
-                                    title = pTitle.ifBlank { "Untitled" },
-                                    description = pDesc,
-                                    startTime = pStart,
-                                    endTime = pEnd,
-                                    genre = pGenre
+                                onProgram(
+                                    ProgramEntity(
+                                        id = stableProgramId(playlistId, pChannel, pStart),
+                                        playlistId = playlistId,
+                                        channelEpgId = pChannel,
+                                        title = pTitle.ifBlank { "Untitled" },
+                                        description = pDesc,
+                                        startTime = pStart,
+                                        endTime = pEnd,
+                                        genre = pGenre
+                                    )
                                 )
                             }
                         }
@@ -122,8 +185,6 @@ class XmlTvParser {
             }
             event = parser.next()
         }
-
-        return ParsedXmlTv(channelMap, programs)
     }
 
     private fun normalizeGenre(value: String): String {
@@ -151,6 +212,7 @@ class XmlTvParser {
 
     companion object {
         private const val TAG = "EpgFlow"
+        private const val PROGRAM_BATCH_SIZE = 500
         private const val GZIP_MAGIC_0: Byte = 0x1f
         private const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
 

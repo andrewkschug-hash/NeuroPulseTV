@@ -23,6 +23,9 @@ interface ChannelDao {
     @Query("SELECT COUNT(*) FROM channels WHERE playlistId = :playlistId")
     suspend fun countByPlaylist(playlistId: Long): Int
 
+    @Query("SELECT DISTINCT playlistId FROM channels WHERE playlistId > 0")
+    suspend fun distinctPlaylistIds(): List<Long>
+
     @Query(
         """
         SELECT playlistId, groupName, COUNT(*) AS channelCount
@@ -36,20 +39,32 @@ interface ChannelDao {
 
     @Query(
         """
+        SELECT playlistId, groupName, COUNT(*) AS channelCount
+        FROM channels
+        WHERE playlistId = :playlistId
+          AND groupName IS NOT NULL AND TRIM(groupName) != ''
+        GROUP BY playlistId, groupName
+        ORDER BY groupName COLLATE NOCASE
+        """
+    )
+    suspend fun groupChannelCountsForPlaylist(playlistId: Long): List<GroupChannelCountRow>
+
+    @Query(
+        """
         SELECT c.* FROM channels c
       LEFT JOIN profile_favorites f ON f.channelId = c.id AND f.profileId = :profileId
         WHERE (:filterPlaylistId < 0 OR c.playlistId = :filterPlaylistId)
           AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
         """
     )
     fun observeChannels(
         filterPlaylistId: Long,
         filterGroupName: String?,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long = -1L
@@ -59,11 +74,12 @@ interface ChannelDao {
       """
       SELECT c.* FROM channels c
       INNER JOIN playlists p ON p.id = c.playlistId
-      WHERE c.name LIKE '%' || :query || '%' OR p.name LIKE '%' || :query || '%'
+      WHERE (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\'
+         OR LOWER(p.name) LIKE :searchPrefix ESCAPE '\')
       ORDER BY c.number
       """
     )
-    fun searchAllPlaylists(query: String): Flow<List<ChannelEntity>>
+    fun searchAllPlaylists(searchPrefix: String): Flow<List<ChannelEntity>>
 
     @Query("SELECT * FROM channels ORDER BY createdAt DESC LIMIT :limit")
     fun observeRecentlyAdded(limit: Int): Flow<List<ChannelEntity>>
@@ -88,13 +104,13 @@ interface ChannelDao {
           AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
     suspend fun countChannels(
         filterPlaylistId: Long,
         filterGroupName: String?,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long
@@ -108,14 +124,14 @@ interface ChannelDao {
           AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
           AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
         """
     )
     suspend fun countChannelsFiltered(
         filterPlaylistId: Long,
         filterGroupName: String?,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long,
@@ -131,7 +147,7 @@ interface ChannelDao {
           AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
           AND (:matchSports = 0 OR c.epgId IN (:sportsEpgIds))
         ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
         LIMIT :limit OFFSET :offset
@@ -140,7 +156,7 @@ interface ChannelDao {
     suspend fun channelsPageFiltered(
         filterPlaylistId: Long,
         filterGroupName: String?,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long,
@@ -158,7 +174,7 @@ interface ChannelDao {
           AND (:filterGroupName IS NULL OR c.groupName = :filterGroupName)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
         LIMIT :limit OFFSET :offset
         """
@@ -166,7 +182,7 @@ interface ChannelDao {
     suspend fun channelsPage(
         filterPlaylistId: Long,
         filterGroupName: String?,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long,
@@ -181,14 +197,14 @@ interface ChannelDao {
         WHERE (c.playlistId || char(31) || c.groupName) IN (:groupKeys)
           AND (:onlyFavorites = 0 OR f.channelId IS NOT NULL)
           AND (:favoriteGroupId < 0 OR f.groupId = :favoriteGroupId)
-          AND c.name LIKE '%' || :search || '%'
+          AND (:searchPrefix = '' OR c.searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY CASE WHEN f.sortOrder IS NULL THEN c.number ELSE f.sortOrder END, c.number
         LIMIT :limit OFFSET :offset
         """
     )
     suspend fun channelsPageInGroups(
         groupKeys: List<String>,
-        search: String,
+        searchPrefix: String,
         onlyFavorites: Boolean,
         profileId: Long,
         favoriteGroupId: Long,

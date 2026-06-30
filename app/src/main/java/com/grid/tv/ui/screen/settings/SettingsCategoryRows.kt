@@ -4,6 +4,7 @@ import com.grid.tv.domain.model.AppSettings
 import com.grid.tv.domain.model.AppThemeId
 import com.grid.tv.domain.model.AspectRatioSetting
 import com.grid.tv.domain.model.BufferSize
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ClockDisplay
 import com.grid.tv.domain.model.DpadSensitivity
 import com.grid.tv.domain.model.EpgRowHeight
@@ -91,6 +92,7 @@ internal data class SettingsRowsContext(
     val onRefreshEpg: () -> Unit,
     val onOpenEpgResolver: () -> Unit,
     val onEditChannelGroups: () -> Unit,
+    val onChannelGroupNavigationMode: (ChannelGroupNavigationMode) -> Unit,
     val onRowHeight: (EpgRowHeight) -> Unit,
     val onToggleAutoScan: (Boolean) -> Unit,
     val onScanInterval: (Int) -> Unit,
@@ -448,6 +450,19 @@ private fun buildGuideRows(ctx: SettingsRowsContext): List<SettingsRowModel> = b
             subtitle = ctx.channelGroupSummary,
             value = "Edit",
             onClick = ctx.onEditChannelGroups,
+        )
+    )
+    add(
+        SettingsRowModel.Selection(
+            id = "guide.groupNavigation",
+            label = "Group navigation",
+            options = listOf("Smart groups", "Provider groups"),
+            selectedIndex = if (ctx.settings.channelGroupNavigationMode == ChannelGroupNavigationMode.SMART) 0 else 1,
+            onSelect = { index ->
+                ctx.onChannelGroupNavigationMode(
+                    if (index == 0) ChannelGroupNavigationMode.SMART else ChannelGroupNavigationMode.PROVIDER
+                )
+            },
         )
     )
     add(

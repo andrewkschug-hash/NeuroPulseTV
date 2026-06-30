@@ -55,7 +55,7 @@ import com.grid.tv.domain.model.FavoriteGroup
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchInputMode
 import com.grid.tv.domain.model.SearchResultItem
-import com.grid.tv.domain.model.UnifiedSearchResults
+import com.grid.tv.domain.model.SearchUiState
 import com.grid.tv.di.SearchEntryPoint
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.feature.recording.RecordingHealth
@@ -66,6 +66,7 @@ import com.grid.tv.ui.component.EpgNavTab
 import com.grid.tv.ui.component.EpgCategoryFilterChip
 import com.grid.tv.ui.component.EpgChannelCell
 import com.grid.tv.ui.component.EpgEmptyState
+import com.grid.tv.ui.component.HomeScreenSkeletonOverlay
 import com.grid.tv.ui.component.EpgJumpToLiveButton
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNowLine
@@ -92,6 +93,8 @@ import com.grid.tv.ui.viewmodel.HomeEpgViewModel
 import com.grid.tv.ui.viewmodel.RecordingViewModel
 import com.grid.tv.ui.viewmodel.SearchViewModel
 import com.grid.tv.util.PerformanceAudit
+import com.grid.tv.ui.compose.ProgramsForChannel
+import com.grid.tv.ui.compose.rememberEpgGuideRowCache
 import com.grid.tv.util.quitAppToHome
 import com.grid.tv.util.quitAppToHome
 import dagger.hilt.android.EntryPointAccessors
@@ -104,19 +107,7 @@ internal fun HomeEpgScreenLoadingGate(
     onNavigateSettings: () -> Unit
 ): Boolean {
     if (isInitializing || !guideSettingsLoaded) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(EpgColors.Background),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.tv.material3.Text(
-                text = "Loading guide…",
-                color = EpgColors.TextSecondary,
-                fontFamily = DmSansFamily,
-                fontSize = 16.sp
-            )
-        }
+        HomeScreenSkeletonOverlay()
         return true
     }
     if (showEmptyState) {
@@ -240,7 +231,9 @@ internal fun HomeEpgScreenMainColumn(
                 deps.guideFilter.isActive -> "No channels match your selected groups"
                 else -> "No channels in this favorites group"
             },
-            programsForChannel = controller::programsForChannel,
+            programsForChannel = remember(controller) {
+                { channel -> controller.programsForChannel(channel) }
+            },
             channelScanStatuses = channelScanStatuses,
             focusChannelIndex = ui.focusChannelIndex,
             focusProgramIndex = ui.focusProgramIndex,
@@ -252,12 +245,14 @@ internal fun HomeEpgScreenMainColumn(
             onJumpToLive = controller::scrollToLive,
             onChannelClick = controller::openChannelFromTouch,
             onProgramClick = controller::openProgramFromTouch,
-            replayStateFor = { channel, program ->
-                deps.viewModel.replayState(
-                    program,
-                    deps.channels.find { it.id == channel.id } ?: channel,
-                    System.currentTimeMillis()
-                )
+            replayStateFor = remember(deps.channels, deps.viewModel) {
+                { channel: Channel, program: Program ->
+                    deps.viewModel.replayState(
+                        program,
+                        deps.channels.find { it.id == channel.id } ?: channel,
+                        System.currentTimeMillis()
+                    )
+                }
             }
         )
     }
@@ -271,14 +266,10 @@ internal fun HomeEpgSearchScreenHost(
     searchViewModel: SearchViewModel,
     context: Context
 ) {
-    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
-    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
-    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
+    val searchUiState by searchViewModel.searchUiState.collectAsStateWithLifecycle()
     val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
     GuideSearchScreen(
-        query = searchQuery,
-        unifiedResults = unifiedSearchResults,
-        flatResults = searchResults,
+        searchUiState = searchUiState,
         searchBarState = searchBarState,
         onQueryChange = searchViewModel::updateQuery,
         onClear = searchViewModel::clearQuery,
@@ -309,9 +300,7 @@ internal fun HomeEpgScreenOverlaysOnly(
     val storageOptions by recordingViewModel.storageOptions.collectAsStateWithLifecycle()
     val precheck by recordingViewModel.precheck.collectAsStateWithLifecycle()
     val searchViewModel = deps.searchViewModel
-    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
-    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
-    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val searchUiState by searchViewModel.searchUiState.collectAsStateWithLifecycle()
     val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
 
     HomeEpgScreenOverlays(
@@ -327,9 +316,7 @@ internal fun HomeEpgScreenOverlaysOnly(
         showStoragePicker = showStoragePicker,
         storageOptions = storageOptions,
         precheck = precheck,
-        searchQuery = searchQuery,
-        unifiedSearchResults = unifiedSearchResults,
-        searchResults = searchResults,
+        searchUiState = searchUiState,
         searchBarState = searchBarState,
         searchViewModel = searchViewModel,
         onRequestVoiceSearch = {},
@@ -411,9 +398,7 @@ internal fun HomeEpgSearchOverlayHost(
     recordingViewModel: RecordingViewModel,
     searchViewModel: SearchViewModel,
 ) {
-    val searchQuery by searchViewModel.queryText.collectAsStateWithLifecycle()
-    val searchResults by searchViewModel.results.collectAsStateWithLifecycle()
-    val unifiedSearchResults by searchViewModel.unifiedResults.collectAsStateWithLifecycle()
+    val searchUiState by searchViewModel.searchUiState.collectAsStateWithLifecycle()
     val searchBarState by searchViewModel.searchBarState.collectAsStateWithLifecycle()
     val preferredSearchInput by searchViewModel.preferredInputMode.collectAsStateWithLifecycle()
     val showStoragePicker by recordingViewModel.showStoragePicker.collectAsStateWithLifecycle()
@@ -482,9 +467,7 @@ internal fun HomeEpgSearchOverlayHost(
         showStoragePicker = showStoragePicker,
         storageOptions = storageOptions,
         precheck = precheck,
-        searchQuery = searchQuery,
-        unifiedSearchResults = unifiedSearchResults,
-        searchResults = searchResults,
+        searchUiState = searchUiState,
         searchBarState = searchBarState,
         searchViewModel = searchViewModel,
         onRequestVoiceSearch = requestVoiceSearch,
@@ -506,9 +489,7 @@ internal fun HomeEpgScreenOverlays(
     showStoragePicker: Boolean,
     storageOptions: List<com.grid.tv.feature.recording.StorageOption>,
     precheck: com.grid.tv.feature.recording.RecordingPrecheck?,
-    searchQuery: String,
-    unifiedSearchResults: UnifiedSearchResults,
-    searchResults: List<SearchResultItem>,
+    searchUiState: SearchUiState,
     searchBarState: SearchBarState,
     searchViewModel: SearchViewModel,
     onRequestVoiceSearch: () -> Unit,
@@ -648,9 +629,7 @@ internal fun HomeEpgScreenOverlays(
                 ui.focusZone = EpgFocusZone.GRID
             }
             SearchOverlay(
-                query = searchQuery,
-                unifiedResults = unifiedSearchResults,
-                flatResults = searchResults,
+                searchUiState = searchUiState,
                 searchBarState = searchBarState,
                 onQueryChange = searchViewModel::updateQuery,
                 onClear = searchViewModel::clearQuery,
@@ -764,7 +743,7 @@ internal fun HomeEpgChannelList(
     listState: LazyListState,
     displayChannels: List<Channel>,
     filteredEmptyMessage: String? = null,
-    programsForChannel: (Channel) -> List<Program>,
+    programsForChannel: ProgramsForChannel,
     channelScanStatuses: Map<Long, ChannelScanSnapshot>,
     focusChannelIndex: Int,
     focusProgramIndex: Int,
@@ -787,6 +766,14 @@ internal fun HomeEpgChannelList(
     }
     val gridNow = rememberEpgNowMillis(EpgNowTicker.GRID_INTERVAL_MS)
     val touchGesturesEnabled = LocalDeviceFormFactor.current.enableTouchGestures
+    val rowCache = rememberEpgGuideRowCache(
+        displayChannels = displayChannels,
+        windowStart = windowStart,
+        windowDurationMs = windowDurationMs,
+        channelScanStatuses = channelScanStatuses,
+        gridNow = gridNow,
+        programsForChannel = programsForChannel,
+    )
     Box(
         modifier = modifier
     ) {
@@ -853,11 +840,15 @@ internal fun HomeEpgChannelList(
                             state = listState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            items(displayChannels.size, key = { index -> displayChannels[index].id }) { index ->
+                            items(
+                                count = displayChannels.size,
+                                key = { index -> displayChannels[index].id },
+                            ) { index ->
+                                val channel = displayChannels[index]
                                 EpgGuideChannelRow(
-                                    channel = displayChannels[index],
+                                    channel = channel,
                                     index = index,
-                                    programs = programsForChannel(displayChannels[index]),
+                                    programs = rowCache.programsByChannelId[channel.id].orEmpty(),
                                     gridFocused = gridFocused,
                                     focusChannelIndex = focusChannelIndex,
                                     focusProgramIndex = focusProgramIndex,
@@ -865,8 +856,9 @@ internal fun HomeEpgChannelList(
                                     windowStart = windowStart,
                                     windowDurationMs = windowDurationMs,
                                     gridNow = gridNow,
-                                    channelScanStatuses = channelScanStatuses,
-                                    displayChannelsLastIndex = displayChannels.lastIndex,
+                                    scanStatus = rowCache.scanStatusByChannelId[channel.id],
+                                    lastCheckedLabel = rowCache.scanLabelByChannelId[channel.id],
+                                    displayChannelsLastIndex = rowCache.lastChannelIndex,
                                     confirmedProgramId = confirmedProgramId,
                                     scheduled = scheduled,
                                     hScroll = hScroll,
@@ -932,7 +924,8 @@ private fun EpgGuideChannelRow(
     windowStart: Long,
     windowDurationMs: Long,
     gridNow: Long,
-    channelScanStatuses: Map<Long, ChannelScanSnapshot>,
+    scanStatus: com.grid.tv.domain.model.ChannelScanStatus?,
+    lastCheckedLabel: String?,
     displayChannelsLastIndex: Int,
     confirmedProgramId: Long?,
     scheduled: List<ScheduledRecordingEntity>,
@@ -957,10 +950,8 @@ private fun EpgGuideChannelRow(
             isFocused = isChannelCellFocused,
             isRowHighlighted = isActiveRow,
             showBottomSeparator = index < displayChannelsLastIndex,
-            scanStatus = channelScanStatuses[channel.id]?.status,
-            lastCheckedLabel = formatLastChecked(
-                channelScanStatuses[channel.id]?.lastCheckedAt
-            ),
+            scanStatus = scanStatus,
+            lastCheckedLabel = lastCheckedLabel,
             onClick = if (touchGesturesEnabled) {
                 { onChannelClick(index, channel) }
             } else {

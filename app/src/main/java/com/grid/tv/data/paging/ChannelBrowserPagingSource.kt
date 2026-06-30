@@ -11,7 +11,7 @@ internal class ChannelBrowserPagingSource(
     private val channelDao: ChannelDao,
     private val filterPlaylistId: Long,
     private val filterGroupName: String?,
-    private val search: String,
+    private val searchPrefix: String,
     private val onlyFavorites: Boolean,
     private val profileId: Long,
     private val favoriteGroupId: Long,
@@ -28,7 +28,7 @@ internal class ChannelBrowserPagingSource(
             val entities = channelDao.channelsPageFiltered(
                 filterPlaylistId = filterPlaylistId,
                 filterGroupName = filterGroupName,
-                search = search,
+                searchPrefix = searchPrefix,
                 onlyFavorites = onlyFavorites,
                 profileId = profileId,
                 favoriteGroupId = favoriteGroupId,
@@ -46,7 +46,7 @@ internal class ChannelBrowserPagingSource(
                     group = filterGroupName,
                     favoritesOnly = onlyFavorites,
                     matchSports = matchSports,
-                    search = search
+                    search = searchPrefix
                 )
             } else {
                 ChannelBrowserMetrics.logPageLoaded(

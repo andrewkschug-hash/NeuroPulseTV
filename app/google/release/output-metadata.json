@@ -11,27 +11,11 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 10400,
-      "versionName": "1.04",
+      "versionCode": 10700,
+      "versionName": "1.07",
       "outputFile": "app-google-release.apk"
     }
   ],
   "elementType": "File",
-  "baselineProfiles": [
-    {
-      "minApi": 28,
-      "maxApi": 30,
-      "baselineProfiles": [
-        "baselineProfiles/1/app-google-release.dm"
-      ]
-    },
-    {
-      "minApi": 31,
-      "maxApi": 2147483647,
-      "baselineProfiles": [
-        "baselineProfiles/0/app-google-release.dm"
-      ]
-    }
-  ],
   "minSdkVersionForDexing": 23
 }

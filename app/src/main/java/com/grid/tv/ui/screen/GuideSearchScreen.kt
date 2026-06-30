@@ -8,16 +8,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
-import com.grid.tv.domain.model.UnifiedSearchResults
+import com.grid.tv.domain.model.SearchUiState
 import com.grid.tv.ui.component.SearchOverlay
 import com.grid.tv.ui.theme.EpgColors
 
 /** Full-screen guide search — not a modal overlay. */
 @Composable
 fun GuideSearchScreen(
-    query: String,
-    unifiedResults: UnifiedSearchResults,
-    flatResults: List<SearchResultItem>,
+    searchUiState: SearchUiState,
     searchBarState: SearchBarState,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
@@ -35,9 +33,7 @@ fun GuideSearchScreen(
             .background(EpgColors.Background)
     ) {
         SearchOverlay(
-            query = query,
-            unifiedResults = unifiedResults,
-            flatResults = flatResults,
+            searchUiState = searchUiState,
             searchBarState = searchBarState,
             onQueryChange = onQueryChange,
             onClear = onClear,
