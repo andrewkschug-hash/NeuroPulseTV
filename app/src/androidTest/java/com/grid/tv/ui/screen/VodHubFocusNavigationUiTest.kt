@@ -41,8 +41,6 @@ class VodHubFocusNavigationUiTest {
                 genreLabels = listOf("All", "Comedy", "Action"),
                 wallRows = emptyList(),
                 displayWallRows = emptyList(),
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),

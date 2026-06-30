@@ -78,12 +78,14 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import coil.request.ImageRequest
 import coil.size.Size
+import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodContentFilter
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.domain.model.VodWallItem
 import com.grid.tv.domain.model.VodWallRow
+import com.grid.tv.domain.model.formatContinueWatchingRemaining
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.ui.theme.VodNetflixColors
@@ -290,6 +292,165 @@ fun NetflixPosterCard(
                     .align(Alignment.TopCenter)
                     .padding(top = titleTop)
                     .width(PosterWidth)
+            )
+        }
+    }
+}
+
+@Composable
+fun NetflixContinueWatchingPosterCard(
+    item: ContinueWatchingItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    externallyFocused: Boolean = false,
+) {
+    val displayTitle = remember(item.title) { cleanVodDisplayTitle(item.title) }
+    val languageBadge = remember(item.title) { parseVodLanguageBadge(item.title) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val focused = interactionSource.collectVodCardFocused(externallyFocused)
+    val border = if (focused) {
+        ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(
+                    VodPosterFocusLayout.NETFLIX_FOCUS_BORDER,
+                    VodNetflixColors.FocusBorder
+                )
+            )
+        )
+    } else {
+        TvFocusDefaults.noBorder()
+    }
+
+    val edgeH = VodPosterFocusLayout.netflixEdgePaddingHorizontal
+    val edgeV = VodPosterFocusLayout.netflixEdgePaddingVertical
+    val overflowY = VodPosterFocusLayout.scaleOverflowY
+    val progressFraction = item.progressFraction.takeIf { it in 0.01f..0.98f } ?: 0f
+
+    Column(
+        modifier = modifier.width(VodPosterFocusLayout.netflixCardWidth)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(
+                    VodPosterFocusLayout.netflixEdgePaddingVertical * 2 +
+                        VodPosterFocusLayout.POSTER_HEIGHT +
+                        VodPosterFocusLayout.scaleOverflowY +
+                        VodPosterFocusLayout.POSTER_TITLE_GAP +
+                        VodPosterFocusLayout.POSTER_TITLE_HEIGHT
+                )
+        ) {
+            Surface(
+                onClick = onClick,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = edgeV)
+                    .width(PosterWidth)
+                    .height(PosterHeight)
+                    .vodCardFocusPop(interactionSource, externallyFocused)
+                    .zIndex(if (focused) 1f else 0f),
+                interactionSource = interactionSource,
+                shape = ClickableSurfaceDefaults.shape(PosterShape),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = VodNetflixColors.CardPlaceholder,
+                    focusedContainerColor = VodNetflixColors.CardPlaceholder
+                ),
+                scale = TvFocusDefaults.NoScale,
+                border = border,
+                glow = TvFocusDefaults.noGlow()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (!item.posterUrl.isNullOrBlank()) {
+                        TvPosterImage(
+                            url = item.posterUrl,
+                            contentDescription = displayTitle,
+                            kind = PosterImageKind.ContinueWatching,
+                            placeholderLetter = displayTitle,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(VodNetflixColors.CardPlaceholder),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = displayTitle.take(2).uppercase(),
+                                color = VodNetflixColors.TextSecondary,
+                                fontFamily = DmSansFamily,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
+
+                    languageBadge?.let { badge ->
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(6.dp)
+                                .background(Color.Black.copy(alpha = 0.62f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = Color.White,
+                                fontFamily = DmSansFamily,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = displayTitle,
+                color = VodNetflixColors.TextPrimary,
+                fontFamily = DmSansFamily,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 14.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(
+                        top = edgeV + PosterHeight + overflowY + VodPosterFocusLayout.POSTER_TITLE_GAP
+                    )
+                    .width(PosterWidth)
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = edgeH)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.12f))
+            ) {
+                if (progressFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
+                            .height(4.dp)
+                            .background(VodNetflixColors.Accent)
+                    )
+                }
+            }
+            Text(
+                text = item.remainingTimeLabel(),
+                color = VodNetflixColors.TextSecondary,
+                fontFamily = DmSansFamily,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
@@ -1304,6 +1465,12 @@ fun NetflixContentWallRow(
         }
     }
 
+    val rowLazyRowHeight = if (row.id == "continue_watching") {
+        VodPosterFocusLayout.continueWatchingWallRowLazyRowHeight
+    } else {
+        VodPosterFocusLayout.wallRowLazyRowHeight
+    }
+
     // Title + poster row share one Column so LazyColumn viewport passes cannot clip the header.
     Column(
         modifier = modifier
@@ -1333,7 +1500,7 @@ fun NetflixContentWallRow(
             state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(VodPosterFocusLayout.wallRowLazyRowHeight)
+                .height(rowLazyRowHeight)
                 .padding(bottom = VodPosterFocusLayout.categoryRowBottomPadding),
             contentPadding = PaddingValues(
                 start = 16.dp,
@@ -1369,10 +1536,8 @@ fun NetflixContentWallRow(
                 when (item) {
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item
-                        NetflixPosterCard(
-                            rawTitle = cw.title,
-                            posterUrl = cw.posterUrl,
-                            progressFraction = cw.progressFraction.takeIf { it in 0.01f..0.98f },
+                        NetflixContinueWatchingPosterCard(
+                            item = cw,
                             onClick = { onActivateItem(item) },
                             externallyFocused = externallyFocused,
                             modifier = itemModifier

@@ -28,6 +28,7 @@ import com.grid.tv.ui.component.GridFocusSurface
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.ContinueWatchingContentType
 import com.grid.tv.domain.model.ContinueWatchingItem
+import com.grid.tv.domain.model.formatContinueWatchingRemaining
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvImageSizing
@@ -140,7 +141,7 @@ private fun ContinueWatchingCard(
                 )
             }
             Text(
-                text = formatRemainingTime(item.remainingMs),
+                text = formatContinueWatchingRemaining(item.remainingMs),
                 color = EpgColors.TextDimmed,
                 fontFamily = DmSansFamily,
                 fontSize = 10.sp,
@@ -150,10 +151,3 @@ private fun ContinueWatchingCard(
     }
 }
 
-private fun formatRemainingTime(remainingMs: Long): String {
-    if (remainingMs <= 0L) return "Resume"
-    val totalSec = (remainingMs + 500L) / 1000L
-    val minutes = totalSec / 60
-    val seconds = totalSec % 60
-    return if (minutes > 0) "${minutes}m ${seconds}s left" else "${seconds}s left"
-}

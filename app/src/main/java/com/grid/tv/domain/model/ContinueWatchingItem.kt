@@ -31,6 +31,8 @@ data class ContinueWatchingItem(
     val remainingMs: Long
         get() = (durationMs - positionMs).coerceAtLeast(0L)
 
+    fun remainingTimeLabel(): String = formatContinueWatchingRemaining(remainingMs)
+
     val subtitle: String
         get() = when {
             contentType == ContinueWatchingContentType.SERIES &&
@@ -38,4 +40,12 @@ data class ContinueWatchingItem(
                 "S${seasonNumber.toString().padStart(2, '0')}E${episodeNumber.toString().padStart(2, '0')}"
             else -> ""
         }
+}
+
+fun formatContinueWatchingRemaining(remainingMs: Long): String {
+    if (remainingMs <= 0L) return "Resume"
+    val totalSec = (remainingMs + 500L) / 1000L
+    val minutes = totalSec / 60
+    val seconds = totalSec % 60
+    return if (minutes > 0) "${minutes}m ${seconds}s left" else "${seconds}s left"
 }

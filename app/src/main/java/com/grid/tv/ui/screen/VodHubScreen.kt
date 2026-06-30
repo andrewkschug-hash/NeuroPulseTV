@@ -90,7 +90,6 @@ import com.grid.tv.ui.component.VodGenreSidePanel
 import com.grid.tv.ui.component.runtimeLabelForMovie
 import com.grid.tv.ui.component.ScreenBackHandler
 import com.grid.tv.ui.component.VodAmbientBackdrop
-import com.grid.tv.domain.model.VodSidebarGenreNormalizer
 import com.grid.tv.ui.component.VodPosterFocusLayout
 import com.grid.tv.ui.component.VodHubLanguageFilterFocusIndex
 import com.grid.tv.ui.component.VodHubTabFilters
@@ -145,8 +144,6 @@ import com.grid.tv.util.VodCatalogLogger
 import com.grid.tv.util.VodPerfLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-private val vodImmediateWallRowIds = setOf("continue_watching", "movie_recent")
 
 @Composable
 fun VodHubScreen(
@@ -248,38 +245,15 @@ fun VodHubScreen(
     val trendingNow = contentState.trendingNow
     val wallRows = contentState.wallRows
     val wallRowsRevision = contentState.wallRowsRevision
-    val immediateWallRows = remember(wallRows) {
-        wallRows.filter { it.id in vodImmediateWallRowIds }
-    }
-    val deferredWallRows = remember(wallRows) {
-        wallRows.filter { it.id !in vodImmediateWallRowIds }
-            .sortedWith(
-                compareBy({ VodSidebarGenreNormalizer.sidebarSortRank(it.title) }, { it.title.lowercase() })
-            )
-    }
-    val seedDeferredWallCount = remember(wallRowsRevision, deferredWallRows.size) {
-        if (deferredWallRows.isNotEmpty()) minOf(2, deferredWallRows.size) else 0
-    }
-    var loadedDeferredWallCount by rememberSaveable(wallRowsRevision) {
-        mutableIntStateOf(seedDeferredWallCount)
-    }
     val displayWallRows = remember(
         contentFilter,
         wallRows,
-        immediateWallRows,
-        deferredWallRows,
-        loadedDeferredWallCount,
         homeWallTypeFilter,
     ) {
-        val base = if (contentFilter != VodContentFilter.ALL) {
-            wallRows
-        } else {
-            immediateWallRows + deferredWallRows.take(loadedDeferredWallCount)
-        }
         if (contentFilter == VodContentFilter.ALL) {
-            filterHomeWallRowsByType(base, homeWallTypeFilter)
+            filterHomeWallRowsByType(wallRows, homeWallTypeFilter)
         } else {
-            base
+            wallRows
         }
     }
     val (homeLeadWallRows, homeTailWallRows) = remember(displayWallRows) {
@@ -722,30 +696,13 @@ fun VodHubScreen(
         )
     }
 
-    LaunchedEffect(wallRows.size) {
-        val maxRow = displayWallRows.lastIndex.coerceAtLeast(0)
-        if (displayWallRows.isEmpty()) return@LaunchedEffect
-        contentRowIndex = contentRowIndex.coerceIn(0, maxRow)
-        val maxCol = displayWallRows.getOrNull(contentRowIndex)?.items?.lastIndex ?: 0
-        contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
-    }
-
-    LaunchedEffect(deferredWallRows.size, contentFilter) {
-        if (contentFilter == VodContentFilter.ALL && deferredWallRows.isNotEmpty() && loadedDeferredWallCount == 0) {
-            loadedDeferredWallCount = minOf(2, deferredWallRows.size)
-        }
-    }
-
-    LaunchedEffect(contentRowIndex, focusUi.focusZone, contentFilter, deferredWallRows.size, immediateWallRows.size) {
-        if (contentFilter != VodContentFilter.ALL || showBrowseGrid || focusUi.focusZone != VodFocusZone.CONTENT) return@LaunchedEffect
-        val neededDeferred = (contentRowIndex - immediateWallRows.size + 2)
-            .coerceIn(0, deferredWallRows.size)
-        if (neededDeferred > loadedDeferredWallCount) {
-            loadedDeferredWallCount = neededDeferred
-        }
-    }
-
     LaunchedEffect(wallRows.size, searchQuery) {
+        val maxRow = displayWallRows.lastIndex.coerceAtLeast(0)
+        if (displayWallRows.isNotEmpty()) {
+            contentRowIndex = contentRowIndex.coerceIn(0, maxRow)
+            val maxCol = displayWallRows.getOrNull(contentRowIndex)?.items?.lastIndex ?: 0
+            contentColIndex = contentColIndex.coerceIn(0, maxCol.coerceAtLeast(0))
+        }
         if (searchQuery.isBlank() && wallRows.isEmpty() && focusUi.focusZone == VodFocusZone.CONTENT) {
             focusUi.libraryNavPanelVisible = true
             focusUi.focusZone = VodFocusZone.FILTER_PANEL
@@ -1035,18 +992,19 @@ fun VodHubScreen(
                 genrePanelFocusRequester.requestFocusSafelyAfterLayout()
             focusUi.focusZone == VodFocusZone.LANGUAGE_SUBMENU ->
                 languageSubmenuFocusRequester.requestFocusSafelyAfterLayout()
+            focusUi.focusZone == VodFocusZone.NAV_DRAWER ->
+                navDrawerFocusRequester.requestFocusSafelyAfterLayout()
             focusUi.focusZone == VodFocusZone.CONTENT &&
                 !showInlineSearch &&
                 !showBrowseGrid &&
                 displayWallRows.isNotEmpty() &&
                 !focusUi.blocksGridFocus ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
-            focusUi.focusZone == VodFocusZone.NAV_DRAWER ||
-                (focusUi.focusZone == VodFocusZone.CONTENT &&
-                    !showInlineSearch &&
-                    (showBrowseGrid || wallRows.isEmpty()) &&
-                    !focusUi.blocksGridFocus &&
-                    (!showBrowseGrid || browseGridCount > 0)) ->
+            focusUi.focusZone == VodFocusZone.CONTENT &&
+                !showInlineSearch &&
+                (showBrowseGrid || wallRows.isEmpty()) &&
+                !focusUi.blocksGridFocus &&
+                (!showBrowseGrid || browseGridCount > 0) ->
                 rootFocusRequester.requestFocusSafelyAfterLayout()
         }
     }
@@ -1129,6 +1087,9 @@ fun VodHubScreen(
         focusUi.navDrawerFocusIndex = focusUi.lastNavDrawerFocusIndex
         focusUi.focusZone = VodFocusZone.NAV_DRAWER
         com.grid.tv.ui.screen.VodHubFocusLogger.sidebar("open")
+        scope.launch {
+            navDrawerFocusRequester.requestFocusSafelyAfterLayout()
+        }
     }
 
     fun closeNavDrawer(restoreFilter: Boolean = true) {
@@ -1557,8 +1518,6 @@ fun VodHubScreen(
                 genreLabels = genreLabels,
                 wallRows = wallRows,
                 displayWallRows = displayWallRows,
-                loadedDeferredWallCount = loadedDeferredWallCount,
-                deferredWallRowsSize = deferredWallRows.size,
                 navDrawerOpen = focusUi.navDrawerOpen,
                 filterPanelFocusRequester = filterPanelFocusRequester,
                 genrePanelFocusRequester = genrePanelFocusRequester,
@@ -1615,19 +1574,8 @@ fun VodHubScreen(
     fun handleLanguageSubmenuKey(event: KeyEvent): Boolean =
         focusController.handleLanguageSubmenuKey(event)
 
-    fun handleContentKey(event: KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        val paginateDeferred = event.key == Key.DirectionDown &&
-            contentFilter == VodContentFilter.ALL &&
-            !showBrowseGrid &&
-            contentRowIndex >= displayWallRows.lastIndex &&
-            loadedDeferredWallCount < deferredWallRows.size
-        val handled = focusController.handleContentKey(event)
-        if (handled && paginateDeferred) {
-            loadedDeferredWallCount += 1
-        }
-        return handled
-    }
+    fun handleContentKey(event: KeyEvent): Boolean =
+        focusController.handleContentKey(event)
 
     fun consumeVodLocalBack(): Boolean = when {
         showGlobalSearchOverlay -> {

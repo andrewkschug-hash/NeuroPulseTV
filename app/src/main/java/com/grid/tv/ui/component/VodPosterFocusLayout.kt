@@ -79,6 +79,14 @@ object VodPosterFocusLayout {
     val wallRowLazyRowHeight: Dp
         get() = lazyRowVerticalPadding * 2 + netflixCardHeight
 
+    val continueWatchingMetaBandHeight = 24.dp
+
+    val netflixContinueWatchingCardHeight: Dp
+        get() = netflixCardHeight + continueWatchingMetaBandHeight
+
+    val continueWatchingWallRowLazyRowHeight: Dp
+        get() = lazyRowVerticalPadding * 2 + netflixContinueWatchingCardHeight
+
     fun dpToPx(densityDpi: Int, dp: Dp): Int =
         kotlin.math.round(dp.value * densityDpi / 160f).toInt()
 }

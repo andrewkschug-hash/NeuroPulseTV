@@ -53,8 +53,6 @@ class VodHubFocusNavigationTest {
                 genreLabels = listOf("All", "Action", "Comedy", "Drama"),
                 wallRows = emptyList(),
                 displayWallRows = emptyList(),
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
@@ -157,8 +155,6 @@ class VodHubFocusNavigationTest {
                 genreLabels = emptyList(),
                 wallRows = emptyList(),
                 displayWallRows = emptyList(),
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
@@ -328,8 +324,6 @@ class VodHubFocusNavigationTest {
             genreLabels = emptyList(),
             wallRows = emptyList(),
             displayWallRows = emptyList(),
-            loadedDeferredWallCount = 0,
-            deferredWallRowsSize = 0,
             navDrawerOpen = false,
             filterPanelFocusRequester = FocusRequester(),
             genrePanelFocusRequester = FocusRequester(),
@@ -432,8 +426,6 @@ class VodHubFocusNavigationTest {
                 genreLabels = emptyList(),
                 wallRows = wallRows,
                 displayWallRows = wallRows,
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
@@ -503,8 +495,6 @@ class VodHubFocusNavigationTest {
                 genreLabels = emptyList(),
                 wallRows = wallRows,
                 displayWallRows = wallRows,
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
@@ -554,7 +544,7 @@ class VodHubFocusNavigationTest {
     }
 
     @Test
-    fun openLibraryNavPanel_restoresLastFilterFocusAndShowsRail() {
+    fun openLibraryNavPanel_focusesAppliedFilterNotLastHighlight() {
         val ui = VodHubFocusUiState()
         ui.libraryNavPanelVisible = false
         ui.lastFilterFocusIndex = 2
@@ -563,7 +553,7 @@ class VodHubFocusNavigationTest {
         controller.bind(
             VodHubFocusDeps(
                 scope = scope,
-                contentFilter = VodContentFilter.SERIES,
+                contentFilter = VodContentFilter.ALL,
                 searchQuery = "",
                 showGenrePanel = false,
                 showLibraryNavPanel = true,
@@ -574,8 +564,6 @@ class VodHubFocusNavigationTest {
                 genreLabels = emptyList(),
                 wallRows = sampleWallRows(),
                 displayWallRows = sampleWallRows(),
-                loadedDeferredWallCount = 0,
-                deferredWallRowsSize = 0,
                 navDrawerOpen = false,
                 filterPanelFocusRequester = FocusRequester(),
                 genrePanelFocusRequester = FocusRequester(),
@@ -620,6 +608,6 @@ class VodHubFocusNavigationTest {
         controller.openLibraryNavPanel()
         assertTrue(ui.libraryNavPanelVisible)
         assertEquals(VodFocusZone.FILTER_PANEL, ui.focusZone)
-        assertEquals(2, ui.filterFocusIndex)
+        assertEquals(0, ui.filterFocusIndex)
     }
 }

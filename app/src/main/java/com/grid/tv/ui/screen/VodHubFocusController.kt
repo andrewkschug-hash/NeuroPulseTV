@@ -49,8 +49,6 @@ internal data class VodHubFocusDeps(
     val genreLabels: List<String>,
     val wallRows: List<VodWallRow>,
     val displayWallRows: List<VodWallRow>,
-    val loadedDeferredWallCount: Int,
-    val deferredWallRowsSize: Int,
     val navDrawerOpen: Boolean,
     val filterPanelFocusRequester: FocusRequester,
     val genrePanelFocusRequester: FocusRequester,
@@ -161,11 +159,8 @@ internal class VodHubFocusController(
         ui.libraryNavPanelVisible = true
         val appliedIndex = vodHubTabFilterIndex(d.contentFilter)
             .coerceIn(0, VodHubLanguageFilterFocusIndex)
-        ui.filterFocusIndex = if (ui.lastFilterFocusIndex != 0) {
-            ui.lastFilterFocusIndex.coerceIn(0, VodHubLanguageFilterFocusIndex)
-        } else {
-            appliedIndex
-        }
+        ui.filterFocusIndex = appliedIndex
+        ui.lastFilterFocusIndex = appliedIndex
         transitionToZone(VodFocusZone.FILTER_PANEL, "openLibraryNav")
         VodHubFocusLogger.filterHighlight(d.contentFilter, ui.filterFocusIndex)
         d.scope.launch {
@@ -588,6 +583,7 @@ internal class VodHubFocusController(
         return when (event.key) {
             Key.DirectionLeft -> {
                 ui.rememberFilterFocus()
+                transitionToZone(VodFocusZone.NAV_DRAWER, "libraryNavLeft")
                 d.openNavDrawer()
                 true
             }
@@ -799,14 +795,6 @@ internal class VodHubFocusController(
                     d.setContentRowIndex(d.contentRowIndex + 1)
                     val maxCol = d.displayWallRows[d.contentRowIndex].items.lastIndex
                     d.setContentColIndex(d.contentColIndex.coerceAtMost(maxCol))
-                } else if (
-                    d.contentFilter == VodContentFilter.ALL &&
-                    !d.showBrowseGrid &&
-                    d.loadedDeferredWallCount < d.deferredWallRowsSize
-                ) {
-                    ui.contentScrollDirection = TvLazyFocusScrollDirection.DOWN
-                    d.setContentRowIndex(d.contentRowIndex + 1)
-                    d.setContentColIndex(0)
                 }
                 true
             }
