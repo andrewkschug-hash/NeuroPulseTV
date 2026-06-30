@@ -17,25 +17,21 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.ExperimentalComposeUiApi
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.grid.tv.domain.model.ChannelGroupIdentity
 import com.grid.tv.feature.epg.GuideChannelFilter
+import com.grid.tv.ui.focus.GuideChannelGroupsFocusRegistry
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 
 /** TiviMate-style column-2 channel group list beside the icon rail. */
 val GuideChannelGroupsPanelWidth = 260.dp
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun GuideChannelGroupsPanel(
     channelGroups: List<String>,
@@ -45,12 +41,9 @@ fun GuideChannelGroupsPanel(
     focusedIndex: Int,
     panelFocused: Boolean,
     groupsLoading: Boolean,
-    panelFocusRequester: FocusRequester,
-    gridFocusRequester: FocusRequester,
-    navDrawerFocusRequester: FocusRequester,
+    rowFocusRegistry: GuideChannelGroupsFocusRegistry,
     onPanelFocused: () -> Unit,
     onFocusedIndexChange: (Int) -> Unit,
-    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     onFilterChange: (GuideChannelFilter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -59,23 +52,10 @@ fun GuideChannelGroupsPanel(
     }
     val favoriteGroupSet = remember(favoriteGroups) { favoriteGroups.toSet() }
     val listState = rememberLazyListState()
-    val rowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
 
-    fun focusRequesterFor(row: GuideGroupVisibleRow): FocusRequester =
-        rowFocusRequesters.getOrPut(guideGroupVisibleRowKey(row)) { FocusRequester() }
-
-    LaunchedEffect(panelFocused, focusedIndex, visibleRows) {
+    LaunchedEffect(focusedIndex, panelFocused, visibleRows) {
         if (!panelFocused || visibleRows.isEmpty()) return@LaunchedEffect
-        val index = focusedIndex.coerceIn(0, visibleRows.lastIndex)
-        val row = visibleRows.getOrNull(index) ?: return@LaunchedEffect
-        if (!row.isFocusableGroupRow()) return@LaunchedEffect
-        focusRequesterFor(row).requestFocusSafelyAfterLayout()
-    }
-
-    LaunchedEffect(focusedIndex, visibleRows) {
-        if (visibleRows.isNotEmpty()) {
-            listState.animateScrollToItem(focusedIndex.coerceIn(0, visibleRows.lastIndex))
-        }
+        listState.animateScrollToItem(focusedIndex.coerceIn(0, visibleRows.lastIndex))
     }
 
     Column(
@@ -87,14 +67,7 @@ fun GuideChannelGroupsPanel(
                 width = 1.dp,
                 color = EpgColors.BorderSubtle,
                 shape = RoundedCornerShape(0.dp)
-            )
-            .focusRequester(panelFocusRequester)
-            .focusProperties {
-                left = navDrawerFocusRequester
-                right = gridFocusRequester
-            }
-            .onFocusChanged { if (it.isFocused) onPanelFocused() }
-            .onPreviewKeyEvent(onPreviewKey)
+            ),
     ) {
         Text(
             text = "Channel groups",
@@ -161,8 +134,11 @@ fun GuideChannelGroupsPanel(
                         GuideGroupAllChannelsRow(
                             checked = selected,
                             onClick = { onFilterChange(GuideChannelFilter.All) },
-                            focusRequester = focusRequesterFor(row),
-                            onFocused = { onFocusedIndexChange(index) },
+                            focusRequester = rowFocusRegistry.requesterFor(row),
+                            onFocused = {
+                                onFocusedIndexChange(index)
+                                onPanelFocused()
+                            },
                             blockRemoteActivation = true,
                         )
                     }
@@ -181,8 +157,11 @@ fun GuideChannelGroupsPanel(
                             onClick = {
                                 onFilterChange(GuideChannelFilter(setOf(row.fullName)))
                             },
-                            focusRequester = focusRequesterFor(row),
-                            onFocused = { onFocusedIndexChange(index) },
+                            focusRequester = rowFocusRegistry.requesterFor(row),
+                            onFocused = {
+                                onFocusedIndexChange(index)
+                                onPanelFocused()
+                            },
                             blockRemoteActivation = true,
                             showFavoriteStar = showFavoriteStar,
                         )

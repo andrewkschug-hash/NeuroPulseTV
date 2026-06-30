@@ -74,29 +74,35 @@ Shared package: `com.grid.tv.ui.focus`
 
 ### Live EPG (`HomeEpgScreen` + `HomeEpgGuideController`)
 
-**Status: PARTIALLY MIGRATED**
+**Status: MIGRATED (canonical VOD pattern)**
 
 | Concern | Owner |
 |---------|--------|
 | Zone state | `HomeEpgUiState.focusZone` |
-| `requestFocus()` (zones) | `HomeEpgFocusDispatcher` |
+| `requestFocus()` (zones) | `HomeEpgFocusDispatcher` only |
 | Nav rail focus | `GuideNavDrawerFocusTargets` + dispatcher |
-| D-pad | **Still split** across `HomeEpgScreenSections` (`onPreviewKeyEvent` per zone) |
-| Channel group rows | **Still** `GuideChannelGroupsPanel` `LaunchedEffect` → row `requestFocus()` |
+| Channel group rows | `GuideChannelGroupsFocusRegistry` (screen-owned) + dispatcher |
+| D-pad | `TvScreenFocusRoot` → `HomeEpgGuideController.handleKey()` |
 
-**Remaining `FocusRequester`s (EPG)**
+**Focus zones:** `NAV_DRAWER`, `CHANNEL_GROUPS`, `CONTINUE_WATCHING`, `PREVIEW`, `GRID`
 
-| Requester | Dispatcher? |
-|-----------|-------------|
-| `navDrawerFocusTargets.*` | Yes |
-| `channelGroupsPanelFocusRequester` | Yes (panel anchor; rows still self-dispatch) |
-| `continueWatchingFocusRequester` | Yes |
-| `previewFocusRequester` | Yes (+ `requestPreviewFocusAwait()` direct call) |
-| `gridFocusRequester` | Yes |
-| `gridFilterFocusRequester` | No (section key handler) |
-| Per-row channel group requesters | No (panel `LaunchedEffect`) |
+**Tests:** `HomeEpgFocusNavigationTest`
 
-**TODO:** Single root `onPreviewKeyEvent` → `HomeEpgGuideController.handleKey()`; hoist channel-group row requesters; remove `focusProperties` L/R from `HomeEpgScreenSections`.
+---
+
+### Search overlay (`SearchOverlay`)
+
+**Status: MIGRATED (canonical VOD pattern)**
+
+| Concern | Owner |
+|---------|--------|
+| Zone state | `SearchFocusUiState` |
+| `requestFocus()` | `SearchFocusDispatcher` only |
+| D-pad | `TvScreenFocusRoot` → `SearchFocusController.handleKey()` |
+
+**Focus zones:** `FIELD`, `MIC`, `RECENT`, `RESULTS`
+
+**Tests:** `SearchFocusNavigationTest`
 
 ---
 
@@ -114,12 +120,6 @@ Shared package: `com.grid.tv.ui.focus`
 - **Zones:** `RecFocusZone` (TOP_BAR, LIST, DETAIL)
 - **Dispatcher:** screen `LaunchedEffect(focusZone)` — pattern ready for `TvFocusDispatcher` wrapper
 - **D-pad:** per-pane `onPreviewKeyEvent`
-
-### Search overlay (`SearchOverlay`)
-
-- **Zones:** `SearchFocusZone` (FIELD, MIC, RECENT, RESULTS)
-- **Dispatcher:** **two** `LaunchedEffect` blocks (duplicate)
-- **D-pad:** root + field `onPreviewKeyEvent` + internal `handleKey`
 
 ### Series detail (`SeriesBrowserScreen` / `SeriesDetailPane`)
 
@@ -173,13 +173,11 @@ Only **screen dispatchers** and **modal/overlay** components should call `reques
 - `com.grid.tv.ui.focus.TvFocusDispatcher` → `dispatchFocus()`
 - `VodHubFocusDispatcher`
 - `HomeEpgFocusDispatcher`
+- `SearchFocusDispatcher`
 
 **Still calling `requestFocus` outside dispatchers (migrate)**
 
-- `HomeEpgGuideController.requestPreviewFocusAwait()`
-- `GuideChannelGroupsPanel` row `LaunchedEffect`
 - `VodContentFilterPanel` `LaunchedEffect` (unused on VOD hub)
-- `SearchOverlay` (2× `LaunchedEffect`)
 - `SettingsScreen`, `RecordingsScreen`, `SeriesBrowserScreen`, `PlayerScreen`, `SplitViewScreen`, `MultiViewScreen`, `ProfilePickerScreen`, `ManageProfilesOverlay`, `LoginScreen`, `GuideGroupsScreen`
 - Various overlays listed above
 

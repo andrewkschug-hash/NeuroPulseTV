@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -30,10 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.defaultMinSize
@@ -49,11 +45,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,13 +56,10 @@ import coil.compose.AsyncImage
 import com.grid.tv.domain.model.SearchBarState
 import com.grid.tv.domain.model.SearchResultItem
 import com.grid.tv.domain.model.UnifiedSearchResults
+import com.grid.tv.ui.focus.TvScreenFocusRoot
 import com.grid.tv.ui.theme.DmSansFamily
 import com.grid.tv.ui.theme.EpgColors
 import com.grid.tv.util.TvImageSizing
-import com.grid.tv.util.TvImeKeyDispatcher
-import com.grid.tv.util.TvTextInputSession
-
-private enum class SearchFocusZone { FIELD, MIC, RECENT, RESULTS }
 
 private sealed class SearchListRow {
     data class Header(val title: String) : SearchListRow()
@@ -94,12 +82,11 @@ fun SearchOverlay(
     onClearHistory: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val focusUi = remember { SearchFocusUiState() }
+    val controller = remember(focusUi) { SearchFocusController(focusUi) }
     val modalTrapFocusRequester = remember { FocusRequester() }
     val fieldFocusRequester = remember { FocusRequester() }
     val micFocusRequester = remember { FocusRequester() }
-    var focusZone by remember { mutableStateOf(SearchFocusZone.FIELD) }
-    var focusedIndex by remember { mutableIntStateOf(0) }
-    var recentChipIndex by remember { mutableIntStateOf(0) }
 
     val recentSearches = unifiedResults.recentSearches
     val showRecentChips = query.isBlank() && recentSearches.isNotEmpty()
@@ -108,12 +95,45 @@ fun SearchOverlay(
         buildSearchRows(unifiedResults, query)
     }
     val selectableRows = remember(rows) { rows.filterIsInstance<SearchListRow.Result>() }
+    val selectableResults = remember(selectableRows) { selectableRows.map { it.item } }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(focusedIndex, focusZone, rows) {
-        if (focusZone != SearchFocusZone.RESULTS || focusedIndex < 0) return@LaunchedEffect
+    controller.bind(
+        remember(
+            onDismiss,
+            onMicClick,
+            onSuggestionSelected,
+            onClearHistory,
+            onResultSelected,
+            selectableResults,
+            showRecentChips,
+            recentSearches,
+        ) {
+            SearchFocusDeps(
+                onDismiss = onDismiss,
+                onMicClick = onMicClick,
+                onSuggestionSelected = onSuggestionSelected,
+                onClearHistory = onClearHistory,
+                onResultSelected = onResultSelected,
+                selectableResults = { selectableResults },
+                showRecentChips = { showRecentChips },
+                recentSearches = { recentSearches },
+            )
+        }
+    )
+
+    SearchFocusDispatcher(
+        ui = focusUi,
+        fieldFocusRequester = fieldFocusRequester,
+        micFocusRequester = micFocusRequester,
+        modalTrapFocusRequester = modalTrapFocusRequester,
+        searchBarState = searchBarState,
+    )
+
+    LaunchedEffect(focusUi.focusedIndex, focusUi.focusZone, rows) {
+        if (focusUi.focusZone != SearchFocusZone.RESULTS || focusUi.focusedIndex < 0) return@LaunchedEffect
         val targetRowIndex = rows.indexOfFirst { row ->
-            row is SearchListRow.Result && row.flatIndex == focusedIndex
+            row is SearchListRow.Result && row.flatIndex == focusUi.focusedIndex
         }
         if (targetRowIndex >= 0) {
             listState.animateScrollToItem(targetRowIndex)
@@ -152,135 +172,24 @@ fun SearchOverlay(
         SearchBarState.CONFIRMED -> Color(0xFF3DDC84)
     }
 
-    BackHandler(onBack = onDismiss)
-
-    LaunchedEffect(Unit) { fieldFocusRequester.requestFocusSafelyAfterLayout() }
-    LaunchedEffect(searchBarState) {
-        when (focusZone) {
-            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
-                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
-        }
+    LaunchedEffect(selectableResults) {
+        focusUi.focusedIndex = if (selectableResults.isNotEmpty()) 0 else -1
     }
-    LaunchedEffect(selectableRows) { focusedIndex = if (selectableRows.isNotEmpty()) 0 else -1 }
-    LaunchedEffect(recentSearches) { recentChipIndex = 0 }
-    LaunchedEffect(focusZone) {
-        when (focusZone) {
-            SearchFocusZone.FIELD -> fieldFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.MIC -> micFocusRequester.requestFocusSafelyAfterLayout()
-            SearchFocusZone.RECENT, SearchFocusZone.RESULTS ->
-                modalTrapFocusRequester.requestFocusSafelyAfterLayout()
-        }
+    LaunchedEffect(recentSearches) {
+        focusUi.recentChipIndex = 0
     }
 
-    fun selectAt(index: Int) {
-        selectableRows.getOrNull(index)?.item?.let(onResultSelected)
-    }
-
-    fun moveFocusToSearchResults() {
-        focusZone = when {
-            selectableRows.isNotEmpty() -> SearchFocusZone.RESULTS
-            showRecentChips -> SearchFocusZone.RECENT
-            else -> SearchFocusZone.MIC
-        }
-        if (focusZone == SearchFocusZone.RESULTS && focusedIndex < 0) {
-            focusedIndex = 0
-        }
-    }
-
-    fun handleKey(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
-        if (event.type != KeyEventType.KeyDown) return false
-        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
-        return when (event.key) {
-            Key.Back, Key.Escape -> { onDismiss(); true }
-            Key.DirectionDown -> {
-                when (focusZone) {
-                    SearchFocusZone.FIELD -> focusZone = when {
-                        showRecentChips -> SearchFocusZone.RECENT
-                        else -> SearchFocusZone.MIC
-                    }
-                    SearchFocusZone.RECENT -> focusZone = SearchFocusZone.MIC
-                    SearchFocusZone.MIC -> if (selectableRows.isNotEmpty()) {
-                        focusZone = SearchFocusZone.RESULTS
-                        if (focusedIndex < 0) focusedIndex = 0
-                    }
-                    SearchFocusZone.RESULTS -> if (focusedIndex < selectableRows.lastIndex) {
-                        focusedIndex += 1
-                    }
-                }
-                true
-            }
-            Key.DirectionUp -> {
-                when (focusZone) {
-                    SearchFocusZone.RESULTS -> {
-                        if (focusedIndex <= 0) {
-                            focusZone = when {
-                                showRecentChips -> SearchFocusZone.RECENT
-                                else -> SearchFocusZone.MIC
-                            }
-                        } else {
-                            focusedIndex -= 1
-                        }
-                    }
-                    SearchFocusZone.MIC -> focusZone = when {
-                        showRecentChips -> SearchFocusZone.RECENT
-                        else -> SearchFocusZone.FIELD
-                    }
-                    SearchFocusZone.RECENT -> focusZone = SearchFocusZone.FIELD
-                    SearchFocusZone.FIELD -> Unit
-                }
-                true
-            }
-            Key.DirectionRight -> when (focusZone) {
-                SearchFocusZone.FIELD -> { focusZone = SearchFocusZone.MIC; true }
-                SearchFocusZone.RECENT -> if (recentChipIndex < recentSearches.size) {
-                    recentChipIndex += 1; true
-                } else false
-                else -> false
-            }
-            Key.DirectionLeft -> when (focusZone) {
-                SearchFocusZone.MIC -> { focusZone = SearchFocusZone.FIELD; true }
-                SearchFocusZone.RECENT -> if (recentChipIndex > 0) {
-                    recentChipIndex -= 1; true
-                } else false
-                else -> false
-            }
-            Key.Enter, Key.NumPadEnter, Key.DirectionCenter -> when (focusZone) {
-                SearchFocusZone.MIC -> { onMicClick(); true }
-                SearchFocusZone.RECENT -> when {
-                    recentChipIndex == recentSearches.size -> {
-                        onClearHistory()
-                        true
-                    }
-                    else -> {
-                        recentSearches.getOrNull(recentChipIndex)?.let(onSuggestionSelected)
-                        true
-                    }
-                }
-                SearchFocusZone.RESULTS -> if (selectableRows.isNotEmpty()) {
-                    selectAt(focusedIndex.coerceAtLeast(0)); true
-                } else false
-                SearchFocusZone.FIELD -> false
-            }
-            else -> false
-        }
-    }
-
-    Box(
+    TvScreenFocusRoot(
         modifier = modifier
             .fillMaxSize()
             .zIndex(20f)
             .background(EpgColors.Background)
             .focusRequester(modalTrapFocusRequester)
-            .focusable(enabled = focusZone != SearchFocusZone.FIELD && focusZone != SearchFocusZone.MIC)
-            .onPreviewKeyEvent { event ->
-                if (TvTextInputSession.shouldStandDownForActiveInput(event)) return@onPreviewKeyEvent false
-                if (focusZone == SearchFocusZone.FIELD || focusZone == SearchFocusZone.MIC) {
-                    return@onPreviewKeyEvent false
-                }
-                handleKey(event)
-            }
+            .focusable(
+                enabled = focusUi.focusZone == SearchFocusZone.RECENT ||
+                    focusUi.focusZone == SearchFocusZone.RESULTS
+            ),
+        onKey = controller::handleKey,
     ) {
         Column(
             modifier = Modifier
@@ -293,23 +202,19 @@ fun SearchOverlay(
                 fieldBorderColor = fieldBorderColor,
                 fieldFocusRequester = fieldFocusRequester,
                 micFocusRequester = micFocusRequester,
-                focusZone = focusZone,
+                focusZone = focusUi.focusZone,
                 micPulse = micPulse,
-                flatResults = flatResults,
-                focusedIndex = focusedIndex,
                 onQueryChange = onQueryChange,
                 onClear = onClear,
                 onMicClick = onMicClick,
-                onSelectAt = ::selectAt,
-                onImeSubmitted = ::moveFocusToSearchResults,
-                handleKey = ::handleKey
+                onImeSubmitted = controller::moveFocusToSearchResults,
             )
 
             if (showRecentChips) {
                 RecentSearchesSection(
                     recentSearches = recentSearches,
-                    focusZone = focusZone,
-                    focusedChipIndex = recentChipIndex,
+                    focusZone = focusUi.focusZone,
+                    focusedChipIndex = focusUi.recentChipIndex,
                     onSuggestionSelected = onSuggestionSelected,
                     onClearHistory = onClearHistory
                 )
@@ -342,8 +247,8 @@ fun SearchOverlay(
                             is SearchListRow.Result -> item(key = row.item.id) {
                                 SearchResultRow(
                                     result = row.item,
-                                    focused = focusZone == SearchFocusZone.RESULTS &&
-                                        focusedIndex == row.flatIndex,
+                                    focused = focusUi.focusZone == SearchFocusZone.RESULTS &&
+                                        focusUi.focusedIndex == row.flatIndex,
                                     onClick = { onResultSelected(row.item) }
                                 )
                             }
@@ -569,14 +474,10 @@ private fun SearchInputRow(
     micFocusRequester: FocusRequester,
     focusZone: SearchFocusZone,
     micPulse: Float,
-    flatResults: List<SearchResultItem>,
-    focusedIndex: Int,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
     onMicClick: () -> Unit,
-    onSelectAt: (Int) -> Unit,
     onImeSubmitted: () -> Unit,
-    handleKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean
 ) {
     val leadingIcon = when (searchBarState) {
         SearchBarState.DEFAULT -> "⌕"
@@ -622,7 +523,6 @@ private fun SearchInputRow(
                 .height(52.dp),
             borderColorFocused = fieldBorderColor,
             borderColorUnfocused = fieldBorderColor.copy(alpha = 0.6f),
-            onPreviewKeyEvent = handleKey,
             onImeSubmitted = onImeSubmitted
         )
         MicButton(
@@ -633,7 +533,6 @@ private fun SearchInputRow(
             modifier = Modifier
                 .focusRequester(micFocusRequester)
                 .focusable()
-                .onPreviewKeyEvent { handleKey(it) }
         )
         if (query.isNotEmpty()) {
             GridFocusSurface(onClick = onClear) {

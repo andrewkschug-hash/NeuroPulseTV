@@ -30,7 +30,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
@@ -43,8 +42,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -186,14 +183,6 @@ internal fun HomeEpgScreenMainColumn(
                     Modifier
                 }
             )
-            .onPreviewKeyEvent {
-                if (ui.guideSubScreen != null) return@onPreviewKeyEvent false
-                if (ui.focusZone == EpgFocusZone.PREVIEW) {
-                    controller.handlePreviewKey(it)
-                } else {
-                    false
-                }
-            }
     ) {
         EpgGuideHeader(
             isRecording = isRecording,
@@ -229,7 +218,6 @@ internal fun HomeEpgScreenMainColumn(
                 .weight(1f)
                 .fillMaxWidth(),
             gridFocusRequester = deps.gridFocusRequester,
-            onGridKey = controller::handleGridKey,
             gridFocused = ui.focusZone == EpgFocusZone.GRID,
             displayChannelsEmpty = deps.displayChannels.isEmpty(),
             hScroll = hScroll,
@@ -238,21 +226,13 @@ internal fun HomeEpgScreenMainColumn(
             guideFilter = deps.guideFilter,
             channelGroups = channelGroups,
             showGroupFilter = showGroupFilter,
-            gridFilterFocused = false,
             gridFilterFocusRequester = deps.gridFilterFocusRequester,
-            previewFocusRequester = deps.previewFocusRequester,
-            continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-            topNavFocusRequester = deps.channelGroupsPanelFocusRequester,
-            showPreviewSection = deps.showPreviewSection,
-            hasContinueWatching = deps.hasContinueWatching,
             onOpenCategoryFilter = { controller.openNavDrawer() },
-            onGridFilterKey = { false },
             onGridFocused = {
-                if (!ui.pendingPreviewFocus && ui.focusZone != EpgFocusZone.PREVIEW) {
+                if (ui.focusZone != EpgFocusZone.PREVIEW) {
                     ui.focusZone = EpgFocusZone.GRID
                 }
             },
-            onGridFilterFocused = { },
             listState = listState,
             displayChannels = deps.displayChannels,
             filteredEmptyMessage = when {
@@ -413,14 +393,7 @@ internal fun HomeEpgPreviewBlock(
             controller.executeDetailAction()
         },
         previewFocusRequester = deps.previewFocusRequester,
-        continueWatchingFocusRequester = deps.continueWatchingFocusRequester,
-        topNavFocusRequester = deps.navDrawerFocusRequester,
-        gridFilterFocusRequester = deps.gridFilterFocusRequester,
-        gridFocusRequester = deps.gridFocusRequester,
-        showGroupFilter = showGroupFilter,
-        hasContinueWatching = deps.hasContinueWatching,
         onFocused = { ui.focusZone = EpgFocusZone.PREVIEW },
-        onPreviewKey = controller::handlePreviewKey
     )
 }
 
@@ -711,14 +684,7 @@ internal fun HomeEpgContinueWatchingRow(
     continueWatchingFocused: Boolean,
     onContinueSelect: (ContinueWatchingItem) -> Unit,
     continueWatchingFocusRequester: FocusRequester,
-    topNavFocusRequester: FocusRequester,
-    previewFocusRequester: FocusRequester,
-    gridFilterFocusRequester: FocusRequester,
-    gridFocusRequester: FocusRequester,
-    showGroupFilter: Boolean,
-    showPreviewSection: Boolean,
-    onContinueWatchingKey: (KeyEvent) -> Boolean,
-    onFocused: () -> Unit
+    onFocused: () -> Unit,
 ) {
     if (continueWatchingItems.isEmpty()) return
 
@@ -731,17 +697,9 @@ internal fun HomeEpgContinueWatchingRow(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .focusRequester(continueWatchingFocusRequester)
-            .focusProperties {
-                up = topNavFocusRequester
-                down = when {
-                    showPreviewSection -> previewFocusRequester
-                    showGroupFilter -> gridFilterFocusRequester
-                    else -> gridFocusRequester
-                }
-            }
+            .focusProperties { canFocus = continueWatchingFocused }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
-            .onPreviewKeyEvent { continueWatchingFocused && onContinueWatchingKey(it) }
     )
 }
 
@@ -761,14 +719,7 @@ internal fun HomeEpgPreviewSection(
     onFavorite: () -> Unit,
     onRecord: () -> Unit,
     previewFocusRequester: FocusRequester,
-    continueWatchingFocusRequester: FocusRequester,
-    topNavFocusRequester: FocusRequester,
-    gridFilterFocusRequester: FocusRequester,
-    gridFocusRequester: FocusRequester,
-    showGroupFilter: Boolean,
-    hasContinueWatching: Boolean,
     onFocused: () -> Unit,
-    onPreviewKey: (KeyEvent) -> Boolean = { false }
 ) {
     val ch = channel ?: return
 
@@ -788,16 +739,9 @@ internal fun HomeEpgPreviewSection(
         onRecord = onRecord,
         modifier = Modifier
             .focusRequester(previewFocusRequester)
-            .focusProperties {
-                up = if (hasContinueWatching) continueWatchingFocusRequester else topNavFocusRequester
-                down = when {
-                    showGroupFilter -> gridFilterFocusRequester
-                    else -> gridFocusRequester
-                }
-            }
+            .focusProperties { canFocus = previewFocused }
             .focusable()
             .onFocusChanged { if (it.isFocused) onFocused() }
-            .onPreviewKeyEvent { previewFocused && onPreviewKey(it) }
     )
 }
 
@@ -806,7 +750,6 @@ internal fun HomeEpgPreviewSection(
 internal fun HomeEpgChannelList(
     modifier: Modifier = Modifier,
     gridFocusRequester: FocusRequester,
-    onGridKey: (KeyEvent) -> Boolean,
     gridFocused: Boolean,
     displayChannelsEmpty: Boolean,
     hScroll: androidx.compose.foundation.ScrollState,
@@ -814,18 +757,10 @@ internal fun HomeEpgChannelList(
     windowDurationMs: Long,
     guideFilter: GuideChannelFilter,
     channelGroups: List<String>,
-    gridFilterFocused: Boolean,
-    gridFilterFocusRequester: FocusRequester,
-    previewFocusRequester: FocusRequester,
-    continueWatchingFocusRequester: FocusRequester,
-    topNavFocusRequester: FocusRequester,
-    showPreviewSection: Boolean,
-    hasContinueWatching: Boolean,
     showGroupFilter: Boolean,
+    gridFilterFocusRequester: FocusRequester,
     onOpenCategoryFilter: () -> Unit,
-    onGridFilterKey: (KeyEvent) -> Boolean,
     onGridFocused: () -> Unit,
-    onGridFilterFocused: () -> Unit,
     listState: LazyListState,
     displayChannels: List<Channel>,
     filteredEmptyMessage: String? = null,
@@ -852,12 +787,6 @@ internal fun HomeEpgChannelList(
     }
     val gridNow = rememberEpgNowMillis(EpgNowTicker.GRID_INTERVAL_MS)
     val touchGesturesEnabled = LocalDeviceFormFactor.current.enableTouchGestures
-    val gridFilterUpTarget = when {
-        showPreviewSection -> previewFocusRequester
-        hasContinueWatching -> continueWatchingFocusRequester
-        else -> topNavFocusRequester
-    }
-    var filterChipHasFocus by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
     ) {
@@ -886,24 +815,10 @@ internal fun HomeEpgChannelList(
                             EpgCategoryFilterChip(
                                 label = guideFilter.label,
                                 active = guideFilter.isActive,
-                                focused = gridFilterFocused || filterChipHasFocus,
+                                focused = false,
                                 headerStyle = true,
                                 onClick = onOpenCategoryFilter,
-                                modifier = Modifier
-                                    .focusRequester(gridFilterFocusRequester)
-                                    .focusProperties {
-                                        up = gridFilterUpTarget
-                                        down = if (!displayChannelsEmpty) {
-                                            gridFocusRequester
-                                        } else {
-                                            FocusRequester.Cancel
-                                        }
-                                    }
-                                    .onFocusChanged {
-                                        filterChipHasFocus = it.isFocused
-                                        if (it.isFocused) onGridFilterFocused()
-                                    }
-                                    .onPreviewKeyEvent { filterChipHasFocus && onGridFilterKey(it) }
+                                modifier = Modifier.focusRequester(gridFilterFocusRequester)
                             )
                         }
                     }
@@ -925,21 +840,9 @@ internal fun HomeEpgChannelList(
                     .weight(1f)
                     .fillMaxWidth()
                     .focusRequester(gridFocusRequester)
-                    .focusProperties {
-                        canFocus = !displayChannelsEmpty && gridFocused
-                        if (channelGroups.isNotEmpty()) {
-                            left = topNavFocusRequester
-                        }
-                        up = if (focusChannelIndex == 0) {
-                            if (showGroupFilter) gridFilterFocusRequester else gridFilterUpTarget
-                        } else {
-                            FocusRequester.Cancel
-                        }
-                        down = FocusRequester.Cancel
-                    }
+                    .focusProperties { canFocus = !displayChannelsEmpty && gridFocused }
                     .then(if (!displayChannelsEmpty) Modifier.focusable() else Modifier)
                     .onFocusChanged { if (it.isFocused) onGridFocused() }
-                    .onPreviewKeyEvent { gridFocused && onGridKey(it) }
             ) {
                 Box(
                     modifier = Modifier

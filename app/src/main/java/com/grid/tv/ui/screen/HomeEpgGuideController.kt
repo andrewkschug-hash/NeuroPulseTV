@@ -43,8 +43,8 @@ import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.isTvActivateKeyUp
 import com.grid.tv.ui.component.isTvLongPress
-import com.grid.tv.ui.component.requestFocusSafelyAfterLayout
 import com.grid.tv.ui.component.TvLazyFocusScrollDirection
+import com.grid.tv.ui.focus.TvFocusController
 import com.grid.tv.ui.component.animateScrollEpgChannelIntoView
 import com.grid.tv.ui.component.animateScrollToItemIfNeeded
 import com.grid.tv.ui.component.SidebarContentFocus
@@ -76,8 +76,6 @@ internal data class HomeEpgGuideDeps(
     val density: Density,
     val gridFocusRequester: FocusRequester,
     val gridFilterFocusRequester: FocusRequester,
-    val navDrawerFocusRequester: FocusRequester,
-    val channelGroupsPanelFocusRequester: FocusRequester,
     val channelGroups: List<String>,
     val continueWatchingFocusRequester: FocusRequester,
     val previewFocusRequester: FocusRequester,
@@ -109,9 +107,12 @@ internal data class HomeEpgGuideDeps(
 
 internal class HomeEpgGuideController(
     private val ui: HomeEpgUiState,
-) {
+) : TvFocusController<EpgFocusZone> {
     private var deps: HomeEpgGuideDeps? = null
     private var channelScrollJob: Job? = null
+
+    override val focusZone: EpgFocusZone
+        get() = ui.focusZone
 
     private companion object {
         const val TAG = "HomeEpgGuideController"
@@ -148,15 +149,40 @@ internal class HomeEpgGuideController(
         selectChannelForPreview(channel)
         ui.detailExpanded = true
         ui.detailActionIndex = 0
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.pendingPreviewFocus = true
+        focusEpgZone(EpgFocusZone.PREVIEW)
     }
 
-    suspend fun requestPreviewFocusAwait(): Boolean {
-        if (!boundDeps.showPreviewSection) return false
-        ui.focusZone = EpgFocusZone.PREVIEW
-        ui.detailActionIndex = 0
-        return boundDeps.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 0)
+    override fun transitionToZone(zone: EpgFocusZone, detail: String) {
+        focusEpgZone(zone)
+    }
+
+    override fun handleKey(event: KeyEvent): Boolean {
+        if (ui.guideSubScreen != null) return false
+        if (ui.showCategoryFilterMenu || ui.showGuideGroupPicker) return false
+        if (ui.profileMenuOpen) {
+            return when (event.type) {
+                KeyEventType.KeyDown -> when (event.key) {
+                    Key.Back, Key.Escape -> {
+                        ui.profileMenuOpen = false
+                        true
+                    }
+                    else -> false
+                }
+                else -> false
+            }
+        }
+        if (ui.focusZone == EpgFocusZone.CHANNEL_GROUPS) {
+            return handleChannelGroupsKey(event)
+        }
+        if (event.type != KeyEventType.KeyDown) return false
+        if (TvTextInputSession.shouldStandDownForActiveInput(event)) return false
+        return when (ui.focusZone) {
+            EpgFocusZone.NAV_DRAWER -> handleNavDrawerKey(event)
+            EpgFocusZone.CONTINUE_WATCHING -> handleContinueWatchingKey(event)
+            EpgFocusZone.PREVIEW -> handlePreviewKey(event)
+            EpgFocusZone.GRID -> handleGridKey(event)
+            EpgFocusZone.CHANNEL_GROUPS -> false
+        }
     }
 
     fun toggleChannelGroupFavorite(groupKey: String) {

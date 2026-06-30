@@ -2,6 +2,8 @@ package com.grid.tv.ui.screen
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.focus.FocusRequester
+import com.grid.tv.ui.component.GuideGroupVisibleRow
+import com.grid.tv.ui.focus.GuideChannelGroupsFocusRegistry
 import com.grid.tv.ui.focus.GuideNavDrawerFocusTargets
 import com.grid.tv.ui.focus.TvFocusDispatcher
 import com.grid.tv.ui.focus.dispatchFocus
@@ -11,14 +13,14 @@ internal data class HomeEpgFocusDispatchContext(
     val channelGroupsPanelVisible: Boolean,
     val hasContinueWatching: Boolean,
     val showPreviewSection: Boolean,
-    val pendingPreviewFocus: Boolean,
+    val visibleChannelGroupRows: List<GuideGroupVisibleRow>,
+    val channelGroupsFocusRegistry: GuideChannelGroupsFocusRegistry,
 )
 
 @Composable
 internal fun HomeEpgFocusDispatcher(
     ui: HomeEpgUiState,
     navDrawerTargets: GuideNavDrawerFocusTargets,
-    channelGroupsPanelFocusRequester: FocusRequester,
     continueWatchingFocusRequester: FocusRequester,
     previewFocusRequester: FocusRequester,
     gridFocusRequester: FocusRequester,
@@ -32,21 +34,25 @@ internal fun HomeEpgFocusDispatcher(
         context.channelGroupsPanelVisible,
         context.hasContinueWatching,
         context.showPreviewSection,
-        context.pendingPreviewFocus,
+        context.visibleChannelGroupRows.size,
     ) {
         when (ui.focusZone) {
             EpgFocusZone.NAV_DRAWER ->
                 navDrawerTargets.forIndex(ui.navDrawerFocusIndex).dispatchFocus()
             EpgFocusZone.CHANNEL_GROUPS ->
                 if (context.channelGroupsPanelVisible) {
-                    channelGroupsPanelFocusRequester.dispatchFocus()
+                    context.channelGroupsFocusRegistry
+                        .requesterForIndex(context.visibleChannelGroupRows, ui.channelGroupsFocusIndex)
+                        ?.dispatchFocus()
                 }
             EpgFocusZone.CONTINUE_WATCHING ->
                 if (context.hasContinueWatching) {
                     continueWatchingFocusRequester.dispatchFocus()
                 }
             EpgFocusZone.PREVIEW ->
-                previewFocusRequester.dispatchFocus()
+                if (context.showPreviewSection) {
+                    previewFocusRequester.dispatchFocus()
+                }
             EpgFocusZone.GRID ->
                 gridFocusRequester.dispatchFocus()
         }

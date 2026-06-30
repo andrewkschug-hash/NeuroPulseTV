@@ -28,8 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.grid.tv.ui.focus.TvScreenFocusRoot
+import com.grid.tv.ui.focus.rememberGuideChannelGroupsFocusRegistry
 import com.grid.tv.ui.focus.rememberGuideNavDrawerFocusTargets
+import com.grid.tv.ui.component.buildFlatProviderVisibleRows
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
@@ -282,7 +284,7 @@ fun HomeEpgScreen(
     val gridFocusRequester = remember { FocusRequester() }
     val gridFilterFocusRequester = remember { FocusRequester() }
     val navDrawerFocusTargets = rememberGuideNavDrawerFocusTargets()
-    val channelGroupsPanelFocusRequester = remember { FocusRequester() }
+    val channelGroupsFocusRegistry = rememberGuideChannelGroupsFocusRegistry()
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
     val timelineWidth = EpgLayout.timelineWidthMs(windowDurationMs)
@@ -538,8 +540,6 @@ fun HomeEpgScreen(
         density = density,
         gridFocusRequester = gridFocusRequester,
         gridFilterFocusRequester = gridFilterFocusRequester,
-        navDrawerFocusRequester = navDrawerFocusTargets.profileFocusRequester,
-        channelGroupsPanelFocusRequester = channelGroupsPanelFocusRequester,
         channelGroups = channelGroups,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
         previewFocusRequester = previewFocusRequester,
@@ -570,10 +570,13 @@ fun HomeEpgScreen(
     )
     controller.bind(deps)
 
+    val visibleChannelGroupRows = remember(channelGroups, favoriteChannelGroups) {
+        buildFlatProviderVisibleRows(channelGroups, favoriteChannelGroups)
+    }
+
     HomeEpgFocusDispatcher(
         ui = ui,
         navDrawerTargets = navDrawerFocusTargets,
-        channelGroupsPanelFocusRequester = channelGroupsPanelFocusRequester,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
         previewFocusRequester = previewFocusRequester,
         gridFocusRequester = gridFocusRequester,
@@ -582,14 +585,15 @@ fun HomeEpgScreen(
             channelGroupsPanelVisible = ui.channelGroupsPanelVisible,
             hasContinueWatching = hasContinueWatching,
             showPreviewSection = showPreviewSection,
-            pendingPreviewFocus = ui.pendingPreviewFocus,
+            visibleChannelGroupRows = visibleChannelGroupRows,
+            channelGroupsFocusRegistry = channelGroupsFocusRegistry,
         ),
     )
 
     LaunchedEffect(isInitializing, guideSettingsLoaded, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
         if (ui.showGuideGroupPicker) return@LaunchedEffect
         if (isInitializing || !guideSettingsLoaded) return@LaunchedEffect
-        if (ui.pendingPreviewFocus || ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
+        if (ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
         if (
             displayChannels.isNotEmpty() &&
             !ui.hasRequestedInitialGridFocus &&
@@ -605,7 +609,7 @@ fun HomeEpgScreen(
 
     LaunchedEffect(displayChannels.isEmpty(), ui.selectedTab, ui.guideSubScreen) {
         if (ui.guideSubScreen != null) return@LaunchedEffect
-        if (ui.pendingPreviewFocus || ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
+        if (ui.focusZone == EpgFocusZone.PREVIEW) return@LaunchedEffect
         if (!displayChannels.isEmpty() || ui.focusZone != EpgFocusZone.GRID) return@LaunchedEffect
         controller.focusEpgZone(EpgFocusZone.GRID)
     }
@@ -616,19 +620,12 @@ fun HomeEpgScreen(
         }
     }
 
-    LaunchedEffect(showPreviewSection, previewChannelId, ui.pendingPreviewFocus) {
-        if (!showPreviewSection || !ui.pendingPreviewFocus) return@LaunchedEffect
-        val focused = controller.requestPreviewFocusAwait()
-        if (focused) {
-            ui.pendingPreviewFocus = false
-        }
-    }
-
-    Box(
+    TvScreenFocusRoot(
         modifier = Modifier
             .fillMaxSize()
-            .background(EpgColors.Background)
-            .onPreviewKeyEvent { false }
+            .background(EpgColors.Background),
+        enabled = ui.guideSubScreen == null,
+        onKey = controller::handleKey,
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
             if (ui.guideSubScreen == null) {
@@ -669,15 +666,12 @@ fun HomeEpgScreen(
                         focusedIndex = ui.channelGroupsFocusIndex,
                         panelFocused = ui.focusZone == EpgFocusZone.CHANNEL_GROUPS,
                         groupsLoading = channelGroupsLoading,
-                        panelFocusRequester = channelGroupsPanelFocusRequester,
-                        gridFocusRequester = gridFocusRequester,
-                        navDrawerFocusRequester = navDrawerFocusTargets.profileFocusRequester,
+                        rowFocusRegistry = channelGroupsFocusRegistry,
                         onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
                         onFocusedIndexChange = { index ->
                             ui.focusZone = EpgFocusZone.CHANNEL_GROUPS
                             controller.onChannelGroupsFocusedIndexChanged(index)
                         },
-                        onPreviewKey = controller::handleChannelGroupsKey,
                         onFilterChange = controller::applyChannelGroupFilter
                     )
                 }

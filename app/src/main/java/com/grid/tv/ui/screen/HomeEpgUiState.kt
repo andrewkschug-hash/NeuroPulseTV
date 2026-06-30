@@ -35,7 +35,6 @@ internal class HomeEpgUiState {
     var didRestoreGuide by mutableStateOf(false)
     var hasRequestedInitialGridFocus by mutableStateOf(false)
     /** True while opening preview; blocks spurious filter focus during grid→preview transition. */
-    var pendingPreviewFocus by mutableStateOf(false)
     /** Short-press Enter on channel groups: defer until KeyUp so long-press can toggle favourites. */
     var channelGroupsActivatePending by mutableStateOf(false)
     var channelGroupsFocusIndex by mutableIntStateOf(0)
