@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.grid.tv.ui.focus.rememberGuideNavDrawerFocusTargets
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
@@ -280,7 +281,7 @@ fun HomeEpgScreen(
     val scope = rememberCoroutineScope()
     val gridFocusRequester = remember { FocusRequester() }
     val gridFilterFocusRequester = remember { FocusRequester() }
-    val navDrawerFocusRequester = remember { FocusRequester() }
+    val navDrawerFocusTargets = rememberGuideNavDrawerFocusTargets()
     val channelGroupsPanelFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val previewFocusRequester = remember { FocusRequester() }
@@ -537,7 +538,7 @@ fun HomeEpgScreen(
         density = density,
         gridFocusRequester = gridFocusRequester,
         gridFilterFocusRequester = gridFilterFocusRequester,
-        navDrawerFocusRequester = navDrawerFocusRequester,
+        navDrawerFocusRequester = navDrawerFocusTargets.profileFocusRequester,
         channelGroupsPanelFocusRequester = channelGroupsPanelFocusRequester,
         channelGroups = channelGroups,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
@@ -569,6 +570,22 @@ fun HomeEpgScreen(
     )
     controller.bind(deps)
 
+    HomeEpgFocusDispatcher(
+        ui = ui,
+        navDrawerTargets = navDrawerFocusTargets,
+        channelGroupsPanelFocusRequester = channelGroupsPanelFocusRequester,
+        continueWatchingFocusRequester = continueWatchingFocusRequester,
+        previewFocusRequester = previewFocusRequester,
+        gridFocusRequester = gridFocusRequester,
+        context = HomeEpgFocusDispatchContext(
+            guideSubScreenOpen = ui.guideSubScreen != null,
+            channelGroupsPanelVisible = ui.channelGroupsPanelVisible,
+            hasContinueWatching = hasContinueWatching,
+            showPreviewSection = showPreviewSection,
+            pendingPreviewFocus = ui.pendingPreviewFocus,
+        ),
+    )
+
     LaunchedEffect(isInitializing, guideSettingsLoaded, displayChannels.isNotEmpty(), ui.showGuideGroupPicker) {
         if (ui.showGuideGroupPicker) return@LaunchedEffect
         if (isInitializing || !guideSettingsLoaded) return@LaunchedEffect
@@ -579,7 +596,7 @@ fun HomeEpgScreen(
             ui.focusZone == EpgFocusZone.GRID
         ) {
             ui.hasRequestedInitialGridFocus = true
-            controller.requestEpgZoneFocus(EpgFocusZone.GRID)
+            controller.focusEpgZone(EpgFocusZone.GRID)
         }
     }
 
@@ -619,7 +636,7 @@ fun HomeEpgScreen(
                 GuideNavDrawer(
                     focusedIndex = ui.navDrawerFocusIndex,
                     drawerActive = ui.focusZone == EpgFocusZone.NAV_DRAWER,
-                    drawerFocusRequester = navDrawerFocusRequester,
+                    focusTargets = navDrawerFocusTargets,
                     profileInitials = profileInitials,
                     profileAvatarColor = profileAvatarColor,
                     profileFocused = ui.profileMenuOpen,
@@ -632,7 +649,6 @@ fun HomeEpgScreen(
                         ui.focusZone = EpgFocusZone.NAV_DRAWER
                     },
                     onItemSelected = controller::selectDrawerItem,
-                    onPreviewKey = controller::handleNavDrawerKey,
                     liveViewActive = liveViewActive,
                     selectedItem = when {
                         ui.selectedTab == EpgNavTab.Favorites -> GuideNavDrawerItem.Favorites
@@ -655,7 +671,7 @@ fun HomeEpgScreen(
                         groupsLoading = channelGroupsLoading,
                         panelFocusRequester = channelGroupsPanelFocusRequester,
                         gridFocusRequester = gridFocusRequester,
-                        navDrawerFocusRequester = navDrawerFocusRequester,
+                        navDrawerFocusRequester = navDrawerFocusTargets.profileFocusRequester,
                         onPanelFocused = { ui.focusZone = EpgFocusZone.CHANNEL_GROUPS },
                         onFocusedIndexChange = { index ->
                             ui.focusZone = EpgFocusZone.CHANNEL_GROUPS

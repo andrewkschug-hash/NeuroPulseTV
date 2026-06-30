@@ -206,11 +206,6 @@ fun VodPagedVerticalGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp + VodPosterFocusLayout.gridEdgePadding),
         verticalArrangement = Arrangement.spacedBy(16.dp + VodPosterFocusLayout.gridEdgePadding),
         modifier = modifier
-            .interceptLeadingEdgeLeft(
-                focusedIndex = leadingEdgeIndex,
-                columnCount = columnCount,
-                onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
-            )
     ) {
         items(
             count = pagingItems.itemCount,
@@ -307,11 +302,6 @@ fun VodMoviePagedGrid(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = modifier
-            .interceptLeadingEdgeLeft(
-                focusedIndex = leadingEdgeIndex,
-                columnCount = columnCount,
-                onLeadingEdgeNavigateLeft = onLeadingEdgeNavigateLeft,
-            )
     ) {
         items(
             count = pagingItems.itemCount,

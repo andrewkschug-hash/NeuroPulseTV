@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import com.grid.tv.ui.focus.GuideNavDrawerFocusTargets
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,7 +27,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,6 +91,7 @@ private fun DrawerIconButton(
     item: GuideNavDrawerItem,
     focused: Boolean,
     selected: Boolean,
+    drawerActive: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -111,11 +111,14 @@ private fun DrawerIconButton(
     }
 
     Column(
-        modifier = modifier.padding(vertical = 2.dp),
+        modifier = modifier
+            .padding(vertical = 2.dp)
+            .focusProperties { canFocus = drawerActive },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         GridFocusSurface(
             onClick = onClick,
+            enabled = drawerActive,
             modifier = Modifier
                 .size(NavIconHitSize)
                 .onFocusChanged { isFocused = it.isFocused }
@@ -164,41 +167,26 @@ private fun DrawerIconButton(
 fun GuideNavDrawer(
     focusedIndex: Int,
     drawerActive: Boolean,
-    drawerFocusRequester: FocusRequester,
+    focusTargets: GuideNavDrawerFocusTargets,
     profileInitials: String,
     profileAvatarColor: String = DEFAULT_PROFILE_AVATAR_COLOR,
     profileFocused: Boolean = false,
     onProfileClick: () -> Unit,
     onItemFocused: (Int) -> Unit,
     onItemSelected: (GuideNavDrawerItem) -> Unit,
-    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     selectedItem: GuideNavDrawerItem? = null,
     liveViewActive: Boolean = false,
     modifier: Modifier = Modifier,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean = false,
     @Suppress("UNUSED_PARAMETER") onExpandRequest: () -> Unit = {},
 ) {
-    val trailingRequesters = remember {
-        List(GuideNavDrawerItems.size) { FocusRequester() }
-    }
-
-    fun requesterFor(index: Int): FocusRequester = when (index) {
-        GuideNavDrawerProfileFocusIndex -> drawerFocusRequester
-        else -> trailingRequesters.getOrElse(index - 1) { drawerFocusRequester }
-    }
-
-    LaunchedEffect(focusedIndex, drawerActive) {
-        if (!drawerActive) return@LaunchedEffect
-        requesterFor(focusedIndex.coerceAtLeast(GuideNavDrawerProfileFocusIndex))
-            .requestFocusSafelyAfterLayout()
-    }
+    fun requesterFor(index: Int): FocusRequester = focusTargets.forIndex(index)
 
     Box(
         modifier = modifier
             .width(GuideNavDrawerCollapsedWidth)
             .fillMaxHeight()
             .background(EpgColors.SidebarRailBg)
-            .onPreviewKeyEvent(onPreviewKey)
     ) {
         Column(
             modifier = Modifier
@@ -212,8 +200,8 @@ fun GuideNavDrawer(
                 onClick = onProfileClick,
                 avatarColorHex = profileAvatarColor,
                 modifier = Modifier
-                    .focusRequester(drawerFocusRequester)
-                    .focusProperties { left = FocusRequester.Cancel }
+                    .focusRequester(focusTargets.profileFocusRequester)
+                    .focusProperties { canFocus = drawerActive }
                     .onFocusChanged {
                         if (it.isFocused) onItemFocused(GuideNavDrawerProfileFocusIndex)
                     }
@@ -240,6 +228,7 @@ fun GuideNavDrawer(
                             item = item,
                             focused = focused,
                             selected = selected,
+                            drawerActive = drawerActive,
                             onClick = {
                         onItemFocused(focusIndex)
                         onItemSelected(item)

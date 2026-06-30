@@ -749,44 +749,14 @@ internal class HomeEpgGuideController(
         }
     }
 
-    fun requestEpgZoneFocus(zone: EpgFocusZone) {
-        if (ui.guideSubScreen != null) return
-        val d = deps
-        if (d == null) {
-            Log.w(TAG, "Focus requested before deps initialized zone=$zone")
-            return
-        }
-        d.scope.launch {
-            when (zone) {
-                EpgFocusZone.NAV_DRAWER -> {
-                    d.navDrawerFocusRequester.requestFocusSafelyAfterLayout()
-                }
-                EpgFocusZone.CHANNEL_GROUPS -> if (canShowChannelGroupsPanel() && ui.channelGroupsPanelVisible) {
-                    d.channelGroupsPanelFocusRequester.requestFocusSafelyAfterLayout()
-                }
-                EpgFocusZone.CONTINUE_WATCHING -> if (d.hasContinueWatching) {
-                    d.continueWatchingFocusRequester.requestFocusSafelyAfterLayout()
-                }
-                EpgFocusZone.PREVIEW -> {
-                    d.previewFocusRequester.requestFocusSafelyAfterLayout(delayMs = 0)
-                }
-                EpgFocusZone.GRID -> {
-                    d.gridFocusRequester.requestFocusSafelyAfterLayout()
-                }
-            }
-        }
-    }
-
     fun focusEpgZone(zone: EpgFocusZone) {
         if (ui.guideSubScreen != null) return
-        val d = deps
-        if (d == null) {
+        if (deps == null) {
             Log.w(TAG, "Focus requested before deps initialized zone=$zone")
             return
         }
         ui.focusZone = zone
         if (zone == EpgFocusZone.PREVIEW) ui.detailActionIndex = 0
-        requestEpgZoneFocus(zone)
     }
 
     fun focusGuideChannels(targetIndex: Int = ui.focusChannelIndex) {

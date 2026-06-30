@@ -765,14 +765,10 @@ fun VodLibraryNavPanel(
     panelFocused: Boolean,
     languageFilterActive: Boolean,
     tabsNavigable: Boolean,
-    panelFocusRequester: FocusRequester,
-    contentFocusRequester: FocusRequester,
-    navDrawerFocusRequester: FocusRequester,
-    genrePanelFocusRequester: FocusRequester? = null,
+    rowFocusRequesters: List<FocusRequester>,
     onPanelFocused: () -> Unit,
     onFocusedIndexChange: (Int) -> Unit,
     onItemSelected: (Int) -> Unit,
-    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     modifier: Modifier = Modifier,
 ) {
     val itemCount = VodHubLanguageFilterFocusIndex + 1
@@ -796,13 +792,6 @@ fun VodLibraryNavPanel(
                 color = EpgColors.BorderSubtle,
                 shape = RoundedCornerShape(0.dp),
             )
-            .focusRequester(panelFocusRequester)
-            .focusable()
-            .focusProperties {
-                left = navDrawerFocusRequester
-            }
-            .onFocusChanged { if (it.isFocused) onPanelFocused() }
-            .onPreviewKeyEvent(onPreviewKey),
     ) {
         Text(
             text = "Library",
@@ -830,40 +819,45 @@ fun VodLibraryNavPanel(
                 }
                 val icon = vodLibraryNavItemIcon(index, filter)
                 val tabSelected = !isLanguages && filter == selectedFilter
-                val focused = panelFocused && index == focusedIndex
                 val showLanguageDot = isLanguages && languageFilterActive
                 val enabled = tabsNavigable || tabSelected || isLanguages
-                val chipModifier = Modifier
-                    .clip(chipShape)
-                    .then(
-                        when {
-                            focused -> Modifier
-                                .background(accent.copy(alpha = 0.28f), chipShape)
-                                .border(2.dp, accent.copy(alpha = 0.95f), chipShape)
-                            tabSelected -> Modifier.background(accent.copy(alpha = 0.18f), chipShape)
-                            else -> Modifier.background(Color(0xFF161616), chipShape)
-                        },
-                    )
-                    .then(
-                        if (enabled) {
-                            Modifier.clickable { onItemSelected(index) }
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .focusProperties { canFocus = false }
-                Box(
+                var rowFocused by remember(index) { mutableStateOf(false) }
+                GridFocusSurface(
+                    onClick = { if (enabled) onItemSelected(index) },
+                    enabled = enabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 44.dp)
-                        .then(chipModifier)
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.CenterStart,
+                        .focusRequester(rowFocusRequesters[index])
+                        .focusProperties { canFocus = enabled }
+                        .onFocusChanged {
+                            rowFocused = it.isFocused
+                            if (it.isFocused) {
+                                onFocusedIndexChange(index)
+                                onPanelFocused()
+                            }
+                        }
+                        .tvFocusBorder(
+                            focused = rowFocused,
+                            shape = chipShape,
+                            unfocusedColor = Color.Transparent,
+                        ),
+                    shape = ClickableSurfaceDefaults.shape(chipShape),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = when {
+                            tabSelected -> accent.copy(alpha = 0.18f)
+                            else -> Color(0xFF161616)
+                        },
+                        focusedContainerColor = accent.copy(alpha = 0.28f),
+                        pressedContainerColor = accent.copy(alpha = 0.22f),
+                    ),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
                     ) {
                         Box(
                             modifier = Modifier.width(20.dp),
@@ -871,7 +865,7 @@ fun VodLibraryNavPanel(
                         ) {
                             Text(
                                 text = icon,
-                                color = if (focused || tabSelected) Color.White else Color(0xFFB8BEC8),
+                                color = if (rowFocused || tabSelected) Color.White else Color(0xFFB8BEC8),
                                 fontSize = 16.sp,
                                 textAlign = TextAlign.Center,
                             )
@@ -887,7 +881,7 @@ fun VodLibraryNavPanel(
                         Text(
                             text = label,
                             color = when {
-                                focused || tabSelected -> Color.White
+                                rowFocused || tabSelected -> Color.White
                                 enabled -> Color(0xFFB8BEC8)
                                 else -> Color(0xFF6B7280)
                             },
@@ -917,7 +911,6 @@ fun VodGenreSidePanel(
     libraryNavFocusRequester: FocusRequester? = null,
     entryFocusRequester: FocusRequester? = null,
     onFocusedIndexChange: ((Int) -> Unit)? = null,
-    onPreviewKey: ((androidx.compose.ui.input.key.KeyEvent) -> Boolean)? = null
 ) {
     if (genres.isEmpty()) return
     val listState = rememberLazyListState()
@@ -945,16 +938,7 @@ fun VodGenreSidePanel(
                     Modifier
                         .focusRequester(entryFocusRequester)
                         .focusable()
-                        .focusProperties {
-                            canFocus = panelFocused
-                            if (libraryNavFocusRequester != null) {
-                                left = libraryNavFocusRequester
-                            }
-                            if (contentGridFocusRequester != null) {
-                                right = contentGridFocusRequester
-                            }
-                        }
-                        .onPreviewKeyEvent { onPreviewKey?.invoke(it) ?: false }
+                        .focusProperties { canFocus = panelFocused }
                 } else {
                     Modifier.focusProperties { canFocus = false }
                 }
@@ -1029,11 +1013,8 @@ fun VodLanguageSubmenuPanel(
     panelFocused: Boolean,
     onFocusedIndexChange: (Int) -> Unit,
     onLanguageToggle: (String?) -> Unit,
-    onPreviewKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean,
     modifier: Modifier = Modifier,
     entryFocusRequester: FocusRequester? = null,
-    libraryNavFocusRequester: FocusRequester? = null,
-    contentFocusRequester: FocusRequester? = null,
 ) {
     val itemCount = availableLanguages.size + 1
     val listState = rememberLazyListState()
@@ -1062,16 +1043,7 @@ fun VodLanguageSubmenuPanel(
                     Modifier
                         .focusRequester(entryFocusRequester)
                         .focusable()
-                        .focusProperties {
-                            canFocus = panelFocused
-                            if (libraryNavFocusRequester != null) {
-                                left = libraryNavFocusRequester
-                            }
-                            if (contentFocusRequester != null) {
-                                right = contentFocusRequester
-                            }
-                        }
-                        .onPreviewKeyEvent(onPreviewKey)
+                        .focusProperties { canFocus = panelFocused }
                 } else {
                     Modifier.focusProperties { canFocus = false }
                 }
@@ -1453,9 +1425,6 @@ fun NetflixContentWallRow(
     overviewForSeries: (SeriesShow) -> String?,
     onActivateItem: (VodWallItem) -> Unit,
     modifier: Modifier = Modifier,
-    firstItemFocusRequester: FocusRequester? = null,
-    heroPlayFocusRequester: FocusRequester? = null,
-    sidebarFocusRequester: FocusRequester? = null,
     linkUpToHero: Boolean = false,
 ) {
     LaunchedEffect(rowFocused, focusedColumn) {
@@ -1512,15 +1481,7 @@ fun NetflixContentWallRow(
             items(row.items.size, key = { row.items[it].key }) { index ->
                 val item = row.items[index]
                 val externallyFocused = rowFocused && index == focusedColumn
-                val itemModifier = Modifier
-                    .then(
-                        if (index == 0 && firstItemFocusRequester != null) {
-                            Modifier.focusRequester(firstItemFocusRequester)
-                        } else {
-                            Modifier
-                        }
-                    )
-                    .focusProperties { canFocus = false }
+                val itemModifier = Modifier.focusProperties { canFocus = false }
                 when (item) {
                     is VodWallItem.ContinueItem -> {
                         val cw = item.item
