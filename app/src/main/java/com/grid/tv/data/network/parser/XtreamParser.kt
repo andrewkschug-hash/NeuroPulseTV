@@ -416,20 +416,29 @@ class XtreamParser {
         val directSource = item.optString("direct_source").ifBlank { null }
         val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), ext, directSource)
         val title = item.optString("name").ifBlank { "VOD $id" }
-        val info = item.optJSONObject("info")
+        val info = parseInfoObject(item.opt("info"))
         val infoPlot = info?.optString("plot")
             ?.ifBlank { info.optString("description") }
             ?.ifBlank { info.optString("synopsis") }
             ?.ifBlank { info.optString("overview") }
+            ?.ifBlank { info.optString("storyline") }
             ?.ifBlank { null }
-        val infoCast = info?.optString("cast")?.ifBlank { null }
-        val infoDirector = info?.optString("director")?.ifBlank { null }
-        val infoGenre = info?.optString("genre")?.ifBlank { null }
+        val infoCast = info?.optString("cast")
+            ?.ifBlank { info.optString("actors") }
+            ?.ifBlank { null }
+        val infoDirector = info?.optString("director")
+            ?.ifBlank { info.optString("directors") }
+            ?.ifBlank { null }
+        val infoGenre = info?.optString("genre")
+            ?.ifBlank { info.optString("genres") }
+            ?.ifBlank { null }
         val infoRating = info?.optString("rating")
             ?.ifBlank { info.optString("vote_average") }
+            ?.ifBlank { info.optString("tmdb_rating") }
             ?.ifBlank { null }
         val infoDuration = info?.optString("duration")
             ?.ifBlank { info.optString("runtime") }
+            ?.ifBlank { info.optString("duration_secs").takeIf { it.toLongOrNull() != null }?.let(::secondsToRuntimeLabel) }
             ?.ifBlank { null }
         return VodItem(
             id = id,
@@ -493,7 +502,9 @@ class XtreamParser {
                 "genre" -> genre = readStringToken(reader)?.ifBlank { null }
                 "rating" -> rating = readStringToken(reader)?.ifBlank { null }
                 "duration" -> duration = readStringToken(reader)?.ifBlank { null }
-                "category_id" -> categoryId = readCategoryIdToken(reader)
+                "category_id", "categoryId", "vod_category_id", "series_category_id" -> {
+                    categoryId = readCategoryIdToken(reader) ?: categoryId
+                }
                 "added" -> addedEpochSec = readLongToken(reader)
                 "info" -> {
                     val info = readVodInfoFieldsFromReader(reader)
@@ -544,7 +555,9 @@ class XtreamParser {
                 "series_id" -> seriesId = readLongToken(reader)
                 "name" -> name = readStringToken(reader)
                 "cover" -> coverUrl = readStringToken(reader)?.ifBlank { null }
-                "category_id" -> categoryId = readCategoryIdToken(reader)
+                "category_id", "categoryId", "vod_category_id", "series_category_id" -> {
+                    categoryId = readCategoryIdToken(reader) ?: categoryId
+                }
                 "genre" -> genre = readStringToken(reader)?.ifBlank { null }
                 "plot" -> plot = readStringToken(reader)?.ifBlank { null }
                 "info" -> {
@@ -593,18 +606,39 @@ class XtreamParser {
     private fun readSeriesInfoFieldsFromReader(reader: JsonReader): SeriesInfoFields {
         var plot: String? = null
         var genre: String? = null
-        reader.beginObject()
-        while (reader.hasNext()) {
-            when (reader.nextName()) {
-                "plot", "description", "synopsis", "overview" -> {
-                    val value = readStringToken(reader)?.ifBlank { null }
-                    if (plot.isNullOrBlank() && value != null) plot = value
+        when (reader.peek()) {
+            JsonToken.BEGIN_OBJECT -> {
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    when (reader.nextName()) {
+                        "plot", "description", "synopsis", "overview", "storyline" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (plot.isNullOrBlank() && value != null) plot = value
+                        }
+                        "genre", "genres" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (genre.isNullOrBlank() && value != null) genre = value
+                        }
+                        else -> reader.skipValue()
+                    }
                 }
-                "genre" -> genre = readStringToken(reader)?.ifBlank { null }
-                else -> reader.skipValue()
+                reader.endObject()
             }
+            JsonToken.STRING -> {
+                val raw = reader.nextString()
+                val info = parseInfoObject(raw)
+                plot = info?.optString("plot")
+                    ?.ifBlank { info.optString("description") }
+                    ?.ifBlank { info.optString("synopsis") }
+                    ?.ifBlank { info.optString("overview") }
+                    ?.ifBlank { info.optString("storyline") }
+                    ?.ifBlank { null }
+                genre = info?.optString("genre")
+                    ?.ifBlank { info.optString("genres") }
+                    ?.ifBlank { null }
+            }
+            else -> reader.skipValue()
         }
-        reader.endObject()
         return SeriesInfoFields(plot = plot, genre = genre)
     }
 
@@ -624,22 +658,79 @@ class XtreamParser {
         var genre: String? = null
         var rating: String? = null
         var duration: String? = null
-        reader.beginObject()
-        while (reader.hasNext()) {
-            when (reader.nextName()) {
-                "plot", "description", "synopsis", "overview" -> {
-                    val value = readStringToken(reader)?.ifBlank { null }
-                    if (plot.isNullOrBlank() && value != null) plot = value
+        when (reader.peek()) {
+            JsonToken.BEGIN_OBJECT -> {
+                reader.beginObject()
+                while (reader.hasNext()) {
+                    when (reader.nextName()) {
+                        "plot", "description", "synopsis", "overview", "storyline" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (plot.isNullOrBlank() && value != null) plot = value
+                        }
+                        "cast", "actors" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (cast.isNullOrBlank() && value != null) cast = value
+                        }
+                        "director", "directors" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (director.isNullOrBlank() && value != null) director = value
+                        }
+                        "genre", "genres" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (genre.isNullOrBlank() && value != null) genre = value
+                        }
+                        "rating", "vote_average", "tmdb_rating" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (rating.isNullOrBlank() && value != null) rating = value
+                        }
+                        "duration", "runtime" -> {
+                            val value = readStringToken(reader)?.ifBlank { null }
+                            if (duration.isNullOrBlank() && value != null) duration = value
+                        }
+                        "duration_secs" -> {
+                            val seconds = readLongToken(reader)
+                            if (duration.isNullOrBlank() && seconds != null) {
+                                duration = secondsToRuntimeLabel(seconds.toString())
+                            }
+                        }
+                        else -> reader.skipValue()
+                    }
                 }
-                "cast" -> cast = readStringToken(reader)?.ifBlank { null }
-                "director" -> director = readStringToken(reader)?.ifBlank { null }
-                "genre" -> genre = readStringToken(reader)?.ifBlank { null }
-                "rating", "vote_average" -> rating = readStringToken(reader)?.ifBlank { null }
-                "duration", "runtime" -> duration = readStringToken(reader)?.ifBlank { null }
-                else -> reader.skipValue()
+                reader.endObject()
             }
+            JsonToken.STRING -> {
+                val raw = reader.nextString()
+                val info = parseInfoObject(raw)
+                plot = info?.optString("plot")
+                    ?.ifBlank { info.optString("description") }
+                    ?.ifBlank { info.optString("synopsis") }
+                    ?.ifBlank { info.optString("overview") }
+                    ?.ifBlank { info.optString("storyline") }
+                    ?.ifBlank { null }
+                cast = info?.optString("cast")
+                    ?.ifBlank { info.optString("actors") }
+                    ?.ifBlank { null }
+                director = info?.optString("director")
+                    ?.ifBlank { info.optString("directors") }
+                    ?.ifBlank { null }
+                genre = info?.optString("genre")
+                    ?.ifBlank { info.optString("genres") }
+                    ?.ifBlank { null }
+                rating = info?.optString("rating")
+                    ?.ifBlank { info.optString("vote_average") }
+                    ?.ifBlank { info.optString("tmdb_rating") }
+                    ?.ifBlank { null }
+                duration = info?.optString("duration")
+                    ?.ifBlank { info.optString("runtime") }
+                    ?.ifBlank {
+                        info.optString("duration_secs")
+                            .takeIf { it.toLongOrNull() != null }
+                            ?.let(::secondsToRuntimeLabel)
+                    }
+                    ?.ifBlank { null }
+            }
+            else -> reader.skipValue()
         }
-        reader.endObject()
         return VodInfoFields(
             plot = plot,
             cast = cast,
@@ -685,8 +776,8 @@ class XtreamParser {
                 reader.nextNull()
                 null
             }
-            JsonToken.NUMBER -> reader.nextLong().toString()
-            JsonToken.STRING -> reader.nextString().takeIf { it.isNotBlank() }
+            JsonToken.NUMBER -> canonicalizeCategoryId(reader.nextLong().toString())
+            JsonToken.STRING -> canonicalizeCategoryId(reader.nextString())
             else -> {
                 reader.skipValue()
                 null
@@ -721,13 +812,16 @@ class XtreamParser {
     internal fun parseSeriesItemFromJson(item: JSONObject?, playlistId: Long): SeriesShow? {
         item ?: return null
         val id = optLongId(item, "series_id") ?: return null
-        val info = item.optJSONObject("info")
+        val info = parseInfoObject(item.opt("info"))
         val infoPlot = info?.optString("plot")
             ?.ifBlank { info.optString("description") }
             ?.ifBlank { info.optString("synopsis") }
             ?.ifBlank { info.optString("overview") }
+            ?.ifBlank { info.optString("storyline") }
             ?.ifBlank { null }
-        val infoGenre = info?.optString("genre")?.ifBlank { null }
+        val infoGenre = info?.optString("genre")
+            ?.ifBlank { info.optString("genres") }
+            ?.ifBlank { null }
         return SeriesShow(
             id = id,
             name = item.optString("name").ifBlank { "Series $id" },
@@ -741,23 +835,37 @@ class XtreamParser {
 
     fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): SeriesDetail {
         val root = JSONObject(raw)
-        val rootInfo = root.optJSONObject("info")
+        val rootInfo = parseInfoObject(root.opt("info"))
         val plot = rootInfo?.optString("plot")
             ?.ifBlank { rootInfo.optString("description") }
             ?.ifBlank { rootInfo.optString("synopsis") }
             ?.ifBlank { rootInfo.optString("overview") }
+            ?.ifBlank { rootInfo.optString("storyline") }
             ?.ifBlank { null }
-        val episodes = root.optJSONObject("episodes") ?: return SeriesDetail(seasons = emptyList(), plot = plot)
+        val episodes = root.optJSONObject("episodes") ?: run {
+            val arr = root.optJSONArray("episodes")
+            if (arr != null) {
+                JSONObject().put("1", arr)
+            } else {
+                return SeriesDetail(seasons = emptyList(), plot = plot)
+            }
+        }
         val seasons = mutableListOf<SeriesSeason>()
         val keys = episodes.keys()
         while (keys.hasNext()) {
             val seasonKey = keys.next()
-            val arr = episodes.optJSONArray(seasonKey) ?: continue
+            val arr = when (val seasonNode = episodes.opt(seasonKey)) {
+                is JSONArray -> seasonNode
+                is JSONObject -> seasonNode.optJSONArray("episodes")
+                    ?: seasonNode.optJSONArray("data")
+                    ?: seasonNode.optJSONArray("items")
+                else -> null
+            } ?: continue
             val episodeRows = mutableListOf<SeriesEpisode>()
             for (i in 0 until arr.length()) {
                 val item = arr.optJSONObject(i) ?: continue
                 val id = item.optString("id").toLongOrNull() ?: continue
-                val info = item.optJSONObject("info")
+                val info = parseInfoObject(item.opt("info"))
                 val ext = item.optString("container_extension").ifBlank { "mp4" }
                 val title = resolveEpisodeTitle(item, info)
                 val directSource = sanitizeDirectSource(item.optString("direct_source"))
@@ -781,9 +889,15 @@ class XtreamParser {
                         ?.ifBlank { info.optString("description") }
                         ?.ifBlank { info.optString("synopsis") }
                         ?.ifBlank { info.optString("overview") }
+                        ?.ifBlank { info.optString("storyline") }
                         ?.ifBlank { null },
                     duration = info?.optString("duration")
                         ?.ifBlank { info.optString("runtime") }
+                        ?.ifBlank {
+                            info.optString("duration_secs")
+                                .takeIf { it.toLongOrNull() != null }
+                                ?.let(::secondsToRuntimeLabel)
+                        }
                         ?.ifBlank { null },
                     episodeNumber = episodeNumber
                 )
@@ -898,11 +1012,13 @@ class XtreamParser {
         item.optString("description").takeIf { it.isNotBlank() }?.let { return it }
         item.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
         item.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+        item.optString("storyline").takeIf { it.isNotBlank() }?.let { return it }
         item.optJSONObject("info")?.let { info ->
             info.optString("plot").takeIf { it.isNotBlank() }?.let { return it }
             info.optString("description").takeIf { it.isNotBlank() }?.let { return it }
             info.optString("synopsis").takeIf { it.isNotBlank() }?.let { return it }
             info.optString("overview").takeIf { it.isNotBlank() }?.let { return it }
+            info.optString("storyline").takeIf { it.isNotBlank() }?.let { return it }
         }
         return null
     }
@@ -919,21 +1035,35 @@ class XtreamParser {
     }
 
     private fun optCategoryId(item: JSONObject): String? {
-        if (!item.has("category_id")) return null
-        return when (val value = item.opt("category_id")) {
-            is Number -> value.toLong().toString()
-            is String -> value.takeIf { it.isNotBlank() }
-            else -> null
+        val keys = listOf(
+            "category_id",
+            "categoryId",
+            "categoryid",
+            "id",
+            "vod_category_id",
+            "series_category_id"
+        )
+        keys.forEach { key ->
+            if (!item.has(key)) return@forEach
+            val normalized = normalizeCategoryIdValue(item.opt(key))
+            if (!normalized.isNullOrBlank()) return normalized
         }
+        if (item.has("category_ids")) {
+            normalizeCategoryIdValue(item.opt("category_ids"))?.let { return it }
+        }
+        return null
     }
 
     private fun optCategoryName(item: JSONObject, fallback: String): String {
         val id = optCategoryId(item)
         val candidates = listOf(
             item.optString("category_name"),
+            item.optString("cat_name"),
+            item.optString("genre_name"),
             item.optString("name"),
             item.optString("title"),
-            item.optString("category")
+            item.optString("category"),
+            item.optString("display_name")
         )
         for (candidate in candidates) {
             val trimmed = candidate.trim()
@@ -943,6 +1073,87 @@ class XtreamParser {
             return trimmed
         }
         return fallback
+    }
+
+    private fun normalizeCategoryIdValue(value: Any?): String? {
+        return when (value) {
+            null -> null
+            is Number -> canonicalizeCategoryId(value.toLong().toString())
+            is String -> {
+                val trimmed = value.trim()
+                if (trimmed.isBlank()) {
+                    null
+                } else if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                    val arr = runCatching { JSONArray(trimmed) }.getOrNull()
+                    if (arr == null) {
+                        null
+                    } else {
+                        var parsed: String? = null
+                        for (i in 0 until arr.length()) {
+                            val candidate = normalizeCategoryIdValue(arr.opt(i))
+                            if (!candidate.isNullOrBlank()) {
+                                parsed = candidate
+                                break
+                            }
+                        }
+                        parsed
+                    }
+                } else {
+                    trimmed.split(',', ';')
+                        .mapNotNull { canonicalizeCategoryId(it) }
+                        .firstOrNull()
+                }
+            }
+            is JSONArray -> {
+                var parsed: String? = null
+                for (i in 0 until value.length()) {
+                    val candidate = normalizeCategoryIdValue(value.opt(i))
+                    if (!candidate.isNullOrBlank()) {
+                        parsed = candidate
+                        break
+                    }
+                }
+                parsed
+            }
+            else -> null
+        }
+    }
+
+    private fun canonicalizeCategoryId(raw: String?): String? {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) return null
+        val normalized = if (trimmed.endsWith(".0") && trimmed.dropLast(2).all { it.isDigit() }) {
+            trimmed.dropLast(2)
+        } else {
+            trimmed
+        }
+        return normalized.takeIf { it.isNotBlank() }
+    }
+
+    private fun parseInfoObject(value: Any?): JSONObject? = when (value) {
+        is JSONObject -> value
+        is String -> {
+            val trimmed = value.trim()
+            if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                runCatching { JSONObject(trimmed) }.getOrNull()
+            } else {
+                null
+            }
+        }
+        else -> null
+    }
+
+    private fun secondsToRuntimeLabel(rawSeconds: String): String? {
+        val totalSeconds = rawSeconds.toLongOrNull() ?: return null
+        if (totalSeconds <= 0L) return null
+        val totalMinutes = totalSeconds / 60L
+        val hours = totalMinutes / 60L
+        val minutes = totalMinutes % 60L
+        return if (hours > 0L) {
+            if (minutes > 0L) "${hours}h ${minutes}m" else "${hours}h"
+        } else {
+            "${minutes}m"
+        }
     }
 
     private fun previewHasCatalogArray(preview: String): Boolean =

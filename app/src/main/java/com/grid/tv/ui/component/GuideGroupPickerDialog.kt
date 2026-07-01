@@ -72,7 +72,12 @@ fun GuideGroupPickerDialog(
     val rowFocusRequesters = remember(visibleRows.size) {
         List(visibleRows.size) { FocusRequester() }
     }
+    val allGroups = remember(channelGroups) { channelGroups.distinct() }
+    val allGroupsSet = remember(allGroups) { allGroups.toSet() }
+    val allGroupsSelected = allGroups.isNotEmpty() && allGroups.all { it in selection }
+
     val cancelFocusRequester = remember { FocusRequester() }
+    val selectAllFocusRequester = remember { FocusRequester() }
     val saveFocusRequester = remember { FocusRequester() }
 
     val listState = rememberLazyListState()
@@ -232,6 +237,17 @@ fun GuideGroupPickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    GridOutlinedButton(
+                        text = if (allGroupsSelected) "Deselect all" else "Select all",
+                        onClick = {
+                            selection = if (allGroupsSelected) {
+                                emptySet()
+                            } else {
+                                allGroupsSet
+                            }
+                        },
+                        modifier = Modifier.focusRequester(selectAllFocusRequester)
+                    )
                     if (allowDismiss) {
                         GridOutlinedButton(
                             text = "Cancel",

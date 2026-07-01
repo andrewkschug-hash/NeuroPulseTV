@@ -128,7 +128,7 @@ fun GuideChannelGroupsPanel(
                     }
                     GuideGroupVisibleRow.FavoriteSectionEmpty -> {
                         Text(
-                            text = "Long-press a channel group to add it here.",
+                            text = "Press Right (or Menu) on a channel group to add it here.",
                             color = EpgColors.TextSecondary,
                             fontFamily = DmSansFamily,
                             fontSize = 12.sp,

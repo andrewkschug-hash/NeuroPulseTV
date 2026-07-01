@@ -740,7 +740,12 @@ internal class HomeEpgGuideController(
                 true
             }
             Key.DirectionRight -> {
-                returnToGridFromSidebar()
+                val focusedGroup = currentFocusedGroupKey()
+                if (focusedGroup != null) {
+                    toggleChannelGroupFavorite(focusedGroup)
+                } else {
+                    returnToGridFromSidebar()
+                }
                 true
             }
             Key.DirectionDown -> {

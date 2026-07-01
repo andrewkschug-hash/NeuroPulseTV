@@ -363,17 +363,16 @@ fun handleGuideGroupTvKeyEvent(
             if (focusedIndex > 0) onFocusedIndexChange(focusedIndex - 1)
             true
         }
-        Key.Enter,
-        Key.NumPadEnter,
-        Key.DirectionCenter -> {
-            onActivate()
-            true
+        else -> {
+            if (isTvActivateKey(event)) {
+                onActivate()
+                true
+            } else if (event.key == Key.Back || event.key == Key.Escape) {
+                onBack()
+                true
+            } else {
+                false
+            }
         }
-        Key.Back,
-        Key.Escape -> {
-            onBack()
-            true
-        }
-        else -> false
     }
 }
