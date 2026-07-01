@@ -479,6 +479,7 @@ class XtreamParser {
         val trimmed = sanitizeJsonPayload(raw)
         if (trimmed.isBlank()) return emptyList()
         val root = runCatching { JsonParser.parseString(trimmed) }.getOrNull() ?: return emptyList()
+        logInfo("CATEGORY_SHAPE ${describeCategoryShape(root)}")
         return extractCategoryObjects(root, CATEGORY_ARRAY_WRAPPER_KEYS)
     }
 
@@ -493,15 +494,72 @@ class XtreamParser {
             if (node != null && node.isJsonArray) {
                 return node.asJsonArray.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
             }
+            if (node != null && node.isJsonObject) {
+                val mapped = categoryObjectMapToRows(node.asJsonObject)
+                if (mapped.isNotEmpty()) return mapped
+            }
         }
         val data = obj.get("data")
         if (data != null && data.isJsonObject) {
-            return extractCategoryObjects(data, wrapperKeys)
+            val nested = extractCategoryObjects(data, wrapperKeys)
+            if (nested.isNotEmpty()) return nested
+            val mapped = categoryObjectMapToRows(data.asJsonObject)
+            if (mapped.isNotEmpty()) return mapped
         }
         if (data != null && data.isJsonArray) {
             return data.asJsonArray.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
         }
+        val mappedTop = categoryObjectMapToRows(obj)
+        if (mappedTop.isNotEmpty()) return mappedTop
         return emptyList()
+    }
+
+    private fun categoryObjectMapToRows(obj: JsonObject): List<JsonObject> {
+        if (obj.entrySet().isEmpty()) return emptyList()
+        val numericKeyMajority = obj.entrySet().count { it.key.trim().all(Char::isDigit) } >= (obj.entrySet().size / 2)
+        if (!numericKeyMajority) return emptyList()
+        val rows = mutableListOf<JsonObject>()
+        obj.entrySet().forEach { (key, value) ->
+            when {
+                value.isJsonPrimitive -> {
+                    val row = JsonObject()
+                    row.addProperty("category_id", key)
+                    row.addProperty("category_name", value.asString)
+                    rows += row
+                }
+                value.isJsonObject -> {
+                    val row = value.asJsonObject.deepCopy()
+                    if (!row.has("category_id") && !row.has("id") && !row.has("categoryId") && !row.has("categoryid") && !row.has("cat_id")) {
+                        row.addProperty("category_id", key)
+                    }
+                    rows += row
+                }
+            }
+        }
+        return rows
+    }
+
+    private fun describeCategoryShape(root: JsonElement): String {
+        if (root.isJsonArray) return "root=array size=${root.asJsonArray.size()}"
+        if (!root.isJsonObject) return "root=${root.javaClass.simpleName}"
+        val obj = root.asJsonObject
+        val keys = obj.keySet().toList().sorted()
+        val wrappers = CATEGORY_ARRAY_WRAPPER_KEYS.associateWith { key ->
+            when {
+                !obj.has(key) -> "absent"
+                obj.get(key).isJsonArray -> "array(${obj.getAsJsonArray(key).size()})"
+                obj.get(key).isJsonObject -> "object(${obj.getAsJsonObject(key).keySet().size})"
+                else -> "primitive"
+            }
+        }
+        val data = obj.get("data")
+        val dataShape = when {
+            data == null -> "absent"
+            data.isJsonArray -> "array(${data.asJsonArray.size()})"
+            data.isJsonObject -> "object(${data.asJsonObject.keySet().size})"
+            else -> "primitive"
+        }
+        return "root=object keys=$keys wrappers=$wrappers data=$dataShape"
     }
 
     private fun JsonObject.optStringCompat(key: String): String? {

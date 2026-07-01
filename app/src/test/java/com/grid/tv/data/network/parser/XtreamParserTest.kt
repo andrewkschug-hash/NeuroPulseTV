@@ -209,4 +209,13 @@ class XtreamParserTest {
         assertEquals("1056", categories[1].id)
         assertEquals("Comedy", categories[1].name)
     }
+
+    @Test
+    fun parseVodCategoriesReadsObjectMapPayload() {
+        val raw = """{"1054":"Action","1056":"Comedy"}"""
+        val categories = parser.parseVodCategories(raw, playlistId = 5L)
+        assertEquals(2, categories.size)
+        assertEquals(setOf("1054", "1056"), categories.map { it.id }.toSet())
+        assertEquals(setOf("Action", "Comedy"), categories.map { it.name }.toSet())
+    }
 }

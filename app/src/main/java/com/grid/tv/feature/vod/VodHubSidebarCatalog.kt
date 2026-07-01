@@ -1,6 +1,7 @@
 package com.grid.tv.feature.vod
 
 import android.util.Log
+import com.grid.tv.BuildConfig
 import com.grid.tv.domain.model.VodBrowseRow
 import com.grid.tv.domain.model.VodCategory
 import com.grid.tv.domain.model.VodCategoryGuards
@@ -36,7 +37,17 @@ internal fun prepareMovieSidebarCategories(
     } else {
         browseIndex.categoriesFromRows
     }
-    return VodCategoryNameResolver.prepareMovieCategoriesForSidebar(raw, browseIndex.itemCountByCategoryKey)
+    val collapseByCanonical = false
+    Log.i(
+        "VodSidebarGenre",
+        "SIDEBAR_CALLSITE movies collapseByCanonical=$collapseByCanonical raw=${raw.size} " +
+            "indexed=${browseIndex.itemCountByCategoryKey.size} build=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+    )
+    return VodCategoryNameResolver.prepareMovieCategoriesForSidebar(
+        categories = raw,
+        itemCountByCategoryKey = browseIndex.itemCountByCategoryKey,
+        collapseByCanonical = collapseByCanonical,
+    )
 }
 
 internal fun prepareSeriesSidebarCategories(
@@ -47,5 +58,15 @@ internal fun prepareSeriesSidebarCategories(
         return VodCategoryNameResolver.SeriesSidebarCategories(emptyList(), emptyMap())
     }
     val raw = VodCategoryNameResolver.mergeSeriesCategorySources(primary, browseIndex.categoriesFromRows)
-    return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw, browseIndex.itemCountByCategoryKey)
+    val collapseByCanonical = false
+    Log.i(
+        "VodSidebarGenre",
+        "SIDEBAR_CALLSITE series collapseByCanonical=$collapseByCanonical raw=${raw.size} " +
+            "indexed=${browseIndex.itemCountByCategoryKey.size} build=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+    )
+    return VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(
+        categories = raw,
+        itemCountByCategoryKey = browseIndex.itemCountByCategoryKey,
+        collapseByCanonical = collapseByCanonical,
+    )
 }
