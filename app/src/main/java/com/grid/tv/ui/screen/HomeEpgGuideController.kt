@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.Density
 import com.grid.tv.domain.epg.EpgProgramAction
 import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.Channel
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.domain.model.Program
 import com.grid.tv.domain.model.SearchResultItem
@@ -30,6 +31,7 @@ import com.grid.tv.ui.component.TopBarProfileIndex
 import com.grid.tv.ui.component.GuideGroupCategory
 import com.grid.tv.ui.component.GuideGroupVisibleRow
 import com.grid.tv.ui.component.buildFlatProviderVisibleRows
+import com.grid.tv.ui.component.buildFlatSmartBucketRows
 import com.grid.tv.ui.component.buildVisibleGuideGroupRows
 import com.grid.tv.ui.component.expandedCategoriesForSelection
 import com.grid.tv.ui.component.guideChannelFilterForVisibleRow
@@ -38,7 +40,6 @@ import com.grid.tv.ui.component.guideNavDrawerItemFocusIndex
 import com.grid.tv.ui.component.nextFocusableGroupRowIndex
 import com.grid.tv.ui.component.isFocusableGroupRow
 import com.grid.tv.ui.component.guideGroupVisibleRowKey
-import com.grid.tv.ui.component.resolveChannelGroupsFocusIndex
 import com.grid.tv.ui.component.GuideNavDrawerItem
 import com.grid.tv.ui.component.isTvActivateKey
 import com.grid.tv.ui.component.isTvActivateKeyUp
@@ -79,6 +80,7 @@ internal data class HomeEpgGuideDeps(
     val gridFocusRequester: FocusRequester,
     val gridFilterFocusRequester: FocusRequester,
     val channelGroups: List<String>,
+    val channelGroupNavigationMode: ChannelGroupNavigationMode,
     val continueWatchingFocusRequester: FocusRequester,
     val previewFocusRequester: FocusRequester,
     val previewChannel: Channel?,
@@ -516,9 +518,9 @@ internal class HomeEpgGuideController(
         if (!canShowChannelGroupsPanel()) return
         boundDeps.viewModel.clearPreviewGuideFilter(reloadCommitted = true)
         val committedFilter = boundDeps.committedGuideFilter
-        ui.channelGroupsFocusIndex = resolveChannelGroupsFocusIndex(
-            channelGroups = boundDeps.channelGroups,
-            favoriteGroups = boundDeps.viewModel.favoriteChannelGroups.value,
+        val visibleRows = flatVisibleGroupRows()
+        ui.channelGroupsFocusIndex = resolveCurrentChannelGroupsFocusIndex(
+            visibleRows = visibleRows,
             committedFilter = committedFilter,
             currentIndex = ui.lastChannelGroupsFocusIndex,
             lastRowKey = ui.lastChannelGroupRowKey,
@@ -549,11 +551,49 @@ internal class HomeEpgGuideController(
         }
     }
 
-    private fun flatVisibleGroupRows(): List<GuideGroupVisibleRow> =
-        buildFlatProviderVisibleRows(
-            boundDeps.channelGroups,
-            boundDeps.viewModel.favoriteChannelGroups.value
-        )
+    private fun flatVisibleGroupRows(): List<GuideGroupVisibleRow> {
+        val favorites = boundDeps.viewModel.favoriteChannelGroups.value
+        return if (
+            boundDeps.channelGroupNavigationMode == ChannelGroupNavigationMode.SMART &&
+            boundDeps.guideGroupCategories.isNotEmpty()
+        ) {
+            buildFlatSmartBucketRows(boundDeps.guideGroupCategories, favorites)
+        } else {
+            buildFlatProviderVisibleRows(boundDeps.channelGroups, favorites)
+        }
+    }
+
+    private fun resolveCurrentChannelGroupsFocusIndex(
+        visibleRows: List<GuideGroupVisibleRow>,
+        committedFilter: GuideChannelFilter,
+        currentIndex: Int,
+        lastRowKey: String?,
+    ): Int {
+        if (visibleRows.isEmpty()) return 0
+
+        if (committedFilter.isActive) {
+            val committedIndex = visibleRows.indexOfFirst { row ->
+                row.isFocusableGroupRow() && guideChannelFilterForVisibleRow(row) == committedFilter
+            }
+            if (committedIndex >= 0) return committedIndex
+        }
+
+        if (!lastRowKey.isNullOrBlank()) {
+            val keyedIndex = visibleRows.indexOfFirst { guideGroupVisibleRowKey(it) == lastRowKey }
+            if (keyedIndex >= 0 && visibleRows[keyedIndex].isFocusableGroupRow()) {
+                return keyedIndex
+            }
+        }
+
+        val current = visibleRows.getOrNull(currentIndex)
+        if (current != null && current.isFocusableGroupRow() &&
+            guideChannelFilterForVisibleRow(current) == committedFilter
+        ) {
+            return currentIndex
+        }
+
+        return visibleRows.indexOfFirst { it.isFocusableGroupRow() }.coerceAtLeast(0)
+    }
 
     private fun currentFocusedGroupKey(): String? {
         val row = flatVisibleGroupRows().getOrNull(ui.channelGroupsFocusIndex)

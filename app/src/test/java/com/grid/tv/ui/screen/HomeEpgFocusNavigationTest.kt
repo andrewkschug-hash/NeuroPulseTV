@@ -7,6 +7,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.Density
 import com.grid.tv.domain.epg.ProgrammeIndex
 import com.grid.tv.domain.model.Channel
+import com.grid.tv.domain.model.ChannelGroupNavigationMode
 import com.grid.tv.domain.model.ContinueWatchingItem
 import com.grid.tv.feature.epg.GuideChannelFilter
 import com.grid.tv.ui.component.EpgNavTab
@@ -88,6 +89,7 @@ class HomeEpgFocusNavigationTest {
                 gridFocusRequester = FocusRequester(),
                 gridFilterFocusRequester = FocusRequester(),
                 channelGroups = channelGroups,
+                channelGroupNavigationMode = ChannelGroupNavigationMode.SMART,
                 continueWatchingFocusRequester = FocusRequester(),
                 previewFocusRequester = FocusRequester(),
                 previewChannel = channels.firstOrNull(),

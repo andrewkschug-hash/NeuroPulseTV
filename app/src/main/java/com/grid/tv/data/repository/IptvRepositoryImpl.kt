@@ -1008,9 +1008,16 @@ class IptvRepositoryImpl @Inject constructor(
         rows: List<com.grid.tv.data.db.model.GroupChannelCountRow>
     ): com.grid.tv.feature.guide.GuideGroupMetadata {
         val startNs = System.nanoTime()
-        val groups = ArrayList<String>(rows.size)
-        val counts = LinkedHashMap<String, Int>(rows.size)
-        rows.forEach { row ->
+        val sortedRows = rows.sortedWith(
+            kotlin.comparisons.compareBy<com.grid.tv.data.db.model.GroupChannelCountRow>(
+                { it.groupName.trim().lowercase() },
+                { it.groupName.trim() },
+                { it.playlistId }
+            )
+        )
+        val groups = ArrayList<String>(sortedRows.size)
+        val counts = LinkedHashMap<String, Int>(sortedRows.size)
+        sortedRows.forEach { row ->
             val key = com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(
                 row.playlistId,
                 row.groupName

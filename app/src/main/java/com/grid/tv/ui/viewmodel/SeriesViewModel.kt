@@ -149,49 +149,6 @@ class SeriesViewModel @Inject constructor(
         }
     }.cachedIn(viewModelScope)
 
-    init {
-        viewModelScope.launch {
-            combine(debouncedSearchQuery, selectedSeriesCategoryFilter, _hubSearchMode) { query, categoryFilter, hubSearchMode ->
-                val (categoryFilterIds, playlistId) = categoryFilter
-                SeriesFilterCountParams(query, categoryFilterIds, playlistId, hubSearchMode)
-            }.collect { params ->
-                if (params.hubSearchMode && params.query.isBlank()) {
-                    _filteredTotalCount.value = 0
-                } else {
-                    refreshFilteredCount(params.query, params.categoryFilterIds, params.playlistId)
-                }
-            }
-        }
-        viewModelScope.launch {
-            combine(
-                languagePreferenceStore.filterOptions,
-                debouncedSearchQuery,
-                selectedSeriesCategoryFilter,
-                categories
-            ) { filterOptions, query, categoryFilter, categoryList ->
-                val (categoryFilterIds, playlistId) = categoryFilter
-                SeriesLanguageFilterDebugParams(
-                    filterOptions = filterOptions,
-                    query = query,
-                    categoryFilterIds = categoryFilterIds,
-                    playlistId = playlistId,
-                    categoryNames = categoryList.associate { it.id to it.name }
-                )
-            }
-                .debounce(300)
-                .collect { params ->
-                    if (!params.filterOptions.isActive) return@collect
-                    logLanguageFilterCounts(params)
-                }
-        }
-        viewModelScope.launch {
-            browseRows.collect { rows ->
-                val shows = rows.flatMap { it.series }.distinctBy { "${it.playlistId}_${it.id}" }
-                visibleRowEnrichmentPrefetcher.prefetchSeriesShows(shows)
-            }
-        }
-    }
-
     val catalogProgress: StateFlow<VodCatalogProgress> = repository.vodCatalogProgress()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), VodCatalogProgress())
 
@@ -242,6 +199,49 @@ class SeriesViewModel @Inject constructor(
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        viewModelScope.launch {
+            combine(debouncedSearchQuery, selectedSeriesCategoryFilter, _hubSearchMode) { query, categoryFilter, hubSearchMode ->
+                val (categoryFilterIds, playlistId) = categoryFilter
+                SeriesFilterCountParams(query, categoryFilterIds, playlistId, hubSearchMode)
+            }.collect { params ->
+                if (params.hubSearchMode && params.query.isBlank()) {
+                    _filteredTotalCount.value = 0
+                } else {
+                    refreshFilteredCount(params.query, params.categoryFilterIds, params.playlistId)
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                languagePreferenceStore.filterOptions,
+                debouncedSearchQuery,
+                selectedSeriesCategoryFilter,
+                categories
+            ) { filterOptions, query, categoryFilter, categoryList ->
+                val (categoryFilterIds, playlistId) = categoryFilter
+                SeriesLanguageFilterDebugParams(
+                    filterOptions = filterOptions,
+                    query = query,
+                    categoryFilterIds = categoryFilterIds,
+                    playlistId = playlistId,
+                    categoryNames = categoryList.associate { it.id to it.name }
+                )
+            }
+                .debounce(300)
+                .collect { params ->
+                    if (!params.filterOptions.isActive) return@collect
+                    logLanguageFilterCounts(params)
+                }
+        }
+        viewModelScope.launch {
+            browseRows.collect { rows ->
+                val shows = rows.flatMap { it.series }.distinctBy { "${it.playlistId}_${it.id}" }
+                visibleRowEnrichmentPrefetcher.prefetchSeriesShows(shows)
+            }
+        }
+    }
 
     private val _selectedShowId = MutableStateFlow<Long?>(null)
     val selectedShowId = _selectedShowId.asStateFlow()

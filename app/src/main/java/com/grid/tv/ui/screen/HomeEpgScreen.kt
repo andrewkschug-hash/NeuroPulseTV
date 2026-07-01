@@ -17,8 +17,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -32,6 +34,7 @@ import com.grid.tv.ui.focus.TvScreenFocusRoot
 import com.grid.tv.ui.focus.rememberGuideChannelGroupsFocusRegistry
 import com.grid.tv.ui.focus.rememberGuideNavDrawerFocusTargets
 import com.grid.tv.ui.component.buildFlatProviderVisibleRows
+import com.grid.tv.ui.component.buildFlatSmartBucketRows
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.Lifecycle
@@ -278,6 +281,12 @@ fun HomeEpgScreen(
     }
 
     val hideAdultContent by viewModel.hideAdultContent.collectAsStateWithLifecycle()
+    var initialGridLoadingAnimationDone by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        delay(2_000)
+        initialGridLoadingAnimationDone = true
+    }
 
     val guideGroupCategories = organizedGuideGroups.flatCategories
 
@@ -519,7 +528,7 @@ fun HomeEpgScreen(
     }
 
     if (HomeEpgScreenLoadingGate(
-            isInitializing = isInitializing,
+            isInitializing = isInitializing || !initialGridLoadingAnimationDone,
             guideSettingsLoaded = guideSettingsLoaded,
             showEmptyState = showEmptyState,
             onNavigateSettings = onNavigateSettings
@@ -546,6 +555,7 @@ fun HomeEpgScreen(
         gridFocusRequester = gridFocusRequester,
         gridFilterFocusRequester = gridFilterFocusRequester,
         channelGroups = channelGroups,
+        channelGroupNavigationMode = channelGroupNavigationMode,
         continueWatchingFocusRequester = continueWatchingFocusRequester,
         previewFocusRequester = previewFocusRequester,
         previewChannel = previewChannel,
@@ -575,8 +585,17 @@ fun HomeEpgScreen(
     )
     controller.bind(deps)
 
-    val visibleChannelGroupRows = remember(channelGroups, favoriteChannelGroups) {
-        buildFlatProviderVisibleRows(channelGroups, favoriteChannelGroups)
+    val visibleChannelGroupRows = remember(
+        channelGroups,
+        favoriteChannelGroups,
+        channelGroupNavigationMode,
+        guideGroupCategories
+    ) {
+        if (channelGroupNavigationMode == ChannelGroupNavigationMode.SMART && guideGroupCategories.isNotEmpty()) {
+            buildFlatSmartBucketRows(guideGroupCategories, favoriteChannelGroups)
+        } else {
+            buildFlatProviderVisibleRows(channelGroups, favoriteChannelGroups)
+        }
     }
 
     HomeEpgFocusDispatcher(
