@@ -540,7 +540,6 @@ internal class HomeEpgGuideController(
             cancelChannelGroupsLongPress()
         }
         rememberChannelGroupsRowFocus(index)
-        previewChannelGroupForFocusedRow()
     }
 
     fun focusChannelGroupsFromGrid() {

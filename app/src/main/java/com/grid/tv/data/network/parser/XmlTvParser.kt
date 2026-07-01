@@ -91,6 +91,18 @@ class XmlTvParser {
         val channelMap = mutableMapOf<String, String>()
         val batch = ArrayList<ProgramEntity>(batchSize)
         var programCount = 0
+        var event = parser.eventType
+        var currentTag = ""
+        var channelId = ""
+        var channelDisplay = ""
+        val channelDisplayBuffer = StringBuilder()
+
+        var pChannel = ""
+        val pTitle = StringBuilder()
+        val pDesc = StringBuilder()
+        var pStart = 0L
+        var pEnd = 0L
+        var pGenre = "GENERAL"
 
         suspend fun flushBatch() {
             if (batch.isEmpty()) return
@@ -98,14 +110,79 @@ class XmlTvParser {
             batch.clear()
         }
 
-        parseDocumentLoop(parser, playlistId, channelMap) { entity ->
-            programCount++
-            batch += entity
-            if (batch.size >= batchSize) {
-                // Loop body is synchronous; flush via coroutine scope owned by caller's suspend parse.
-                kotlinx.coroutines.runBlocking { flushBatch() }
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    currentTag = parser.name
+                    when (currentTag) {
+                        "channel" -> {
+                            channelId = parser.getAttributeValue(null, "id") ?: ""
+                            channelDisplay = ""
+                            channelDisplayBuffer.setLength(0)
+                        }
+
+                        "programme" -> {
+                            pChannel = parser.getAttributeValue(null, "channel") ?: ""
+                            pStart = parseTime(parser.getAttributeValue(null, "start"))
+                            pEnd = parseTime(parser.getAttributeValue(null, "stop"))
+                            pTitle.setLength(0)
+                            pDesc.setLength(0)
+                            pGenre = "GENERAL"
+                        }
+                    }
+                }
+
+                XmlPullParser.TEXT -> {
+                    when (currentTag) {
+                        "display-name" -> {
+                            if (channelDisplay.isBlank()) appendXmlText(channelDisplayBuffer, parser.text)
+                        }
+                        "title" -> appendXmlText(pTitle, parser.text)
+                        "desc" -> appendXmlText(pDesc, parser.text)
+                        "category" -> {
+                            val normalized = normalizeGenre(parser.text)
+                            if (pGenre == "GENERAL" && normalized != "GENERAL") {
+                                pGenre = normalized
+                            }
+                        }
+                    }
+                }
+
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "display-name" -> {
+                            if (channelDisplay.isBlank()) {
+                                channelDisplay = normalizeXmlText(channelDisplayBuffer)
+                            }
+                        }
+                        "channel" -> if (channelId.isNotBlank()) {
+                            channelMap[channelId] = channelDisplay.ifBlank { channelId }
+                        }
+                        "programme" -> {
+                            if (pChannel.isNotBlank() && pEnd > pStart) {
+                                programCount++
+                                batch += ProgramEntity(
+                                    id = stableProgramId(playlistId, pChannel, pStart),
+                                    playlistId = playlistId,
+                                    channelEpgId = pChannel,
+                                    title = normalizeXmlText(pTitle).ifBlank { "Untitled" },
+                                    description = normalizeXmlText(pDesc),
+                                    startTime = pStart,
+                                    endTime = pEnd,
+                                    genre = pGenre
+                                )
+                                if (batch.size >= batchSize) {
+                                    flushBatch()
+                                }
+                            }
+                        }
+                    }
+                    currentTag = ""
+                }
             }
+            event = parser.next()
         }
+
         flushBatch()
         return ParsedXmlTv(channelMap, emptyList(), programCount)
     }
@@ -120,10 +197,11 @@ class XmlTvParser {
         var currentTag = ""
         var channelId = ""
         var channelDisplay = ""
+        val channelDisplayBuffer = StringBuilder()
 
         var pChannel = ""
-        var pTitle = ""
-        var pDesc = ""
+        val pTitle = StringBuilder()
+        val pDesc = StringBuilder()
         var pStart = 0L
         var pEnd = 0L
         var pGenre = "GENERAL"
@@ -136,14 +214,15 @@ class XmlTvParser {
                         "channel" -> {
                             channelId = parser.getAttributeValue(null, "id") ?: ""
                             channelDisplay = ""
+                            channelDisplayBuffer.setLength(0)
                         }
 
                         "programme" -> {
                             pChannel = parser.getAttributeValue(null, "channel") ?: ""
                             pStart = parseTime(parser.getAttributeValue(null, "start"))
                             pEnd = parseTime(parser.getAttributeValue(null, "stop"))
-                            pTitle = ""
-                            pDesc = ""
+                            pTitle.setLength(0)
+                            pDesc.setLength(0)
                             pGenre = "GENERAL"
                         }
                     }
@@ -151,15 +230,27 @@ class XmlTvParser {
 
                 XmlPullParser.TEXT -> {
                     when (currentTag) {
-                        "display-name" -> if (channelDisplay.isBlank()) channelDisplay = parser.text.trim()
-                        "title" -> pTitle = parser.text.trim()
-                        "desc" -> pDesc = parser.text.trim()
-                        "category" -> pGenre = normalizeGenre(parser.text)
+                        "display-name" -> {
+                            if (channelDisplay.isBlank()) appendXmlText(channelDisplayBuffer, parser.text)
+                        }
+                        "title" -> appendXmlText(pTitle, parser.text)
+                        "desc" -> appendXmlText(pDesc, parser.text)
+                        "category" -> {
+                            val normalized = normalizeGenre(parser.text)
+                            if (pGenre == "GENERAL" && normalized != "GENERAL") {
+                                pGenre = normalized
+                            }
+                        }
                     }
                 }
 
                 XmlPullParser.END_TAG -> {
                     when (parser.name) {
+                        "display-name" -> {
+                            if (channelDisplay.isBlank()) {
+                                channelDisplay = normalizeXmlText(channelDisplayBuffer)
+                            }
+                        }
                         "channel" -> if (channelId.isNotBlank()) {
                             channelMap[channelId] = channelDisplay.ifBlank { channelId }
                         }
@@ -170,8 +261,8 @@ class XmlTvParser {
                                         id = stableProgramId(playlistId, pChannel, pStart),
                                         playlistId = playlistId,
                                         channelEpgId = pChannel,
-                                        title = pTitle.ifBlank { "Untitled" },
-                                        description = pDesc,
+                                        title = normalizeXmlText(pTitle).ifBlank { "Untitled" },
+                                        description = normalizeXmlText(pDesc),
                                         startTime = pStart,
                                         endTime = pEnd,
                                         genre = pGenre
@@ -186,6 +277,18 @@ class XmlTvParser {
             event = parser.next()
         }
     }
+
+    private fun appendXmlText(target: StringBuilder, raw: String?) {
+        val value = raw.orEmpty()
+        if (value.isEmpty()) return
+        if (target.isNotEmpty() && !target.last().isWhitespace() && !value.first().isWhitespace()) {
+            target.append(' ')
+        }
+        target.append(value)
+    }
+
+    private fun normalizeXmlText(value: StringBuilder): String =
+        value.toString().replace(Regex("\\s+"), " ").trim()
 
     private fun normalizeGenre(value: String): String {
         val lower = value.lowercase(Locale.US)

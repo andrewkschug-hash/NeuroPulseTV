@@ -19,8 +19,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import com.grid.tv.data.network.AppHttpClient
 import okhttp3.Request
-import java.io.ByteArrayInputStream
+import java.io.BufferedInputStream
+import java.io.InputStream
 import java.util.zip.GZIPInputStream
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 
 sealed class EpgResolutionResult {
     data class AutoMatched(
@@ -319,9 +322,7 @@ class EpgResolverEngine @Inject constructor(
         if (System.currentTimeMillis() - last < weekMs) return
 
         rateLimitExternalRequest()
-        val gz = fetchBytes(url)
-        val xml = GZIPInputStream(ByteArrayInputStream(gz)).bufferedReader().use { it.readText() }
-        val parsed = parseXmltvChannels(xml, source)
+        val parsed = fetchAndParseXmltvChannels(url, source)
         sourceDao.clearBySource(source)
         sourceDao.insertAll(parsed)
     }
@@ -334,35 +335,128 @@ class EpgResolverEngine @Inject constructor(
         lastExternalRequestAt.set(System.currentTimeMillis())
     }
 
-    private fun fetchBytes(url: String): ByteArray {
+    private fun fetchAndParseXmltvChannels(url: String, source: String): List<EpgSourceChannelEntity> {
         val req = Request.Builder().url(url).build()
         appHttpClient.client().newCall(req).execute().use { response ->
             if (!response.isSuccessful) throw IllegalStateException("EPG source fetch failed: ${response.code}")
-            return response.body?.bytes() ?: byteArrayOf()
+            val body = response.body ?: return emptyList()
+            return body.byteStream().use { raw ->
+                openPossiblyGzippedXmlStream(raw).use { decoded ->
+                    parseXmltvChannels(decoded, source)
+                }
+            }
         }
     }
 
-    private fun parseXmltvChannels(xml: String, source: String): List<EpgSourceChannelEntity> {
+    private fun parseXmltvChannels(input: InputStream, source: String): List<EpgSourceChannelEntity> {
         val now = System.currentTimeMillis()
-        val channelRegex = Regex("<channel\\s+id=\\\"([^\\\"]+)\\\"[^>]*>(.*?)</channel>", RegexOption.DOT_MATCHES_ALL)
-        val nameRegex = Regex("<display-name[^>]*>(.*?)</display-name>", RegexOption.DOT_MATCHES_ALL)
-        val iconRegex = Regex("<icon\\s+src=\\\"([^\\\"]+)\\\"")
-        return channelRegex.findAll(xml).mapNotNull { m ->
-            val id = m.groupValues[1].trim()
-            val body = m.groupValues[2]
-            val name = nameRegex.find(body)?.groupValues?.get(1)?.replace(Regex("<.*?>"), "")?.trim().orEmpty()
-            if (id.isBlank() || name.isBlank()) return@mapNotNull null
-            val icon = iconRegex.find(body)?.groupValues?.get(1)
-            EpgSourceChannelEntity(
-                epgId = id,
-                displayName = name,
-                normalizedName = normalizer.normalize(name),
-                source = source,
-                logoUrl = icon,
-                cachedAt = now
-            )
-        }.toList()
+        val parser = XmlPullParserFactory.newInstance().newPullParser().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+            setInput(input, Charsets.UTF_8.name())
+        }
+
+        val channelsById = linkedMapOf<String, EpgSourceChannelEntity>()
+        var event = parser.eventType
+        var currentTag = ""
+        var channelId = ""
+        var channelDisplayName = ""
+        val displayNameBuffer = StringBuilder()
+        var channelIcon: String? = null
+        var insideChannel = false
+
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> {
+                    currentTag = parser.name
+                    when (currentTag) {
+                        "channel" -> {
+                            insideChannel = true
+                            channelId = parser.getAttributeValue(null, "id")?.trim().orEmpty()
+                            channelDisplayName = ""
+                            displayNameBuffer.setLength(0)
+                            channelIcon = null
+                        }
+                        "icon" -> {
+                            if (insideChannel && channelIcon.isNullOrBlank()) {
+                                channelIcon = parser.getAttributeValue(null, "src")?.trim()
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.TEXT -> {
+                    if (insideChannel && currentTag == "display-name" && channelDisplayName.isBlank()) {
+                        appendXmlText(displayNameBuffer, parser.text)
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "display-name" -> {
+                            if (insideChannel && channelDisplayName.isBlank()) {
+                                channelDisplayName = normalizeXmlText(displayNameBuffer)
+                            }
+                        }
+                        "channel" -> {
+                            if (channelId.isNotBlank() && channelDisplayName.isNotBlank()) {
+                                channelsById.putIfAbsent(
+                                    channelId,
+                                    EpgSourceChannelEntity(
+                                        epgId = channelId,
+                                        displayName = channelDisplayName,
+                                        normalizedName = normalizer.normalize(channelDisplayName),
+                                        source = source,
+                                        logoUrl = channelIcon,
+                                        cachedAt = now
+                                    )
+                                )
+                                if (channelsById.size >= MAX_EXTERNAL_SOURCE_CHANNELS) {
+                                    Log.w(
+                                        TAG,
+                                        "EPG external source $source reached cap=$MAX_EXTERNAL_SOURCE_CHANNELS; " +
+                                            "truncating additional channels"
+                                    )
+                                    return channelsById.values.toList()
+                                }
+                            }
+                            insideChannel = false
+                            channelId = ""
+                            channelDisplayName = ""
+                            displayNameBuffer.setLength(0)
+                            channelIcon = null
+                        }
+                    }
+                    currentTag = ""
+                }
+            }
+            event = parser.next()
+        }
+
+        return channelsById.values.toList()
     }
+
+    private fun openPossiblyGzippedXmlStream(raw: InputStream): InputStream {
+        val buffered = if (raw is BufferedInputStream) raw else BufferedInputStream(raw)
+        buffered.mark(2)
+        val first = buffered.read()
+        val second = buffered.read()
+        buffered.reset()
+        return if (first == GZIP_MAGIC_0.toInt() && second == GZIP_MAGIC_1.toInt()) {
+            GZIPInputStream(buffered)
+        } else {
+            buffered
+        }
+    }
+
+    private fun appendXmlText(target: StringBuilder, raw: String?) {
+        val value = raw.orEmpty()
+        if (value.isEmpty()) return
+        if (target.isNotEmpty() && !target.last().isWhitespace() && !value.first().isWhitespace()) {
+            target.append(' ')
+        }
+        target.append(value)
+    }
+
+    private fun normalizeXmlText(value: StringBuilder): String =
+        value.toString().replace(Regex("\\s+"), " ").trim()
 
     private fun detectRegions(name: String): List<String> {
         val original = name.lowercase(Locale.getDefault())
@@ -391,5 +485,8 @@ class EpgResolverEngine @Inject constructor(
 
     companion object {
         private const val TAG = "EpgFlow"
+        private const val MAX_EXTERNAL_SOURCE_CHANNELS = 50_000
+        private const val GZIP_MAGIC_0: Byte = 0x1f
+        private const val GZIP_MAGIC_1: Byte = 0x8b.toByte()
     }
 }

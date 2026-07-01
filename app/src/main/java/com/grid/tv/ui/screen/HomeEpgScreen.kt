@@ -231,7 +231,7 @@ fun HomeEpgScreen(
                     else -> emptyList()
                 }
             }
-            else -> channels.filter { displayGuideFilter.appliesTo(it) }
+            else -> channels
         }
     }
     val showFilteredEmptyState = !usePlaceholder && !showEmptyState &&

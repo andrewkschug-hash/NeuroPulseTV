@@ -1,6 +1,8 @@
 package com.grid.tv.feature.vod
 
 import com.grid.tv.domain.model.VodContentFilter
+import com.grid.tv.domain.model.VodCategory
+import com.grid.tv.domain.model.VodCategoryNameResolver
 import com.grid.tv.ui.component.VodCatalogOnboardingInputs
 import com.grid.tv.ui.component.VodCatalogOnboardingTab
 import com.grid.tv.ui.component.countNonPersonalWallRows
@@ -39,12 +41,12 @@ object VodHubUiStateBuilder {
         val seriesGenresReady = seriesGenresReady(inputs)
         val genreLabels = when (inputs.contentFilter) {
             VodContentFilter.MOVIES -> if (moviesGenresReady) {
-                listOf("All") + sidebarMovie.map { it.name }
+                listOf("All") + sidebarMovie.map(::safeSidebarCategoryLabel)
             } else {
                 emptyList()
             }
             VodContentFilter.SERIES -> if (seriesGenresReady) {
-                listOf("All") + sidebarSeries.map { it.name }
+                listOf("All") + sidebarSeries.map(::safeSidebarCategoryLabel)
             } else {
                 emptyList()
             }
@@ -59,7 +61,6 @@ object VodHubUiStateBuilder {
             selectedSeriesCategoryPlaylistId = inputs.selectedSeriesCategoryPlaylistId,
             sidebarSeriesCategories = sidebarSeries
         )
-
         val combinedCatalogCount = inputs.catalogTotalCount + inputs.seriesCatalogTotalCount
         val onboardingInputs = VodCatalogOnboardingInputs(
             catalogLoading = inputs.catalogLoading,
@@ -192,6 +193,15 @@ object VodHubUiStateBuilder {
             seriesBrowseRows = partitions.seriesBrowseRows,
             catalogPartitions = partitions
         )
+    }
+
+    private fun safeSidebarCategoryLabel(category: VodCategory): String {
+        val trimmed = category.name.trim()
+        return if (VodCategoryNameResolver.isUnresolvedName(category.id, trimmed)) {
+            "Category ${category.id}"
+        } else {
+            trimmed
+        }
     }
 
     internal fun moviesGenresReady(inputs: VodHubUiBuildInputs): Boolean =
