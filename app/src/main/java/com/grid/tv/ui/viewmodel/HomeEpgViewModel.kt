@@ -105,6 +105,7 @@ class HomeEpgViewModel @Inject constructor(
         private const val WINDOW_CHUNK_MS = 2 * 60 * 60 * 1000L
         private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
         private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
+        private const val PREVIEW_GUIDE_FILTER_DEBOUNCE_MS = 140L
         /** Visible guide rows to hydrate from cache before loading the rest of the page. */
         private const val PRIORITY_EPG_CHANNEL_COUNT = 50
         private const val VIEWPORT_EPG_DEBOUNCE_MS = 300L
@@ -400,6 +401,7 @@ class HomeEpgViewModel @Inject constructor(
     private var channelDbOffset = 0
     private var loadingChannels = false
     private var channelLoadJob: Job? = null
+    private var previewGuideFilterJob: Job? = null
 
     private val _guidePosition = MutableStateFlow(EpgGuidePosition())
     val guidePosition: StateFlow<EpgGuidePosition> = _guidePosition.asStateFlow()
@@ -867,6 +869,7 @@ class HomeEpgViewModel @Inject constructor(
 
     fun setGuideFilter(filter: GuideChannelFilter, markConfigured: Boolean = false) {
         val changed = _guideFilter.value != filter
+        previewGuideFilterJob?.cancel()
         _previewGuideFilter.value = null
         _guideFilter.value = filter
         if (markConfigured) {
@@ -878,11 +881,19 @@ class HomeEpgViewModel @Inject constructor(
     /** Live-update the grid while browsing groups without clearing channels or resetting scroll. */
     fun previewGuideFilter(filter: GuideChannelFilter) {
         if (_previewGuideFilter.value == filter && effectiveGuideFilter() == filter) return
-        _previewGuideFilter.value = filter
-        reloadChannelsSoft()
+        previewGuideFilterJob?.cancel()
+        previewGuideFilterJob = viewModelScope.launch {
+            delay(PREVIEW_GUIDE_FILTER_DEBOUNCE_MS)
+            if (_previewGuideFilter.value == filter && effectiveGuideFilter() == filter) return@launch
+            _previewGuideFilter.value = filter
+            if (guideBootstrapComplete) {
+                reloadChannelsSoft()
+            }
+        }
     }
 
     fun clearPreviewGuideFilter(reloadCommitted: Boolean = false) {
+        previewGuideFilterJob?.cancel()
         if (_previewGuideFilter.value == null) return
         _previewGuideFilter.value = null
         if (reloadCommitted && guideBootstrapComplete) {
