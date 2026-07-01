@@ -36,6 +36,7 @@ import com.grid.tv.feature.guide.GuideGroupMetadata
 import com.grid.tv.feature.guide.GroupsTrace
 import com.grid.tv.feature.guide.SmartGroupFilterKey
 import com.grid.tv.feature.guide.SmartGroupService
+import com.grid.tv.feature.playlist.PlaylistImportCoordinator
 import com.grid.tv.feature.scanner.ChannelScanner
 import com.grid.tv.worker.EpgScheduler
 import com.grid.tv.domain.epg.EpgTime
@@ -93,6 +94,7 @@ class HomeEpgViewModel @Inject constructor(
     private val startupSafety: StartupSafety,
     private val startupGroupMetadataStore: StartupGroupMetadataStore,
     private val smartGroupService: SmartGroupService,
+    private val playlistImportCoordinator: PlaylistImportCoordinator,
 ) : ViewModel() {
 
     val scannerRuntime: StateFlow<ScannerRuntimeState> = channelScanner.runtime
@@ -365,9 +367,10 @@ class HomeEpgViewModel @Inject constructor(
     /** True while the drawer is waiting on the first metadata emission (cache or Room). */
     val channelGroupsLoading: StateFlow<Boolean> = combine(
         hasCatalogChannels,
-        channelGroups
-    ) { hasChannels, groups ->
-        hasChannels && groups.isEmpty()
+        channelGroups,
+        playlistImportCoordinator.importActive,
+    ) { hasChannels, groups, importing ->
+        importing || (hasChannels && groups.isEmpty())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _channels = MutableStateFlow<List<Channel>>(emptyList())
@@ -630,6 +633,16 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            var wasImporting = playlistImportCoordinator.isImportActive()
+            playlistImportCoordinator.importActive.collect { importing ->
+                if (wasImporting && !importing && guideBootstrapComplete) {
+                    _cachedGroupMetadata.value = startupGroupMetadataStore.read()
+                    reloadChannelsSoft()
+                }
+                wasImporting = importing
+            }
+        }
+        viewModelScope.launch {
             combine(_favoriteGroupFilter, _guideFilter, _hideAdultContent, _recentChannelsOnly) { _, _, _, _ -> }
                 .collectLatest {
                     if (!guideBootstrapComplete) return@collectLatest
@@ -644,10 +657,14 @@ class HomeEpgViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            combine(channelGroups, _guideFiltersConfigured) { groups, configured ->
-                groups to configured
-            }.collectLatest { (groups, configured) ->
-                if (!guideBootstrapComplete || !configured || groups.isEmpty()) return@collectLatest
+            combine(
+                channelGroups,
+                _guideFiltersConfigured,
+                playlistImportCoordinator.importActive,
+            ) { groups, configured, importing ->
+                Triple(groups, configured, importing)
+            }.collectLatest { (groups, configured, importing) ->
+                if (importing || !guideBootstrapComplete || !configured || groups.isEmpty()) return@collectLatest
                 val current = _guideFilter.value
                 if (!current.isActive) return@collectLatest
                 val valid = current.selectedGroups.intersect(groups.toSet())
@@ -727,6 +744,9 @@ class HomeEpgViewModel @Inject constructor(
 
     private fun scheduleBackgroundChannelPrefetch() {
         viewModelScope.launch(Dispatchers.IO) {
+            while (playlistImportCoordinator.isImportActive()) {
+                delay(500)
+            }
             delay(StartupTierPolicy.guideBackgroundPagingDelayMs())
             val cap = StartupTierPolicy.guideBackgroundPagingChannelCap()
             while (_hasMoreChannels.value && channelDbOffset < cap) {

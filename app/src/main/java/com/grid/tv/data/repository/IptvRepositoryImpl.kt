@@ -163,6 +163,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -833,6 +834,7 @@ class IptvRepositoryImpl @Inject constructor(
 
     private suspend fun finalizeChannelImport(playlistId: Long) {
         smartGroupService.rebuildCacheForPlaylist(playlistId)
+        persistGroupMetadataSnapshot(playlistId)
     }
 
     private suspend fun expandGuideFilterGroups(groups: Set<String>): Set<String> =
@@ -988,34 +990,51 @@ class IptvRepositoryImpl @Inject constructor(
         observeGroupMetadata().map { it.counts }.flowOn(Dispatchers.IO)
 
     override fun observeGroupMetadata(): Flow<com.grid.tv.feature.guide.GuideGroupMetadata> =
-        channelDao.observeGroupChannelCounts().map { rows ->
-            val startNs = System.nanoTime()
-            val groups = ArrayList<String>(rows.size)
-            val counts = LinkedHashMap<String, Int>(rows.size)
-            rows.forEach { row ->
-                val key = com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(
-                    row.playlistId,
-                    row.groupName
-                )
-                groups += key
-                counts[key] = row.channelCount
+        playlistImportCoordinator.importActive.flatMapLatest { importing ->
+            if (importing) {
+                emptyFlow()
+            } else {
+                channelDao.observeGroupChannelCounts().map(::groupMetadataFromRows)
             }
-            val metadata = com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
-            val durationMs = (System.nanoTime() - startNs) / 1_000_000L
-            GroupsTrace.logMetadataLoaded(
-                source = "room_group_by",
-                groupCount = groups.size,
-                durationMs = durationMs,
-                cached = false
-            )
-            metadata
         }
             .onEach { metadata ->
-                if (metadata.groups.isNotEmpty()) {
+                if (metadata.groups.isNotEmpty() && !playlistImportCoordinator.isImportActive()) {
                     startupGroupMetadataStore.write(metadata)
                 }
             }
             .flowOn(Dispatchers.IO)
+
+    private fun groupMetadataFromRows(
+        rows: List<com.grid.tv.data.db.model.GroupChannelCountRow>
+    ): com.grid.tv.feature.guide.GuideGroupMetadata {
+        val startNs = System.nanoTime()
+        val groups = ArrayList<String>(rows.size)
+        val counts = LinkedHashMap<String, Int>(rows.size)
+        rows.forEach { row ->
+            val key = com.grid.tv.domain.model.ChannelGroupIdentity.groupKey(
+                row.playlistId,
+                row.groupName
+            )
+            groups += key
+            counts[key] = row.channelCount
+        }
+        val metadata = com.grid.tv.feature.guide.GuideGroupMetadata(groups = groups, counts = counts)
+        val durationMs = (System.nanoTime() - startNs) / 1_000_000L
+        GroupsTrace.logMetadataLoaded(
+            source = "room_group_by",
+            groupCount = groups.size,
+            durationMs = durationMs,
+            cached = false
+        )
+        return metadata
+    }
+
+    private suspend fun persistGroupMetadataSnapshot(playlistId: Long) {
+        val rows = channelDao.groupChannelCountsForPlaylist(playlistId)
+        if (rows.isEmpty()) return
+        val metadata = groupMetadataFromRows(rows)
+        startupGroupMetadataStore.write(metadata)
+    }
 
     override fun observeFavoriteChannelGroups(playlistId: Long): Flow<List<String>> =
         playlistFavoriteGroupDao.observeGroupKeys(playlistId).flowOn(Dispatchers.IO)
