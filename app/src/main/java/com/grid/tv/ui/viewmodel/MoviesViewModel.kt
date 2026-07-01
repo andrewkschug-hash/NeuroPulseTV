@@ -124,7 +124,7 @@ class MoviesViewModel @Inject constructor(
         categories
     ) { _, query, categoryFilter, filterOptions, categoryList ->
         val (categoryFilterIds, playlistId) = categoryFilter
-        Log.d(
+        Log.i(
             "VOD_STATE",
             "METADATA_TRACE movies map-build query=${query.take(48)} categories=${categoryList.size} " +
                 "filterIds=${categoryFilterIds?.size ?: 0} playlistId=$playlistId"
@@ -199,7 +199,7 @@ class MoviesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
-        Log.d(
+        Log.i(
             "VOD_STATE",
             "METADATA_TRACE movies ui-map rows=${raw.size} categories=${categoryList.size} " +
                 "sampleCategories=${categoryList.take(4).map { it.id to it.name }}"

@@ -197,7 +197,7 @@ class SeriesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
-        Log.d(
+        Log.i(
             "VOD_STATE",
             "METADATA_TRACE series ui-map rows=${raw.size} categories=${categoryList.size} " +
                 "sampleCategories=${categoryList.take(4).map { it.id to it.name }}"

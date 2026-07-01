@@ -49,11 +49,11 @@ class VodCategoryNameResolverTest {
         )
         val normalized = VodCategoryNameResolver.normalizeList(categories)
         assertEquals("NETFLIX ASIA", normalized[0].name)
-        assertEquals("1012", normalized[1].name)
+        assertEquals("Uncategorized", normalized[1].name)
     }
 
     @Test
-    fun prepareSeriesCategoriesForSidebar_collapsesSameDisplayNameWithinPlaylist() {
+    fun prepareSeriesCategoriesForSidebar_keepsOneEntryPerCategoryByDefault() {
         val categories = listOf(
             VodCategory(id = "1006", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
             VodCategory(id = "1040", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
@@ -62,11 +62,10 @@ class VodCategoryNameResolverTest {
         )
         val (streamBacked, _) = VodCategoryGuards.partitionStreamBacked(categories)
         val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(streamBacked)
-        assertEquals(3, sidebar.displayCategories.size)
+        assertEquals(4, sidebar.displayCategories.size)
         assertEquals(
-            setOf("1006", "1040"),
+            setOf("1006"),
             sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1006")]
-                ?: sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
         )
         assertEquals(
             setOf("1006"),
@@ -106,6 +105,24 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
+    fun prepareSeriesCategoriesForSidebar_canCollapseWhenExplicitlyEnabled() {
+        val categories = listOf(
+            VodCategory(id = "1006", name = "Action & Adventure", playlistId = 1L),
+            VodCategory(id = "1040", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+        )
+        val sidebar = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(
+            categories = categories,
+            collapseByCanonical = true,
+        )
+        assertEquals(1, sidebar.displayCategories.size)
+        val rep = sidebar.displayCategories.single()
+        assertEquals(
+            setOf("1006", "1040"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(rep.playlistId, rep.id)]
+        )
+    }
+
+    @Test
     fun prepareSeriesCategoriesForSidebar_keepsSeparateEntriesAcrossPlaylistsWithSameLabel() {
         val categories = listOf(
             VodCategory(id = "1006", name = "Action & Adventure", playlistId = 1L),
@@ -132,26 +149,30 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
-    fun prepareMovieCategoriesForSidebar_collapsesDuplicateLabels() {
+    fun prepareMovieCategoriesForSidebar_keepsDuplicateLabelsAsDistinctEntriesByDefault() {
         val categories = listOf(
             VodCategory(id = "1006", name = "Action & Adventure", playlistId = 1L),
             VodCategory(id = "1040", name = "Action & Adventure", playlistId = 1L),
             VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
         )
         val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories)
-        assertEquals(2, sidebar.displayCategories.size)
+        assertEquals(3, sidebar.displayCategories.size)
         assertEquals(
             setOf("Action & Adventure", "Comedy"),
             sidebar.displayCategories.map { it.name }.toSet()
         )
-        val actionKey = sidebar.displayCategories
-            .first { it.name == "Action & Adventure" }
-            .let { VodCategoryNameResolver.categoryKey(it.playlistId, it.id) }
-        assertEquals(setOf("1006", "1040"), sidebar.filterIdsByRepresentativeId[actionKey])
+        assertEquals(
+            setOf("1006"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1006")]
+        )
+        assertEquals(
+            setOf("1040"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
+        )
     }
 
     @Test
-    fun prepareMovieCategoriesForSidebar_prefersCategoryWithHighestItemCount() {
+    fun prepareMovieCategoriesForSidebar_usesOneToOneFilterIdsEvenWithItemCounts() {
         val categories = listOf(
             VodCategory(id = "713", name = "Action & Adventure", playlistId = 1L),
             VodCategory(id = "1403", name = "Action & Adventure", playlistId = 1L),
@@ -161,10 +182,9 @@ class VodCategoryNameResolverTest {
             VodCategoryNameResolver.categoryKey(1L, "1403") to 480,
         )
         val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories, itemCounts)
-        assertEquals(1, sidebar.displayCategories.size)
-        assertEquals("1403", sidebar.displayCategories.single().id)
+        assertEquals(2, sidebar.displayCategories.size)
         assertEquals(
-            setOf("713", "1403"),
+            setOf("1403"),
             sidebar.filterIdsByRepresentativeId[
                 VodCategoryNameResolver.categoryKey(1L, "1403")
             ],
@@ -184,7 +204,7 @@ class VodCategoryNameResolverTest {
     }
 
     @Test
-    fun prepareMovieCategoriesForSidebar_mergesNormalizedGenreNameVariants() {
+    fun prepareMovieCategoriesForSidebar_keepsNormalizedGenreNameVariantsDistinctByDefault() {
         val categories = listOf(
             VodCategory(id = "1006", name = "ACTION & ADVENTURE", playlistId = 1L),
             VodCategory(id = "1040", name = "Action and Adventure", playlistId = 1L),
@@ -192,12 +212,19 @@ class VodCategoryNameResolverTest {
             VodCategory(id = "2001", name = "Comedy", playlistId = 1L)
         )
         val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(categories)
-        assertEquals(2, sidebar.displayCategories.size)
-        assertEquals("Action & Adventure", sidebar.displayCategories.first { it.name != "Comedy" }.name)
-        val actionKey = sidebar.displayCategories
-            .first { it.name == "Action & Adventure" }
-            .let { VodCategoryNameResolver.categoryKey(it.playlistId, it.id) }
-        assertEquals(setOf("1006", "1040", "1055"), sidebar.filterIdsByRepresentativeId[actionKey])
+        assertEquals(4, sidebar.displayCategories.size)
+        assertEquals(
+            setOf("1006"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1006")]
+        )
+        assertEquals(
+            setOf("1040"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1040")]
+        )
+        assertEquals(
+            setOf("1055"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(1L, "1055")]
+        )
     }
 
     @Test
@@ -214,5 +241,57 @@ class VodCategoryNameResolverTest {
             setOf("Movies", "Movies HD", "Movies FHD", "Movies 4K"),
             sidebar.displayCategories.map { it.name }.toSet()
         )
+    }
+
+    @Test
+    fun prepareMovieCategoriesForSidebar_canCollapseWhenExplicitlyEnabled() {
+        val categories = listOf(
+            VodCategory(id = "1006", name = "ACTION & ADVENTURE", playlistId = 1L),
+            VodCategory(id = "1040", name = "Action and Adventure", playlistId = 1L),
+            VodCategory(id = "1055", name = "Action & Adventure / Sci-Fi", playlistId = 1L),
+        )
+        val sidebar = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(
+            categories = categories,
+            collapseByCanonical = true,
+        )
+        assertEquals(1, sidebar.displayCategories.size)
+        val rep = sidebar.displayCategories.single()
+        assertEquals(
+            setOf("1006", "1040", "1055"),
+            sidebar.filterIdsByRepresentativeId[VodCategoryNameResolver.categoryKey(rep.playlistId, rep.id)]
+        )
+    }
+
+    @Test
+    fun sidebarCount_matchesRawCount_whenGroupingDisabled() {
+        val raw = listOf(
+            VodCategory(id = "1001", name = "Action", playlistId = 1L),
+            VodCategory(id = "1002", name = "Action", playlistId = 1L),
+            VodCategory(id = "1003", name = "Comedy", playlistId = 1L),
+            VodCategory(id = "1004", name = "Drama", playlistId = 1L),
+        )
+        val movies = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(raw)
+        val series = VodCategoryNameResolver.prepareSeriesCategoriesForSidebar(raw)
+        assertEquals(raw.size, movies.displayCategories.size)
+        assertEquals(raw.size, series.displayCategories.size)
+
+        val groupedMovies = VodCategoryNameResolver.prepareMovieCategoriesForSidebar(
+            categories = raw,
+            collapseByCanonical = true,
+        )
+        assertTrue(groupedMovies.displayCategories.size < raw.size)
+    }
+
+    @Test
+    fun resolveDisplayName_doesNotMapMultipleIdsToFallbackWhenLookupHasNames() {
+        val lookup = mapOf(
+            "1_1054" to "Movies Action",
+            "1_1056" to "Movies Comedy",
+        )
+        val c1 = VodCategoryNameResolver.resolveDisplayName("1054", "1054", 1L, lookup)
+        val c2 = VodCategoryNameResolver.resolveDisplayName("1056", "1056", 1L, lookup)
+        assertFalse(c1.equals("Uncategorized", ignoreCase = true))
+        assertFalse(c2.equals("Uncategorized", ignoreCase = true))
+        assertFalse(c1.equals(c2, ignoreCase = true))
     }
 }

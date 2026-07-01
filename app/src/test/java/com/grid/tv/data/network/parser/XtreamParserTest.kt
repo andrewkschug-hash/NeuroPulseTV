@@ -198,4 +198,15 @@ class XtreamParserTest {
         assertEquals("1006", categories.first().id)
         assertEquals("NETFLIX ASIA", categories.first().name)
     }
+
+    @Test
+    fun parseVodCategoriesReadsMovieCategoriesWrapper() {
+        val raw = """{"movie_categories":[{"category_id":"1054","category_name":"Action"},{"category_id":"1056","category_name":"Comedy"}]}"""
+        val categories = parser.parseVodCategories(raw, playlistId = 9L)
+        assertEquals(2, categories.size)
+        assertEquals("1054", categories[0].id)
+        assertEquals("Action", categories[0].name)
+        assertEquals("1056", categories[1].id)
+        assertEquals("Comedy", categories[1].name)
+    }
 }

@@ -3571,11 +3571,22 @@ class IptvRepositoryImpl @Inject constructor(
             logParsedCategories("get_series_categories", playlist.id, categories, requestId)
             Log.i(
                 VOD_FLOW_TAG,
+                "${reqPrefix(requestId)}get_series_categories RAW_PARSED count=${categories.size} " +
+                    "sample=${categories.take(6).map { it.id to it.name }}"
+            )
+            Log.i(
+                VOD_FLOW_TAG,
                 "${reqPrefix(requestId)}get_series_categories RESPONSE playlist=${playlist.id} " +
                     "trigger=$trigger count=${categories.size}"
             )
             if (categories.isNotEmpty()) {
                 val resolved = resolveCategoriesForStorage(categories, playlist.id)
+                auditCategoryFallbackRatio(
+                    endpoint = "get_series_categories",
+                    playlistId = playlist.id,
+                    categories = resolved,
+                    requestId = requestId,
+                )
                 resolved.take(8).forEach { category ->
                     Log.d(
                         VOD_FLOW_TAG,
@@ -4461,11 +4472,22 @@ class IptvRepositoryImpl @Inject constructor(
             logParsedCategories("get_vod_categories", playlist.id, categories, requestId)
             Log.i(
                 VOD_FLOW_TAG,
+                "${reqPrefix(requestId)}get_vod_categories RAW_PARSED count=${categories.size} " +
+                    "sample=${categories.take(6).map { it.id to it.name }}"
+            )
+            Log.i(
+                VOD_FLOW_TAG,
                 "${reqPrefix(requestId)}get_vod_categories RESPONSE playlist=${playlist.id} " +
                     "trigger=$trigger count=${categories.size}"
             )
             if (categories.isNotEmpty()) {
                 val resolved = resolveCategoriesForStorage(categories, playlist.id)
+                auditCategoryFallbackRatio(
+                    endpoint = "get_vod_categories",
+                    playlistId = playlist.id,
+                    categories = resolved,
+                    requestId = requestId,
+                )
                 database.replaceVodCategoriesForPlaylist(
                     playlistId = playlist.id,
                     categories = resolved.map { it.toEntity() }
@@ -4476,11 +4498,16 @@ class IptvRepositoryImpl @Inject constructor(
                 backfillVodCategoriesFromStreams(playlist.id)
             }
         } catch (categoryError: Throwable) {
-            Log.w(
+            Log.e(
                 VOD_FLOW_TAG,
                 "VOD categories fetch failed playlist=${playlist.id} trigger=$trigger — " +
                     "falling back to stream category ids",
                 categoryError
+            )
+            preserveCatalogLog(
+                playlist.id,
+                "movie_categories",
+                "fetch/parse failed: ${categoryError.message ?: categoryError.javaClass.simpleName}"
             )
             backfillVodCategoriesFromStreams(playlist.id)
         }
@@ -4725,7 +4752,14 @@ class IptvRepositoryImpl @Inject constructor(
                     } else {
                         buildFallbackVodCategories()
                     }
-                    emit(resolveCategoriesForDisplay(categories))
+                        val resolved = resolveCategoriesForDisplay(categories)
+                        auditCategoryFallbackRatio(
+                            endpoint = "vodCategories_flow",
+                            playlistId = resolved.firstOrNull()?.playlistId ?: 0L,
+                            categories = resolved,
+                            requestId = null,
+                        )
+                        emit(resolved)
                 }
             }
             .flowOn(Dispatchers.IO)
@@ -4739,7 +4773,14 @@ class IptvRepositoryImpl @Inject constructor(
             .flatMapLatest { stored ->
                 flow {
                     val merged = mergeAllSeriesCategorySources(stored.map { it.toDomain() })
-                    emit(resolveCategoriesForDisplay(merged))
+                    val resolved = resolveCategoriesForDisplay(merged)
+                    auditCategoryFallbackRatio(
+                        endpoint = "seriesCategories_flow",
+                        playlistId = resolved.firstOrNull()?.playlistId ?: 0L,
+                        categories = resolved,
+                        requestId = null,
+                    )
+                    emit(resolved)
                 }
             }
             .flowOn(Dispatchers.IO)
@@ -5461,6 +5502,32 @@ class IptvRepositoryImpl @Inject constructor(
 
     private fun reqPrefix(requestId: String?): String =
         if (requestId.isNullOrBlank()) "" else "[REQ_${requestId.take(8)}] "
+
+    private suspend fun auditCategoryFallbackRatio(
+        endpoint: String,
+        playlistId: Long,
+        categories: List<VodCategory>,
+        requestId: String?,
+    ) {
+        if (categories.isEmpty()) return
+        val fallbackCount = categories.count { it.name.equals("Uncategorized", ignoreCase = true) }
+        val ratio = fallbackCount.toDouble() / categories.size.toDouble()
+        val message =
+            "${reqPrefix(requestId)}$endpoint fallback_ratio=${"%.3f".format(java.util.Locale.US, ratio)} " +
+                "fallback_count=$fallbackCount total=${categories.size} playlist=$playlistId"
+        if (ratio > 0.05) {
+            Log.e(VOD_FLOW_TAG, message)
+            preserveCatalogLog(playlistId, endpoint, "high fallback ratio: $message")
+            val existing = vodCatalogStatus.value
+            val warning = "Category lookup anomaly detected ($endpoint): $fallbackCount/${categories.size} Uncategorized"
+            vodCatalogStatus.value = when {
+                endpoint.contains("series", ignoreCase = true) -> existing.copy(seriesError = warning)
+                else -> existing.copy(moviesError = warning)
+            }
+        } else {
+            Log.i(VOD_FLOW_TAG, message)
+        }
+    }
 
     private suspend fun persistSeriesEpisodes(
         playlistId: Long,

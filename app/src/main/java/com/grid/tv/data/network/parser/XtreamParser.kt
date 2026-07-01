@@ -11,6 +11,9 @@ import com.grid.tv.domain.model.SeriesShow
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.epg.EpgProgramTextDecoder
 import com.grid.tv.feature.search.SearchTitleNormalizer
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import java.net.URI
@@ -40,6 +43,7 @@ class XtreamParser {
         private val CATEGORY_ARRAY_WRAPPER_KEYS = listOf(
             "categories",
             "vod_categories",
+            "movie_categories",
             "series_categories",
             "data",
             "js"
@@ -332,16 +336,31 @@ class XtreamParser {
         playlistId: Long = 0L,
         requestId: String? = null,
     ): List<com.grid.tv.domain.model.VodCategory> {
-        val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val rows = parseCategoryObjects(raw)
+        if (rows.isEmpty()) return emptyList()
         val req = reqPrefix(requestId)
-        arr.optJSONObject(0)?.let { sample ->
+        logInfo("${req}get_vod_categories RAW category_count=${rows.size}")
+        val rawSamplePairs = buildList {
+            rows.forEach { item ->
+                val id = optCategoryId(item) ?: return@forEach
+                val rawName = extractRawCategoryName(item)
+                    ?: item.optStringCompat("category_name")
+                    ?: item.optStringCompat("name")
+                add(id to rawName)
+                if (size >= 6) return@forEach
+            }
+        }
+        if (rawSamplePairs.isNotEmpty()) {
+            logInfo("${req}get_vod_categories RAW sample_pairs=$rawSamplePairs")
+        }
+        rows.firstOrNull()?.let { sample ->
             val handled = setOf(
                 "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
                 "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
             )
             val keys = jsonObjectKeys(sample)
             val ignored = keys - handled
-            Log.d(TAG, "${req}get_vod_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
+            logDebug("${req}get_vod_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
         }
         val seenIds = mutableSetOf<String>()
         var hardDropMalformed = 0
@@ -349,26 +368,20 @@ class XtreamParser {
         var softDropMissingNameRecovered = 0
         var softDropDuplicateId = 0
         var unknownSchema = 0
-        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
-        for (i in 0 until arr.length()) {
-            val node = arr.opt(i)
-            val item = node as? JSONObject
-            if (item == null) {
-                hardDropMalformed += 1
-                continue
-            }
+        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(rows.size)
+        rows.forEach { item ->
             val id = optCategoryId(item)
             if (id == null) {
                 hardDropMissingId += 1
-                continue
+                return@forEach
             }
             if (id.isBlank()) {
                 hardDropMissingId += 1
-                continue
+                return@forEach
             }
             if (!seenIds.add(id)) {
                 softDropDuplicateId += 1
-                continue
+                return@forEach
             }
             if (extractRawCategoryName(item).isNullOrBlank()) {
                 softDropMissingNameRecovered += 1
@@ -381,12 +394,11 @@ class XtreamParser {
             val name = optCategoryName(item, fallback = "Movies")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
-        Log.d(
-            TAG,
+        logDebug(
             "${req}get_vod_categories DROP_CLASSIFICATION " +
                 "hard_drop_malformed=$hardDropMalformed hard_drop_missing_id=$hardDropMissingId " +
                 "soft_drop_missing_name_recovered=$softDropMissingNameRecovered soft_drop_duplicate_id=$softDropDuplicateId " +
-                "unknown_schema=$unknownSchema input=${arr.length()} output=${out.size}"
+                "unknown_schema=$unknownSchema input=${rows.size} output=${out.size}"
         )
         return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
@@ -396,16 +408,31 @@ class XtreamParser {
         playlistId: Long = 0L,
         requestId: String? = null,
     ): List<com.grid.tv.domain.model.VodCategory> {
-        val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val rows = parseCategoryObjects(raw)
+        if (rows.isEmpty()) return emptyList()
         val req = reqPrefix(requestId)
-        arr.optJSONObject(0)?.let { sample ->
+        logInfo("${req}get_series_categories RAW category_count=${rows.size}")
+        val rawSamplePairs = buildList {
+            rows.forEach { item ->
+                val id = optCategoryId(item) ?: return@forEach
+                val rawName = extractRawCategoryName(item)
+                    ?: item.optStringCompat("category_name")
+                    ?: item.optStringCompat("name")
+                add(id to rawName)
+                if (size >= 6) return@forEach
+            }
+        }
+        if (rawSamplePairs.isNotEmpty()) {
+            logInfo("${req}get_series_categories RAW sample_pairs=$rawSamplePairs")
+        }
+        rows.firstOrNull()?.let { sample ->
             val handled = setOf(
                 "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
                 "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
             )
             val keys = jsonObjectKeys(sample)
             val ignored = keys - handled
-            Log.d(TAG, "${req}get_series_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
+            logDebug("${req}get_series_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
         }
         val seenIds = mutableSetOf<String>()
         var hardDropMalformed = 0
@@ -413,26 +440,20 @@ class XtreamParser {
         var softDropMissingNameRecovered = 0
         var softDropDuplicateId = 0
         var unknownSchema = 0
-        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
-        for (i in 0 until arr.length()) {
-            val node = arr.opt(i)
-            val item = node as? JSONObject
-            if (item == null) {
-                hardDropMalformed += 1
-                continue
-            }
+        val out = ArrayList<com.grid.tv.domain.model.VodCategory>(rows.size)
+        rows.forEach { item ->
             val id = optCategoryId(item)
             if (id == null) {
                 hardDropMissingId += 1
-                continue
+                return@forEach
             }
             if (id.isBlank()) {
                 hardDropMissingId += 1
-                continue
+                return@forEach
             }
             if (!seenIds.add(id)) {
                 softDropDuplicateId += 1
-                continue
+                return@forEach
             }
             if (extractRawCategoryName(item).isNullOrBlank()) {
                 softDropMissingNameRecovered += 1
@@ -445,15 +466,129 @@ class XtreamParser {
             val name = optCategoryName(item, fallback = "Series")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
-        Log.d(
-            TAG,
+        logDebug(
             "${req}get_series_categories DROP_CLASSIFICATION " +
                 "hard_drop_malformed=$hardDropMalformed hard_drop_missing_id=$hardDropMissingId " +
                 "soft_drop_missing_name_recovered=$softDropMissingNameRecovered soft_drop_duplicate_id=$softDropDuplicateId " +
-                "unknown_schema=$unknownSchema input=${arr.length()} output=${out.size}"
+                "unknown_schema=$unknownSchema input=${rows.size} output=${out.size}"
         )
         return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
+
+    private fun parseCategoryObjects(raw: String): List<JsonObject> {
+        val trimmed = sanitizeJsonPayload(raw)
+        if (trimmed.isBlank()) return emptyList()
+        val root = runCatching { JsonParser.parseString(trimmed) }.getOrNull() ?: return emptyList()
+        return extractCategoryObjects(root, CATEGORY_ARRAY_WRAPPER_KEYS)
+    }
+
+    private fun extractCategoryObjects(root: JsonElement, wrapperKeys: List<String>): List<JsonObject> {
+        if (root.isJsonArray) {
+            return root.asJsonArray.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+        }
+        if (!root.isJsonObject) return emptyList()
+        val obj = root.asJsonObject
+        wrapperKeys.forEach { key ->
+            val node = obj.get(key)
+            if (node != null && node.isJsonArray) {
+                return node.asJsonArray.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+            }
+        }
+        val data = obj.get("data")
+        if (data != null && data.isJsonObject) {
+            return extractCategoryObjects(data, wrapperKeys)
+        }
+        if (data != null && data.isJsonArray) {
+            return data.asJsonArray.mapNotNull { it.takeIf(JsonElement::isJsonObject)?.asJsonObject }
+        }
+        return emptyList()
+    }
+
+    private fun JsonObject.optStringCompat(key: String): String? {
+        val node = get(key) ?: return null
+        if (!node.isJsonPrimitive) return null
+        return runCatching { node.asString }.getOrNull()
+    }
+
+    private fun optCategoryId(item: JsonObject): String? {
+        val keys = listOf(
+            "category_id",
+            "categoryId",
+            "categoryid",
+            "cat_id",
+            "id",
+            "vod_category_id",
+            "series_category_id"
+        )
+        keys.forEach { key ->
+            val node = item.get(key) ?: return@forEach
+            val normalized = normalizeCategoryIdElement(node)
+            if (!normalized.isNullOrBlank()) return normalized
+        }
+        item.get("category_ids")?.let { node ->
+            normalizeCategoryIdElement(node)?.let { return it }
+        }
+        return null
+    }
+
+    private fun optCategoryName(item: JsonObject, fallback: String): String {
+        val id = optCategoryId(item)
+        val candidates = listOf(
+            item.optStringCompat("category_name"),
+            item.optStringCompat("cat_name"),
+            item.optStringCompat("genre_name"),
+            item.optStringCompat("name"),
+            item.optStringCompat("title"),
+            item.optStringCompat("category"),
+            item.optStringCompat("display_name")
+        )
+        for (candidate in candidates) {
+            val trimmed = candidate?.trim().orEmpty()
+            if (trimmed.isBlank()) continue
+            if (id != null && trimmed == id) continue
+            if (trimmed.all { it.isDigit() }) continue
+            return trimmed
+        }
+        return fallback
+    }
+
+    private fun extractRawCategoryName(item: JsonObject): String? {
+        val candidates = listOf(
+            item.optStringCompat("category_name"),
+            item.optStringCompat("cat_name"),
+            item.optStringCompat("genre_name"),
+            item.optStringCompat("name"),
+            item.optStringCompat("title"),
+            item.optStringCompat("category"),
+            item.optStringCompat("display_name")
+        )
+        return candidates
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
+    }
+
+    private fun normalizeCategoryIdElement(node: JsonElement): String? {
+        return when {
+            node.isJsonNull -> null
+            node.isJsonPrimitive -> {
+                val primitive = node.asJsonPrimitive
+                if (primitive.isNumber || primitive.isString) {
+                    normalizeCategoryIdValue(primitive.asString)
+                } else {
+                    null
+                }
+            }
+            node.isJsonArray -> {
+                node.asJsonArray
+                    .asSequence()
+                    .mapNotNull { normalizeCategoryIdElement(it) }
+                    .firstOrNull()
+            }
+            else -> null
+        }
+    }
+
+    private fun jsonObjectKeys(obj: JsonObject): Set<String> = obj.keySet()
 
     /** Human-readable hint when a VOD payload cannot be parsed into a stream list. */
     fun diagnoseVodResponse(raw: String): String? {
@@ -949,7 +1084,7 @@ class XtreamParser {
         val root = JSONObject(raw)
         val rootInfo = parseInfoObject(root.opt("info"))
         val req = reqPrefix(requestId)
-        Log.d(TAG, "${req}get_series_info PARSER begin")
+        logDebug("${req}get_series_info PARSER begin")
         logSeriesInfoFieldCoverage(root, rootInfo, requestId)
         val plot = rootInfo?.optString("plot")
             ?.ifBlank { rootInfo.optString("description") }
@@ -1021,7 +1156,7 @@ class XtreamParser {
             seasons += SeriesSeason(number = seasonNo, episodes = episodeRows)
         }
         val detail = SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
-        Log.d(TAG, "${req}get_series_info PARSER parsed seasons=${detail.seasons.size} plot=${!detail.plot.isNullOrBlank()}")
+        logDebug("${req}get_series_info PARSER parsed seasons=${detail.seasons.size} plot=${!detail.plot.isNullOrBlank()}")
         return detail
     }
 
@@ -1040,7 +1175,7 @@ class XtreamParser {
             ?: JSONObject()
         val info = parseInfoObject(root.opt("info")) ?: JSONObject()
         val req = reqPrefix(requestId)
-        Log.d(TAG, "${req}get_vod_info PARSER begin")
+        logDebug("${req}get_vod_info PARSER begin")
         logVodInfoFieldCoverage(root, movieData, info, requestId)
 
         val streamId = optLongId(movieData, "stream_id", "movie_id", "vod_id", "id")
@@ -1169,7 +1304,7 @@ class XtreamParser {
             addedEpochSec = addedEpochSec,
             playlistId = playlistId
         )
-        Log.d(TAG, "${req}get_vod_info PARSER parsed streamId=${item.streamId} title=${item.title.take(80)}")
+        logDebug("${req}get_vod_info PARSER parsed streamId=${item.streamId} title=${item.title.take(80)}")
         return item
     }
 
@@ -1192,8 +1327,7 @@ class XtreamParser {
         val rootKeys = jsonObjectKeys(root)
         val movieKeys = jsonObjectKeys(movieData)
         val infoKeys = jsonObjectKeys(info)
-        Log.d(
-            TAG,
+        logDebug(
             "${reqPrefix(requestId)}get_vod_info FIELD_TRACE rootKeys=$rootKeys ignoredRoot=${rootKeys - rootHandled} " +
                 "movieKeys=$movieKeys ignoredMovie=${movieKeys - movieHandled} " +
                 "infoKeys=$infoKeys ignoredInfo=${infoKeys - infoHandled}"
@@ -1240,8 +1374,7 @@ class XtreamParser {
             "episode_num", "info", "plot", "description", "synopsis", "overview", "storyline",
             "duration", "runtime", "duration_secs"
         )
-        Log.d(
-            TAG,
+        logDebug(
             "${reqPrefix(requestId)}get_series_info FIELD_TRACE rootKeys=$rootKeys ignoredRoot=${rootKeys - rootHandled} " +
                 "infoKeys=$infoKeys ignoredInfo=${infoKeys - infoHandled} " +
                 "episodeSampleKeys=$episodeKeys ignoredEpisode=${episodeKeys - episodeHandled}"
@@ -1281,11 +1414,10 @@ class XtreamParser {
             !added.isNullOrBlank() -> "release_date -> added (fallback)"
             else -> "release_date -> <missing>"
         }
-        Log.d(
-            TAG,
+        logDebug(
             "${reqPrefix(requestId)}get_vod_info FIELD_RECOVERY normalized_release_date=$normalized added_epoch=$addedEpochSec"
         )
-        Log.d(TAG, "${reqPrefix(requestId)}get_vod_info FIELD_RECOVERY $recovery")
+        logDebug("${reqPrefix(requestId)}get_vod_info FIELD_RECOVERY $recovery")
     }
 
     private fun jsonObjectKeys(obj: JSONObject?): Set<String> {
@@ -1481,6 +1613,14 @@ class XtreamParser {
 
     private fun reqPrefix(requestId: String?): String =
         if (requestId.isNullOrBlank()) "" else "[REQ_${requestId.take(8)}] "
+
+    private fun logDebug(message: String) {
+        runCatching { Log.d(TAG, message) }
+    }
+
+    private fun logInfo(message: String) {
+        runCatching { Log.i(TAG, message) }
+    }
 
     private fun normalizeCategoryIdValue(value: Any?): String? {
         return when (value) {
