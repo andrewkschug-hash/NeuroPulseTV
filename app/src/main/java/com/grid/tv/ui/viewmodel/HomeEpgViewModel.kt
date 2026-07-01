@@ -106,6 +106,7 @@ class HomeEpgViewModel @Inject constructor(
         private const val MAX_WINDOW_MS = 24 * 60 * 60 * 1000L
         private const val PREVIEW_TUNE_DEBOUNCE_MS = 500L
         private const val PREVIEW_GUIDE_FILTER_DEBOUNCE_MS = 140L
+        private const val CHANNEL_RELOAD_DUPLICATE_WINDOW_MS = 400L
         /** Visible guide rows to hydrate from cache before loading the rest of the page. */
         private const val PRIORITY_EPG_CHANNEL_COUNT = 50
         private const val VIEWPORT_EPG_DEBOUNCE_MS = 300L
@@ -402,6 +403,8 @@ class HomeEpgViewModel @Inject constructor(
     private var loadingChannels = false
     private var channelLoadJob: Job? = null
     private var previewGuideFilterJob: Job? = null
+    private var lastChannelReloadSignature: String? = null
+    private var lastChannelReloadAtMs: Long = 0L
 
     private val _guidePosition = MutableStateFlow(EpgGuidePosition())
     val guidePosition: StateFlow<EpgGuidePosition> = _guidePosition.asStateFlow()
@@ -1297,6 +1300,7 @@ class HomeEpgViewModel @Inject constructor(
     }
 
     private fun reloadChannels() {
+        if (shouldSkipDuplicateChannelReload()) return
         channelLoadJob?.cancel()
         val generation = ++channelFilterGeneration
         channelLoadJob = viewModelScope.launch(Dispatchers.IO) {
@@ -1318,6 +1322,7 @@ class HomeEpgViewModel @Inject constructor(
 
     /** Swap channel page in one shot — keeps the current list visible until new data arrives. */
     private fun reloadChannelsSoft() {
+        if (shouldSkipDuplicateChannelReload()) return
         channelLoadJob?.cancel()
         val generation = ++channelFilterGeneration
         channelLoadJob = viewModelScope.launch(Dispatchers.IO) {
@@ -1548,6 +1553,35 @@ class HomeEpgViewModel @Inject constructor(
                 )
             }
         }
+        }
+    }
+
+    private fun channelReloadSignature(): String {
+        val filter = effectiveGuideFilter().selectedGroups.sorted().joinToString(",")
+        return buildString {
+            append(_favoriteGroupFilter.value ?: -1L)
+            append('|')
+            append(_recentChannelsOnly.value)
+            append('|')
+            append(_hideAdultContent.value)
+            append('|')
+            append(_channelGroupNavigationMode.value.name)
+            append('|')
+            append(filter)
+        }
+    }
+
+    private fun shouldSkipDuplicateChannelReload(): Boolean {
+        val nowMs = System.currentTimeMillis()
+        val signature = channelReloadSignature()
+        val sameSignature = signature == lastChannelReloadSignature
+        val withinWindow = nowMs - lastChannelReloadAtMs <= CHANNEL_RELOAD_DUPLICATE_WINDOW_MS
+        return if (sameSignature && withinWindow) {
+            true
+        } else {
+            lastChannelReloadSignature = signature
+            lastChannelReloadAtMs = nowMs
+            false
         }
     }
 
