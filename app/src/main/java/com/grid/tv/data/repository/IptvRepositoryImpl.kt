@@ -192,6 +192,7 @@ import java.net.URLEncoder
 import java.net.URI
 import java.io.File
 import java.util.Calendar
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -3556,30 +3557,22 @@ class IptvRepositoryImpl @Inject constructor(
         }
         val (server, user, pass) = credentials
         runVodPipelineCatching("refreshSeriesCategoriesForPlaylist playlist=${playlist.id}") {
+            val requestId = UUID.randomUUID().toString()
             Log.i(
                 VOD_FLOW_TAG,
-                "Starting get_series_categories playlist=${playlist.id} trigger=$trigger " +
+                "${reqPrefix(requestId)}get_series_categories REQUEST playlist=${playlist.id} trigger=$trigger " +
                     "at=${System.currentTimeMillis()}"
             )
             val seriesCategoriesRaw = remoteTextFetcher.fetch(
                 buildXtreamApiUrl(server, user, pass, action = "get_series_categories")
             )
-            Log.d(
-                VOD_FLOW_TAG,
-                "get_series_categories raw sample playlist=${playlist.id}: " +
-                    seriesCategoriesRaw.take(2000).replace('\n', ' ')
-            )
-            val categories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, playlist.id)
-            categories.take(8).forEach { category ->
-                Log.d(
-                    VOD_FLOW_TAG,
-                    "get_series_categories parsed playlist=${playlist.id} " +
-                        "id=${category.id} name=${category.name}"
-                )
-            }
+            logCompleteJson("get_series_categories", playlist.id, seriesCategoriesRaw, requestId)
+            val categories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, playlist.id, requestId)
+            logParsedCategories("get_series_categories", playlist.id, categories, requestId)
             Log.i(
                 VOD_FLOW_TAG,
-                "Series categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
+                "${reqPrefix(requestId)}get_series_categories RESPONSE playlist=${playlist.id} " +
+                    "trigger=$trigger count=${categories.size}"
             )
             if (categories.isNotEmpty()) {
                 val resolved = resolveCategoriesForStorage(categories, playlist.id)
@@ -4445,9 +4438,10 @@ class IptvRepositoryImpl @Inject constructor(
         trigger: VodRefreshTrigger
     ) {
         try {
+            val requestId = UUID.randomUUID().toString()
             Log.i(
                 VOD_FLOW_TAG,
-                "Starting get_vod_categories playlist=${playlist.id} trigger=$trigger " +
+                "${reqPrefix(requestId)}get_vod_categories REQUEST playlist=${playlist.id} trigger=$trigger " +
                     "at=${System.currentTimeMillis()}"
             )
             val fetchResult = remoteTextFetcher.fetchDetailed(
@@ -4462,10 +4456,13 @@ class IptvRepositoryImpl @Inject constructor(
                 backfillVodCategoriesFromStreams(playlist.id)
                 return
             }
-            val categories = xtreamParser.parseVodCategories(fetchResult.body, playlist.id)
+            logCompleteJson("get_vod_categories", playlist.id, fetchResult.body, requestId)
+            val categories = xtreamParser.parseVodCategories(fetchResult.body, playlist.id, requestId)
+            logParsedCategories("get_vod_categories", playlist.id, categories, requestId)
             Log.i(
                 VOD_FLOW_TAG,
-                "VOD categories playlist=${playlist.id} trigger=$trigger count=${categories.size}"
+                "${reqPrefix(requestId)}get_vod_categories RESPONSE playlist=${playlist.id} " +
+                    "trigger=$trigger count=${categories.size}"
             )
             if (categories.isNotEmpty()) {
                 val resolved = resolveCategoriesForStorage(categories, playlist.id)
@@ -4891,14 +4888,15 @@ class IptvRepositoryImpl @Inject constructor(
         val user = playlist.xtreamUsername ?: return@withContext base
         val pass = resolveXtreamPassword(playlist) ?: return@withContext base
         val url = buildXtreamApiUrl(server, user, pass, action = "get_vod_info", extra = "vod_id=$streamId")
-        Log.i(VOD_FLOW_TAG, "METADATA_TRACE movie request url=$url")
+        val requestId = UUID.randomUUID().toString()
+        Log.i(VOD_FLOW_TAG, "${reqPrefix(requestId)}get_vod_info REQUEST url=$url")
 
         val fetch = remoteTextFetcher.fetchDetailed(url)
         Log.i(
             VOD_FLOW_TAG,
-            "METADATA_TRACE movie response http=${fetch.httpCode} bytes=${fetch.rawBytes} streamId=$streamId"
+            "${reqPrefix(requestId)}get_vod_info RESPONSE http=${fetch.httpCode} bytes=${fetch.rawBytes} streamId=$streamId"
         )
-        Log.d(VOD_FLOW_TAG, "METADATA_TRACE movie body sample=${fetch.body.take(600).replace('\n', ' ')}")
+        logCompleteJson("get_vod_info", resolved, fetch.body, requestId)
         if (!isSuccessfulHttp(fetch.httpCode)) {
             return@withContext base
         }
@@ -4911,6 +4909,7 @@ class IptvRepositoryImpl @Inject constructor(
                 serverUrl = server,
                 playlistId = resolved,
                 fallbackStreamId = streamId,
+                requestId = requestId,
             )
         }.onFailure { error ->
             Log.w(VOD_FLOW_TAG, "METADATA_TRACE movie parse failed streamId=$streamId: ${error.message}", error)
@@ -4922,6 +4921,7 @@ class IptvRepositoryImpl @Inject constructor(
                 "plot=${!parsed?.plot.isNullOrBlank()} genre=${!parsed?.genre.isNullOrBlank()} " +
                 "duration=${!parsed?.duration.isNullOrBlank()}"
         )
+        logParsedVodInfo(resolved, streamId, parsed, requestId)
 
         val merged = mergeVodDetail(base, parsed)
         Log.d(
@@ -5237,24 +5237,26 @@ class IptvRepositoryImpl @Inject constructor(
             val user = playlist.xtreamUsername ?: return@withContext SeriesDetail()
             val pass = resolveXtreamPassword(playlist) ?: return@withContext SeriesDetail()
             val url = buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
-            Log.i(VOD_FLOW_TAG, "METADATA_TRACE series request url=$url")
+            val requestId = UUID.randomUUID().toString()
+            Log.i(VOD_FLOW_TAG, "${reqPrefix(requestId)}get_series_info REQUEST url=$url")
             val raw = remoteTextFetcher.tryFetch(url)
             if (raw == null) {
                 Log.w(VOD_FLOW_TAG, "get_series_info unavailable for seriesId=$seriesId playlist=$playlistId")
                 return@withContext SeriesDetail()
             }
-            Log.d(VOD_FLOW_TAG, "METADATA_TRACE series body sample=${raw.take(600).replace('\n', ' ')}")
+            logCompleteJson("get_series_info", playlistId, raw, requestId)
             val detail = JsonParseMetrics.onIoThread(
                 label = "series_info seriesId=$seriesId",
                 itemCount = -1
             ) {
-                xtreamParser.parseSeriesInfo(raw, user, pass, server)
+                xtreamParser.parseSeriesInfo(raw, user, pass, server, requestId)
             }
             Log.d(
                 VOD_FLOW_TAG,
                 "METADATA_TRACE series parsed seriesId=$seriesId seasons=${detail.seasons.size} " +
                     "plot=${!detail.plot.isNullOrBlank()}"
             )
+            logParsedSeriesInfo(playlistId, seriesId, detail, requestId)
             val normalized = SeriesEpisodeTitleNormalizer.normalizeSeriesDetail(detail)
             persistSeriesEpisodes(playlistId, seriesId, show.name, normalized)
             seriesSeasonsCache.put(cacheKey, normalized)
@@ -5265,6 +5267,200 @@ class IptvRepositoryImpl @Inject constructor(
             )
             return@withContext normalized
         }
+
+    override suspend fun runForensicCapture(
+        playlistId: Long,
+        vodId: Long?,
+        seriesId: Long?,
+    ): String = withContext(Dispatchers.IO) {
+        val resolved = requireScopedPlaylistId(playlistId)
+            ?: return@withContext "Invalid playlist id: $playlistId"
+        val playlist = playlistDao.getById(resolved)
+            ?: return@withContext "Playlist not found: $resolved"
+        if (playlist.type != PlaylistType.XTREAM.name) {
+            return@withContext "Forensic capture only supports XTREAM playlists (playlist=$resolved type=${playlist.type})"
+        }
+        val server = playlist.xtreamServerUrl ?: return@withContext "Missing Xtream server url for playlist $resolved"
+        val user = playlist.xtreamUsername ?: return@withContext "Missing Xtream username for playlist $resolved"
+        val pass = resolveXtreamPassword(playlist) ?: return@withContext "Missing Xtream password for playlist $resolved"
+
+        val captureId = UUID.randomUUID().toString()
+        val lines = mutableListOf<String>()
+        lines += "===== IPTV FORENSIC SNAPSHOT BEGIN ====="
+        lines += "request_id: $captureId"
+        lines += "timestamp: ${System.currentTimeMillis()}"
+        lines += "playlist_id: $resolved"
+
+        invalidateCategoryLookupCache()
+        clearSeriesSeasonsForPlaylist(resolved)
+
+        val vodCategoriesReq = UUID.randomUUID().toString()
+        val vodCategoriesFetch = remoteTextFetcher.fetchDetailed(
+            buildXtreamApiUrl(server, user, pass, action = "get_vod_categories")
+        )
+        logCompleteJson("get_vod_categories", resolved, vodCategoriesFetch.body, vodCategoriesReq)
+        val vodCategories = if (isSuccessfulHttp(vodCategoriesFetch.httpCode)) {
+            xtreamParser.parseVodCategories(vodCategoriesFetch.body, resolved, vodCategoriesReq)
+        } else {
+            emptyList()
+        }
+        logParsedCategories("get_vod_categories", resolved, vodCategories, vodCategoriesReq)
+        lines += "[RAW] endpoint=get_vod_categories request_id=$vodCategoriesReq http=${vodCategoriesFetch.httpCode} bytes=${vodCategoriesFetch.rawBytes}"
+        lines += "[PARSED] endpoint=get_vod_categories request_id=$vodCategoriesReq count=${vodCategories.size}"
+        lines += "[FIELD_TRACE] endpoint=get_vod_categories request_id=$vodCategoriesReq"
+
+        val seriesCategoriesReq = UUID.randomUUID().toString()
+        val seriesCategoriesRaw = remoteTextFetcher.fetch(
+            buildXtreamApiUrl(server, user, pass, action = "get_series_categories")
+        )
+        logCompleteJson("get_series_categories", resolved, seriesCategoriesRaw, seriesCategoriesReq)
+        val seriesCategories = xtreamParser.parseSeriesCategories(seriesCategoriesRaw, resolved, seriesCategoriesReq)
+        logParsedCategories("get_series_categories", resolved, seriesCategories, seriesCategoriesReq)
+        lines += "[RAW] endpoint=get_series_categories request_id=$seriesCategoriesReq http=200 bytes=${seriesCategoriesRaw.length}"
+        lines += "[PARSED] endpoint=get_series_categories request_id=$seriesCategoriesReq count=${seriesCategories.size}"
+        lines += "[FIELD_TRACE] endpoint=get_series_categories request_id=$seriesCategoriesReq"
+
+        val resolvedVodId = vodId
+            ?: vodStreamDao.recentForPlaylist(resolved, 1).firstOrNull()?.streamId
+        if (resolvedVodId != null) {
+            val vodInfoReq = UUID.randomUUID().toString()
+            val vodInfoFetch = remoteTextFetcher.fetchDetailed(
+                buildXtreamApiUrl(server, user, pass, action = "get_vod_info", extra = "vod_id=$resolvedVodId")
+            )
+            logCompleteJson("get_vod_info", resolved, vodInfoFetch.body, vodInfoReq)
+            val parsedVod = if (isSuccessfulHttp(vodInfoFetch.httpCode)) {
+                xtreamParser.parseVodInfo(
+                    raw = vodInfoFetch.body,
+                    username = user,
+                    password = pass,
+                    serverUrl = server,
+                    playlistId = resolved,
+                    fallbackStreamId = resolvedVodId,
+                    requestId = vodInfoReq,
+                )
+            } else {
+                null
+            }
+            logParsedVodInfo(resolved, resolvedVodId, parsedVod, vodInfoReq)
+            lines += "[RAW] endpoint=get_vod_info request_id=$vodInfoReq http=${vodInfoFetch.httpCode} bytes=${vodInfoFetch.rawBytes} stream_id=$resolvedVodId"
+            lines += "[PARSED] endpoint=get_vod_info request_id=$vodInfoReq title=${parsedVod?.title} rating=${parsedVod?.rating} duration=${parsedVod?.duration}"
+            lines += "[FIELD_TRACE] endpoint=get_vod_info request_id=$vodInfoReq"
+        } else {
+            lines += "[RAW] endpoint=get_vod_info request_id=<skipped> reason=no_vod_stream"
+        }
+
+        val resolvedSeriesId = seriesId
+            ?: seriesShowDao.recent(250).firstOrNull { it.playlistId == resolved }?.seriesId
+            ?: seriesShowDao.distinctCategoryPairs()
+                .firstOrNull { it.playlistId == resolved }
+                ?.let { pair -> seriesShowsForCategory(pair.playlistId, pair.categoryId, 1).firstOrNull()?.seriesId }
+        if (resolvedSeriesId != null) {
+            val seriesInfoReq = UUID.randomUUID().toString()
+            val seriesInfoRaw = remoteTextFetcher.tryFetch(
+                buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$resolvedSeriesId")
+            )
+            if (seriesInfoRaw != null) {
+                logCompleteJson("get_series_info", resolved, seriesInfoRaw, seriesInfoReq)
+                val parsedSeries = xtreamParser.parseSeriesInfo(
+                    raw = seriesInfoRaw,
+                    username = user,
+                    password = pass,
+                    serverUrl = server,
+                    requestId = seriesInfoReq,
+                )
+                logParsedSeriesInfo(resolved, resolvedSeriesId, parsedSeries, seriesInfoReq)
+                lines += "[RAW] endpoint=get_series_info request_id=$seriesInfoReq http=200 bytes=${seriesInfoRaw.length} series_id=$resolvedSeriesId"
+                lines += "[PARSED] endpoint=get_series_info request_id=$seriesInfoReq seasons=${parsedSeries.seasons.size} plot=${parsedSeries.plot}"
+                lines += "[FIELD_TRACE] endpoint=get_series_info request_id=$seriesInfoReq"
+            } else {
+                lines += "[RAW] endpoint=get_series_info request_id=<skipped> reason=response_null series_id=$resolvedSeriesId"
+            }
+        } else {
+            lines += "[RAW] endpoint=get_series_info request_id=<skipped> reason=no_series_show"
+        }
+
+        lines += "[LOSS SUMMARY] release_date normalization is logged via FIELD_RECOVERY per get_vod_info request_id"
+        lines += "===== IPTV FORENSIC SNAPSHOT END ====="
+        val snapshot = lines.joinToString("\n")
+        snapshot.lineSequence().forEach { line -> Log.i(VOD_FLOW_TAG, line) }
+        snapshot
+    }
+
+    private fun logCompleteJson(endpoint: String, playlistId: Long, body: String, requestId: String? = null) {
+        val req = reqPrefix(requestId)
+        Log.i(VOD_FLOW_TAG, "${req}$endpoint RAW playlist=$playlistId raw_json_begin")
+        val clean = body.trim()
+        if (clean.isEmpty()) {
+            Log.i(VOD_FLOW_TAG, "${req}$endpoint RAW playlist=$playlistId raw_json=<empty>")
+        } else {
+            val chunkSize = 3500
+            var idx = 0
+            while (idx < clean.length) {
+                val end = (idx + chunkSize).coerceAtMost(clean.length)
+                Log.i(VOD_FLOW_TAG, "${req}$endpoint RAW playlist=$playlistId raw_json_chunk=${clean.substring(idx, end)}")
+                idx = end
+            }
+        }
+        Log.i(VOD_FLOW_TAG, "${req}$endpoint RAW playlist=$playlistId raw_json_end")
+    }
+
+    private fun logParsedCategories(
+        endpoint: String,
+        playlistId: Long,
+        categories: List<VodCategory>,
+        requestId: String? = null,
+    ) {
+        val req = reqPrefix(requestId)
+        Log.i(VOD_FLOW_TAG, "${req}$endpoint PARSED playlist=$playlistId parsed_categories_begin")
+        if (categories.isEmpty()) {
+            Log.i(VOD_FLOW_TAG, "${req}$endpoint PARSED playlist=$playlistId parsed_categories=<empty>")
+        } else {
+            categories.forEach { category ->
+                Log.i(
+                    VOD_FLOW_TAG,
+                    "${req}$endpoint PARSED playlist=$playlistId category_id=${category.id}\tcategory_name=${category.name}"
+                )
+            }
+        }
+        Log.i(VOD_FLOW_TAG, "${req}$endpoint PARSED playlist=$playlistId parsed_categories_end")
+    }
+
+    private fun logParsedVodInfo(playlistId: Long, streamId: Long, item: VodItem?, requestId: String? = null) {
+        val req = reqPrefix(requestId)
+        if (item == null) {
+            Log.i(VOD_FLOW_TAG, "${req}get_vod_info PARSED playlist=$playlistId streamId=$streamId parsed_vod_info=<null>")
+            return
+        }
+        Log.i(
+            VOD_FLOW_TAG,
+            "${req}get_vod_info PARSED playlist=$playlistId streamId=$streamId parsed_vod_info " +
+                "name=${item.title}\tplot=${item.plot}\tgenre=${item.genre}\trating=${item.rating}" +
+                "\tduration=${item.duration}\tcast=${item.cast}\tdirector=${item.director}" +
+                "\trelease_date=${item.addedEpochSec}"
+        )
+    }
+
+    private fun logParsedSeriesInfo(
+        playlistId: Long,
+        seriesId: Long,
+        detail: SeriesDetail,
+        requestId: String? = null,
+    ) {
+        val req = reqPrefix(requestId)
+        val seasonCount = detail.seasons.size
+        val episodeCount = detail.seasons.sumOf { it.episodes.size }
+        val firstEpisode = detail.seasons.firstOrNull()?.episodes?.firstOrNull()
+        Log.i(
+            VOD_FLOW_TAG,
+            "${req}get_series_info PARSED playlist=$playlistId seriesId=$seriesId parsed_series_info " +
+                "plot=${detail.plot}\tseasons=$seasonCount\tepisodes=$episodeCount" +
+                "\tfirst_episode_title=${firstEpisode?.title}\tfirst_episode_plot=${firstEpisode?.plot}" +
+                "\tfirst_episode_duration=${firstEpisode?.duration}"
+        )
+    }
+
+    private fun reqPrefix(requestId: String?): String =
+        if (requestId.isNullOrBlank()) "" else "[REQ_${requestId.take(8)}] "
 
     private suspend fun persistSeriesEpisodes(
         playlistId: Long,

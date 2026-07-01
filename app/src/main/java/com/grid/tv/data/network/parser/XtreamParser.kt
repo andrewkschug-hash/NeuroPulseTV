@@ -1,5 +1,6 @@
 package com.grid.tv.data.network.parser
 
+import android.util.Log
 import com.grid.tv.data.db.entity.ChannelEntity
 import com.grid.tv.data.db.entity.ProgramEntity
 import com.grid.tv.domain.model.EpgResolutionStatus
@@ -20,6 +21,7 @@ import org.json.JSONObject
 class XtreamParser {
 
     companion object {
+        private const val TAG = "XtreamParser"
         const val VOD_CATALOG_BATCH_SIZE = 75
         private val VOD_ARRAY_WRAPPER_KEYS = listOf(
             "vod_streams",
@@ -325,27 +327,131 @@ class XtreamParser {
         val epgFromStreamId: Int = 0,
     )
 
-    fun parseVodCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
+    fun parseVodCategories(
+        raw: String,
+        playlistId: Long = 0L,
+        requestId: String? = null,
+    ): List<com.grid.tv.domain.model.VodCategory> {
         val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val req = reqPrefix(requestId)
+        arr.optJSONObject(0)?.let { sample ->
+            val handled = setOf(
+                "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
+                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
+            )
+            val keys = jsonObjectKeys(sample)
+            val ignored = keys - handled
+            Log.d(TAG, "${req}get_vod_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
+        }
+        val seenIds = mutableSetOf<String>()
+        var hardDropMalformed = 0
+        var hardDropMissingId = 0
+        var softDropMissingNameRecovered = 0
+        var softDropDuplicateId = 0
+        var unknownSchema = 0
         val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
         for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val id = optCategoryId(item) ?: continue
+            val node = arr.opt(i)
+            val item = node as? JSONObject
+            if (item == null) {
+                hardDropMalformed += 1
+                continue
+            }
+            val id = optCategoryId(item)
+            if (id == null) {
+                hardDropMissingId += 1
+                continue
+            }
+            if (id.isBlank()) {
+                hardDropMissingId += 1
+                continue
+            }
+            if (!seenIds.add(id)) {
+                softDropDuplicateId += 1
+                continue
+            }
+            if (extractRawCategoryName(item).isNullOrBlank()) {
+                softDropMissingNameRecovered += 1
+            }
+            val handled = setOf(
+                "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
+                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
+            )
+            if ((jsonObjectKeys(item) - handled).isNotEmpty()) unknownSchema += 1
             val name = optCategoryName(item, fallback = "Movies")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
+        Log.d(
+            TAG,
+            "${req}get_vod_categories DROP_CLASSIFICATION " +
+                "hard_drop_malformed=$hardDropMalformed hard_drop_missing_id=$hardDropMissingId " +
+                "soft_drop_missing_name_recovered=$softDropMissingNameRecovered soft_drop_duplicate_id=$softDropDuplicateId " +
+                "unknown_schema=$unknownSchema input=${arr.length()} output=${out.size}"
+        )
         return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
-    fun parseSeriesCategories(raw: String, playlistId: Long = 0L): List<com.grid.tv.domain.model.VodCategory> {
+    fun parseSeriesCategories(
+        raw: String,
+        playlistId: Long = 0L,
+        requestId: String? = null,
+    ): List<com.grid.tv.domain.model.VodCategory> {
         val arr = parseJsonArray(raw, CATEGORY_ARRAY_WRAPPER_KEYS) ?: return emptyList()
+        val req = reqPrefix(requestId)
+        arr.optJSONObject(0)?.let { sample ->
+            val handled = setOf(
+                "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
+                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
+            )
+            val keys = jsonObjectKeys(sample)
+            val ignored = keys - handled
+            Log.d(TAG, "${req}get_series_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
+        }
+        val seenIds = mutableSetOf<String>()
+        var hardDropMalformed = 0
+        var hardDropMissingId = 0
+        var softDropMissingNameRecovered = 0
+        var softDropDuplicateId = 0
+        var unknownSchema = 0
         val out = ArrayList<com.grid.tv.domain.model.VodCategory>(arr.length())
         for (i in 0 until arr.length()) {
-            val item = arr.optJSONObject(i) ?: continue
-            val id = optCategoryId(item) ?: continue
+            val node = arr.opt(i)
+            val item = node as? JSONObject
+            if (item == null) {
+                hardDropMalformed += 1
+                continue
+            }
+            val id = optCategoryId(item)
+            if (id == null) {
+                hardDropMissingId += 1
+                continue
+            }
+            if (id.isBlank()) {
+                hardDropMissingId += 1
+                continue
+            }
+            if (!seenIds.add(id)) {
+                softDropDuplicateId += 1
+                continue
+            }
+            if (extractRawCategoryName(item).isNullOrBlank()) {
+                softDropMissingNameRecovered += 1
+            }
+            val handled = setOf(
+                "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
+                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
+            )
+            if ((jsonObjectKeys(item) - handled).isNotEmpty()) unknownSchema += 1
             val name = optCategoryName(item, fallback = "Series")
             out += com.grid.tv.domain.model.VodCategory(id, name, playlistId)
         }
+        Log.d(
+            TAG,
+            "${req}get_series_categories DROP_CLASSIFICATION " +
+                "hard_drop_malformed=$hardDropMalformed hard_drop_missing_id=$hardDropMissingId " +
+                "soft_drop_missing_name_recovered=$softDropMissingNameRecovered soft_drop_duplicate_id=$softDropDuplicateId " +
+                "unknown_schema=$unknownSchema input=${arr.length()} output=${out.size}"
+        )
         return com.grid.tv.domain.model.VodCategoryNameResolver.normalizeList(out)
     }
 
@@ -833,9 +939,18 @@ class XtreamParser {
         )
     }
 
-    fun parseSeriesInfo(raw: String, username: String, password: String, serverUrl: String): SeriesDetail {
+    fun parseSeriesInfo(
+        raw: String,
+        username: String,
+        password: String,
+        serverUrl: String,
+        requestId: String? = null,
+    ): SeriesDetail {
         val root = JSONObject(raw)
         val rootInfo = parseInfoObject(root.opt("info"))
+        val req = reqPrefix(requestId)
+        Log.d(TAG, "${req}get_series_info PARSER begin")
+        logSeriesInfoFieldCoverage(root, rootInfo, requestId)
         val plot = rootInfo?.optString("plot")
             ?.ifBlank { rootInfo.optString("description") }
             ?.ifBlank { rootInfo.optString("synopsis") }
@@ -905,7 +1020,9 @@ class XtreamParser {
             val seasonNo = seasonKey.toIntOrNull() ?: (seasons.size + 1)
             seasons += SeriesSeason(number = seasonNo, episodes = episodeRows)
         }
-        return SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
+        val detail = SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
+        Log.d(TAG, "${req}get_series_info PARSER parsed seasons=${detail.seasons.size} plot=${!detail.plot.isNullOrBlank()}")
+        return detail
     }
 
     fun parseVodInfo(
@@ -915,12 +1032,16 @@ class XtreamParser {
         serverUrl: String,
         playlistId: Long = 0L,
         fallbackStreamId: Long? = null,
+        requestId: String? = null,
     ): VodItem? {
         val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
         val movieData = parseInfoObject(root.opt("movie_data"))
             ?: parseInfoObject(root.opt("movie"))
             ?: JSONObject()
         val info = parseInfoObject(root.opt("info")) ?: JSONObject()
+        val req = reqPrefix(requestId)
+        Log.d(TAG, "${req}get_vod_info PARSER begin")
+        logVodInfoFieldCoverage(root, movieData, info, requestId)
 
         val streamId = optLongId(movieData, "stream_id", "movie_id", "vod_id", "id")
             ?: optLongId(info, "stream_id", "movie_id", "vod_id", "id")
@@ -1014,6 +1135,8 @@ class XtreamParser {
             root.optString("added").toLongOrNull()
         ).firstOrNull { it != null }
 
+        logReleaseDateShadowRecovery(root, movieData, info, addedEpochSec, requestId)
+
         val poster = sequenceOf(
             movieData.optString("stream_icon"),
             movieData.optString("movie_image"),
@@ -1023,7 +1146,7 @@ class XtreamParser {
         ).map { it.trim() }
             .firstOrNull { it.isNotBlank() }
 
-        return VodItem(
+        val item = VodItem(
             id = streamId,
             title = title,
             streamId = streamId,
@@ -1046,6 +1169,131 @@ class XtreamParser {
             addedEpochSec = addedEpochSec,
             playlistId = playlistId
         )
+        Log.d(TAG, "${req}get_vod_info PARSER parsed streamId=${item.streamId} title=${item.title.take(80)}")
+        return item
+    }
+
+    private fun logVodInfoFieldCoverage(root: JSONObject, movieData: JSONObject, info: JSONObject, requestId: String?) {
+        val rootHandled = setOf("movie_data", "movie", "info", "stream_id", "movie_id", "vod_id", "id", "added")
+        val movieHandled = setOf(
+            "stream_id", "movie_id", "vod_id", "id", "container_extension", "direct_source",
+            "name", "title", "stream_icon", "movie_image", "category_id", "categoryId", "categoryid",
+            "vod_category_id", "series_category_id", "category_ids", "added", "plot", "description",
+            "synopsis", "overview", "storyline", "cast", "actors", "director", "directors", "genre", "genres",
+            "rating", "vote_average", "duration", "runtime", "duration_secs"
+        )
+        val infoHandled = setOf(
+            "stream_id", "movie_id", "vod_id", "id", "container_extension", "direct_source",
+            "name", "title", "movie_image", "cover", "poster", "category_id", "categoryId", "categoryid",
+            "vod_category_id", "series_category_id", "category_ids", "added", "plot", "description",
+            "synopsis", "overview", "storyline", "cast", "actors", "director", "directors", "genre", "genres",
+            "rating", "vote_average", "tmdb_rating", "duration", "runtime", "duration_secs"
+        )
+        val rootKeys = jsonObjectKeys(root)
+        val movieKeys = jsonObjectKeys(movieData)
+        val infoKeys = jsonObjectKeys(info)
+        Log.d(
+            TAG,
+            "${reqPrefix(requestId)}get_vod_info FIELD_TRACE rootKeys=$rootKeys ignoredRoot=${rootKeys - rootHandled} " +
+                "movieKeys=$movieKeys ignoredMovie=${movieKeys - movieHandled} " +
+                "infoKeys=$infoKeys ignoredInfo=${infoKeys - infoHandled}"
+        )
+    }
+
+    private fun logSeriesInfoFieldCoverage(root: JSONObject, info: JSONObject?, requestId: String?) {
+        val rootHandled = setOf("info", "episodes")
+        val infoHandled = setOf("plot", "description", "synopsis", "overview", "storyline")
+        val rootKeys = jsonObjectKeys(root)
+        val infoKeys = jsonObjectKeys(info)
+        val episodeKeys = mutableSetOf<String>()
+        val episodes = root.opt("episodes")
+        when (episodes) {
+            is JSONObject -> {
+                val seasonKeys = episodes.keys()
+                if (seasonKeys.hasNext()) {
+                    val firstSeasonKey = seasonKeys.next()
+                    when (val seasonNode = episodes.opt(firstSeasonKey)) {
+                        is JSONArray -> {
+                            val firstEpisode = seasonNode.optJSONObject(0)
+                            episodeKeys += jsonObjectKeys(firstEpisode)
+                            episodeKeys += jsonObjectKeys(parseInfoObject(firstEpisode?.opt("info")))
+                        }
+                        is JSONObject -> {
+                            val arr = seasonNode.optJSONArray("episodes")
+                                ?: seasonNode.optJSONArray("data")
+                                ?: seasonNode.optJSONArray("items")
+                            val firstEpisode = arr?.optJSONObject(0)
+                            episodeKeys += jsonObjectKeys(firstEpisode)
+                            episodeKeys += jsonObjectKeys(parseInfoObject(firstEpisode?.opt("info")))
+                        }
+                    }
+                }
+            }
+            is JSONArray -> {
+                val firstEpisode = episodes.optJSONObject(0)
+                episodeKeys += jsonObjectKeys(firstEpisode)
+                episodeKeys += jsonObjectKeys(parseInfoObject(firstEpisode?.opt("info")))
+            }
+        }
+        val episodeHandled = setOf(
+            "id", "container_extension", "title", "title_en", "titles", "name", "direct_source",
+            "episode_num", "info", "plot", "description", "synopsis", "overview", "storyline",
+            "duration", "runtime", "duration_secs"
+        )
+        Log.d(
+            TAG,
+            "${reqPrefix(requestId)}get_series_info FIELD_TRACE rootKeys=$rootKeys ignoredRoot=${rootKeys - rootHandled} " +
+                "infoKeys=$infoKeys ignoredInfo=${infoKeys - infoHandled} " +
+                "episodeSampleKeys=$episodeKeys ignoredEpisode=${episodeKeys - episodeHandled}"
+        )
+    }
+
+    private fun logReleaseDateShadowRecovery(
+        root: JSONObject,
+        movieData: JSONObject,
+        info: JSONObject,
+        addedEpochSec: Long?,
+        requestId: String?,
+    ) {
+        fun firstNonBlank(vararg values: String): String? = values
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val releaseDate = firstNonBlank(
+            info.optString("releaseDate"),
+            info.optString("releasedate"),
+            info.optString("release_date"),
+            movieData.optString("releaseDate"),
+            movieData.optString("releasedate"),
+            movieData.optString("release_date"),
+            root.optString("releaseDate"),
+            root.optString("releasedate"),
+            root.optString("release_date")
+        )
+        val added = firstNonBlank(
+            movieData.optString("added"),
+            info.optString("added"),
+            root.optString("added")
+        )
+        val normalized = releaseDate ?: added
+        val recovery = when {
+            !releaseDate.isNullOrBlank() -> "release_date -> release_date"
+            !added.isNullOrBlank() -> "release_date -> added (fallback)"
+            else -> "release_date -> <missing>"
+        }
+        Log.d(
+            TAG,
+            "${reqPrefix(requestId)}get_vod_info FIELD_RECOVERY normalized_release_date=$normalized added_epoch=$addedEpochSec"
+        )
+        Log.d(TAG, "${reqPrefix(requestId)}get_vod_info FIELD_RECOVERY $recovery")
+    }
+
+    private fun jsonObjectKeys(obj: JSONObject?): Set<String> {
+        if (obj == null) return emptySet()
+        val out = linkedSetOf<String>()
+        val keys = obj.keys()
+        while (keys.hasNext()) out += keys.next()
+        return out
     }
 
     private fun resolveEpisodeTitle(item: JSONObject, info: JSONObject?): String {
@@ -1179,6 +1427,7 @@ class XtreamParser {
             "category_id",
             "categoryId",
             "categoryid",
+            "cat_id",
             "id",
             "vod_category_id",
             "series_category_id"
@@ -1214,6 +1463,24 @@ class XtreamParser {
         }
         return fallback
     }
+
+    private fun extractRawCategoryName(item: JSONObject): String? {
+        val candidates = listOf(
+            item.optString("category_name"),
+            item.optString("cat_name"),
+            item.optString("genre_name"),
+            item.optString("name"),
+            item.optString("title"),
+            item.optString("category"),
+            item.optString("display_name")
+        )
+        return candidates
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+    }
+
+    private fun reqPrefix(requestId: String?): String =
+        if (requestId.isNullOrBlank()) "" else "[REQ_${requestId.take(8)}] "
 
     private fun normalizeCategoryIdValue(value: Any?): String? {
         return when (value) {

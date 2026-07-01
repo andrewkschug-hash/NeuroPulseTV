@@ -217,6 +217,11 @@ interface IptvRepository {
     fun vodWatchProgress(): Flow<Map<Pair<Long, Long>, Long>>
     suspend fun seriesSeasons(playlistId: Long, seriesId: Long): List<SeriesSeason>
     suspend fun loadSeriesDetail(playlistId: Long, seriesId: Long): SeriesDetail
+    suspend fun runForensicCapture(
+        playlistId: Long,
+        vodId: Long? = null,
+        seriesId: Long? = null,
+    ): String
 
     suspend fun toggleFavorite(channelId: Long, enabled: Boolean)
     fun isFavorite(channelId: Long): Flow<Boolean>
