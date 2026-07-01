@@ -908,6 +908,146 @@ class XtreamParser {
         return SeriesDetail(seasons = seasons.sortedBy { it.number }, plot = plot)
     }
 
+    fun parseVodInfo(
+        raw: String,
+        username: String,
+        password: String,
+        serverUrl: String,
+        playlistId: Long = 0L,
+        fallbackStreamId: Long? = null,
+    ): VodItem? {
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val movieData = parseInfoObject(root.opt("movie_data"))
+            ?: parseInfoObject(root.opt("movie"))
+            ?: JSONObject()
+        val info = parseInfoObject(root.opt("info")) ?: JSONObject()
+
+        val streamId = optLongId(movieData, "stream_id", "movie_id", "vod_id", "id")
+            ?: optLongId(info, "stream_id", "movie_id", "vod_id", "id")
+            ?: optLongId(root, "stream_id", "movie_id", "vod_id", "id")
+            ?: fallbackStreamId
+            ?: return null
+
+        val extension = sequenceOf(
+            movieData.optString("container_extension"),
+            info.optString("container_extension")
+        ).firstOrNull { it.isNotBlank() } ?: "mp4"
+        val directSource = sequenceOf(
+            movieData.optString("direct_source"),
+            info.optString("direct_source")
+        ).map { it.ifBlank { null } }
+            .firstOrNull { !it.isNullOrBlank() }
+
+        val plot = sequenceOf(
+            info.optString("plot"),
+            info.optString("description"),
+            info.optString("synopsis"),
+            info.optString("overview"),
+            info.optString("storyline"),
+            movieData.optString("plot"),
+            movieData.optString("description"),
+            movieData.optString("synopsis"),
+            movieData.optString("overview"),
+            movieData.optString("storyline")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val cast = sequenceOf(
+            info.optString("cast"),
+            info.optString("actors"),
+            movieData.optString("cast"),
+            movieData.optString("actors")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val director = sequenceOf(
+            info.optString("director"),
+            info.optString("directors"),
+            movieData.optString("director"),
+            movieData.optString("directors")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val genre = sequenceOf(
+            info.optString("genre"),
+            info.optString("genres"),
+            movieData.optString("genre"),
+            movieData.optString("genres")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val rating = sequenceOf(
+            info.optString("rating"),
+            info.optString("vote_average"),
+            info.optString("tmdb_rating"),
+            movieData.optString("rating"),
+            movieData.optString("vote_average")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val duration = sequenceOf(
+            info.optString("duration"),
+            info.optString("runtime"),
+            info.optString("duration_secs").takeIf { it.toLongOrNull() != null }?.let(::secondsToRuntimeLabel),
+            movieData.optString("duration"),
+            movieData.optString("runtime"),
+            movieData.optString("duration_secs").takeIf { it.toLongOrNull() != null }?.let(::secondsToRuntimeLabel)
+        ).mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        val title = sequenceOf(
+            movieData.optString("name"),
+            movieData.optString("title"),
+            info.optString("name"),
+            info.optString("title")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+            ?: "VOD $streamId"
+
+        val categoryId = optCategoryId(movieData)
+            ?: optCategoryId(info)
+            ?: optCategoryId(root)
+
+        val addedEpochSec = sequenceOf(
+            movieData.optString("added").toLongOrNull(),
+            info.optString("added").toLongOrNull(),
+            root.optString("added").toLongOrNull()
+        ).firstOrNull { it != null }
+
+        val poster = sequenceOf(
+            movieData.optString("stream_icon"),
+            movieData.optString("movie_image"),
+            info.optString("movie_image"),
+            info.optString("cover"),
+            info.optString("poster")
+        ).map { it.trim() }
+            .firstOrNull { it.isNotBlank() }
+
+        return VodItem(
+            id = streamId,
+            title = title,
+            streamId = streamId,
+            streamUrl = buildMovieStreamUrl(
+                serverUrl = serverUrl,
+                username = username,
+                password = password,
+                streamId = streamId.toString(),
+                extension = extension,
+                directSource = directSource
+            ),
+            posterUrl = poster,
+            plot = plot,
+            cast = cast,
+            director = director,
+            genre = genre,
+            rating = rating,
+            duration = duration,
+            categoryId = categoryId,
+            addedEpochSec = addedEpochSec,
+            playlistId = playlistId
+        )
+    }
+
     private fun resolveEpisodeTitle(item: JSONObject, info: JSONObject?): String {
         sequenceOf(
             item.optString("title_en"),

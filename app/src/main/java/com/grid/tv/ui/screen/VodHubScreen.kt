@@ -1007,6 +1007,12 @@ fun VodHubScreen(
     }
 
     fun openMovieDetail(movie: VodItem) {
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE movie click playlist=${movie.playlistId} streamId=${movie.streamId} " +
+                "title=${movie.title.take(80)} plot=${!movie.plot.isNullOrBlank()} " +
+                "genre=${!movie.genre.isNullOrBlank()} duration=${!movie.duration.isNullOrBlank()}"
+        )
         hubViewModel.enrichOnBrowse(movie)
         selectedMovie = movie
     }
@@ -2029,11 +2035,21 @@ fun VodHubScreen(
             LaunchedEffect(movie.streamId) {
                 hubViewModel.enrichOnBrowse(movie)
                 hubViewModel.awaitEnrichment(movie)
-                moviesViewModel.resolveMovie(movie.playlistId, movie.streamId)?.let { refreshed ->
+                moviesViewModel.resolveMovieWithDetails(movie.playlistId, movie.streamId)?.let { refreshed ->
                     if (selectedMovie?.streamId == refreshed.streamId) {
                         selectedMovie = refreshed
                     }
                 }
+            }
+            LaunchedEffect(selectedMovie?.streamId, selectedMovie?.plot, selectedMovie?.genre, selectedMovie?.duration) {
+                val rendered = selectedMovie ?: movie
+                Log.d(
+                    "VOD_STATE",
+                    "METADATA_TRACE movie ui streamId=${rendered.streamId} " +
+                        "title=${rendered.title.take(80)} plot=${!rendered.plot.isNullOrBlank()} " +
+                        "genre=${!rendered.genre.isNullOrBlank()} duration=${!rendered.duration.isNullOrBlank()} " +
+                        "enrichmentOverview=${!enrichment?.overview.isNullOrBlank()}"
+                )
             }
             MovieDetailOverlay(
                 movie = selectedMovie ?: movie,

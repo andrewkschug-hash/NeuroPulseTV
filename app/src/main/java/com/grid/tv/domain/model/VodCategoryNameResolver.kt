@@ -76,7 +76,7 @@ object VodCategoryNameResolver {
         lookupById[scoped]?.takeIf { !isUnresolvedName(categoryId, it) }?.let { return it.trim() }
         lookupById[categoryId]?.takeIf { !isUnresolvedName(categoryId, it) }?.let { return it.trim() }
 
-        return storedName.trim().ifBlank { categoryId }
+        return "Uncategorized"
     }
 
     fun normalizeList(categories: List<VodCategory>): List<VodCategory> {

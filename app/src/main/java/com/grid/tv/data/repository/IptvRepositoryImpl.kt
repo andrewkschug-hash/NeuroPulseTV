@@ -4872,6 +4872,85 @@ class IptvRepositoryImpl @Inject constructor(
             vodStreamDao.findByStreamId(resolved, streamId)?.toDomain()
         }
 
+    override suspend fun loadVodDetail(playlistId: Long, streamId: Long): VodItem? = withContext(Dispatchers.IO) {
+        val resolved = requireScopedPlaylistId(playlistId) ?: return@withContext null
+        val base = vodStreamDao.findByStreamId(resolved, streamId)?.toDomain()
+        Log.d(
+            VOD_FLOW_TAG,
+            "METADATA_TRACE movie click playlist=$resolved streamId=$streamId base=" +
+                "title=${base?.title?.take(80)} plot=${!base?.plot.isNullOrBlank()} genre=${!base?.genre.isNullOrBlank()} " +
+                "duration=${!base?.duration.isNullOrBlank()}"
+        )
+
+        val playlist = playlistDao.getById(resolved) ?: return@withContext base
+        if (playlist.type != PlaylistType.XTREAM.name) {
+            Log.d(VOD_FLOW_TAG, "METADATA_TRACE movie detail skipped non-xtream playlist=$resolved")
+            return@withContext base
+        }
+        val server = playlist.xtreamServerUrl ?: return@withContext base
+        val user = playlist.xtreamUsername ?: return@withContext base
+        val pass = resolveXtreamPassword(playlist) ?: return@withContext base
+        val url = buildXtreamApiUrl(server, user, pass, action = "get_vod_info", extra = "vod_id=$streamId")
+        Log.i(VOD_FLOW_TAG, "METADATA_TRACE movie request url=$url")
+
+        val fetch = remoteTextFetcher.fetchDetailed(url)
+        Log.i(
+            VOD_FLOW_TAG,
+            "METADATA_TRACE movie response http=${fetch.httpCode} bytes=${fetch.rawBytes} streamId=$streamId"
+        )
+        Log.d(VOD_FLOW_TAG, "METADATA_TRACE movie body sample=${fetch.body.take(600).replace('\n', ' ')}")
+        if (!isSuccessfulHttp(fetch.httpCode)) {
+            return@withContext base
+        }
+
+        val parsed = runCatching {
+            xtreamParser.parseVodInfo(
+                raw = fetch.body,
+                username = user,
+                password = pass,
+                serverUrl = server,
+                playlistId = resolved,
+                fallbackStreamId = streamId,
+            )
+        }.onFailure { error ->
+            Log.w(VOD_FLOW_TAG, "METADATA_TRACE movie parse failed streamId=$streamId: ${error.message}", error)
+        }.getOrNull()
+
+        Log.d(
+            VOD_FLOW_TAG,
+            "METADATA_TRACE movie parsed streamId=$streamId title=${parsed?.title?.take(80)} " +
+                "plot=${!parsed?.plot.isNullOrBlank()} genre=${!parsed?.genre.isNullOrBlank()} " +
+                "duration=${!parsed?.duration.isNullOrBlank()}"
+        )
+
+        val merged = mergeVodDetail(base, parsed)
+        Log.d(
+            VOD_FLOW_TAG,
+            "METADATA_TRACE movie emitted streamId=$streamId title=${merged?.title?.take(80)} " +
+                "plot=${!merged?.plot.isNullOrBlank()} genre=${!merged?.genre.isNullOrBlank()} " +
+                "duration=${!merged?.duration.isNullOrBlank()}"
+        )
+        return@withContext merged
+    }
+
+    private fun mergeVodDetail(base: VodItem?, detail: VodItem?): VodItem? {
+        if (base == null) return detail
+        if (detail == null) return base
+        return base.copy(
+            title = detail.title.takeIf { it.isNotBlank() } ?: base.title,
+            streamUrl = detail.streamUrl.takeIf { it.isNotBlank() } ?: base.streamUrl,
+            posterUrl = detail.posterUrl?.takeIf { it.isNotBlank() } ?: base.posterUrl,
+            plot = detail.plot?.takeIf { it.isNotBlank() } ?: base.plot,
+            cast = detail.cast?.takeIf { it.isNotBlank() } ?: base.cast,
+            director = detail.director?.takeIf { it.isNotBlank() } ?: base.director,
+            genre = detail.genre?.takeIf { it.isNotBlank() } ?: base.genre,
+            rating = detail.rating?.takeIf { it.isNotBlank() } ?: base.rating,
+            duration = detail.duration?.takeIf { it.isNotBlank() } ?: base.duration,
+            categoryId = detail.categoryId?.takeIf { it.isNotBlank() } ?: base.categoryId,
+            addedEpochSec = detail.addedEpochSec ?: base.addedEpochSec
+        )
+    }
+
     override suspend fun vodRecent(playlistId: Long, limit: Int): List<VodItem> =
         withContext(Dispatchers.IO) {
             val resolved = requireScopedPlaylistId(playlistId) ?: return@withContext emptyList()
@@ -5127,8 +5206,17 @@ class IptvRepositoryImpl @Inject constructor(
             if (playlistId <= 0L) return@withContext SeriesDetail()
             val show = seriesShowDao.findBySeriesId(playlistId, seriesId)
                 ?: return@withContext SeriesDetail()
+            Log.d(
+                VOD_FLOW_TAG,
+                "METADATA_TRACE series click playlist=$playlistId seriesId=$seriesId show=${show.name.take(80)}"
+            )
             val cacheKey = playlistId to seriesId
             seriesSeasonsCache.get(cacheKey)?.let { cached ->
+                Log.d(
+                    VOD_FLOW_TAG,
+                    "METADATA_TRACE series emitted cache seriesId=$seriesId seasons=${cached.seasons.size} " +
+                        "plot=${!cached.plot.isNullOrBlank()}"
+                )
                 return@withContext SeriesEpisodeTitleNormalizer.normalizeSeriesDetail(cached)
             }
             val storedEpisodes = database.vodCatalogEpisodeDao().episodesForSeries(playlistId, seriesId)
@@ -5137,28 +5225,44 @@ class IptvRepositoryImpl @Inject constructor(
                     storedEpisodes.toSeriesDetail()
                 )
                 seriesSeasonsCache.put(cacheKey, cachedDetail)
+                Log.d(
+                    VOD_FLOW_TAG,
+                    "METADATA_TRACE series emitted db-cache seriesId=$seriesId seasons=${cachedDetail.seasons.size} " +
+                        "plot=${!cachedDetail.plot.isNullOrBlank()}"
+                )
                 return@withContext cachedDetail
             }
             val playlist = playlistDao.getById(playlistId) ?: return@withContext SeriesDetail()
             val server = playlist.xtreamServerUrl ?: return@withContext SeriesDetail()
             val user = playlist.xtreamUsername ?: return@withContext SeriesDetail()
             val pass = resolveXtreamPassword(playlist) ?: return@withContext SeriesDetail()
-            val raw = remoteTextFetcher.tryFetch(
-                buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
-            )
+            val url = buildXtreamApiUrl(server, user, pass, action = "get_series_info", extra = "series_id=$seriesId")
+            Log.i(VOD_FLOW_TAG, "METADATA_TRACE series request url=$url")
+            val raw = remoteTextFetcher.tryFetch(url)
             if (raw == null) {
                 Log.w(VOD_FLOW_TAG, "get_series_info unavailable for seriesId=$seriesId playlist=$playlistId")
                 return@withContext SeriesDetail()
             }
+            Log.d(VOD_FLOW_TAG, "METADATA_TRACE series body sample=${raw.take(600).replace('\n', ' ')}")
             val detail = JsonParseMetrics.onIoThread(
                 label = "series_info seriesId=$seriesId",
                 itemCount = -1
             ) {
                 xtreamParser.parseSeriesInfo(raw, user, pass, server)
             }
+            Log.d(
+                VOD_FLOW_TAG,
+                "METADATA_TRACE series parsed seriesId=$seriesId seasons=${detail.seasons.size} " +
+                    "plot=${!detail.plot.isNullOrBlank()}"
+            )
             val normalized = SeriesEpisodeTitleNormalizer.normalizeSeriesDetail(detail)
             persistSeriesEpisodes(playlistId, seriesId, show.name, normalized)
             seriesSeasonsCache.put(cacheKey, normalized)
+            Log.d(
+                VOD_FLOW_TAG,
+                "METADATA_TRACE series emitted seriesId=$seriesId seasons=${normalized.seasons.size} " +
+                    "plot=${!normalized.plot.isNullOrBlank()}"
+            )
             return@withContext normalized
         }
 

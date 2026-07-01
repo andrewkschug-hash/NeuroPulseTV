@@ -119,6 +119,11 @@ class SeriesViewModel @Inject constructor(
         categories
     ) { _, query, categoryFilter, filterOptions, categoryList ->
         val (categoryFilterIds, playlistId) = categoryFilter
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE series map-build query=${query.take(48)} categories=${categoryList.size} " +
+                "filterIds=${categoryFilterIds?.size ?: 0} playlistId=$playlistId"
+        )
         SeriesLanguageFilterParams(
             query = query,
             categoryFilterIds = categoryFilterIds,
@@ -177,7 +182,6 @@ class SeriesViewModel @Inject constructor(
                     val cached = vodCatalogSessionStore.cachedRawSeriesBrowseRows()
                     if (cached.isNotEmpty()) {
                         emit(cached)
-                        return@flow
                     }
                     emit(withContext(Dispatchers.IO) { repository.loadSeriesBrowseRows() })
                 }
@@ -193,6 +197,11 @@ class SeriesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE series ui-map rows=${raw.size} categories=${categoryList.size} " +
+                "sampleCategories=${categoryList.take(4).map { it.id to it.name }}"
+        )
         VodPerfLogger.trace("filterBrowseRows.series", "rows=${raw.size}") {
             filterBrowseRows(raw, filterOptions, seriesCategoryNames = categoryList.associate { it.id to it.name })
         }
@@ -384,6 +393,11 @@ class SeriesViewModel @Inject constructor(
         preferredSeason: Int? = null,
         preview: SeriesShow? = null
     ) {
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE series vm click showId=$showId playlistId=$playlistId " +
+                "previewPlot=${!preview?.plot.isNullOrBlank()} previewGenre=${!preview?.genre.isNullOrBlank()}"
+        )
         _selectedShowId.value = showId
         _selectedShow.value = preview
         _selectedShowOverview.value = null
@@ -414,6 +428,11 @@ class SeriesViewModel @Inject constructor(
                         }
                         .getOrDefault(SeriesDetail())
                 }
+                Log.d(
+                    "VOD_STATE",
+                    "METADATA_TRACE series vm parsed showId=$showId seasons=${detail.seasons.size} " +
+                        "plot=${!detail.plot.isNullOrBlank()}"
+                )
                 val resolvedShow = show?.copy(plot = detail.plot ?: show.plot) ?: show
                 if (resolvedShow != null) {
                     _selectedShow.value = resolvedShow
@@ -454,6 +473,12 @@ class SeriesViewModel @Inject constructor(
                     _selectedShowOverview.value = detail.plot?.takeIf { it.isNotBlank() }
                         ?: displayShow?.plot?.takeIf { it.isNotBlank() }
                 }
+                Log.d(
+                    "VOD_STATE",
+                    "METADATA_TRACE series vm emitted showId=$showId seasons=${_seasons.value.size} " +
+                        "overview=${!_selectedShowOverview.value.isNullOrBlank()} " +
+                        "showPlot=${!_selectedShow.value?.plot.isNullOrBlank()}"
+                )
             } finally {
                 _seasonsLoading.value = false
             }

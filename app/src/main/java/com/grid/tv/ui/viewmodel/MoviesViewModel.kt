@@ -1,5 +1,6 @@
 package com.grid.tv.ui.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
@@ -123,6 +124,11 @@ class MoviesViewModel @Inject constructor(
         categories
     ) { _, query, categoryFilter, filterOptions, categoryList ->
         val (categoryFilterIds, playlistId) = categoryFilter
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE movies map-build query=${query.take(48)} categories=${categoryList.size} " +
+                "filterIds=${categoryFilterIds?.size ?: 0} playlistId=$playlistId"
+        )
         MovieLanguageFilterParams(
             query = query,
             categoryFilterIds = categoryFilterIds,
@@ -172,7 +178,6 @@ class MoviesViewModel @Inject constructor(
                 val cached = vodCatalogSessionStore.cachedRawMovieBrowseRows()
                 if (cached.isNotEmpty()) {
                     emit(cached)
-                    return@flow
                 }
                 emit(
                     withContext(Dispatchers.IO) {
@@ -194,6 +199,11 @@ class MoviesViewModel @Inject constructor(
         languagePreferenceStore.filterOptions,
         categories
     ) { raw, filterOptions, categoryList ->
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE movies ui-map rows=${raw.size} categories=${categoryList.size} " +
+                "sampleCategories=${categoryList.take(4).map { it.id to it.name }}"
+        )
         VodPerfLogger.trace("filterBrowseRows.movies", "rows=${raw.size}") {
             filterBrowseRows(raw, filterOptions, movieCategoryNames = categoryList.associate { it.id to it.name })
         }
@@ -236,6 +246,21 @@ class MoviesViewModel @Inject constructor(
 
     suspend fun resolveMovie(playlistId: Long, streamId: Long): VodItem? =
         repository.findVodStream(playlistId, streamId)
+
+    suspend fun resolveMovieWithDetails(playlistId: Long, streamId: Long): VodItem? {
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE movie vm request playlist=$playlistId streamId=$streamId"
+        )
+        val detailed = repository.loadVodDetail(playlistId, streamId)
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE movie vm emitted streamId=$streamId title=${detailed?.title?.take(80)} " +
+                "plot=${!detailed?.plot.isNullOrBlank()} genre=${!detailed?.genre.isNullOrBlank()} " +
+                "duration=${!detailed?.duration.isNullOrBlank()}"
+        )
+        return detailed
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query

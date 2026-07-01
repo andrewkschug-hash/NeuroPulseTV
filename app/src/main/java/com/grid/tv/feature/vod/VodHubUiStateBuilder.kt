@@ -198,7 +198,7 @@ object VodHubUiStateBuilder {
     private fun safeSidebarCategoryLabel(category: VodCategory): String {
         val trimmed = category.name.trim()
         return if (VodCategoryNameResolver.isUnresolvedName(category.id, trimmed)) {
-            "Category ${category.id}"
+            "Uncategorized"
         } else {
             trimmed
         }

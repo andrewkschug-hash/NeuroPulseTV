@@ -1144,6 +1144,21 @@ private fun SeriesDetailOverlay(
         coverUrl = null
     )
 
+    LaunchedEffect(
+        resolvedShow.id,
+        resolvedShow.plot,
+        selectedShowOverview,
+        seasons.size,
+        selectedSeasonEpisodes.size
+    ) {
+        Log.d(
+            "VOD_STATE",
+            "METADATA_TRACE series ui showId=${resolvedShow.id} " +
+                "showPlot=${!resolvedShow.plot.isNullOrBlank()} overview=${!selectedShowOverview.isNullOrBlank()} " +
+                "seasons=${seasons.size} episodes=${selectedSeasonEpisodes.size}"
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

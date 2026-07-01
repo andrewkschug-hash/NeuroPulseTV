@@ -178,6 +178,7 @@ interface IptvRepository {
         playlistId: Long? = null
     ): Int
     suspend fun findVodStream(playlistId: Long, streamId: Long): VodItem?
+    suspend fun loadVodDetail(playlistId: Long, streamId: Long): VodItem?
     suspend fun vodRecent(playlistId: Long, limit: Int): List<VodItem>
     suspend fun vodSampleForRecommendations(sampleSize: Int = 500): List<VodItem>
     suspend fun seriesRecentSample(limit: Int = 500): List<SeriesShow>
