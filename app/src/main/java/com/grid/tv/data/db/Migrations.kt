@@ -1091,8 +1091,49 @@ object DbMigrations {
         }
     }
 
+    val MIGRATION_41_42 = object : Migration(41, 42) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addColumnIfMissing(db, "vod_streams", "categoryIdsCsv", "TEXT")
+            addColumnIfMissing(db, "series_shows", "categoryIdsCsv", "TEXT")
+            db.execSQL(
+                """
+                UPDATE vod_streams
+                SET categoryIdsCsv = categoryId
+                WHERE categoryId IS NOT NULL AND TRIM(categoryId) != '' AND categoryIdsCsv IS NULL
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                UPDATE series_shows
+                SET categoryIdsCsv = categoryId
+                WHERE categoryId IS NOT NULL AND TRIM(categoryId) != '' AND categoryIdsCsv IS NULL
+                """.trimIndent()
+            )
+        }
+    }
+
+    private fun addColumnIfMissing(
+        db: SupportSQLiteDatabase,
+        table: String,
+        column: String,
+        type: String
+    ) {
+        val cursor = db.query("PRAGMA table_info($table)")
+        var found = false
+        while (cursor.moveToNext()) {
+            if (cursor.getString(cursor.getColumnIndexOrThrow("name")) == column) {
+                found = true
+                break
+            }
+        }
+        cursor.close()
+        if (!found) {
+            db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
+        }
+    }
+
     /** Must match [com.grid.tv.data.db.AppDatabase] version. */
-    const val SCHEMA_VERSION = 41
+    const val SCHEMA_VERSION = 42
 
     /** Lowest DB version users can upgrade from (v1 was pre-release; chain starts at 2→3). */
     const val MIN_UPGRADE_VERSION = 2
@@ -1137,6 +1178,7 @@ object DbMigrations {
         MIGRATION_37_38,
         MIGRATION_38_39,
         MIGRATION_39_40,
-        MIGRATION_40_41
+        MIGRATION_40_41,
+        MIGRATION_41_42
     )
 }

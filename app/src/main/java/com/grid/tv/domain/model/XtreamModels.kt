@@ -23,7 +23,13 @@ data class VodItem(
     val genre: String?,
     val rating: String?,
     val duration: String?,
+    /** Primary Xtream category id (string-normalized). */
     val categoryId: String? = null,
+    /**
+     * Full membership list from `category_id` + `category_ids` (all string-normalized).
+     * [categoryId] is always [categoryIds].firstOrNull().
+     */
+    val categoryIds: List<String> = emptyList(),
     val addedEpochSec: Long? = null,
     val playlistId: Long = 0L
 )
@@ -39,6 +45,8 @@ data class SeriesShow(
     val name: String,
     val coverUrl: String?,
     val categoryId: String? = null,
+    /** Full membership from singular + plural Xtream category fields (string-normalized). */
+    val categoryIds: List<String> = emptyList(),
     val genre: String? = null,
     val plot: String? = null,
     val playlistId: Long = 0L

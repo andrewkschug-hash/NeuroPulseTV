@@ -86,6 +86,8 @@ Shared package: `com.grid.tv.ui.focus`
 
 **Focus zones:** `NAV_DRAWER`, `CHANNEL_GROUPS`, `CONTINUE_WATCHING`, `PREVIEW`, `GRID`
 
+**Sequential D-pad lanes** (`EpgGuideFocusLane`): `SIDEBAR` ↔ `CHANNEL_LIST` ↔ `PROGRAM_GRID`. Left/Right only moves one lane; Channel Groups opens only on OK/Select of the Live rail icon (never on focus or Left).
+
 **Tests:** `HomeEpgFocusNavigationTest`
 
 ---

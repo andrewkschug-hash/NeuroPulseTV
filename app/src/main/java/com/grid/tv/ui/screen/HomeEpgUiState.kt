@@ -25,7 +25,11 @@ internal class HomeEpgUiState {
     var newGroupName by mutableStateOf("")
     var showGuideGroupPicker by mutableStateOf(false)
     var navDrawerOpen by mutableStateOf(false)
-    var navDrawerFocusIndex by mutableIntStateOf(0)
+    var navDrawerFocusIndex by mutableIntStateOf(
+        com.grid.tv.ui.component.guideNavDrawerItemFocusIndex(
+            com.grid.tv.ui.component.GuideNavDrawerItem.LiveView
+        )
+    )
     var guideSubScreen by mutableStateOf<GuideSubScreen?>(null)
     var showCategoryFilterMenu by mutableStateOf(false)
     var categoryMenuFocusIndex by mutableIntStateOf(0)
@@ -43,8 +47,16 @@ internal class HomeEpgUiState {
     /** Stable row identity (see [guideGroupVisibleRowKey]) — survives list regroup/reorder. */
     var lastChannelGroupRowKey by mutableStateOf<String?>(null)
     var channelGroupsExpandedCategories by mutableStateOf(setOf<Int>())
-    /** Column-2 channel group tree; hidden until D-pad Left from the live grid. */
+    /**
+     * Channel groups overlay beside the icon rail. Opened only by explicit confirm
+     * (OK/Select on the Live sidebar icon) — never by D-pad focus alone.
+     */
     var channelGroupsPanelVisible by mutableStateOf(false)
+    /**
+     * When closing the channel-groups overlay (or returning Right from the sidebar),
+     * restore channel-list vs program-grid focus from before the overlay/sidebar visit.
+     */
+    var restoreFocusOnChannelColumn by mutableStateOf(true)
     /** After committing a group filter, land on channel 0 once the filtered list reloads. */
     var focusChannelAfterGroupFilter by mutableStateOf(false)
 }

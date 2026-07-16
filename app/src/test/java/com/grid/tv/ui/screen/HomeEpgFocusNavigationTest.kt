@@ -173,12 +173,90 @@ class HomeEpgFocusNavigationTest {
     }
 
     @Test
-    fun focusChannelGroupsFromGrid_opensPanel() {
+    fun focusSidebarFromChannelList_movesToNavDrawer_withoutOpeningPanel() {
         val (ui, controller) = setupController(initialZone = EpgFocusZone.GRID)
         ui.focusOnChannelColumn = true
-        controller.focusChannelGroupsFromGrid()
-        assertEquals(EpgFocusZone.CHANNEL_GROUPS, ui.focusZone)
+        controller.focusSidebarFromChannelList()
+        assertEquals(EpgFocusZone.NAV_DRAWER, ui.focusZone)
+        assertEquals(guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView), ui.navDrawerFocusIndex)
+        assertFalse(ui.channelGroupsPanelVisible)
+        assertTrue(ui.restoreFocusOnChannelColumn)
+        assertEquals(EpgGuideFocusLane.SIDEBAR, epgGuideFocusLane(ui.focusZone, ui.focusOnChannelColumn))
+    }
+
+    @Test
+    fun focusSidebarFromChannelList_remembersLastDrawerItem() {
+        val (ui, controller) = setupController(initialZone = EpgFocusZone.GRID)
+        ui.focusOnChannelColumn = true
+        ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Favorites)
+        controller.focusSidebarFromChannelList()
+        assertEquals(EpgFocusZone.NAV_DRAWER, ui.focusZone)
+        assertEquals(guideNavDrawerItemFocusIndex(GuideNavDrawerItem.Favorites), ui.navDrawerFocusIndex)
+        assertFalse(ui.channelGroupsPanelVisible)
+    }
+
+    @Test
+    fun leftFromChannelList_viaHandleKey_doesNotOpenChannelGroups() {
+        val (ui, controller) = setupController(initialZone = EpgFocusZone.GRID)
+        ui.focusOnChannelColumn = true
+        // Direct lane move (same path as D-pad Left on channel column).
+        controller.focusSidebarFromChannelList()
+        assertEquals(EpgFocusZone.NAV_DRAWER, ui.focusZone)
+        assertFalse(ui.channelGroupsPanelVisible)
+    }
+
+    @Test
+    fun leftFromNavDrawer_doesNotOpenChannelGroups() {
+        val (ui, controller) = setupController(initialZone = EpgFocusZone.NAV_DRAWER)
+        ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView)
+        // Left on the rail is a no-op — panel stays closed.
+        assertFalse(ui.channelGroupsPanelVisible)
+        assertEquals(EpgFocusZone.NAV_DRAWER, ui.focusZone)
+        assertEquals(guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView), ui.navDrawerFocusIndex)
+    }
+
+    @Test
+    fun selectLiveViewWhenAlreadyOnGuide_opensChannelGroups() {
+        val (ui, controller) = setupController(initialZone = EpgFocusZone.NAV_DRAWER)
+        ui.selectedTab = EpgNavTab.Guide
+        ui.restoreFocusOnChannelColumn = true
+        controller.selectDrawerItem(GuideNavDrawerItem.LiveView)
         assertTrue(ui.channelGroupsPanelVisible)
+        assertEquals(EpgFocusZone.CHANNEL_GROUPS, ui.focusZone)
+    }
+
+    @Test
+    fun collapseChannelGroupsPanel_restoresSavedContentLane() {
+        val (ui, controller) = setupController(
+            initialZone = EpgFocusZone.CHANNEL_GROUPS,
+            channelGroupsPanelVisible = true,
+        )
+        ui.restoreFocusOnChannelColumn = false
+        controller.collapseChannelGroupsPanel(focusGrid = true)
+        assertEquals(EpgFocusZone.GRID, ui.focusZone)
+        assertFalse(ui.channelGroupsPanelVisible)
+        assertFalse(ui.focusOnChannelColumn)
+        assertEquals(EpgGuideFocusLane.PROGRAM_GRID, epgGuideFocusLane(ui.focusZone, ui.focusOnChannelColumn))
+    }
+
+    @Test
+    fun epgGuideFocusLane_mapsSequentialZones() {
+        assertEquals(
+            EpgGuideFocusLane.SIDEBAR,
+            epgGuideFocusLane(EpgFocusZone.NAV_DRAWER, focusOnChannelColumn = true),
+        )
+        assertEquals(
+            EpgGuideFocusLane.CHANNEL_LIST,
+            epgGuideFocusLane(EpgFocusZone.GRID, focusOnChannelColumn = true),
+        )
+        assertEquals(
+            EpgGuideFocusLane.PROGRAM_GRID,
+            epgGuideFocusLane(EpgFocusZone.GRID, focusOnChannelColumn = false),
+        )
+        assertEquals(
+            null,
+            epgGuideFocusLane(EpgFocusZone.CHANNEL_GROUPS, focusOnChannelColumn = true),
+        )
     }
 
     @Test

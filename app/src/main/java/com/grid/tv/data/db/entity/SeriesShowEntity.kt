@@ -31,6 +31,8 @@ data class SeriesShowEntity(
     val searchTitle: String = "",
     val coverUrl: String? = null,
     val categoryId: String? = null,
+    /** Comma-separated category membership for multi-genre Xtream `category_ids`. */
+    val categoryIdsCsv: String? = null,
     val genre: String? = null,
     val syncGeneration: Long = 0L
 )

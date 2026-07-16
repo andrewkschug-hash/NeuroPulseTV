@@ -68,7 +68,31 @@ import com.grid.tv.ui.viewmodel.SearchViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.delay
 
+/**
+ * Compose focus owners used by [HomeEpgFocusDispatcher].
+ *
+ * Horizontal D-pad among the live guide uses the three sequential lanes in
+ * [EpgGuideFocusLane]. [CHANNEL_GROUPS] / [PREVIEW] / [CONTINUE_WATCHING] are
+ * overlays or secondary regions — they must not open as a side effect of Left.
+ */
 internal enum class EpgFocusZone { NAV_DRAWER, CHANNEL_GROUPS, CONTINUE_WATCHING, PREVIEW, GRID }
+
+/**
+ * Strict left↔right focus lanes for the live guide:
+ * Sidebar icons ↔ Channel list ↔ Program grid.
+ */
+internal enum class EpgGuideFocusLane { SIDEBAR, CHANNEL_LIST, PROGRAM_GRID }
+
+internal fun epgGuideFocusLane(zone: EpgFocusZone, focusOnChannelColumn: Boolean): EpgGuideFocusLane? =
+    when (zone) {
+        EpgFocusZone.NAV_DRAWER -> EpgGuideFocusLane.SIDEBAR
+        EpgFocusZone.GRID -> if (focusOnChannelColumn) {
+            EpgGuideFocusLane.CHANNEL_LIST
+        } else {
+            EpgGuideFocusLane.PROGRAM_GRID
+        }
+        else -> null
+    }
 
 internal enum class GuideSubScreen { Search, Groups }
 
@@ -666,7 +690,6 @@ fun HomeEpgScreen(
                         ui.profileMenuFocusIndex = 0
                     },
                     onItemFocused = {
-                        ui.navDrawerFocusIndex = it
                         ui.focusZone = EpgFocusZone.NAV_DRAWER
                     },
                     onItemSelected = controller::selectDrawerItem,

@@ -68,6 +68,7 @@ import com.grid.tv.ui.component.EpgChannelCell
 import com.grid.tv.ui.component.EpgEmptyState
 import com.grid.tv.ui.component.HomeScreenSkeletonOverlay
 import com.grid.tv.ui.component.EpgJumpToLiveButton
+import com.grid.tv.ui.component.EpgNowFocusedPanel
 import com.grid.tv.ui.component.EpgLayout
 import com.grid.tv.ui.component.EpgNowLine
 import com.grid.tv.ui.component.EpgPreviewSection
@@ -254,6 +255,12 @@ internal fun HomeEpgScreenMainColumn(
                     )
                 }
             }
+        )
+
+        EpgNowFocusedPanel(
+            channel = deps.focusedChannel,
+            program = deps.focusedProgram,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
     }

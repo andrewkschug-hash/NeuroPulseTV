@@ -28,9 +28,14 @@ class ProfileViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.prepareProfilePicker()
-            _activeProfile.value = repository.activeProfile()
-            _profilesReady.value = true
+            try {
+                repository.prepareProfilePicker()
+                _activeProfile.value = repository.activeProfile()
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileVM", "Profile init failed — showing picker", e)
+            } finally {
+                _profilesReady.value = true
+            }
         }
     }
 

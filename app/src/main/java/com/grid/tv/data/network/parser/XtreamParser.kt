@@ -8,6 +8,7 @@ import com.grid.tv.domain.model.SeriesDetail
 import com.grid.tv.domain.model.SeriesEpisode
 import com.grid.tv.domain.model.SeriesSeason
 import com.grid.tv.domain.model.SeriesShow
+import com.grid.tv.domain.model.VodCategoryId
 import com.grid.tv.domain.model.VodItem
 import com.grid.tv.feature.epg.EpgProgramTextDecoder
 import com.grid.tv.feature.search.SearchTitleNormalizer
@@ -356,11 +357,36 @@ class XtreamParser {
         rows.firstOrNull()?.let { sample ->
             val handled = setOf(
                 "category_id", "categoryId", "categoryid", "cat_id", "id", "vod_category_id", "series_category_id",
-                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name"
+                "category_ids", "category_name", "cat_name", "genre_name", "name", "title", "category", "display_name",
+                "parent_id"
             )
             val keys = jsonObjectKeys(sample)
             val ignored = keys - handled
             logDebug("${req}get_vod_categories FIELD_TRACE sampleKeys=$keys ignoredKeys=$ignored")
+            // Diagnose int-vs-string category_id mismatches across panels (temporary diagnostic).
+            listOf("category_id", "id", "category_ids").forEach { key ->
+                val node = sample.get(key) ?: return@forEach
+                val kind = when {
+                    node.isJsonNull -> "null"
+                    node.isJsonArray -> "array"
+                    node.isJsonPrimitive && node.asJsonPrimitive.isNumber -> "number"
+                    node.isJsonPrimitive && node.asJsonPrimitive.isString -> "string"
+                    else -> node.javaClass.simpleName
+                }
+                val raw = runCatching {
+                    when {
+                        node.isJsonPrimitive && node.asJsonPrimitive.isNumber ->
+                            node.asJsonPrimitive.asNumber.toString()
+                        node.isJsonPrimitive && node.asJsonPrimitive.isString ->
+                            node.asJsonPrimitive.asString
+                        else -> node.toString().take(80)
+                    }
+                }.getOrNull()
+                logInfo(
+                    "${req}get_vod_categories TYPE_TRACE key=$key jsonType=$kind raw=$raw " +
+                        "canonical=${normalizeCategoryIdElement(node)}"
+                )
+            }
         }
         val seenIds = mutableSetOf<String>()
         var hardDropMalformed = 0
@@ -568,25 +594,53 @@ class XtreamParser {
         return runCatching { node.asString }.getOrNull()
     }
 
-    private fun optCategoryId(item: JsonObject): String? {
-        val keys = listOf(
+    private fun optCategoryId(item: JsonObject): String? =
+        optAllCategoryIds(item).firstOrNull()
+
+    /**
+     * Collect every category membership id from singular + plural Xtream fields.
+     * All values are normalized to strings — never compare raw JSON number vs string.
+     */
+    private fun optAllCategoryIds(item: JsonObject): List<String> {
+        val out = linkedSetOf<String>()
+        val singularKeys = listOf(
             "category_id",
             "categoryId",
             "categoryid",
             "cat_id",
-            "id",
             "vod_category_id",
-            "series_category_id"
+            "series_category_id",
         )
-        keys.forEach { key ->
+        singularKeys.forEach { key ->
             val node = item.get(key) ?: return@forEach
-            val normalized = normalizeCategoryIdElement(node)
-            if (!normalized.isNullOrBlank()) return normalized
+            collectCategoryIdElements(node, out)
         }
-        item.get("category_ids")?.let { node ->
-            normalizeCategoryIdElement(node)?.let { return it }
+        // Prefer dedicated category_id over generic "id" (used by category list rows).
+        if (out.isEmpty()) {
+            item.get("id")?.let { collectCategoryIdElements(it, out) }
         }
-        return null
+        item.get("category_ids")?.let { collectCategoryIdElements(it, out) }
+        return out.toList()
+    }
+
+    private fun collectCategoryIdElements(node: JsonElement, out: MutableSet<String>) {
+        when {
+            node.isJsonNull -> Unit
+            node.isJsonPrimitive -> {
+                val primitive = node.asJsonPrimitive
+                val normalized = when {
+                    // Number and string must both become the same canonical string key.
+                    primitive.isNumber -> VodCategoryId.canonicalizeNumber(primitive.asNumber)
+                    primitive.isString -> VodCategoryId.canonicalize(primitive.asString)
+                    else -> null
+                }
+                if (!normalized.isNullOrBlank()) out += normalized
+            }
+            node.isJsonArray -> {
+                node.asJsonArray.forEach { collectCategoryIdElements(it, out) }
+            }
+            else -> Unit
+        }
     }
 
     private fun optCategoryName(item: JsonObject, fallback: String): String {
@@ -626,24 +680,9 @@ class XtreamParser {
     }
 
     private fun normalizeCategoryIdElement(node: JsonElement): String? {
-        return when {
-            node.isJsonNull -> null
-            node.isJsonPrimitive -> {
-                val primitive = node.asJsonPrimitive
-                if (primitive.isNumber || primitive.isString) {
-                    normalizeCategoryIdValue(primitive.asString)
-                } else {
-                    null
-                }
-            }
-            node.isJsonArray -> {
-                node.asJsonArray
-                    .asSequence()
-                    .mapNotNull { normalizeCategoryIdElement(it) }
-                    .firstOrNull()
-            }
-            else -> null
-        }
+        val out = linkedSetOf<String>()
+        collectCategoryIdElements(node, out)
+        return out.firstOrNull()
     }
 
     private fun jsonObjectKeys(obj: JsonObject): Set<String> = obj.keySet()
@@ -739,6 +778,7 @@ class XtreamParser {
             ?.ifBlank { info.optString("runtime") }
             ?.ifBlank { info.optString("duration_secs").takeIf { it.toLongOrNull() != null }?.let(::secondsToRuntimeLabel) }
             ?.ifBlank { null }
+        val categoryIds = optAllCategoryIdsJson(item)
         return VodItem(
             id = id,
             title = title,
@@ -751,7 +791,8 @@ class XtreamParser {
             genre = item.optString("genre").ifBlank { null } ?: infoGenre,
             rating = item.optString("rating").ifBlank { null } ?: infoRating,
             duration = item.optString("duration").ifBlank { null } ?: infoDuration,
-            categoryId = optCategoryId(item),
+            categoryId = categoryIds.firstOrNull(),
+            categoryIds = categoryIds,
             addedEpochSec = item.optString("added").toLongOrNull(),
             playlistId = playlistId
         )
@@ -778,12 +819,12 @@ class XtreamParser {
         var genre: String? = null
         var rating: String? = null
         var duration: String? = null
-        var categoryId: String? = null
+        var categoryIds = linkedSetOf<String>()
         var addedEpochSec: Long? = null
 
         reader.beginObject()
         while (reader.hasNext()) {
-            when (reader.nextName()) {
+            when (val field = reader.nextName()) {
                 "stream_id" -> streamId = readLongToken(reader)
                 "movie_id" -> movieId = readLongToken(reader)
                 "id" -> genericId = readLongToken(reader)
@@ -801,8 +842,12 @@ class XtreamParser {
                 "genre" -> genre = readStringToken(reader)?.ifBlank { null }
                 "rating" -> rating = readStringToken(reader)?.ifBlank { null }
                 "duration" -> duration = readStringToken(reader)?.ifBlank { null }
-                "category_id", "categoryId", "vod_category_id", "series_category_id" -> {
-                    categoryId = readCategoryIdToken(reader) ?: categoryId
+                "category_id", "categoryId", "categoryid", "cat_id",
+                "vod_category_id", "series_category_id" -> {
+                    readCategoryIdTokens(reader).forEach { categoryIds += it }
+                }
+                "category_ids" -> {
+                    readCategoryIdTokens(reader).forEach { categoryIds += it }
                 }
                 "added" -> addedEpochSec = readLongToken(reader)
                 "info" -> {
@@ -822,6 +867,7 @@ class XtreamParser {
         val id = streamId ?: movieId ?: genericId ?: numId ?: return null
         val url = buildMovieStreamUrl(serverUrl, username, password, id.toString(), extension, directSource)
         val title = name?.ifBlank { null } ?: "VOD $id"
+        val membership = categoryIds.toList()
         return VodItem(
             id = id,
             title = title,
@@ -834,7 +880,8 @@ class XtreamParser {
             genre = genre,
             rating = rating,
             duration = duration,
-            categoryId = categoryId,
+            categoryId = membership.firstOrNull(),
+            categoryIds = membership,
             addedEpochSec = addedEpochSec,
             playlistId = playlistId
         )
@@ -844,7 +891,7 @@ class XtreamParser {
         var seriesId: Long? = null
         var name: String? = null
         var coverUrl: String? = null
-        var categoryId: String? = null
+        var categoryIds = linkedSetOf<String>()
         var genre: String? = null
         var plot: String? = null
 
@@ -854,8 +901,12 @@ class XtreamParser {
                 "series_id" -> seriesId = readLongToken(reader)
                 "name" -> name = readStringToken(reader)
                 "cover" -> coverUrl = readStringToken(reader)?.ifBlank { null }
-                "category_id", "categoryId", "vod_category_id", "series_category_id" -> {
-                    categoryId = readCategoryIdToken(reader) ?: categoryId
+                "category_id", "categoryId", "categoryid", "cat_id",
+                "vod_category_id", "series_category_id" -> {
+                    readCategoryIdTokens(reader).forEach { categoryIds += it }
+                }
+                "category_ids" -> {
+                    readCategoryIdTokens(reader).forEach { categoryIds += it }
                 }
                 "genre" -> genre = readStringToken(reader)?.ifBlank { null }
                 "plot" -> plot = readStringToken(reader)?.ifBlank { null }
@@ -870,11 +921,13 @@ class XtreamParser {
         reader.endObject()
 
         val id = seriesId ?: return null
+        val membership = categoryIds.toList()
         return SeriesShow(
             id = id,
             name = name?.ifBlank { null } ?: "Series $id",
             coverUrl = coverUrl,
-            categoryId = categoryId,
+            categoryId = membership.firstOrNull(),
+            categoryIds = membership,
             genre = genre,
             plot = plot,
             playlistId = playlistId
@@ -1070,18 +1123,53 @@ class XtreamParser {
         }
 
     private fun readCategoryIdToken(reader: JsonReader): String? =
-        when (reader.peek()) {
+        readCategoryIdTokens(reader).firstOrNull()
+
+    /** Reads one id token or a JSON array of ids; always string-canonicalized. */
+    private fun readCategoryIdTokens(reader: JsonReader): List<String> {
+        return when (reader.peek()) {
             JsonToken.NULL -> {
                 reader.nextNull()
-                null
+                emptyList()
             }
-            JsonToken.NUMBER -> canonicalizeCategoryId(reader.nextLong().toString())
-            JsonToken.STRING -> canonicalizeCategoryId(reader.nextString())
+            JsonToken.NUMBER -> listOfNotNull(VodCategoryId.canonicalizeNumber(reader.nextLong()))
+            JsonToken.STRING -> {
+                val raw = reader.nextString()
+                // Some panels stringify arrays: "[12,45]" or "12,45"
+                val fromList = normalizeCategoryIdValue(raw)
+                if (raw.trim().startsWith("[")) {
+                    // normalizeCategoryIdValue only returns first — re-parse full list
+                    val arr = runCatching { JSONArray(raw.trim()) }.getOrNull()
+                    if (arr != null) {
+                        buildList {
+                            for (i in 0 until arr.length()) {
+                                normalizeCategoryIdValue(arr.opt(i))?.let { add(it) }
+                            }
+                        }
+                    } else {
+                        listOfNotNull(fromList)
+                    }
+                } else if (raw.contains(',') || raw.contains(';')) {
+                    raw.split(',', ';').mapNotNull { VodCategoryId.canonicalize(it) }
+                } else {
+                    listOfNotNull(VodCategoryId.canonicalize(raw))
+                }
+            }
+            JsonToken.BEGIN_ARRAY -> {
+                val out = ArrayList<String>()
+                reader.beginArray()
+                while (reader.hasNext()) {
+                    out += readCategoryIdTokens(reader)
+                }
+                reader.endArray()
+                out
+            }
             else -> {
                 reader.skipValue()
-                null
+                emptyList()
             }
         }
+    }
 
     suspend fun parseSeries(raw: String, playlistId: Long = 0L): List<SeriesShow> {
         val out = ArrayList<SeriesShow>()
@@ -1121,11 +1209,13 @@ class XtreamParser {
         val infoGenre = info?.optString("genre")
             ?.ifBlank { info.optString("genres") }
             ?.ifBlank { null }
+        val categoryIds = optAllCategoryIdsJson(item)
         return SeriesShow(
             id = id,
             name = item.optString("name").ifBlank { "Series $id" },
             coverUrl = item.optString("cover").ifBlank { null },
-            categoryId = optCategoryId(item),
+            categoryId = categoryIds.firstOrNull(),
+            categoryIds = categoryIds,
             genre = item.optString("genre").ifBlank { null } ?: infoGenre,
             plot = item.optString("plot").ifBlank { null } ?: infoPlot,
             playlistId = playlistId
@@ -1318,9 +1408,12 @@ class XtreamParser {
             .firstOrNull { it.isNotBlank() }
             ?: "VOD $streamId"
 
-        val categoryId = optCategoryId(movieData)
-            ?: optCategoryId(info)
-            ?: optCategoryId(root)
+        val categoryIds = (
+            optAllCategoryIdsJson(movieData) +
+                optAllCategoryIdsJson(info) +
+                optAllCategoryIdsJson(root)
+            ).distinct()
+        val categoryId = categoryIds.firstOrNull()
 
         val addedEpochSec = sequenceOf(
             movieData.optString("added").toLongOrNull(),
@@ -1359,6 +1452,7 @@ class XtreamParser {
             rating = rating,
             duration = duration,
             categoryId = categoryId,
+            categoryIds = categoryIds,
             addedEpochSec = addedEpochSec,
             playlistId = playlistId
         )
@@ -1612,25 +1706,56 @@ class XtreamParser {
         return null
     }
 
-    private fun optCategoryId(item: JSONObject): String? {
-        val keys = listOf(
+    private fun optCategoryId(item: JSONObject): String? =
+        optAllCategoryIdsJson(item).firstOrNull()
+
+    private fun optAllCategoryIdsJson(item: JSONObject): List<String> {
+        val out = linkedSetOf<String>()
+        val singularKeys = listOf(
             "category_id",
             "categoryId",
             "categoryid",
             "cat_id",
-            "id",
             "vod_category_id",
-            "series_category_id"
+            "series_category_id",
         )
-        keys.forEach { key ->
+        singularKeys.forEach { key ->
             if (!item.has(key)) return@forEach
-            val normalized = normalizeCategoryIdValue(item.opt(key))
-            if (!normalized.isNullOrBlank()) return normalized
+            collectCategoryIdsFromAny(item.opt(key), out)
+        }
+        if (out.isEmpty() && item.has("id")) {
+            collectCategoryIdsFromAny(item.opt("id"), out)
         }
         if (item.has("category_ids")) {
-            normalizeCategoryIdValue(item.opt("category_ids"))?.let { return it }
+            collectCategoryIdsFromAny(item.opt("category_ids"), out)
         }
-        return null
+        return out.toList()
+    }
+
+    private fun collectCategoryIdsFromAny(value: Any?, out: MutableSet<String>) {
+        when (value) {
+            null -> Unit
+            is Number -> VodCategoryId.canonicalizeNumber(value)?.let { out += it }
+            is String -> {
+                val trimmed = value.trim()
+                if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                    val arr = runCatching { JSONArray(trimmed) }.getOrNull()
+                    if (arr != null) {
+                        for (i in 0 until arr.length()) collectCategoryIdsFromAny(arr.opt(i), out)
+                    } else {
+                        VodCategoryId.canonicalize(trimmed)?.let { out += it }
+                    }
+                } else if (trimmed.contains(',') || trimmed.contains(';')) {
+                    trimmed.split(',', ';').mapNotNull { VodCategoryId.canonicalize(it) }.forEach { out += it }
+                } else {
+                    VodCategoryId.canonicalize(trimmed)?.let { out += it }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until value.length()) collectCategoryIdsFromAny(value.opt(i), out)
+            }
+            else -> Unit
+        }
     }
 
     private fun optCategoryName(item: JSONObject, fallback: String): String {
@@ -1681,59 +1806,12 @@ class XtreamParser {
     }
 
     private fun normalizeCategoryIdValue(value: Any?): String? {
-        return when (value) {
-            null -> null
-            is Number -> canonicalizeCategoryId(value.toLong().toString())
-            is String -> {
-                val trimmed = value.trim()
-                if (trimmed.isBlank()) {
-                    null
-                } else if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                    val arr = runCatching { JSONArray(trimmed) }.getOrNull()
-                    if (arr == null) {
-                        null
-                    } else {
-                        var parsed: String? = null
-                        for (i in 0 until arr.length()) {
-                            val candidate = normalizeCategoryIdValue(arr.opt(i))
-                            if (!candidate.isNullOrBlank()) {
-                                parsed = candidate
-                                break
-                            }
-                        }
-                        parsed
-                    }
-                } else {
-                    trimmed.split(',', ';')
-                        .mapNotNull { canonicalizeCategoryId(it) }
-                        .firstOrNull()
-                }
-            }
-            is JSONArray -> {
-                var parsed: String? = null
-                for (i in 0 until value.length()) {
-                    val candidate = normalizeCategoryIdValue(value.opt(i))
-                    if (!candidate.isNullOrBlank()) {
-                        parsed = candidate
-                        break
-                    }
-                }
-                parsed
-            }
-            else -> null
-        }
+        val out = linkedSetOf<String>()
+        collectCategoryIdsFromAny(value, out)
+        return out.firstOrNull()
     }
 
-    private fun canonicalizeCategoryId(raw: String?): String? {
-        val trimmed = raw?.trim().orEmpty()
-        if (trimmed.isBlank()) return null
-        val normalized = if (trimmed.endsWith(".0") && trimmed.dropLast(2).all { it.isDigit() }) {
-            trimmed.dropLast(2)
-        } else {
-            trimmed
-        }
-        return normalized.takeIf { it.isNotBlank() }
-    }
+    private fun canonicalizeCategoryId(raw: String?): String? = VodCategoryId.canonicalize(raw)
 
     private fun parseInfoObject(value: Any?): JSONObject? = when (value) {
         is JSONObject -> value

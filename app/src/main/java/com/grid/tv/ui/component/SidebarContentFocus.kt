@@ -13,18 +13,22 @@ import androidx.compose.ui.input.key.Key
  * - Down: enter **main content** (grid / channel list / wall) — never the sidebar.
  *
  * **Main content**
- * - Left at the **leading edge** (first column or channel column): enter the **sidebar**.
+ * - Left at the **leading edge** (first column or channel column): move focus one lane left
+ *   (EPG: icon rail; VOD: genre sidebar). Pure focus move — never open an overlay.
  * - Right / Up / Down: navigate within content (handled per screen).
  * - Up from the first row may return to the header (VOD browse grid).
  *
- * **Sidebar** (genres, channel groups, …)
+ * **Sidebar panels** (VOD genres, EPG channel-groups overlay, …)
  * - Up / Down: move among sidebar items (handled per screen).
  * - **Right: return to main content** at the last-focused position — no extra activation.
  * - Left: optional step to the icon rail when present (EPG).
  * - Enter: activate / commit the highlighted sidebar item (handled per screen).
  *
- * The sidebar is always reachable with one Left from the content leading edge; it does not
- * auto-open on Down from the header.
+ * **EPG icon rail**
+ * - Receiving focus must never open Channel Groups (or any overlay).
+ * - Overlays open only on explicit OK/Select (or an intentional Right-into-panel contract).
+ *
+ * Focus ≠ activate. Do not open panels from onFocus handlers.
  */
 object SidebarContentFocus {
 

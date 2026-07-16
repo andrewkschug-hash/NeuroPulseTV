@@ -154,6 +154,9 @@ interface VodStreamDao {
         """
         SELECT * FROM vod_streams
         WHERE categoryId = :categoryId
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :categoryId || ',%'
+           ))
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         LIMIT :limit
         """
@@ -163,7 +166,13 @@ interface VodStreamDao {
     @Query(
         """
         SELECT * FROM vod_streams
-        WHERE categoryId = :categoryId AND playlistId = :playlistId
+        WHERE playlistId = :playlistId
+          AND (
+            categoryId = :categoryId
+            OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :categoryId || ',%'
+            ))
+          )
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         LIMIT :limit
         """
@@ -258,17 +267,49 @@ interface VodStreamDao {
     @Query(
         """
         SELECT COUNT(*) FROM vod_streams
-        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, searchPrefix: String): Int
+    suspend fun countFilteredByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
+    ): Int
 
     @Query(
         """
         SELECT COUNT(*) FROM vod_streams
         WHERE playlistId = :playlistId
-          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         """
     )
@@ -276,13 +317,31 @@ interface VodStreamDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): Int
 
     @Query(
         """
         SELECT * FROM vod_streams
-        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
@@ -290,14 +349,32 @@ interface VodStreamDao {
     fun vodPagingSourceByIds(
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): PagingSource<Int, VodStreamEntity>
 
     @Query(
         """
         SELECT * FROM vod_streams
         WHERE playlistId = :playlistId
-          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\' OR LOWER(IFNULL(genre, '')) LIKE :searchPrefix ESCAPE '\')
         ORDER BY IFNULL(addedEpochSec, 0) DESC, title COLLATE NOCASE
         """
@@ -306,7 +383,15 @@ interface VodStreamDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): PagingSource<Int, VodStreamEntity>
 
     @Query(

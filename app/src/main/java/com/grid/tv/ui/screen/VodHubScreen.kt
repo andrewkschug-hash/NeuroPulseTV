@@ -1664,8 +1664,7 @@ fun VodHubScreen(
                     focusUi.profileMenuOpen = true
                     focusUi.profileMenuFocusIndex = 0
                 },
-                onItemFocused = { index ->
-                    focusUi.navDrawerFocusIndex = index
+                onItemFocused = { _ ->
                     focusUi.navDrawerOpen = true
                     focusUi.focusZone = VodFocusZone.NAV_DRAWER
                 },

@@ -954,11 +954,27 @@ fun VodGenreSidePanel(
 ) {
     if (genres.isEmpty()) return
     val listState = rememberLazyListState()
+    var filterQuery by remember { mutableStateOf("") }
+    var hideNonLatin by remember { mutableStateOf(false) }
 
-    LaunchedEffect(focusedIndex, panelFocused, genres.size) {
-        if (!panelFocused || genres.isEmpty()) return@LaunchedEffect
-        val targetIndex = focusedIndex.coerceIn(0, genres.lastIndex)
-        listState.animateScrollToItem(targetIndex)
+    val filteredEntries = remember(genres, filterQuery, hideNonLatin) {
+        genres.mapIndexed { index, label -> index to label }
+            .filter { (index, label) ->
+                if (index == 0) return@filter true // always keep "All"
+                val matchesQuery = filterQuery.isBlank() ||
+                    label.contains(filterQuery.trim(), ignoreCase = true)
+                val matchesScript = !hideNonLatin ||
+                    !com.grid.tv.domain.model.VodCategoryLanguageTag.containsNonLatinScript(label)
+                matchesQuery && matchesScript
+            }
+    }
+
+    LaunchedEffect(focusedIndex, panelFocused, filteredEntries.size) {
+        if (!panelFocused || filteredEntries.isEmpty()) return@LaunchedEffect
+        val visiblePos = filteredEntries.indexOfFirst { it.first == focusedIndex }
+            .takeIf { it >= 0 }
+            ?: 0
+        listState.animateScrollToItem(visiblePos.coerceIn(0, filteredEntries.lastIndex))
     }
 
     Column(
@@ -995,6 +1011,46 @@ fun VodGenreSidePanel(
                 .padding(horizontal = 8.dp, vertical = 4.dp)
                 .focusProperties { canFocus = false }
         )
+        androidx.compose.material3.OutlinedTextField(
+            value = filterQuery,
+            onValueChange = { filterQuery = it },
+            singleLine = true,
+            placeholder = {
+                Text(
+                    text = "Filter genres",
+                    color = EpgColors.TextDimmed,
+                    fontFamily = DmSansFamily,
+                    fontSize = 12.sp,
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+                .focusProperties { canFocus = false },
+        )
+        val nonLatinCount = remember(genres) {
+            genres.drop(1).count { com.grid.tv.domain.model.VodCategoryLanguageTag.containsNonLatinScript(it) }
+        }
+        if (nonLatinCount > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .clickable { hideNonLatin = !hideNonLatin }
+                    .focusProperties { canFocus = false },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = if (hideNonLatin) "Show non-English ($nonLatinCount)" else "Hide non-English ($nonLatinCount)",
+                    color = EpgColors.TextSecondary,
+                    fontFamily = DmSansFamily,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         LazyColumn(
             state = listState,
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -1003,12 +1059,14 @@ fun VodGenreSidePanel(
                 .fillMaxWidth()
         ) {
             items(
-                count = genres.size,
-                key = { index -> "genre-index-$index" }
-            ) { index ->
-                val label = genres[index]
+                count = filteredEntries.size,
+                key = { pos -> "genre-index-${filteredEntries[pos].first}" }
+            ) { pos ->
+                val (index, label) = filteredEntries[pos]
                 val selected = index == selectedIndex
                 val focused = panelFocused && index == focusedIndex
+                val nonLatin = index > 0 &&
+                    com.grid.tv.domain.model.VodCategoryLanguageTag.containsNonLatinScript(label)
                 val containerColor = when {
                     selected -> Color(0xFF2A2A2A)
                     focused -> Color(0xFF333333)
@@ -1029,15 +1087,25 @@ fun VodGenreSidePanel(
                             }
                         )
                 ) {
-                    Text(
-                        text = label,
-                        color = if (selected || focused) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
-                        fontFamily = DmSansFamily,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)
-                    )
+                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
+                        Text(
+                            text = label,
+                            color = if (selected || focused) VodNetflixColors.TextPrimary else VodNetflixColors.TextSecondary,
+                            fontFamily = DmSansFamily,
+                            fontSize = 13.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (nonLatin) {
+                            Text(
+                                text = "Non-English",
+                                color = EpgColors.TextDimmed,
+                                fontFamily = DmSansFamily,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                 }
             }
         }

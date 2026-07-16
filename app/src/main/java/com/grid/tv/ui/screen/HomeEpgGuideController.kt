@@ -480,7 +480,7 @@ internal class HomeEpgGuideController(
     }
 
     fun openNavDrawer() {
-        focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+        focusLastActiveDrawerItem()
     }
 
     fun closeNavDrawer(restoreGrid: Boolean = true) {
@@ -508,14 +508,16 @@ internal class HomeEpgGuideController(
         }
         ui.channelGroupsPanelVisible = false
         if (focusGrid) {
-            ui.focusOnChannelColumn = true
-            focusEpgZone(EpgFocusZone.GRID)
-            scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.NEUTRAL)
+            restoreContentFocusFromSidebarOrOverlay()
         }
     }
 
     fun openChannelGroupsPanel() {
         if (!canShowChannelGroupsPanel()) return
+        // Opening from the Live icon: keep whatever content lane we last left.
+        if (ui.focusZone == EpgFocusZone.GRID) {
+            rememberContentFocusForRestore()
+        }
         boundDeps.viewModel.clearPreviewGuideFilter(reloadCommitted = true)
         val committedFilter = boundDeps.committedGuideFilter
         val visibleRows = flatVisibleGroupRows()
@@ -542,12 +544,36 @@ internal class HomeEpgGuideController(
         rememberChannelGroupsRowFocus(index)
     }
 
-    fun focusChannelGroupsFromGrid() {
-        if (canShowChannelGroupsPanel()) {
-            openChannelGroupsPanel()
-        } else {
-            focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+    /** Zone 2 (channel list) → Zone 1 (sidebar). Focus only — never opens an overlay. */
+    fun focusSidebarFromChannelList() {
+        rememberContentFocusForRestore()
+        focusLastActiveDrawerItem()
+    }
+
+    /**
+     * Focus the sidebar at whatever icon the user last navigated to.
+     * Falls back to LiveView if the remembered index is the profile row.
+     */
+    private fun focusLastActiveDrawerItem() {
+        if (ui.navDrawerFocusIndex <= com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
+            ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView)
         }
+        focusEpgZone(EpgFocusZone.NAV_DRAWER)
+    }
+
+    /** @deprecated Use [focusSidebarFromChannelList]; Left must not open Channel Groups. */
+    fun focusChannelGroupsFromGrid() = focusSidebarFromChannelList()
+
+    private fun rememberContentFocusForRestore() {
+        if (ui.focusZone == EpgFocusZone.GRID) {
+            ui.restoreFocusOnChannelColumn = ui.focusOnChannelColumn
+        }
+    }
+
+    private fun restoreContentFocusFromSidebarOrOverlay() {
+        ui.focusOnChannelColumn = ui.restoreFocusOnChannelColumn
+        focusEpgZone(EpgFocusZone.GRID)
+        scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.NEUTRAL)
     }
 
     private fun flatVisibleGroupRows(): List<GuideGroupVisibleRow> {
@@ -775,10 +801,17 @@ internal class HomeEpgGuideController(
                 ui.focusZone = EpgFocusZone.GRID
             }
             com.grid.tv.ui.component.GuideNavDrawerItem.LiveView -> {
+                val alreadyOnLiveGuide =
+                    ui.selectedTab == EpgNavTab.Guide && ui.guideSubScreen == null
                 ui.guideSubScreen = null
                 ui.selectedTab = EpgNavTab.Guide
                 boundDeps.viewModel.setFavoriteGroupFilter(null)
-                focusEpgZone(EpgFocusZone.GRID)
+                // Channel Groups opens only on explicit OK while already on Live — not on focus.
+                if (alreadyOnLiveGuide && canShowChannelGroupsPanel()) {
+                    openChannelGroupsPanel()
+                } else {
+                    restoreContentFocusFromSidebarOrOverlay()
+                }
             }
             com.grid.tv.ui.component.GuideNavDrawerItem.Favorites -> {
                 boundDeps.viewModel.setFavoriteGroupFilter(HomeEpgViewModel.FAVORITES_FILTER)
@@ -811,14 +844,8 @@ internal class HomeEpgGuideController(
         val lastIndex = com.grid.tv.ui.component.GuideNavDrawerItems.size
         return when (event.key) {
             Key.DirectionLeft -> {
-                if (ui.navDrawerFocusIndex == guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView) &&
-                    canShowChannelGroupsPanel()
-                ) {
-                    openChannelGroupsPanel()
-                    true
-                } else {
-                    false
-                }
+                // Already on the leftmost zone — no-op. Never open an overlay from Left.
+                true
             }
             Key.Back, Key.Escape -> {
                 if (ui.navDrawerFocusIndex > com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
@@ -829,10 +856,14 @@ internal class HomeEpgGuideController(
             Key.DirectionRight -> {
                 if (ui.navDrawerFocusIndex == com.grid.tv.ui.component.GuideNavDrawerProfileFocusIndex) {
                     ui.navDrawerFocusIndex = guideNavDrawerItemFocusIndex(GuideNavDrawerItem.LiveView)
-                } else if (boundDeps.displayChannels.isEmpty() && canShowChannelGroupsPanel()) {
-                    openChannelGroupsPanel()
                 } else {
-                    focusEpgZone(EpgFocusZone.GRID)
+                    // Symmetry with Left: return to last content lane. Closing groups if still open
+                    // so Right never leaves an overlay "stuck" beside the grid.
+                    if (ui.channelGroupsPanelVisible) {
+                        cancelChannelGroupsLongPress()
+                        ui.channelGroupsPanelVisible = false
+                    }
+                    restoreContentFocusFromSidebarOrOverlay()
                 }
                 true
             }
@@ -1053,11 +1084,12 @@ internal class HomeEpgGuideController(
         if (boundDeps.displayChannels.isEmpty()) {
             return when (event.key) {
                 Key.DirectionLeft -> {
-                    focusChannelGroupsFromGrid()
+                    focusSidebarFromChannelList()
                     true
                 }
                 Key.DirectionUp -> {
-                    focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+                    rememberContentFocusForRestore()
+                    focusLastActiveDrawerItem()
                     true
                 }
                 else -> false
@@ -1088,7 +1120,8 @@ internal class HomeEpgGuideController(
                     scrollFocusedChannelIntoView(TvLazyFocusScrollDirection.UP)
                     true
                 } else {
-                    focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+                    rememberContentFocusForRestore()
+                    focusLastActiveDrawerItem()
                     true
                 }
             }
@@ -1114,6 +1147,7 @@ internal class HomeEpgGuideController(
             }
             Key.DirectionLeft -> {
                 if (!ui.focusOnChannelColumn) {
+                    // Zone 3 → Zone 2: land on channel list; nothing opens.
                     val channel = boundDeps.displayChannels.getOrNull(ui.focusChannelIndex)
                     val progs = channel?.let { programsForChannelTimed(it, "DirectionLeft") }.orEmpty()
                     if (ui.focusProgramIndex > 0) {
@@ -1123,12 +1157,14 @@ internal class HomeEpgGuideController(
                         ui.focusOnChannelColumn = true
                     }
                 } else {
-                    focusChannelGroupsFromGrid()
+                    // Zone 2 → Zone 1: focus Live sidebar icon only — do not open Channel Groups.
+                    focusSidebarFromChannelList()
                 }
                 true
             }
             Key.Menu -> {
-                focusNavDrawerItem(GuideNavDrawerItem.LiveView)
+                rememberContentFocusForRestore()
+                focusLastActiveDrawerItem()
                 true
             }
             Key.PageDown -> {

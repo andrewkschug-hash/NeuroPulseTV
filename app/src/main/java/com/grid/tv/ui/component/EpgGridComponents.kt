@@ -584,7 +584,7 @@ fun EpgProgramCell(
                         fontSize = 13.sp,
                         fontWeight = if (isFocused) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
-                        overflow = TextOverflow.Clip,
+                        overflow = TextOverflow.Ellipsis,
                         softWrap = false
                     )
                 }

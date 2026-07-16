@@ -41,6 +41,11 @@ data class VodStreamEntity(
     val rating: String? = null,
     val duration: String? = null,
     val categoryId: String? = null,
+    /**
+     * Comma-separated extra/full category membership (`12,45,67`), string-normalized.
+     * Used so titles with Xtream `category_ids` arrays appear in every matching genre bucket.
+     */
+    val categoryIdsCsv: String? = null,
     val addedEpochSec: Long? = null,
     /** Monotonic sync pass id — used to prune removed provider items without full table delete. */
     val syncGeneration: Long = 0L

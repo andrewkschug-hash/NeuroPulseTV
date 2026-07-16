@@ -2,6 +2,7 @@ package com.grid.tv.data.network.parser
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XtreamParserTest {
@@ -211,11 +212,49 @@ class XtreamParserTest {
     }
 
     @Test
-    fun parseVodCategoriesReadsObjectMapPayload() {
-        val raw = """{"1054":"Action","1056":"Comedy"}"""
-        val categories = parser.parseVodCategories(raw, playlistId = 5L)
-        assertEquals(2, categories.size)
-        assertEquals(setOf("1054", "1056"), categories.map { it.id }.toSet())
-        assertEquals(setOf("Action", "Comedy"), categories.map { it.name }.toSet())
+    fun parseVodStreamsNormalizesNumericAndStringCategoryIdsTheSame() = runBlocking {
+        val raw = """
+            [
+              {"stream_id":1,"name":"A","category_id":45},
+              {"stream_id":2,"name":"B","category_id":"45"}
+            ]
+        """.trimIndent()
+        val items = parser.parseVod(raw, "u", "p", "http://example.com", playlistId = 1L)
+        assertEquals(2, items.size)
+        assertEquals("45", items[0].categoryId)
+        assertEquals("45", items[1].categoryId)
+        assertEquals(listOf("45"), items[0].categoryIds)
+        assertEquals(listOf("45"), items[1].categoryIds)
+    }
+
+    @Test
+    fun parseVodStreamsReadsCategoryIdsArrayMembership() = runBlocking {
+        val raw = """
+            [
+              {"stream_id":9,"name":"Multi","category_ids":[12,45,"67"]}
+            ]
+        """.trimIndent()
+        val items = parser.parseVod(raw, "u", "p", "http://example.com", playlistId = 1L)
+        assertEquals(1, items.size)
+        assertEquals("12", items.first().categoryId)
+        assertEquals(listOf("12", "45", "67"), items.first().categoryIds)
+    }
+
+    @Test
+    fun parseVodTreatsCategoryIdZeroAsMissing() = runBlocking {
+        val raw = """[{"stream_id":3,"name":"None","category_id":0}]"""
+        val items = parser.parseVod(raw, "u", "p", "http://example.com", playlistId = 1L)
+        assertEquals(1, items.size)
+        assertEquals(null, items.first().categoryId)
+        assertTrue(items.first().categoryIds.isEmpty())
+    }
+
+    @Test
+    fun parseSeriesPreservesArabicCategoryNamesUnmodified() {
+        val raw = """[{"category_id":"88","category_name":"أفلام عربية"}]"""
+        val categories = parser.parseSeriesCategories(raw, playlistId = 2L)
+        assertEquals(1, categories.size)
+        assertEquals("88", categories.first().id)
+        assertEquals("أفلام عربية", categories.first().name)
     }
 }

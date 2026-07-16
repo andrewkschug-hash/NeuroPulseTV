@@ -114,6 +114,9 @@ interface SeriesShowDao {
         SELECT * FROM series_shows
         WHERE IFNULL(categoryId, '') = :categoryId
            OR IFNULL(genre, '') LIKE '%' || :categoryId || '%'
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :categoryId || ',%'
+           ))
         ORDER BY name COLLATE NOCASE
         LIMIT :limit
         """
@@ -124,7 +127,13 @@ interface SeriesShowDao {
         """
         SELECT * FROM series_shows
         WHERE playlistId = :playlistId
-          AND (IFNULL(categoryId, '') = :categoryId OR IFNULL(genre, '') LIKE '%' || :categoryId || '%')
+          AND (
+            IFNULL(categoryId, '') = :categoryId
+            OR IFNULL(genre, '') LIKE '%' || :categoryId || '%'
+            OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :categoryId || ',%'
+            ))
+          )
         ORDER BY name COLLATE NOCASE
         LIMIT :limit
         """
@@ -175,17 +184,49 @@ interface SeriesShowDao {
     @Query(
         """
         SELECT COUNT(*) FROM series_shows
-        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
-    suspend fun countFilteredByIds(matchAll: Boolean, categoryIds: List<String>, searchPrefix: String): Int
+    suspend fun countFilteredByIds(
+        matchAll: Boolean,
+        categoryIds: List<String>,
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
+    ): Int
 
     @Query(
         """
         SELECT COUNT(*) FROM series_shows
         WHERE playlistId = :playlistId
-          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         """
     )
@@ -193,13 +234,31 @@ interface SeriesShowDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): Int
 
     @Query(
         """
         SELECT * FROM series_shows
-        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         LIMIT :limit OFFSET :offset
@@ -210,14 +269,32 @@ interface SeriesShowDao {
         categoryIds: List<String>,
         searchPrefix: String,
         limit: Int,
-        offset: Int
+        offset: Int,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): List<SeriesShowEntity>
 
     @Query(
         """
         SELECT * FROM series_shows
         WHERE playlistId = :playlistId
-          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         LIMIT :limit OFFSET :offset
@@ -229,13 +306,31 @@ interface SeriesShowDao {
         categoryIds: List<String>,
         searchPrefix: String,
         limit: Int,
-        offset: Int
+        offset: Int,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): List<SeriesShowEntity>
 
     @Query(
         """
         SELECT * FROM series_shows
-        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+        WHERE (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         """
@@ -243,14 +338,32 @@ interface SeriesShowDao {
     fun seriesPagingSourceByIds(
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): PagingSource<Int, SeriesShowEntity>
 
     @Query(
         """
         SELECT * FROM series_shows
         WHERE playlistId = :playlistId
-          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds))
+          AND (:matchAll = 1 OR IFNULL(categoryId, '') IN (:categoryIds)
+           OR (categoryIdsCsv IS NOT NULL AND (
+                (',' || categoryIdsCsv || ',') LIKE '%,' || :csv0 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv1 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv2 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv3 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv4 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv5 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv6 || ',%'
+                OR (',' || categoryIdsCsv || ',') LIKE '%,' || :csv7 || ',%'
+           )))
           AND (:searchPrefix = '' OR searchTitle LIKE :searchPrefix ESCAPE '\')
         ORDER BY name COLLATE NOCASE
         """
@@ -259,7 +372,15 @@ interface SeriesShowDao {
         playlistId: Long,
         matchAll: Boolean,
         categoryIds: List<String>,
-        searchPrefix: String
+        searchPrefix: String,
+        csv0: String,
+        csv1: String,
+        csv2: String,
+        csv3: String,
+        csv4: String,
+        csv5: String,
+        csv6: String,
+        csv7: String,
     ): PagingSource<Int, SeriesShowEntity>
 
     @Query(
